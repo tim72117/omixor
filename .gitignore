@@ -1,0 +1,54 @@
+# ===== 系統與編輯器 =====
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+*.swp
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# ===== Swift(ops、mac)=====
+.build/
+build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+DerivedData/
+*.app/
+*.dSYM/
+
+# ===== Go =====
+bin/
+*.test
+*.out
+coverage.*
+
+# ===== Node / Vite(ops-web/web)=====
+node_modules/
+*.tsbuildinfo
+npm-debug.log*
+.vite/
+# 建置出來的畫面:不進版控,只留空檔讓 go:embed 編得過(make build 會先 npm run build)
+ops-web/web/dist/*
+!ops-web/web/dist/.keep
+
+# ===== 機密與本機設定 =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*.keychain*
+# 匯入用的掛載點(docker compose),只留空資料夾
+ops-web/.import-empty/*
+!ops-web/.import-empty/.keep
+
+# ===== 執行時的暫存與紀錄(資料本身在 ~/Library/Application Support,不在專案裡)=====
+*.log
+*.tmp
+*.unreadable-*.json

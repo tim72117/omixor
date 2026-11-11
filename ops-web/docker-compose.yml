@@ -1,0 +1,41 @@
+# Ops + PostgreSQL。先複製 .env.example 成 .env 填好密碼與金鑰,再 docker compose up -d --build
+#   畫面:http://127.0.0.1:5191   MCP:http://127.0.0.1:${OPS_MCP_HOST_PORT:-3765}/mcp
+# 兩個連接埠都只發布到這台電腦的 127.0.0.1。要給同事用:先在 設定 › 認證 啟用 LDAP,
+# 再把 5191 改發布到 0.0.0.0(或放 HTTPS 反向代理)並設 OPS_WEB_HOSTS;MCP 維持只給本機。
+services:
+  db:
+    image: postgres:17.2-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ops
+      POSTGRES_USER: ops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?在 .env 設 POSTGRES_PASSWORD}
+    volumes:
+      - ops-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ops -d ops"]
+      interval: 5s
+      retries: 20
+
+  ops-web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      OPS_DATABASE_URL: postgres://ops:${POSTGRES_PASSWORD}@db:5432/ops?sslmode=disable
+      OPS_SECRET_KEY: ${OPS_SECRET_KEY:?在 .env 設 OPS_SECRET_KEY(openssl rand -base64 32)}
+      OPS_WEB_ADDR: 0.0.0.0:5191
+      OPS_WEB_LOCAL_ONLY_PUBLISH: "1"
+      OPS_WEB_HOSTS: ${OPS_WEB_HOSTS:-}
+      OPS_MCP_ADDR: 0.0.0.0
+    ports:
+      - "127.0.0.1:5191:5191"
+      - "127.0.0.1:${OPS_MCP_HOST_PORT:-3765}:3765"
+    volumes:
+      # 匯入 Swift 版資料時用:docker compose run --rm ops-web import /import
+      - ${OPS_IMPORT_DIR:-./.import-empty}:/import:ro
+
+volumes:
+  ops-db:

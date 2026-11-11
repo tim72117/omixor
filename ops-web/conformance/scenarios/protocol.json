@@ -1,0 +1,11 @@
+{"steps": [
+  {"method": "initialize", "params": {"protocolVersion": "2025-06-18", "clientInfo": {"name": "conf", "version": "1"}}},
+  {"method": "initialize", "params": {"protocolVersion": "1999-01-01"}},
+  {"method": "ping"},
+  {"method": "tools/list"},
+  {"method": "resources/list"},
+  {"method": "prompts/list"},
+  {"method": "nope/what"},
+  {"method": "tools/call", "params": {"name": "ops_nope"}},
+  {"method": "tools/call", "params": {}}
+]}

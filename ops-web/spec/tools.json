@@ -1,0 +1,1756 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "整體狀況"
+    },
+    "description": "目前畫面狀態、服務健康、觸發中的告警、進行中的事件、執行中的 CI/CD 與部署、待核准的 AI 請求、值班人員與最近動態。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_overview",
+    "title": "整體狀況"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "列出資料"
+    },
+    "description": "列出某個資料集合。where 依欄位篩選(欄位可用 a.b 路徑;陣列欄位只要包含該值即符合;執行者欄位比對 id),search 對整筆資料做不分大小寫的文字搜尋。時間序列與日誌會裁短,完整內容用 ops_get。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "collection": {
+          "description": "資料集合",
+          "enum": [
+            "people",
+            "services",
+            "servers",
+            "repos",
+            "pull_requests",
+            "work_items",
+            "sprint",
+            "pipeline_runs",
+            "deployments",
+            "alerts",
+            "alert_rules",
+            "logs",
+            "dashboards",
+            "incidents",
+            "on_call",
+            "automations",
+            "automation_runs",
+            "approvals",
+            "activity",
+            "integrations"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "最多幾筆,預設 30,上限 200",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "略過前幾筆",
+          "type": "integer"
+        },
+        "search": {
+          "description": "文字搜尋",
+          "type": "string"
+        },
+        "where": {
+          "additionalProperties": true,
+          "description": "欄位 = 值,例如 {\"state\":\"firing\",\"service\":\"payments\"}",
+          "type": "object"
+        }
+      },
+      "required": [
+        "collection"
+      ],
+      "type": "object"
+    },
+    "name": "ops_list",
+    "title": "列出資料"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "取得一筆資料"
+    },
+    "description": "依 id 取得一筆完整資料(含時間序列、工作日誌、事件時間軸)。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "collection": {
+          "description": "資料集合",
+          "enum": [
+            "people",
+            "services",
+            "servers",
+            "repos",
+            "pull_requests",
+            "work_items",
+            "pipeline_runs",
+            "deployments",
+            "alerts",
+            "alert_rules",
+            "logs",
+            "dashboards",
+            "incidents",
+            "on_call",
+            "automations",
+            "automation_runs",
+            "approvals",
+            "activity",
+            "integrations"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "description": "id,例如 ALT-5121、INC-2041、OPS-142;PR 與 pipeline run 用編號",
+          "type": "string"
+        }
+      },
+      "required": [
+        "collection",
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "ops_get",
+    "title": "取得一筆資料"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "切換畫面"
+    },
+    "description": "讓 app 切到某個頁面,可選中某個項目(例如告警或事件 id)。也可以切換環境與時間範圍。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "description": "環境篩選",
+          "enum": [
+            "production",
+            "staging",
+            "development"
+          ],
+          "type": "string"
+        },
+        "focus_id": {
+          "description": "要選中的項目 id",
+          "type": "string"
+        },
+        "section": {
+          "description": "頁面",
+          "enum": [
+            "overview",
+            "development",
+            "pipelines",
+            "infrastructure",
+            "monitoring",
+            "incidents",
+            "automation",
+            "cabinet",
+            "settings"
+          ],
+          "type": "string"
+        },
+        "time_range": {
+          "description": "時間範圍",
+          "enum": [
+            "1h",
+            "6h",
+            "24h",
+            "7d",
+            "30d"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_navigate",
+    "title": "切換畫面"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "處理告警"
+    },
+    "description": "確認、解除或靜音告警,可附上 AI 判讀。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "動作",
+          "enum": [
+            "acknowledge",
+            "resolve",
+            "silence"
+          ],
+          "type": "string"
+        },
+        "ai_note": {
+          "description": "寫進告警的 AI 判讀(選填)",
+          "type": "string"
+        },
+        "alert_id": {
+          "description": "告警 id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alert_id"
+      ],
+      "type": "object"
+    },
+    "name": "ops_alert_update",
+    "title": "處理告警"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "建立告警"
+    },
+    "description": "從外部監控送進一筆觸發中的告警。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_note": {
+          "description": "AI 初步判讀",
+          "type": "string"
+        },
+        "rule": {
+          "description": "觸發條件,例如 p95 latency > 800ms for 5m",
+          "type": "string"
+        },
+        "service": {
+          "description": "服務 id",
+          "type": "string"
+        },
+        "severity": {
+          "description": "嚴重度",
+          "enum": [
+            "critical",
+            "warning",
+            "info"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "description": "標題",
+          "type": "string"
+        },
+        "value": {
+          "description": "目前數值",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "severity",
+        "service",
+        "rule",
+        "value"
+      ],
+      "type": "object"
+    },
+    "name": "ops_alert_create",
+    "title": "建立告警"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "宣告事件"
+    },
+    "description": "宣告新事件,回傳事件 id。可關聯告警。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "alert_ids": {
+          "description": "關聯的告警 id",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "commander": {
+          "description": "指揮官 person id,預設為目前的 Primary 值班",
+          "type": "string"
+        },
+        "impact": {
+          "description": "對使用者的影響",
+          "type": "string"
+        },
+        "services": {
+          "description": "受影響的服務 id",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sev": {
+          "description": "嚴重度 1–4,1 最嚴重",
+          "type": "integer"
+        },
+        "title": {
+          "description": "標題",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "sev",
+        "impact"
+      ],
+      "type": "object"
+    },
+    "name": "ops_incident_declare",
+    "title": "宣告事件"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "更新事件"
+    },
+    "description": "更新事件狀態、在時間軸加註記或 AI 發現、或寫入 AI 摘要。至少給一項。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_summary": {
+          "description": "取代事件的 AI 摘要",
+          "type": "string"
+        },
+        "finding": {
+          "description": "加到時間軸的 AI 發現",
+          "type": "string"
+        },
+        "impact": {
+          "description": "更新影響說明",
+          "type": "string"
+        },
+        "incident_id": {
+          "description": "事件 id",
+          "type": "string"
+        },
+        "note": {
+          "description": "時間軸註記",
+          "type": "string"
+        },
+        "status": {
+          "description": "新狀態",
+          "enum": [
+            "investigating",
+            "identified",
+            "monitoring",
+            "resolved"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "incident_id"
+      ],
+      "type": "object"
+    },
+    "name": "ops_incident_update",
+    "title": "更新事件"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "建立工作項目"
+    },
+    "description": "在看板建立工作項目,可掛到事件的後續工作。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "assignee": {
+          "description": "負責人 person id",
+          "type": "string"
+        },
+        "incident_id": {
+          "description": "加到這個事件的後續工作",
+          "type": "string"
+        },
+        "points": {
+          "description": "點數,預設 3",
+          "type": "integer"
+        },
+        "service": {
+          "description": "服務 id",
+          "type": "string"
+        },
+        "status": {
+          "description": "欄位,預設 todo",
+          "enum": [
+            "backlog",
+            "todo",
+            "inProgress",
+            "review",
+            "done"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "description": "標題",
+          "type": "string"
+        },
+        "type": {
+          "description": "類型",
+          "enum": [
+            "feature",
+            "bug",
+            "chore",
+            "incident"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "type"
+      ],
+      "type": "object"
+    },
+    "name": "ops_work_item_create",
+    "title": "建立工作項目"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "移動工作項目"
+    },
+    "description": "把工作項目移到看板的另一欄。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "工作項目 id,例如 OPS-142",
+          "type": "string"
+        },
+        "status": {
+          "description": "目標欄位",
+          "enum": [
+            "backlog",
+            "todo",
+            "inProgress",
+            "review",
+            "done"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "name": "ops_work_item_move",
+    "title": "移動工作項目"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "操作 CI/CD 執行"
+    },
+    "description": "重新執行或取消 pipeline run,或寫入 AI 失敗診斷。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "動作",
+          "enum": [
+            "retry",
+            "cancel"
+          ],
+          "type": "string"
+        },
+        "ai_diagnosis": {
+          "description": "寫入的 AI 失敗診斷",
+          "type": "string"
+        },
+        "run_id": {
+          "description": "run 編號",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "name": "ops_pipeline_update",
+    "title": "操作 CI/CD 執行"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "送出待核准請求"
+    },
+    "description": "建立一筆待人核准的 AI 請求(出現在 AI 自動化 › 待核准與總覽)。用在任何需要人決定的變更:擴縮容、回滾、資料庫操作等。回傳請求 id;可之後用 ops_get approvals 查核准結果。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "要執行的指令或變更",
+          "type": "string"
+        },
+        "automation": {
+          "description": "歸屬的自動化 id,預設為 mcp",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "依據",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expires_in_minutes": {
+          "description": "多久後過期,預設 60",
+          "type": "integer"
+        },
+        "rationale": {
+          "description": "理由",
+          "type": "string"
+        },
+        "risk": {
+          "description": "風險",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "rollback_plan": {
+          "description": "回滾方式",
+          "type": "string"
+        },
+        "title": {
+          "description": "標題",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "action",
+        "rationale",
+        "rollback_plan",
+        "risk"
+      ],
+      "type": "object"
+    },
+    "name": "ops_request_approval",
+    "title": "送出待核准請求"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "寫入日誌"
+    },
+    "description": "把日誌寫進監控 › 日誌。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "description": "主機,預設 mcp",
+          "type": "string"
+        },
+        "level": {
+          "description": "等級",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "type": "string"
+        },
+        "message": {
+          "description": "內容",
+          "type": "string"
+        },
+        "service": {
+          "description": "服務 id",
+          "type": "string"
+        },
+        "trace_id": {
+          "description": "trace id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "service",
+        "level",
+        "message"
+      ],
+      "type": "object"
+    },
+    "name": "ops_log_append",
+    "title": "寫入日誌"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "發到動態牆"
+    },
+    "description": "在總覽的動態牆發一則以「MCP 用戶端」署名的動態。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "icon": {
+          "description": "SF Symbol 名稱,預設 sparkles",
+          "type": "string"
+        },
+        "section": {
+          "description": "點擊後前往的頁面,預設 overview",
+          "enum": [
+            "overview",
+            "development",
+            "pipelines",
+            "infrastructure",
+            "monitoring",
+            "incidents",
+            "automation",
+            "cabinet",
+            "settings"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "內容",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "ops_activity_post",
+    "title": "發到動態牆"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "分派旁白語音批次"
+    },
+    "description": "把 shuttle 專案的旁白語音產生分派給 Ops:執行 npm run voice -- <腳本> --batch(Gemini Batch API,約一半價格,最長 24 小時)。立刻回傳工作 id,不用等;Ops 每隔幾分鐘查一次,完成後自動收結果(下載、轉 mp3、上傳 GCS、改寫本機 .voice.json),再由人在 Ops 試聽、按發佈上線。一次只能有一批,其餘排隊。dry_run 只列出會送哪些段落,不呼叫 API、不花錢。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "description": "所有腳本",
+          "type": "boolean"
+        },
+        "dry_run": {
+          "description": "只試算,不送出",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "每份腳本只送前幾段(試做用)",
+          "type": "integer"
+        },
+        "scripts": {
+          "description": "web/src/content/live/ 底下的腳本路徑,例如 launch/2.1.json",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_voice_submit",
+    "title": "分派旁白語音批次"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "查旁白批次"
+    },
+    "description": "查旁白語音批次的狀態(排隊中、產生中、待發佈、已發佈、失敗…)、變動的旁白清單與紀錄。不給 id 時列出最近的批次。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "工作 id,例如 VJ-3",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_voice_jobs",
+    "title": "查旁白批次"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "網站訪客統計"
+    },
+    "description": "讀 evoleap 網站的會員與訪客統計(後台「會員」頁同一份資料,GET /api/admin/overview):會員數、訪客數、訪客漏斗(打開 → 載入完成 → 有播放,和後台一樣不含登入門檻與一般頁面)、各課概況、登入門檻、裝置/來源/載入錯誤、從首頁進來的路徑、首頁停留、登入頁、最近沒播放的造訪足跡。需要 Ops 已登入該連線。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "connection": {
+          "description": "連線 id,預設 Ops 網站訪客頁選的那個(evoleap)",
+          "type": "string"
+        },
+        "range": {
+          "description": "時間範圍,預設 1d",
+          "enum": [
+            "all",
+            "30m",
+            "12h",
+            "1d",
+            "7d"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_site_visitors",
+    "title": "網站訪客統計"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "建立 Issue"
+    },
+    "description": "把發現的問題或待辦存成 Issue(Ops 的真實資料,存在本機,重開 app 也還在;出現在 開發 › Issue)。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 ops_issues 搜尋,避免重複。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "以虛擬角色身分工作時填角色 id 或名稱,Issue 會署名該角色",
+          "type": "string"
+        },
+        "body": {
+          "description": "內文(Markdown)",
+          "type": "string"
+        },
+        "labels": {
+          "description": "標籤,例如 [\"evoleap\", \"訪客\"]",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "link": {
+          "description": "相關網址",
+          "type": "string"
+        },
+        "priority": {
+          "description": "優先度,預設 normal",
+          "enum": [
+            "urgent",
+            "high",
+            "normal",
+            "low"
+          ],
+          "type": "string"
+        },
+        "source": {
+          "description": "從哪裡發現的,例如「網站訪客 7d」",
+          "type": "string"
+        },
+        "title": {
+          "description": "標題,一句話說明問題",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "ops_issue_create",
+    "title": "建立 Issue"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "更新 Issue"
+    },
+    "description": "更新 Issue:改標題、內文、優先度、標籤,加留言,或關閉/重新打開。只給要改的欄位。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "add_labels": {
+          "description": "加上的標籤",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "agent": {
+          "description": "以虛擬角色身分工作時填角色 id 或名稱,留言與變更會署名該角色",
+          "type": "string"
+        },
+        "append_body": {
+          "description": "接在內文後面的文字",
+          "type": "string"
+        },
+        "body": {
+          "description": "取代內文(Markdown)",
+          "type": "string"
+        },
+        "comment": {
+          "description": "加一則留言",
+          "type": "string"
+        },
+        "id": {
+          "description": "Issue id,例如 ISS-3",
+          "type": "string"
+        },
+        "labels": {
+          "description": "取代全部標籤",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "priority": {
+          "description": "優先度",
+          "enum": [
+            "urgent",
+            "high",
+            "normal",
+            "low"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "description": "open 重新打開,closed 關閉",
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "description": "新標題",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "ops_issue_update",
+    "title": "更新 Issue"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "查 Issue"
+    },
+    "description": "給 id 回傳完整內容(含留言);不給 id 則列出符合條件的 Issue(預設只列未解決,依優先度與時間排序)。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Issue id",
+          "type": "string"
+        },
+        "label": {
+          "description": "只列有這個標籤的",
+          "type": "string"
+        },
+        "limit": {
+          "description": "最多幾筆,預設 30",
+          "type": "integer"
+        },
+        "query": {
+          "description": "標題、內文或留言包含這段文字",
+          "type": "string"
+        },
+        "status": {
+          "description": "open、closed 或 all,預設 open",
+          "enum": [
+            "open",
+            "closed",
+            "all"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_issues",
+    "title": "查 Issue"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "列出虛擬角色"
+    },
+    "description": "列出 Ops 的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。以角色身分工作前先讀它的 instructions。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "只看這個角色",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_agents",
+    "title": "列出虛擬角色"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "查角色任務"
+    },
+    "description": "給 id 回傳任務完整內容;否則列出任務(預設未完成的:待領取、進行中、需要協助)。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "只列這個角色的",
+          "type": "string"
+        },
+        "id": {
+          "description": "任務 id,例如 T-3",
+          "type": "string"
+        },
+        "status": {
+          "description": "open(預設)、all 或單一狀態",
+          "enum": [
+            "open",
+            "all",
+            "queued",
+            "inProgress",
+            "blocked",
+            "done",
+            "canceled"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_agent_tasks",
+    "title": "查角色任務"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "以角色身分領取任務"
+    },
+    "description": "以某個虛擬角色的身分領取任務(狀態改成進行中)。給 id 就領那筆;不給就領該角色最優先的待領取任務。回傳角色設定與任務說明,照著做,做完用 ops_agent_task_report 回報。沒有任務時 task 為 null。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "角色 id 或名稱",
+          "type": "string"
+        },
+        "id": {
+          "description": "任務 id(選填)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "type": "object"
+    },
+    "name": "ops_agent_task_claim",
+    "title": "以角色身分領取任務"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "回報任務"
+    },
+    "description": "回報任務進度或結果。note 是過程紀錄;result 是最終結果(Markdown);做完設 status=done,卡住需要人決定設 blocked 並在 note 說明。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "任務 id",
+          "type": "string"
+        },
+        "links": {
+          "description": "相關的 Issue id 或網址",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "note": {
+          "description": "過程紀錄",
+          "type": "string"
+        },
+        "result": {
+          "description": "結果(Markdown)",
+          "type": "string"
+        },
+        "status": {
+          "description": "新狀態",
+          "enum": [
+            "inProgress",
+            "blocked",
+            "done"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "ops_agent_task_report",
+    "title": "回報任務"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "新增或修改角色"
+    },
+    "description": "新增虛擬角色,或修改既有角色(給 id 或名稱)。只給要改的欄位。routines 會取代全部例行任務;add_routines 是加在後面。例行任務格式:{title, instructions, kind: daily|weekly|hourly, hour, minute, weekday(1=週日…7=週六), every_hours, enabled}。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "description": "啟用",
+          "type": "boolean"
+        },
+        "add_routines": {
+          "description": "加上的例行任務",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "color": {
+          "description": "顏色",
+          "enum": [
+            "blue",
+            "teal",
+            "green",
+            "orange",
+            "pink",
+            "purple",
+            "indigo",
+            "gray"
+          ],
+          "type": "string"
+        },
+        "doc_access": {
+          "additionalProperties": {
+            "enum": [
+              "none",
+              "read",
+              "write"
+            ],
+            "type": "string"
+          },
+          "description": "文件櫃存取範圍,會合併進現有設定:key 是區塊 id(levels、dev、ideas、docs、overview、todo、members、tools)或頁籤網址(例如 /studio/tools、/docs/course-goals),值是 read、write 或 none(移除)。頁籤的設定優先於區塊。",
+          "type": "object"
+        },
+        "id": {
+          "description": "要修改的角色 id 或名稱;新增時可指定英文 id(例如 product-manager),不給就自動產生",
+          "type": "string"
+        },
+        "instructions": {
+          "description": "角色設定(給 AI 的說明,Markdown)",
+          "type": "string"
+        },
+        "name": {
+          "description": "名稱(新增時必填)",
+          "type": "string"
+        },
+        "role": {
+          "description": "一句話職責",
+          "type": "string"
+        },
+        "routines": {
+          "description": "取代全部例行任務",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "symbol": {
+          "description": "SF Symbol 名稱",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_agent_upsert",
+    "title": "新增或修改角色"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "組織"
+    },
+    "description": "列出 Ops 的組織與目前使用中的組織。Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織;切換組織只能由人在 app 裡做。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_orgs",
+    "title": "組織"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "文件櫃結構"
+    },
+    "description": "列出文件櫃的區塊與頁籤(對應 evoleap 研發基地 /studio 的區塊),以及各處有幾份文件。給 agent 時只列該角色能存取的位置並標出權限(read / write)。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "以角色身分查看時填角色 id 或名稱",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_cabinet",
+    "title": "文件櫃結構"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "查文件"
+    },
+    "description": "給 id 回傳文件全文;否則依區塊、頁籤、關鍵字列出文件。給 agent 時只看得到該角色有權限的文件。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "以角色身分查看時填角色 id 或名稱",
+          "type": "string"
+        },
+        "id": {
+          "description": "文件 id,例如 DOC-3",
+          "type": "string"
+        },
+        "query": {
+          "description": "標題、內文或標籤包含這段文字",
+          "type": "string"
+        },
+        "section": {
+          "description": "區塊 id 或名稱,例如 levels、課程",
+          "type": "string"
+        },
+        "tab": {
+          "description": "頁籤網址或名稱,例如 /studio/tools、L0、課程目標",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_docs",
+    "title": "查文件"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "存文件到文件櫃"
+    },
+    "description": "新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在研發基地對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置。文件存在本機,重開 Ops 也還在。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "以角色身分工作時填角色 id 或名稱",
+          "type": "string"
+        },
+        "append_body": {
+          "description": "接在內文後面的文字",
+          "type": "string"
+        },
+        "body": {
+          "description": "取代內文(Markdown)",
+          "type": "string"
+        },
+        "id": {
+          "description": "要修改的文件 id;新增時不給",
+          "type": "string"
+        },
+        "section": {
+          "description": "區塊 id 或名稱(新增時必填,或只給 tab)",
+          "type": "string"
+        },
+        "tab": {
+          "description": "頁籤網址或名稱",
+          "type": "string"
+        },
+        "tags": {
+          "description": "標籤",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "標題(新增時必填)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_doc_save",
+    "title": "存文件到文件櫃"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "指派任務給角色"
+    },
+    "description": "建立一筆任務指派給虛擬角色,等它被領取。assign_to 是接任務的角色;agent 是你自己正在扮演的角色(用來署名,和其他工具的 agent 意思一樣)。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "以角色身分工作時填你自己的角色 id(署名用);不是接任務的角色",
+          "type": "string"
+        },
+        "assign_to": {
+          "description": "接這個任務的角色 id 或名稱",
+          "type": "string"
+        },
+        "instructions": {
+          "description": "任務說明(Markdown)",
+          "type": "string"
+        },
+        "priority": {
+          "description": "優先度,預設 normal",
+          "enum": [
+            "urgent",
+            "high",
+            "normal",
+            "low"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "description": "標題",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assign_to",
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "ops_agent_task_create",
+    "title": "指派任務給角色"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "GitHub 概況"
+    },
+    "description": "列出 Ops 追蹤的 GitHub repo(目前組織的)、開著的 PR(含檢查結果)與最近的 Actions 執行。資料是 Ops 最近一次讀到的(約 5 分鐘更新一次);refresh=true 先重新讀。只讀。需要人先在 Ops 的 開發進度 › GitHub 登入。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "每個 repo 最多幾筆執行,預設 10",
+          "type": "integer"
+        },
+        "refresh": {
+          "description": "先向 GitHub 重新讀一次",
+          "type": "boolean"
+        },
+        "repo": {
+          "description": "只看這個 repo(owner/name)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_github",
+    "title": "GitHub 概況"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "查 GitHub Actions 執行"
+    },
+    "description": "直接向 GitHub 查某個 repo 的 Actions 執行紀錄,可依分支、狀態、workflow 篩選。只讀。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "description": "分支",
+          "type": "string"
+        },
+        "limit": {
+          "description": "筆數,預設 20,最多 100",
+          "type": "integer"
+        },
+        "repo": {
+          "description": "owner/name;只追蹤一個 repo 時可省略",
+          "type": "string"
+        },
+        "status": {
+          "description": "狀態篩選",
+          "enum": [
+            "failure",
+            "success",
+            "in_progress",
+            "queued",
+            "completed",
+            "cancelled"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_github_runs",
+    "title": "查 GitHub Actions 執行"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "GitHub Actions 執行詳情"
+    },
+    "description": "一筆 Actions 執行的工作與步驟;log=true 時附上失敗工作紀錄的最後幾行(找失敗原因用)。只讀。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "執行 id(ops_github / ops_github_runs 的 id)",
+          "type": "integer"
+        },
+        "lines": {
+          "description": "紀錄行數,預設 80,最多 400",
+          "type": "integer"
+        },
+        "log": {
+          "description": "附上失敗工作紀錄的最後幾行",
+          "type": "boolean"
+        },
+        "repo": {
+          "description": "owner/name;只追蹤一個 repo 時可省略",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "ops_github_run",
+    "title": "GitHub Actions 執行詳情"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "GitHub PR 詳情"
+    },
+    "description": "一個 PR 的說明、分支、檢查結果與變更的檔案清單。只讀;要改程式請照工程師角色的流程,在新分支做並等人核准。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "description": "PR 編號",
+          "type": "integer"
+        },
+        "repo": {
+          "description": "owner/name;只追蹤一個 repo 時可省略",
+          "type": "string"
+        }
+      },
+      "required": [
+        "number"
+      ],
+      "type": "object"
+    },
+    "name": "ops_github_pull",
+    "title": "GitHub PR 詳情"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "GCP 概況"
+    },
+    "description": "列出 Ops 設定的 GCP 專案(目前組織的)裡 Cloud Run 服務的狀態、目前版本、流量、網址,以及 Cloud Run Job 最近一次執行。給 service 時另外回傳最近的版本;給 job 時回傳最近的執行。只讀。需要人先在 Ops 的 伺服器與服務 › GCP 登入。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "description": "Cloud Run Job 名稱,例如 shuttle-course-sync",
+          "type": "string"
+        },
+        "refresh": {
+          "description": "先重新讀一次",
+          "type": "boolean"
+        },
+        "service": {
+          "description": "Cloud Run 服務名稱,例如 shuttle-server",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_gcp",
+    "title": "GCP 概況"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "查 GCP 日誌"
+    },
+    "description": "從 Cloud Logging 讀 Cloud Run 服務或 Job 的日誌(新的在前)。預設只看 ERROR 以上、最近 24 小時。只讀。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "contains": {
+          "description": "日誌內容要包含的文字",
+          "type": "string"
+        },
+        "hours": {
+          "description": "往前幾小時,預設 24,最多 720",
+          "type": "integer"
+        },
+        "job": {
+          "description": "Cloud Run Job 名稱(和 service 擇一;都不給就是全部 Cloud Run)",
+          "type": "string"
+        },
+        "limit": {
+          "description": "筆數,預設 50,最多 500",
+          "type": "integer"
+        },
+        "service": {
+          "description": "Cloud Run 服務名稱",
+          "type": "string"
+        },
+        "severity": {
+          "description": "最低嚴重度,預設 ERROR",
+          "enum": [
+            "DEFAULT",
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "CRITICAL"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_gcp_logs",
+    "title": "查 GCP 日誌"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "GCP 服務指標"
+    },
+    "description": "從 Cloud Monitoring 讀 Cloud Run 服務的請求量(依 2xx/4xx/5xx)、p95 延遲與執行個體數,含總數與時間序列。只讀。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "hours": {
+          "description": "往前幾小時,預設 24,最多 720",
+          "type": "integer"
+        },
+        "service": {
+          "description": "Cloud Run 服務名稱;只有一個服務時可省略",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_gcp_metrics",
+    "title": "GCP 服務指標"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Facebook 粉絲專頁"
+    },
+    "description": "列出 Ops 連上的 Facebook 粉絲專頁:id、名稱、分類、網址、按讚數、追蹤數、是否在 Ops 管理中、有沒有權杖。只讀。需要人先在 Ops 的 AI 自動化 › 粉絲專頁 設定連線。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "refresh": {
+          "description": "先向 Facebook 重新讀一次專頁資料",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_fb_pages",
+    "title": "Facebook 粉絲專頁"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Facebook 貼文與成效"
+    },
+    "description": "管理中粉絲專頁的最近貼文(新的在前)與已排程貼文。每篇含心情、留言、分享數與互動合計;insights=true 時附上前 10 篇的觸及、點擊與心情分類(Meta 已淘汰或取不到的指標 status 是 deprecated / unavailable)。只讀。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "insights": {
+          "description": "附上每篇的成效指標,預設 true",
+          "type": "boolean"
+        },
+        "limit": {
+          "description": "每個專頁最多幾篇最近貼文,預設 10,最多 50",
+          "type": "integer"
+        },
+        "page": {
+          "description": "專頁 id 或名稱;不給就是全部管理中的專頁",
+          "type": "string"
+        },
+        "scheduled": {
+          "description": "附上已排程貼文,預設 true",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_fb_posts",
+    "title": "Facebook 貼文與成效"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Facebook 專頁成效"
+    },
+    "description": "粉絲專頁的成效:觸及人數、瀏覽次數、貼文互動、追蹤數、新增追蹤,含期間合計與每期的時間序列。Meta 淘汰或取不到的指標 status 是 deprecated / unavailable,total 為 null。只讀。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "description": "往前幾天,預設 28,1–90",
+          "type": "integer"
+        },
+        "page": {
+          "description": "專頁 id 或名稱;不給就是全部管理中的專頁",
+          "type": "string"
+        },
+        "period": {
+          "description": "每個資料點的期間,預設 day",
+          "enum": [
+            "day",
+            "week",
+            "days_28"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_fb_insights",
+    "title": "Facebook 專頁成效"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "Facebook 草稿"
+    },
+    "description": "給 id 回傳一份貼文草稿;不給則列出草稿(預設只列還沒發佈的,新的在前)。只讀。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "草稿 id,例如 FD-3",
+          "type": "string"
+        },
+        "limit": {
+          "description": "最多幾筆,預設 30",
+          "type": "integer"
+        },
+        "page": {
+          "description": "只列這個專頁(id 或名稱)的草稿",
+          "type": "string"
+        },
+        "status": {
+          "description": "draft、scheduled、published 或 all,預設 draft",
+          "enum": [
+            "draft",
+            "scheduled",
+            "published",
+            "all"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_fb_drafts",
+    "title": "Facebook 草稿"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "存 Facebook 草稿"
+    },
+    "description": "新增或修改 Facebook 貼文草稿(不給 id 是新增)。只存草稿,不會發佈:發佈與排程只能由人在 Ops 的 AI 自動化 › 粉絲專頁 按。已排程或已發佈的草稿不能修改。以角色身分工作時帶 agent,草稿會署名該角色。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "description": "以虛擬角色身分工作時填角色 id 或名稱,草稿會署名該角色",
+          "type": "string"
+        },
+        "id": {
+          "description": "要修改的草稿 id;不給就是新增",
+          "type": "string"
+        },
+        "image_url": {
+          "description": "圖片網址(http 或 https;有圖片時連結會接在內文後面)",
+          "type": "string"
+        },
+        "link": {
+          "description": "附上的連結(http 或 https)",
+          "type": "string"
+        },
+        "message": {
+          "description": "貼文內容(純文字)",
+          "type": "string"
+        },
+        "page": {
+          "description": "要發到哪個專頁(id 或名稱);新增時不給就用第一個管理中的專頁",
+          "type": "string"
+        },
+        "proposed_time": {
+          "description": "建議的發佈時間(ISO 8601,例如 2026-11-20T20:00:00+08:00);只是建議,實際排程由人決定",
+          "type": "string"
+        },
+        "source": {
+          "description": "草稿從哪裡來,例如 doc:DOC-3、task:T-5",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_fb_draft_save",
+    "title": "存 Facebook 草稿"
+  }
+]

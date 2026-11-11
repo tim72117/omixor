@@ -1,0 +1,118 @@
+/* opsKit 共用元件與總覽/開發/CI/CD/伺服器頁的樣式(只用 ops- 開頭的類別,避免和其他頁衝突) */
+@keyframes ops-spin { to { transform: rotate(360deg); } }
+@keyframes ops-pulse { 50% { opacity: .35; } }
+@keyframes ops-ping { 0% { transform: scale(1); opacity: .6; } 100% { transform: scale(2.2); opacity: 0; } }
+.ops-spin { animation: ops-spin 1.6s linear infinite; display: inline-flex; }
+.ops-pulse { animation: ops-pulse 1.4s ease-in-out infinite; }
+
+.ops-dot { width: 8px; height: 8px; border-radius: 8px; background: var(--c); display: inline-block; flex: none; position: relative; }
+.ops-dot.pulsing::after { content: ""; position: absolute; inset: 0; border-radius: 8px; background: var(--c); animation: ops-ping 1.2s ease-out infinite; }
+
+.ops-avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: white; font-weight: 600; flex: none; background: var(--gray); }
+.ops-avatar.ai { background: linear-gradient(135deg, var(--purple), var(--indigo)); }
+.ops-avatar.sys { background: color-mix(in srgb, var(--gray) 45%, transparent); }
+.ops-avatar.ops-avatar-none { background: none; border: 1px dashed var(--fg2); }
+.ops-avatar-stack { display: inline-flex; align-items: center; }
+.ops-avatar-stack > .ops-avatar { box-shadow: 0 0 0 1.5px var(--bg2); }
+.ops-avatar-stack > .ops-avatar + .ops-avatar { margin-left: -6px; }
+
+.ops-bar { flex: 1; min-width: 0; border-radius: 99px; background: color-mix(in srgb, var(--fg) 8%, transparent); overflow: hidden; position: relative; }
+.ops-bar > div { height: 100%; border-radius: 99px; }
+
+.ops-count { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; padding: 1px 6px; border-radius: 99px; background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg2); }
+
+.ops-callout { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px; border: 1px solid; }
+.ops-banner { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 16px; }
+
+.ops-menu { position: fixed; z-index: 60; min-width: 200px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.2); display: flex; flex-direction: column; }
+.ops-menu.abs { position: absolute; top: calc(100% + 4px); }
+.ops-menu .menu-item { white-space: nowrap; font-size: 12.5px; padding: 5px 8px; gap: 4px; }
+.ops-menu .menu-item:disabled { opacity: .4; background: none; color: inherit; }
+.ops-menu .menu-item.danger { color: var(--red); }
+.ops-menu .menu-item.danger:hover:not(:disabled) { color: white; background: var(--red); }
+.ops-menu-header { font-size: 11px; color: var(--fg2); padding: 4px 8px 2px; }
+
+.ops-toast { position: fixed; top: 58px; left: 50%; transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 99px; background: var(--bg2); border: 1px solid var(--line); box-shadow: 0 6px 18px rgba(0,0,0,.15); font-size: 12.5px; max-width: 70vw; }
+
+.ops-search { display: flex; align-items: center; gap: 5px; padding: 4px 7px; border-radius: 7px; background: color-mix(in srgb, var(--fg) 5%, transparent); min-width: 0; }
+.ops-search input { border: 0; background: none; outline: none; flex: 1; min-width: 0; font-size: 12.5px; }
+.ops-icon-btn { border: 0; background: none; padding: 0; display: inline-flex; align-items: center; cursor: default; color: inherit; }
+.ops-icon-btn:hover { opacity: .75; }
+.ops-check { font-size: 12.5px; cursor: default; white-space: nowrap; }
+.ops-check input { margin: 0; }
+.btn.ops-on { background: color-mix(in srgb, var(--accent) 16%, var(--bg2)); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); }
+.btn.purple { background: var(--purple); border-color: var(--purple); color: white; }
+.btn.green { background: var(--green); border-color: var(--green); color: white; }
+.btn.red { background: var(--red); border-color: var(--red); color: white; }
+.btn.small { padding: 2px 8px; font-size: 11.5px; }
+.btn.primary:hover:not(:disabled), .btn.purple:hover:not(:disabled), .btn.green:hover:not(:disabled), .btn.red:hover:not(:disabled) { filter: brightness(1.08); }
+.btn.link:hover:not(:disabled) { background: none; text-decoration: underline; }
+.ops-code { background: color-mix(in srgb, var(--fg) 6%, transparent); padding: 8px; border-radius: 6px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; margin: 0; overflow-x: auto; white-space: pre; }
+.ops-inline-code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: color-mix(in srgb, var(--fg) 7%, transparent); padding: 0 3px; border-radius: 3px; }
+
+/* 可點的卡片/列 */
+.ops-tile { cursor: default; transition: filter .12s; text-align: left; font: inherit; color: inherit; }
+.ops-tile:hover { filter: brightness(1.02); }
+.ops-tile:active { opacity: .75; }
+.ops-plain { border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; cursor: default; }
+.ops-row-hover:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+
+/* 分頁頭 */
+.ops-header { padding: 16px 20px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.ops-tabbar { padding: 10px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
+.ops-tabbar .segmented { width: 100%; max-width: 760px; }
+.ops-tabbar .segmented button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.ops-filterbar { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.ops-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ops-fill { flex: 1; min-height: 0; display: flex; }
+.ops-scroll { flex: 1; min-height: 0; overflow: auto; }
+
+/* 清單 */
+.ops-list { flex: 1; min-height: 0; overflow-y: auto; }
+.ops-list-row { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: default; }
+.ops-list-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.ops-list-row.on { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.ops-list-foot { border-top: 1px solid var(--line); padding: 6px 12px; display: flex; align-items: center; font-size: 11.5px; color: var(--fg2); }
+.ops-section-label { padding: 8px 12px 4px; font-size: 11px; color: var(--fg2); font-weight: 600; }
+
+/* 看板 */
+.ops-board { display: flex; gap: 12px; padding: 14px 20px; overflow-x: auto; flex: 1; min-height: 0; align-items: stretch; }
+.ops-col { flex: 1 0 220px; display: flex; flex-direction: column; min-height: 0; border-radius: 12px; background: color-mix(in srgb, var(--fg) 3.5%, transparent); border: 2px solid transparent; }
+.ops-col.target { background: color-mix(in srgb, var(--fg) 8%, transparent); border-color: var(--accent); }
+.ops-col-body { flex: 1; overflow-y: auto; padding: 0 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.ops-work { display: flex; background: var(--bg2); border-radius: 8px; border: 1px solid var(--line); overflow: hidden; box-shadow: 0 1px 1px rgba(0,0,0,.05); cursor: default; }
+.ops-work:hover { border-color: color-mix(in srgb, var(--fg) 18%, transparent); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.ops-work.hl { border: 2px solid var(--accent); }
+.ops-dashed { border: 1px dashed color-mix(in srgb, var(--fg) 18%, transparent); border-radius: 8px; padding: 24px 0; text-align: center; font-size: 11.5px; color: var(--fg3); }
+
+/* 表格 */
+.ops-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ops-table th { text-align: left; font-size: 11px; color: var(--fg2); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); white-space: nowrap; cursor: default; user-select: none; }
+.ops-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.ops-table tr.sel td { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.ops-table tbody tr:hover:not(.sel) td { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+
+/* 階段圖 */
+.ops-stage { width: 168px; flex: none; padding: 10px; border-radius: 10px; display: flex; flex-direction: column; gap: 6px; border: 1px solid; }
+.ops-stage.running { border-width: 2px; animation: ops-pulse 1.8s ease-in-out infinite; }
+.ops-conn { width: 34px; flex: none; display: flex; align-items: center; margin-top: 19px; height: 10px; }
+.ops-conn > i { display: block; width: 26px; height: 2px; }
+
+/* 日誌 */
+.ops-log { background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ops-log-body { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; overflow: auto; min-height: 220px; max-height: 420px; padding: 8px 0; user-select: text; }
+.ops-log-line { display: flex; gap: 10px; padding: 1px 10px; white-space: pre; }
+.ops-log-line.wrap { white-space: pre-wrap; word-break: break-all; }
+.ops-log-line.hit { background: color-mix(in srgb, var(--yellow) 10%, transparent); }
+.ops-log-line mark { background: color-mix(in srgb, var(--yellow) 55%, transparent); color: black; }
+.ops-cursor { width: 7px; height: 13px; background: var(--fg2); margin: 2px 0 2px 54px; animation: ops-pulse 1.2s infinite; }
+
+/* 伺服器地圖 */
+.ops-map-node { position: absolute; transform: translate(-50%, -50%); border-radius: 10px; padding: 0 9px; display: flex; flex-direction: column; justify-content: center; gap: 3px; background: var(--bg2); cursor: default; transition: opacity .15s; }
+
+.ops-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; padding: 3px 9px; border-radius: 99px; background: color-mix(in srgb, var(--fg) 5%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 8%, transparent); white-space: nowrap; }
+button.ops-chip { cursor: default; font: inherit; font-size: 12.5px; color: inherit; }
+button.ops-chip:hover { background: color-mix(in srgb, var(--fg) 9%, transparent); }
+.ops-grid-auto { display: grid; gap: 12px; }
+details.ops-disclosure > summary { cursor: default; font-size: 12px; color: var(--fg2); list-style: revert; }
+.ops-kbd-row { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: baseline; font-size: 12.5px; }
