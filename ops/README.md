@@ -152,6 +152,41 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 純文字(Markdown)文件,預設組織依 evoleap 研發基地 `/studio` 的區塊(總覽、待辦、會員、課程、開發、構想、文件、工具)與頁籤分類;結構照 shuttle 的 `web/src/studio/proposal/ProposalLayout.tsx` 與 `studio/articles/registry.ts`,研發基地改版時要改 `Sources/Ops/Cabinet/Cabinet.swift`。每個角色在「編輯…」設定文件櫃存取範圍(區塊或頁籤,可讀/可讀寫;頁籤優先於區塊),也可用 `ops_agent_upsert` 的 `doc_access` 調整。AI 以角色身分讀寫文件時帶 `agent`,超出範圍會被拒絕;不帶 `agent` 視為 MCP 用戶端,全部可讀寫。結構可在文件櫃左下「編輯結構」修改(每個組織各自一份 `cabinet-layout.json`)。文件存在組織資料夾的 `cabinet.json`;檔案讀不出來時會改名保留(`cabinet.unreadable-*.json`),不會被覆蓋。
 
 
+## 唯讀資料 API(設定 › 資料 API)
+
+讓別台電腦(例如辦公室電腦,透過 Tailscale)用 HTTP 讀 Ops 目前組織的資料。**預設關閉**;只綁 `127.0.0.1:3768`(可改)。設定存在資料夾根目錄的 `data-api.json`(全部組織共用),token 存在鑰匙圈。
+
+- **只讀**:每個端點都對應到 MCP 裡 `readOnlyHint = true` 的工具,透過 `MCPHandler` 執行(組 `tools/call`),輸出和 MCP 工具完全相同。其他工具一律 403。沒有新增任何 MCP 工具。
+- **驗證**(擇一,否則 401,什麼都不回):`tailscale serve` 轉來的 `Tailscale-User-Login` 在白名單;或 `Authorization: Bearer <token>`(設定頁產生,只顯示一次,常數時間比較)。被拒的登入記在設定頁,可一鍵加入白名單。帶非本機 `Origin` 的瀏覽器請求一律 403。
+- **端點**:
+  - `GET /api/v1`:端點清單與唯讀工具(名稱、說明、參數 schema)
+  - `GET /api/v1/tools/<工具>?參數=值`:query 依 inputSchema 轉型(integer、number、boolean;array 可重複參數或 JSON 字串;object 用 JSON 字串)
+  - `POST /api/v1/tools/<工具>`:body 是 JSON 參數
+  - 便利路徑:`/overview`、`/issues`(`/issues/<id>`)、`/agents`、`/tasks`(`/tasks/<id>`)、`/docs`(`/docs/<id>`)、`/cabinet`、`/orgs`、`/list/<collection>`、`/get/<collection>/<id>`、`/github`、`/gcp`
+  - 成功 200 回工具輸出的 JSON 本體;工具錯誤或參數錯誤 400 `{"error": …}`;找不到 404;方法不對 405;非唯讀工具 403
+- 注意:伺服器只聽本機,`Tailscale-User-Login` 是 `tailscale serve` 加的;這台 Mac 上的其他程式也能自己帶這個標頭,所以白名單只防得了 tailnet 上的其他人,不防本機。
+
+設定步驟:
+
+1. 設定 › 資料 API:打開「啟用」,把辦公室要用的 Tailscale 登入加進白名單(或產生 token)。
+2. 在這台 Mac 執行(只限 tailnet,**不要用 funnel**;443 已經被 Funnel 拿來公開別的服務,所以用 8443):
+   ```bash
+   tailscale serve --bg --https=8443 http://127.0.0.1:3768
+   tailscale serve status          # 查看
+   tailscale serve --https=8443 off  # 關掉
+   ```
+3. 辦公室電腦(登入同一個 tailnet):
+   ```bash
+   curl https://<這台機器>.<tailnet>.ts.net:8443/api/v1/overview
+   curl -H "Authorization: Bearer <token>" "https://<這台機器>.<tailnet>.ts.net:8443/api/v1/issues?status=all&limit=5"
+   ```
+   ```powershell
+   Invoke-RestMethod https://<這台機器>.<tailnet>.ts.net:8443/api/v1/overview
+   Invoke-RestMethod -Uri "https://<這台機器>.<tailnet>.ts.net:8443/api/v1/list/alerts?limit=5" -Headers @{ Authorization = "Bearer <token>" }
+   ```
+
+程式在 `Sources/Ops/DataAPI/DataAPI.swift`,測試 `Tests/OpsTests/DataAPITests.swift`。
+
 ## Facebook 粉絲專頁(AI 自動化 › 粉絲專頁)
 
 用 Meta Graph API(預設 `v24.0`,存在 `facebook.json` 的 `apiVersion`,可改成更新的版本)管理粉絲專頁:撰寫、預覽、立即發佈或排程、取消排程、看貼文與專頁成效。放在 AI 自動化而不是另開一頁:草稿多半由行銷角色寫好、人在這裡把關後發佈,和「待核准」同一種流程;另開側邊欄頁面也會改到 `ops_navigate` 的頁面列舉與 ⌘1–⌘9。
@@ -215,6 +250,7 @@ Sources/Ops/
   GCP/           Cloud Run、Logging、Monitoring(只讀,gcp.json)
   Line/          LINE 官方帳號:推播、webhook、在 LINE 核准與提問(line.json)
   Facebook/      Facebook 粉絲專頁:Graph API、草稿、發佈與成效(facebook.json)
+  DataAPI/       唯讀資料 API:給 tailscale serve 用的 HTTP(data-api.json)
   RootView.swift 側邊欄、工具列、頁面切換
 ```
 

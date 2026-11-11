@@ -28,6 +28,7 @@ struct OpsApp: App {
                     if app.ghStore?.isLoggedIn == true { Task { await app.ghStore?.refresh() } }
                     app.startGCP()
                     app.startLine()
+                    app.startDataAPI()
                     if app.gcpStore?.isLoggedIn == true, app.gcpStore?.isConfigured == true { Task { await app.gcpStore?.refresh() } }
                 }
         }

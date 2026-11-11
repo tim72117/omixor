@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-// 設定:組織、整合、連線、LINE、團隊與值班、AI 治理、通知、一般。
+// 設定:組織、整合、連線、LINE、資料 API、團隊與值班、AI 治理、通知、一般。
 // 不在 AppState 裡的偏好設定存在 UserDefaults(@AppStorage),鍵名都以 ops.settings. 開頭。
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case orgs, integrations, connections, line, team, ai, notifications, general
+    case orgs, integrations, connections, line, dataAPI, team, ai, notifications, general
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -13,6 +13,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .integrations: return "整合"
         case .connections: return "連線"
         case .line: return "LINE"
+        case .dataAPI: return "資料 API"
         case .team: return "團隊與值班"
         case .ai: return "AI 治理"
         case .notifications: return "通知"
@@ -25,6 +26,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .integrations: return "puzzlepiece.extension"
         case .connections: return "key.horizontal"
         case .line: return "message"
+        case .dataAPI: return "network"
         case .team: return "person.2"
         case .ai: return "sparkles"
         case .notifications: return "bell.badge"
@@ -70,7 +72,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 860)
+                .frame(maxWidth: 1000)
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 20)
@@ -82,6 +84,7 @@ struct SettingsView: View {
                 case .integrations: SettingsIntegrationsPane()
                 case .connections: SettingsConnectionsPane()
                 case .line: SettingsLinePane()
+                case .dataAPI: SettingsDataAPIPane()
                 case .team: SettingsTeamPane()
                 case .ai: SettingsAIGovernancePane()
                 case .notifications: SettingsNotificationsPane()

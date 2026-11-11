@@ -134,6 +134,21 @@ final class AppState: ObservableObject {
         return s
     }
 
+    /// 唯讀資料 API(DataAPI/):別台電腦透過 tailscale serve 讀資料;設定在資料夾根目錄的 data-api.json
+    @Published var dataAPISettings = DataAPISettings()
+    @Published var dataAPI = DataAPIStatus()
+    private(set) var dataAPIStore: DataAPIStore?
+
+    @discardableResult
+    func startDataAPI(serve: Bool = true) -> DataAPIStore {
+        if let s = dataAPIStore { return s }
+        let s = DataAPIStore(app: self)
+        dataAPIStore = s
+        s.load()
+        s.apply(serve: serve)
+        return s
+    }
+
     /// 組織(Orgs/Orgs.swift):每個組織有自己的資料夾
     @Published var orgs: [Organization] = []
     @Published var currentOrgId = OrgFiles.defaultId
