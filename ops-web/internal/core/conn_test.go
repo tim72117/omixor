@@ -255,7 +255,7 @@ func TestOAuthDiscoveryRegistrationLoginRefreshAndRequest(t *testing.T) {
 	a.Mu.Lock()
 	logText := a.C["activity"][0]["text"]
 	a.Mu.Unlock()
-	if logText != "Ops 登入「API」(tim@example.com)" {
+	if logText != "omixor 登入「API」(tim@example.com)" {
 		t.Fatalf("動態:%v", logText)
 	}
 

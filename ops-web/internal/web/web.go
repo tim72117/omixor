@@ -12,6 +12,7 @@
 package web
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -99,6 +100,42 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"result": core.Object(out)})
+	})
+	// 附件:上傳也走 JSON(維持「POST 一律 JSON」的 CSRF 防護),data 是 base64;只收圖片
+	mux.HandleFunc("POST /api/attachments", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Data string `json:"data"`
+		}
+		b, err := io.ReadAll(io.LimitReader(r.Body, core.MaxAttachment*4/3+4096))
+		if err != nil || json.Unmarshal(b, &req) != nil {
+			writeJSON(w, 400, map[string]any{"error": "格式錯誤,要 {\"data\": \"<base64>\"}"})
+			return
+		}
+		data, err := base64.StdEncoding.DecodeString(req.Data)
+		if err != nil {
+			writeJSON(w, 400, map[string]any{"error": "data 不是 base64"})
+			return
+		}
+		id, err := core.SaveAttachment(app, data)
+		if err != nil {
+			writeJSON(w, 200, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"result": map[string]any{"id": id, "url": core.AttachmentURL(id)}})
+	})
+	mux.HandleFunc("GET /api/attachments/{id}", func(w http.ResponseWriter, r *http.Request) {
+		data, mime, err := core.ReadAttachment(app, r.PathValue("id"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		h := w.Header()
+		h.Set("Content-Type", mime)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Content-Security-Policy", "default-src 'none'; img-src 'self'")
+		// id 是雜湊,內容不會變;附件屬於組織、可能要登入,只給瀏覽器自己快取
+		h.Set("Cache-Control", "private, max-age=86400")
+		_, _ = w.Write(data)
 	})
 	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) {
 		fl, ok := w.(http.Flusher)

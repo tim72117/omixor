@@ -407,7 +407,7 @@ func (e FBError) IsInvalidMetric() bool {
 
 func (e FBError) Error() string {
 	if e.IsTokenExpired() {
-		return fmt.Sprintf("Facebook 權杖已過期或被撤銷(code %d),請到 Ops 的 AI 自動化 › 粉絲專頁 重新連線。%s", e.Code, e.Message)
+		return fmt.Sprintf("Facebook 權杖已過期或被撤銷(code %d),請到 omixor 的 AI 自動化 › 粉絲專頁 重新連線。%s", e.Code, e.Message)
 	}
 	if e.Code > 0 {
 		return fmt.Sprintf("Facebook:%s(code %d)", e.Message, e.Code)

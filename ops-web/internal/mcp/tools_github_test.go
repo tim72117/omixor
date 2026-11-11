@@ -286,7 +286,7 @@ func TestGHMCPToolsAreReadOnlyAndWork(t *testing.T) {
 		t.Fatalf("GitHub 工具 %d 個", n)
 	}
 	// 還沒登入:告訴角色要請人登入
-	want := "Ops 還沒登入 GitHub。請人在 Ops 的 開發進度 › GitHub 設定並登入"
+	want := "omixor 還沒登入 GitHub。請人在 omixor 的 開發進度 › GitHub 設定並登入"
 	for _, name := range []string{"ops_github", "ops_github_runs", "ops_github_run", "ops_github_pull"} {
 		if msg := extErr(t, a, name, map[string]any{"id": 7, "number": 12}); msg != want {
 			t.Fatalf("%s:%s", name, msg)

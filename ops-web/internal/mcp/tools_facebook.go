@@ -343,7 +343,7 @@ func init() {
 		}
 		a.Log(core.AuthorActor(author), "square.and.pencil", verb+" Facebook 草稿 "+saved.ID+"「"+saved.TitleLine()+"」", "automation")
 		o := core.FBDraftJSON(a, saved)
-		o["note"] = "只存成草稿。發佈或排程要由人在 Ops 的 AI 自動化 › 粉絲專頁 按。"
+		o["note"] = "只存成草稿。發佈或排程要由人在 omixor 的 AI 自動化 › 粉絲專頁 按。"
 		return o, nil
 	})
 }

@@ -17,9 +17,11 @@ const (
 	AuthApproval = "approval"
 	AuthBearer   = "bearer"
 	AuthNone     = "none"
+	// AuthBasic 鑰匙圈存「帳號:token」,每次請求帶 Authorization: Basic(例如 Jira Cloud 的 email + API token)
+	AuthBasic = "basic"
 )
 
-var AuthKinds = []string{AuthOAuth, AuthApproval, AuthBearer, AuthNone}
+var AuthKinds = []string{AuthOAuth, AuthApproval, AuthBearer, AuthBasic, AuthNone}
 
 // OAuthSettings 同 Swift(欄位依字母排序)
 type OAuthSettings struct {

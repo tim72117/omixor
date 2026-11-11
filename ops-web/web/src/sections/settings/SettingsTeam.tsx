@@ -39,7 +39,7 @@ export function SettingsTeam() {
   };
   return (
     <Form>
-      <Section header={`成員(${dir.people.length})`} footer="權限決定成員能在 Ops 裡執行哪些動作;AI 自動化的權限另在「AI 治理」設定。">
+      <Section header={`成員(${dir.people.length})`} footer="權限決定成員能在 omixor 裡執行哪些動作;AI 自動化的權限另在「AI 治理」設定。">
         {dir.people.length === 0 && <Row><span className="muted">尚未加入任何成員</span></Row>}
         {dir.people.map((p) => {
           const s = onCallOf(p.id);

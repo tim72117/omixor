@@ -289,7 +289,7 @@ func TestGCPMCPTools(t *testing.T) {
 	if n != 3 {
 		t.Fatal(n)
 	}
-	want := "Ops 還沒登入 Google Cloud。請人在 Ops 的 伺服器與服務 › GCP 設定並登入"
+	want := "omixor 還沒登入 Google Cloud。請人在 omixor 的 伺服器與服務 › GCP 設定並登入"
 	for _, name := range []string{"ops_gcp", "ops_gcp_logs", "ops_gcp_metrics"} {
 		if msg := extErr(t, a, name, map[string]any{"severity": "LOUD"}); msg != want {
 			t.Fatalf("%s:%s", name, msg)
@@ -299,7 +299,7 @@ func TestGCPMCPTools(t *testing.T) {
 	core.GCPEnsureConnection(a)
 	core.ConnSetBearer(a, core.GCPConnectionID, "ya29.test")
 	core.GCPUpdate(a, func(s *core.GCPSettings) { s.Region = "" })
-	if msg := extErr(t, a, "ops_gcp", nil); msg != "還沒設定 GCP 專案,請人在 Ops 的 伺服器與服務 › GCP 設定" {
+	if msg := extErr(t, a, "ops_gcp", nil); msg != "還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定" {
 		t.Fatal(msg)
 	}
 

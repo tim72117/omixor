@@ -52,3 +52,6 @@ ops-web/.import-empty/*
 *.log
 *.tmp
 *.unreadable-*.json
+
+# ===== Claude Code 預覽設定(含本機路徑)=====
+.claude/launch.json

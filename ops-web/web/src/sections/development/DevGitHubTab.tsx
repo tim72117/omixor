@@ -13,7 +13,7 @@ type GHStep = { number: number; name: string; status: string; conclusion?: strin
 type GHJob = { id: number; name: string; status: string; conclusion?: string | null; startedAt?: string; completedAt?: string; url: string; steps: GHStep[] };
 type GHFile = { filename: string; status: string; additions: number; deletions: number };
 type GHPullDetail = { pull: GHPull; body: string; additions: number; deletions: number; changedFiles: number; mergeableState: string; files: GHFile[] };
-export type Connection = { id: string; name: string; baseURL: string; isProduction?: boolean; auth: "oauth" | "approval" | "bearer" | "none"; oauth: { clientId: string; hasClientSecret: boolean; [k: string]: unknown }; [k: string]: unknown };
+export type Connection = { id: string; name: string; baseURL: string; isProduction?: boolean; auth: "oauth" | "approval" | "bearer" | "basic" | "none"; oauth: { clientId: string; hasClientSecret: boolean; [k: string]: unknown }; [k: string]: unknown };
 export type ConnState = { account?: string | null; busy?: boolean; error?: string | null; lastTest?: string | null };
 type GitHubView = {
   settings: { repos: string[]; connection: string };
@@ -23,7 +23,7 @@ type GitHubView = {
 
 const HOMEPAGE = "http://127.0.0.1";
 const CALLBACK = "http://127.0.0.1/callback";
-const REGISTER_URL = `https://github.com/settings/applications/new?oauth_application[name]=Ops&oauth_application[url]=${encodeURIComponent(HOMEPAGE)}&oauth_application[callback_url]=${encodeURIComponent(CALLBACK)}`;
+const REGISTER_URL = `https://github.com/settings/applications/new?oauth_application[name]=omixor&oauth_application[url]=${encodeURIComponent(HOMEPAGE)}&oauth_application[callback_url]=${encodeURIComponent(CALLBACK)}`;
 
 // MARK: - 狀態樣式(GHStyle)
 
@@ -336,7 +336,7 @@ function GitHubSetup({ gh }: { gh: GitHubView }) {
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="row gap8 h2"><SIcon name="chevron.left.forwardslash.chevron.right" size={20} />連上 GitHub</div>
-      <div className="muted">連上後,這裡會列出追蹤中 repo 的 Actions 執行(含失敗的步驟與紀錄)和開著的 PR(含檢查結果);虛擬角色也能透過 MCP 讀。Ops 只讀,不會開 PR、留言或重跑。</div>
+      <div className="muted">連上後,這裡會列出追蹤中 repo 的 Actions 執行(含失敗的步驟與紀錄)和開著的 PR(含檢查結果);虛擬角色也能透過 MCP 讀。omixor 只讀,不會開 PR、留言或重跑。</div>
       {!conn ? (
         <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => run(() => action("github_ensure_connection"))}>開始設定</button>
       ) : conn.auth === "oauth" ? (
@@ -344,7 +344,7 @@ function GitHubSetup({ gh }: { gh: GitHubView }) {
           <Card>
             <div className="card-title">1. 在 GitHub 註冊一個 OAuth App(只要做一次)</div>
             <div className="muted">按下面的按鈕會打開 GitHub 的「New OAuth App」頁。名稱和網址會自動帶入;如果沒帶到,照下面填:</div>
-            {copyRow("Application name", "Ops")}
+            {copyRow("Application name", "omixor")}
             {copyRow("Homepage URL", HOMEPAGE)}
             {copyRow("Authorization callback URL", CALLBACK)}
             <div className="caption muted">「Enable Device Flow」不用勾。按 Register application 後,在 App 頁按「Generate a new client secret」。</div>
@@ -363,7 +363,7 @@ function GitHubSetup({ gh }: { gh: GitHubView }) {
         ) : (
           <Card>
             <div className="card-title">用瀏覽器登入 GitHub</div>
-            <div className="muted">會打開 GitHub 的授權頁,按 Authorize 後回到 Ops 就完成了。權限只要 read:user;公開 repo 的 PR 與 Actions 不用額外權限。</div>
+            <div className="muted">會打開 GitHub 的授權頁,按 Authorize 後回到 omixor 就完成了。權限只要 read:user;公開 repo 的 PR 與 Actions 不用額外權限。</div>
             <div className="row gap8">
               <button className="btn primary" disabled={busy || !!st?.busy} onClick={() => login(conn.id)}>用瀏覽器登入</button>
               {(busy || st?.busy) && <><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /><span className="caption">等瀏覽器授權…</span></>}

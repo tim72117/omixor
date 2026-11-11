@@ -247,7 +247,7 @@ func GHPresetConnection() Connection {
 
 // GHRegisterURL 開 GitHub 的「新增 OAuth App」頁,先填好名稱與網址
 func GHRegisterURL() string {
-	q := []string{"oauth_application[name]=Ops", "oauth_application[url]=http://127.0.0.1", "oauth_application[callback_url]=http://127.0.0.1/callback"}
+	q := []string{"oauth_application[name]=omixor", "oauth_application[url]=http://127.0.0.1", "oauth_application[callback_url]=http://127.0.0.1/callback"}
 	for i, s := range q {
 		k, v, _ := strings.Cut(s, "=")
 		q[i] = url.QueryEscape(k) + "=" + v

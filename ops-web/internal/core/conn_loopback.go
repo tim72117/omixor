@@ -102,7 +102,7 @@ func (l *loopback) handle(w http.ResponseWriter, r *http.Request) {
 	name, value := l.expectName, l.expectValue
 	l.mu.Unlock()
 	if got, ok := q[name]; !ok || got != value {
-		loopbackRespond(w, 400, "登入失敗", "回呼的驗證參數不符,請回到 Ops 重新登入。")
+		loopbackRespond(w, 400, "登入失敗", "回呼的驗證參數不符,請回到 omixor 重新登入。")
 		return
 	}
 	if e, ok := q["error"]; ok {
@@ -119,7 +119,7 @@ func (l *loopback) handle(w http.ResponseWriter, r *http.Request) {
 		loopbackRespond(w, 400, "登入失敗", "回呼沒有帶授權碼。")
 		return
 	}
-	loopbackRespond(w, 200, "登入完成", "Ops 已完成登入,可以關掉這個分頁。")
+	loopbackRespond(w, 200, "登入完成", "omixor 已完成登入,可以關掉這個分頁。")
 	l.finish(code, nil)
 }
 

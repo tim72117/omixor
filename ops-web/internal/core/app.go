@@ -240,6 +240,10 @@ func (a *App) Log(actor Actor, icon, text, section string) {
 		"id": UUID(), "date": ISO(time.Now()), "actor": Object(actor),
 		"icon": icon, "text": text, "section": section,
 	}
+	// 動態屬於目前組織(預設組織不加,和 Swift 版格式一樣)
+	if org := a.mockOrg(); org != DefaultOrgID {
+		item["org"] = org
+	}
 	a.C["activity"] = append([]map[string]any{item}, a.C["activity"]...)
 	if pgPool != nil {
 		go activityInsert(item)

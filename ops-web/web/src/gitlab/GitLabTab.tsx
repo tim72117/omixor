@@ -8,7 +8,7 @@ import { Banner, Check, copyText, MarkdownText, MenuButton, Seg, SIcon, useAct }
 import { relative } from "../fmt";
 
 type Connection = {
-  id: string; name: string; baseURL: string; auth: "oauth" | "approval" | "bearer" | "none";
+  id: string; name: string; baseURL: string; auth: "oauth" | "approval" | "bearer" | "basic" | "none";
   caCert?: string; insecure?: boolean;
   oauth: { clientId: string; hasClientSecret: boolean; [k: string]: unknown }; [k: string]: unknown;
 };
@@ -347,7 +347,7 @@ function ServerCard({ gl, onSaved }: { gl: GitLabView; onSaved?: () => void }) {
     <Card>
       <div className="card-title">1. 公司的 GitLab 在哪裡</div>
       <input className="input" placeholder="https://gitlab.corp.example.com" value={base} onChange={(e) => setBase(e.target.value)} />
-      <div className="caption muted">只要網址(不用 /api/v4)。Ops 只讀,token 只會送到這一台主機。</div>
+      <div className="caption muted">只要網址(不用 /api/v4)。omixor 只讀,token 只會送到這一台主機。</div>
       <div className="caption muted" style={{ marginTop: 4 }}>自簽憑證時,指定公司的 CA 憑證檔(PEM 格式,例如 ~/certs/corp-ca.pem):</div>
       <input className="input mono" placeholder="CA 憑證檔路徑(選填)" value={ca} disabled={insecure} onChange={(e) => setCA(e.target.value)} />
       <Check on={insecure} onChange={setInsecure}><span className="caption">不驗證憑證(只給測試環境)</span></Check>
@@ -391,7 +391,7 @@ function GitLabSetup({ gl }: { gl: GitLabView }) {
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="row gap8 h2"><SIcon name="chevron.left.forwardslash.chevron.right" size={20} />連上公司的 GitLab</div>
-      <div className="muted">連上後,這裡會列出追蹤中專案的 Pipelines(含 jobs、stage 與失敗紀錄)和開著的 Merge Requests(含 pipeline 與核准狀態)。Ops 只讀,不會開 MR、留言或重跑 pipeline。</div>
+      <div className="muted">連上後,這裡會列出追蹤中專案的 Pipelines(含 jobs、stage 與失敗紀錄)和開著的 Merge Requests(含 pipeline 與核准狀態)。omixor 只讀,不會開 MR、留言或重跑 pipeline。</div>
       {!conn ? (
         <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => run(() => action("gitlab_ensure_connection"))}>開始設定</button>
       ) : (
@@ -403,10 +403,10 @@ function GitLabSetup({ gl }: { gl: GitLabView }) {
               <Card>
                 <div className="card-title">2. 在 GitLab 建一個應用程式(只要做一次)</div>
                 <div className="muted">打開 GitLab 的「使用者設定 › 應用程式」(管理員也可以在 Admin › Applications 建給全公司用),新增應用程式,照下面填:</div>
-                {copyRow("Name", "Ops")}
+                {copyRow("Name", "omixor")}
                 {copyRow("Redirect URI", gl.callback)}
                 {copyRow("Scopes", gl.scopes)}
-                <div className="caption muted">「Confidential」不要勾(Ops 是桌面程式,用 PKCE);若公司規定要勾,建好後把 Secret 也貼到下面。Ops 登入時回呼網址會帶一個隨機連接埠(http://127.0.0.1:&lt;埠&gt;/callback);如果 GitLab 回報 redirect URI 不符,代表這版 GitLab 對本機回呼也比對連接埠,請改用個人存取權杖。</div>
+                <div className="caption muted">「Confidential」不要勾(omixor 是桌面程式,用 PKCE);若公司規定要勾,建好後把 Secret 也貼到下面。omixor 登入時回呼網址會帶一個隨機連接埠(http://127.0.0.1:&lt;埠&gt;/callback);如果 GitLab 回報 redirect URI 不符,代表這版 GitLab 對本機回呼也比對連接埠,請改用個人存取權杖。</div>
                 <button className="btn" style={{ alignSelf: "flex-start" }} disabled={!gl.applicationsURL} onClick={() => openURL(gl.applicationsURL)}>打開 GitLab 的應用程式頁</button>
                 <div className="divider" />
                 <div className="card-title">3. 把 Application ID 貼到這裡</div>
@@ -422,7 +422,7 @@ function GitLabSetup({ gl }: { gl: GitLabView }) {
             ) : (
               <Card>
                 <div className="card-title">用瀏覽器登入 GitLab</div>
-                <div className="muted">會打開 {gl.baseURL} 的授權頁,按 Authorize 後回到 Ops 就完成了。權限:{gl.scopes}。</div>
+                <div className="muted">會打開 {gl.baseURL} 的授權頁,按 Authorize 後回到 omixor 就完成了。權限:{gl.scopes}。</div>
                 <div className="row gap8">
                   <button className="btn primary" disabled={busy || !!st?.busy} onClick={() => run(() => action("connection_login", { id: conn.id }))}>用瀏覽器登入</button>
                   {(busy || st?.busy) && <><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /><span className="caption">等瀏覽器授權…</span></>}

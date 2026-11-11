@@ -666,7 +666,7 @@ export function useWidth<T extends HTMLElement>(): [(el: T | null) => void, numb
   return [setEl, w];
 }
 
-/** Markdown 簡易顯示(Swift 的 MarkdownText):標題、清單、程式碼區塊、行內粗體/程式碼/連結 */
+/** Markdown 簡易顯示(Swift 的 MarkdownText):標題、清單、程式碼區塊、行內粗體/程式碼/連結/圖片 */
 export function MarkdownText({ source }: { source: string }) {
   type B = { k: "h"; l: number; t: string } | { k: "li"; m: string; t: string } | { k: "code"; t: string } | { k: "p"; t: string };
   const out: B[] = [];
@@ -703,16 +703,33 @@ export function MarkdownText({ source }: { source: string }) {
   );
 }
 
+/** 能顯示的圖片網址:本機附件(/api/attachments/…)或 https 圖片 */
+const imageSrcOK = (u: string) => /^\/api\/attachments\/[0-9a-f]{32}\.(png|jpg|gif|webp)$/.test(u) || /^https:\/\//.test(u);
+
+/** Markdown 圖片:點一下開新分頁看原圖 */
+function MdImage({ alt, src }: { alt: string; src: string }) {
+  if (!imageSrcOK(src)) return <>{alt || src}</>;
+  return (
+    <a href={src} target="_blank" rel="noreferrer" title={alt ? `${alt}(點一下看原圖)` : "點一下看原圖"} style={{ display: "inline-block", maxWidth: "100%" }}>
+      <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer"
+        style={{ maxWidth: "100%", maxHeight: 420, borderRadius: 6, border: "1px solid var(--line)", display: "block", cursor: "zoom-in" }} />
+    </a>
+  );
+}
+
 function Inline({ s }: { s: string }) {
   const parts: ReactNode[] = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+  const re = /(!\[[^\]]*\]\([^)\s]+\)|\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let k = 0;
   while ((m = re.exec(s))) {
     if (m.index > last) parts.push(s.slice(last, m.index));
     const tok = m[0];
-    if (tok.startsWith("**")) parts.push(<b key={k++}>{tok.slice(2, -2)}</b>);
+    if (tok.startsWith("![")) {
+      const mm = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(tok)!;
+      parts.push(<MdImage key={k++} alt={mm[1]} src={mm[2]} />);
+    } else if (tok.startsWith("**")) parts.push(<b key={k++}>{tok.slice(2, -2)}</b>);
     else if (tok.startsWith("`")) parts.push(<code key={k++} className="ops-inline-code">{tok.slice(1, -1)}</code>);
     else {
       const mm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok)!;

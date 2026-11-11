@@ -74,6 +74,19 @@ async function post<T>(url: string, args: unknown): Promise<T> {
 /** 以目前使用者身分執行 MCP 工具;失敗時丟出 ApiError(訊息和 MCP 的錯誤一樣) */
 export const tool = <T = any>(name: string, args: Record<string, unknown> = {}) => post<T>(`/api/tool/${name}`, args);
 
+/** 上傳圖片到目前組織的附件(PNG、JPEG、GIF、WebP,上限 10 MB),回傳 /api/attachments/… 網址 */
+export async function uploadImage(file: Blob): Promise<string> {
+  if (file.size > 10 * 1024 * 1024) throw new ApiError("圖片太大,上限 10 MB");
+  const data = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).replace(/^data:[^,]*,/, ""));
+    fr.onerror = () => reject(new ApiError("讀不到檔案"));
+    fr.readAsDataURL(file);
+  });
+  const r = await post<{ url: string }>("/api/attachments", { data });
+  return r.url;
+}
+
 /** 只有畫面能做的動作(核准、回滾、切換組織、登入…) */
 export const action = <T = any>(name: string, args: Record<string, unknown> = {}) => post<T>(`/api/action/${name}`, args);
 

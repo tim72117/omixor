@@ -447,7 +447,7 @@ func (s *Service) AuthenticateWith(cfg Config, bindPassword *string, username, p
 		}
 	}
 	if l.RequiredGroup != "" && !inGroup(u.Groups, l.RequiredGroup) {
-		return User{}, core.UserError{Message: "這個帳號不在允許使用 Ops 的群組裡"}
+		return User{}, core.UserError{Message: "這個帳號不在允許使用 omixor 的群組裡"}
 	}
 	u.Admin = l.AdminGroup == "" || inGroup(u.Groups, l.AdminGroup)
 	return u, nil

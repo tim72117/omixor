@@ -15,7 +15,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -79,7 +78,7 @@ func main() {
 		os.Exit(0)
 	}()
 	if os.Getenv("OPS_NO_BROWSER") == "" {
-		go func() { time.Sleep(300 * time.Millisecond); _ = exec.Command("open", url).Start() }()
+		go func() { time.Sleep(300 * time.Millisecond); _ = core.OpenURLCommand(url).Start() }()
 	}
 	srv := &http.Server{Handler: web.Handler(app, webui.Dist(), au), ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(srv.Serve(ln))

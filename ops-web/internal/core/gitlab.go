@@ -926,7 +926,7 @@ func init() {
 			out["baseURL"], out["caCert"], out["insecure"] = c.BaseURL, c.CACert, c.Insecure
 			if c.BaseURL != "" {
 				out["applicationsURL"] = c.BaseURL + "/-/user_settings/applications"
-				out["tokenURL"] = c.BaseURL + "/-/user_settings/personal_access_tokens?name=Ops&scopes=read_api"
+				out["tokenURL"] = c.BaseURL + "/-/user_settings/personal_access_tokens?name=omixor&scopes=read_api"
 			}
 		}
 		return out

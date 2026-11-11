@@ -440,7 +440,7 @@ func (p *VoicePipeline) adoptExternalBatch() {
 	}
 	job.Baseline = p.Snapshot()
 	job.NextCheckAt = voiceTimePtr(time.Now())
-	job.Note("接手 Ops 以外送出的批次 " + name + "(送出時的清單沒有記錄,改用現在的狀態比對)")
+	job.Note("接手 omixor 以外送出的批次 " + name + "(送出時的清單沒有記錄,改用現在的狀態比對)")
 	p.Jobs = append([]VoiceJob{job}, p.Jobs...)
 	p.save()
 }

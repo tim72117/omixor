@@ -87,7 +87,7 @@ func TestMCPVoiceTools(t *testing.T) {
 
 	sub := voiceCallOK(t, a, "ops_voice_submit", map[string]any{"scripts": []any{"launch/1.1.json"}})
 	id := sub["job"].(map[string]any)["id"].(string)
-	if sub["note"] != "馬上送出。完成後由人在 Ops › CI/CD › 旁白發佈 試聽並發佈;可用 ops_voice_jobs 查進度" {
+	if sub["note"] != "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 ops_voice_jobs 查進度" {
 		t.Fatal(sub["note"])
 	}
 	one := voiceCallOK(t, a, "ops_voice_jobs", map[string]any{"id": strings.ToLower(id)})

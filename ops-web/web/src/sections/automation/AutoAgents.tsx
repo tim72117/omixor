@@ -125,7 +125,7 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
       <Card title="角色設定" subtitle="AI 領取任務時會一起拿到這段">
         {agent.instructions ? <Markdown text={agent.instructions} /> : <span className="muted">還沒寫角色設定</span>}
       </Card>
-      <Card title="例行任務" subtitle="到時間 Ops 會替角色排一筆任務;上一筆沒做完不會重複排">
+      <Card title="例行任務" subtitle="到時間 omixor 會替角色排一筆任務;上一筆沒做完不會重複排">
         {agent.routines.length === 0 && <span className="muted">沒有例行任務,按「編輯…」新增</span>}
         {agent.routines.map((r) => (
           <div key={r.id} className="row gap8">

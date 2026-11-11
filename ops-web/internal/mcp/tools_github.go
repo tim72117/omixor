@@ -12,7 +12,7 @@ import (
 // ghReady 同 Swift 的 ghStore():要有連線且已登入
 func ghReady(c *Call) error {
 	if !core.GHLoggedIn(c.App) {
-		return ToolError{"Ops 還沒登入 GitHub。請人在 Ops 的 開發進度 › GitHub 設定並登入"}
+		return ToolError{"omixor 還沒登入 GitHub。請人在 omixor 的 開發進度 › GitHub 設定並登入"}
 	}
 	return nil
 }

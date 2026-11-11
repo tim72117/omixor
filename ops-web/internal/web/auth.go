@@ -101,7 +101,7 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 			MaxAge: au.Config().SessionHours * 3600,
 		})
 		app.Mu.Lock()
-		app.Log(core.Person(u.ID), "person.badge.key", "登入 Ops 網頁版", "settings")
+		app.Log(core.Person(u.ID), "person.badge.key", "登入 omixor 網頁版", "settings")
 		app.Mu.Unlock()
 		writeJSON(w, 200, map[string]any{"result": u})
 	})

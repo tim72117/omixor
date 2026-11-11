@@ -201,7 +201,7 @@ func (a *App) DeleteOrg(id string) error {
 	}
 	if DataDirExists(dir) {
 		home, _ := os.UserHomeDir()
-		trash := filepath.Join(home, ".Trash", fmt.Sprintf("Ops 組織 %s-%d", id, time.Now().Unix()))
+		trash := filepath.Join(home, ".Trash", fmt.Sprintf("omixor 組織 %s-%d", id, time.Now().Unix()))
 		// 檔案存放處搬到垃圾桶;資料庫存放處搬到資料庫裡的 deleted-orgs/(不直接刪掉)
 		if err := MoveDataDir(dir, trash); err != nil {
 			keep := filepath.Join(DataRoot(), "deleted-orgs", fmt.Sprintf("%s-%d", id, time.Now().Unix()))

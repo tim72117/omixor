@@ -128,13 +128,14 @@ export type CabinetView = { layout: CabinetSection[]; docs: CabinetDoc[] };
 export const tabTitle = (t: CabinetTab) => (t.code ? `${t.code} ${t.label}` : t.label);
 
 // 連線(ConnectionModels.swift)
-export type AuthKind = "oauth" | "approval" | "bearer" | "none";
-export const AUTH_KINDS: AuthKind[] = ["oauth", "approval", "bearer", "none"];
-export const AUTH_LABEL: Record<AuthKind, string> = { oauth: "OAuth 2.0 / OIDC", approval: "瀏覽器核准", bearer: "固定 Token", none: "不用認證" };
+export type AuthKind = "oauth" | "approval" | "bearer" | "basic" | "none";
+export const AUTH_KINDS: AuthKind[] = ["oauth", "approval", "bearer", "basic", "none"];
+export const AUTH_LABEL: Record<AuthKind, string> = { oauth: "OAuth 2.0 / OIDC", approval: "瀏覽器核准", bearer: "固定 Token", basic: "帳號 + Token(Basic)", none: "不用認證" };
 export const AUTH_DETAIL: Record<AuthKind, string> = {
   oauth: "標準 OAuth 授權碼流程 + PKCE,從網址自動探索端點;伺服器支援時自動註冊用戶端。Google、Auth0、Keycloak、Okta、MCP 伺服器等都適用",
-  approval: "Ops 在本機開回呼網址,瀏覽器裡由管理員按核准後換 token(evoleap CLI 的登入方式)",
+  approval: "omixor 在本機開回呼網址,瀏覽器裡由管理員按核准後換 token(evoleap CLI 的登入方式)",
   bearer: "貼上 API key 或個人存取權杖,每次請求帶 Authorization: Bearer",
+  basic: "存「帳號:token」(例如 Jira Cloud 的 email:API token),每次請求帶 Authorization: Basic",
   none: "公開的 API,不帶任何認證",
 };
 export type Connection = {

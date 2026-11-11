@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/url"
 	"path/filepath"
@@ -49,7 +50,7 @@ func (a *App) conns() *connState {
 	return s
 }
 
-func connTopics(a *App) { a.Changed("connections", "github", "gcp", "gitlab") }
+func connTopics(a *App) { a.Changed("connections", "github", "gcp", "gitlab", "jira") }
 
 func (a *App) connFile() string { return filepath.Join(a.DataDir(), "connections.json") }
 
@@ -326,7 +327,7 @@ func ConnLogin(a *App, id string) {
 	}
 	ConnRefreshAccount(a, id)
 	a.Mu.Lock()
-	text := "Ops 登入「" + c.Name + "」"
+	text := "omixor 登入「" + c.Name + "」"
 	if st := a.conns().States[id]; st != nil && st.Account != nil {
 		text += "(" + *st.Account + ")"
 	}
@@ -441,6 +442,11 @@ func ConnRequest(a *App, id, method, path string, body []byte) (any, error) {
 
 // ConnRequestRaw 同 ConnRequest,但回傳原始回應(不檢查狀態碼)
 func ConnRequestRaw(a *App, id, method, path string, body []byte) (*ConnResponse, error) {
+	return ConnRequestWith(a, id, method, path, body, nil)
+}
+
+// ConnRequestWith 同 ConnRequestRaw,可以加額外的標頭(例如下載檔案時 Accept: */*;Authorization 不能蓋)
+func ConnRequestWith(a *App, id, method, path string, body []byte, extra map[string]string) (*ConnResponse, error) {
 	a.Mu.Lock()
 	c, ok := ConnFind(a, id)
 	scope := a.conns().Scope
@@ -465,12 +471,21 @@ func ConnRequestRaw(a *App, id, method, path string, body []byte) (*ConnResponse
 		return nil, connErr("這個連線不能呼叫 " + h)
 	}
 	headers := map[string]string{}
+	for k, v := range extra {
+		if !strings.EqualFold(k, "Authorization") {
+			headers[k] = v
+		}
+	}
 	tok, err := connBearer(c, scope)
 	if err != nil {
 		return nil, err
 	}
 	if tok != nil {
-		headers["Authorization"] = "Bearer " + *tok
+		if c.Auth == AuthBasic {
+			headers["Authorization"] = "Basic " + base64.StdEncoding.EncodeToString([]byte(*tok))
+		} else {
+			headers["Authorization"] = "Bearer " + *tok
+		}
 	}
 	if body != nil {
 		headers["Content-Type"] = "application/json"

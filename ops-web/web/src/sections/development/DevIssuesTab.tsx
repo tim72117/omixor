@@ -6,6 +6,8 @@ import { color, EmptyState, Modal, Pill } from "../../components/ui";
 import { Banner, MarkdownText, MenuButton, monthDayTime, Seg, SIcon, useAct, useConfirm, useList, useOps, type Agent } from "../../components/opsKit";
 import { relative } from "../../fmt";
 import { useDev } from "./devShared";
+import { JiraImport } from "./JiraImport";
+import { MdTextarea } from "../../components/MdTextarea";
 
 export type IssueComment = { id: string; author: string; text: string; at: string };
 export type OpsIssue = {
@@ -30,6 +32,7 @@ export function DevIssuesTab() {
   const [filter, setFilter] = useState<Filter>("open");
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const q = query.trim().toLowerCase();
   const list = issues
     .filter((i) => (filter === "all" || i.status === filter) && (!q || i.title.toLowerCase().includes(q) || i.id.toLowerCase().includes(q) || (i.labels ?? []).some((l) => l.toLowerCase().includes(q)) || (i.body ?? "").toLowerCase().includes(q)))
@@ -51,13 +54,14 @@ export function DevIssuesTab() {
           <div className="row gap6">
             <input className="input grow" placeholder="搜尋標題、標籤、內文" value={query} onChange={(e) => setQuery(e.target.value)} />
             <button className="btn" title="新增 Issue" onClick={() => setCreating(true)}><SIcon name="plus" /></button>
+            <button className="btn" title="從 Jira 匯入" onClick={() => setImporting(true)}><SIcon name="square.and.arrow.down" /></button>
           </div>
         </div>
         <div className="divider" />
         {err && issues.length === 0 ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={err} />
           : list.length === 0 ? (
             <EmptyState title={issues.length === 0 ? "還沒有 Issue" : "沒有符合的 Issue"} icon="exclamationmark.bubble"
-              message={issues.length === 0 ? "按 + 新增,或讓 AI 透過 MCP 的 ops_issue_create 存進來。" : undefined} />
+              message={issues.length === 0 ? "按 + 新增、從 Jira 匯入,或讓 AI 透過 MCP 的 ops_issue_create 存進來。" : undefined} />
           ) : (
             <div className="ops-list">
               {list.map((i) => <IssueRow key={i.id} issue={i} on={i.id === dev.selectedIssue} onClick={() => dev.setSelectedIssue(i.id)} />)}
@@ -71,6 +75,9 @@ export function DevIssuesTab() {
       </div>
       <Modal open={creating} onClose={() => setCreating(false)} width={560}>
         <NewIssue onDone={(id) => { setCreating(false); if (id) { dev.setSelectedIssue(id); setFilter("open"); } }} />
+      </Modal>
+      <Modal open={importing} onClose={() => setImporting(false)} width={560}>
+        <JiraImport onDone={() => { setImporting(false); setFilter("all"); }} />
       </Modal>
     </div>
   );
@@ -167,7 +174,7 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
         <div className="col gap8">
           <input className="input" style={{ fontSize: 15 }} placeholder="標題" value={title} onChange={(e) => setTitle(e.target.value)} />
           <input className="input" placeholder="標籤(逗號分隔)" value={labels} onChange={(e) => setLabels(e.target.value)} />
-          <textarea className="textarea" style={{ minHeight: 220 }} value={body} onChange={(e) => setBody(e.target.value)} />
+          <MdTextarea style={{ minHeight: 220 }} value={body} onChange={setBody} />
           <div className="row gap8">
             <span className="caption muted">內文支援 Markdown</span>
             <span className="grow" />
@@ -189,7 +196,7 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
             </div>
           ))}
           <div className="row gap8" style={{ alignItems: "flex-end" }}>
-            <textarea className="textarea" style={{ minHeight: 34, height: 34, fontFamily: "inherit" }} placeholder="寫留言…" value={comment} onChange={(e) => setComment(e.target.value)} />
+            <MdTextarea style={{ minHeight: 34, fontFamily: "inherit" }} placeholder="寫留言…" value={comment} onChange={setComment} />
             <button className="btn" style={{ whiteSpace: "nowrap" }} disabled={!comment.trim()} onClick={async () => { const r = await upd({ comment: comment.trim() }); if (r !== undefined) setComment(""); }}>送出</button>
           </div>
         </div>
@@ -222,7 +229,7 @@ function NewIssue({ onDone }: { onDone: (id?: string) => void }) {
         </label>
         <input className="input grow" placeholder="標籤(逗號分隔)" value={labels} onChange={(e) => setLabels(e.target.value)} />
       </div>
-      <textarea className="textarea" style={{ minHeight: 180 }} value={body} onChange={(e) => setBody(e.target.value)} />
+      <MdTextarea style={{ minHeight: 180 }} value={body} onChange={setBody} />
       {error && <Banner>{error}</Banner>}
       <div className="row gap8">
         <span className="caption muted">內文支援 Markdown</span>

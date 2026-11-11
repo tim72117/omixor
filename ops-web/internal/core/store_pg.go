@@ -72,6 +72,11 @@ create table if not exists ops_state (
 	data jsonb not null,
 	updated_at timestamptz not null default now()
 );
+create table if not exists ops_files (
+	path text primary key,
+	data bytea not null,
+	created_at timestamptz not null default now()
+);
 `
 
 // OpenDB 連上資料庫、建表,並把存放處與密鑰都改到資料庫。key 是 base64 的 32 bytes(OPS_SECRET_KEY)。
@@ -398,7 +403,7 @@ func (a *App) loadPersisted() {
 	}
 
 	// 動態牆:最新的 activityKeep 筆
-	arows, err := pgPool.Query(ctx, `select item::text from ops_activity order by at desc, seq desc limit $1`, activityKeep)
+	arows, err := pgPool.Query(ctx, `select item::text from ops_activity where coalesce(item->>'org', '') = '' order by at desc, seq desc limit $1`, activityKeep)
 	if err == nil {
 		var items []map[string]any
 		for arows.Next() {
@@ -459,8 +464,10 @@ func markDirty(topics []string) {
 	pgSt.mu.Unlock()
 }
 
-// saveDirty 把有變的範例資料集合存起來(拿鎖複製,放鎖再寫)
+// saveDirty 把有變的範例資料集合存起來(拿鎖複製,放鎖再寫)。
+// 先拿 a.Mu 再拿 pgSt.mu(和切換組織時的 flushMockAsync 同順序),名稱依目前組織加前綴。
 func (a *App) saveDirty() {
+	a.Mu.Lock()
 	pgSt.mu.Lock()
 	names := make([]string, 0, len(pgSt.dirty))
 	for n := range pgSt.dirty {
@@ -468,19 +475,24 @@ func (a *App) saveDirty() {
 	}
 	pgSt.dirty = map[string]bool{}
 	pgSt.mu.Unlock()
-	if len(names) == 0 {
-		return
-	}
-	a.Mu.Lock()
+	org := a.mockOrg()
 	data := map[string][]byte{}
 	for _, n := range names {
 		if n == "sprint" {
-			data[n] = Marshal(a.Sprint)
+			data[mockStateKey(org, n)] = Marshal(a.Sprint)
 		} else {
-			data[n] = Marshal(a.C[n])
+			data[mockStateKey(org, n)] = Marshal(a.C[n])
 		}
 	}
 	a.Mu.Unlock()
+	pgWriteState(data)
+}
+
+// pgWriteState 寫入 ops_state(key 已含組織前綴)
+func pgWriteState(data map[string][]byte) {
+	if len(data) == 0 {
+		return
+	}
 	ctx, cancel := pgCtx()
 	defer cancel()
 	for n, b := range data {
@@ -510,9 +522,12 @@ func ActivityHistory(a *App, before time.Time, limit int) []map[string]any {
 		}
 		return out
 	}
+	a.Mu.Lock()
+	org := activityOrg(a.mockOrg())
+	a.Mu.Unlock()
 	ctx, cancel := pgCtx()
 	defer cancel()
-	rows, err := pgPool.Query(ctx, `select item::text from ops_activity where at < $1 order by at desc, seq desc limit $2`, before, limit)
+	rows, err := pgPool.Query(ctx, `select item::text from ops_activity where at < $1 and coalesce(item->>'org', '') = $3 order by at desc, seq desc limit $2`, before, limit, org)
 	if err != nil {
 		return nil
 	}

@@ -124,13 +124,13 @@ func TestSiteMCPToolReadsThroughConnection(t *testing.T) {
 	defer f.Close()
 
 	// 還沒登入:回錯誤,不會當機
-	if msg := extErr(t, a, "ops_site_visitors", nil); msg != "讀不到訪客統計:HTTP 401:還沒登入「evoleap 正式站」(請在 Ops 登入對應的連線)" {
+	if msg := extErr(t, a, "ops_site_visitors", nil); msg != "讀不到訪客統計:HTTP 401:還沒登入「evoleap 正式站」(請在 omixor 登入對應的連線)" {
 		t.Fatal(msg)
 	}
 	if len(f.Requests()) != 0 {
 		t.Fatal("沒登入不該送出請求")
 	}
-	if msg := extErr(t, a, "ops_site_visitors", map[string]any{"connection": "nope"}); msg != "讀不到訪客統計:找不到連線 nope(請在 Ops 登入對應的連線)" {
+	if msg := extErr(t, a, "ops_site_visitors", map[string]any{"connection": "nope"}); msg != "讀不到訪客統計:找不到連線 nope(請在 omixor 登入對應的連線)" {
 		t.Fatal(msg)
 	}
 
@@ -171,7 +171,7 @@ func TestSiteMCPToolReadsThroughConnection(t *testing.T) {
 	}
 	// token 失效
 	core.ConnSetBearer(a, "evoleap", "old")
-	if msg := extErr(t, a, "ops_site_visitors", nil); msg != "讀不到訪客統計:HTTP 401:登入已失效,請重新登入(請在 Ops 登入對應的連線)" {
+	if msg := extErr(t, a, "ops_site_visitors", nil); msg != "讀不到訪客統計:HTTP 401:登入已失效,請重新登入(請在 omixor 登入對應的連線)" {
 		t.Fatal(msg)
 	}
 }

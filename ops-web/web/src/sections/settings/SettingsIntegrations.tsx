@@ -34,7 +34,7 @@ export function SettingsIntegrations() {
           <Icon name="puzzlepiece.extension.fill" size={22} color="var(--accent)" />
           <div className="col grow">
             <span style={{ fontWeight: 600 }}>已連線 {all.filter((i) => i.connected).length} / {all.length} 個整合</span>
-            <span className="caption muted">Ops 透過這些整合讀取原始碼、CI/CD、雲端資源與監控資料,並送出通知。</span>
+            <span className="caption muted">omixor 透過這些整合讀取原始碼、CI/CD、雲端資源與監控資料,並送出通知。</span>
           </div>
         </Row>
         <Row>
@@ -69,7 +69,7 @@ export function SettingsIntegrations() {
         </Section>
       ))}
       <Modal open={!!pending} onClose={() => setPending(undefined)} width={420} title={`中斷與 ${pending?.name ?? ""} 的連線?`}>
-        <span className="muted">Ops 將停止從 {pending?.name} 讀取資料,相關的自動化與通知也會暫停。</span>
+        <span className="muted">omixor 將停止從 {pending?.name} 讀取資料,相關的自動化與通知也會暫停。</span>
         <div className="row gap8" style={{ justifyContent: "flex-end" }}>
           <button className="btn" onClick={() => setPending(undefined)}>取消</button>
           <button className="btn red" onClick={() => { const p = pending!; setPending(undefined); run(() => action("integration_set", { id: p.id, connected: false })); }}>中斷連線</button>

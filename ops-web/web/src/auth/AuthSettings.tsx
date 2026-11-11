@@ -108,7 +108,7 @@ export function AuthSettings() {
               </div>
             )}
             <div className="grid g3">
-              {field("帳號屬性(Ops 裡的使用者 id)", "idAttr", "uid")}
+              {field("帳號屬性(omixor 裡的使用者 id)", "idAttr", "uid")}
               {field("顯示名稱屬性", "nameAttr", "cn")}
               {field("Email 屬性", "mailAttr", "mail")}
             </div>

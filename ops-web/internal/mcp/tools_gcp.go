@@ -10,13 +10,13 @@ import (
 
 func gcpReady(c *Call) error {
 	if !core.GCPLoggedIn(c.App) {
-		return ToolError{"Ops 還沒登入 Google Cloud。請人在 Ops 的 伺服器與服務 › GCP 設定並登入"}
+		return ToolError{"omixor 還沒登入 Google Cloud。請人在 omixor 的 伺服器與服務 › GCP 設定並登入"}
 	}
 	c.App.Mu.Lock()
 	ok := core.GCPConfigured(c.App)
 	c.App.Mu.Unlock()
 	if !ok {
-		return ToolError{"還沒設定 GCP 專案,請人在 Ops 的 伺服器與服務 › GCP 設定"}
+		return ToolError{"還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定"}
 	}
 	return nil
 }

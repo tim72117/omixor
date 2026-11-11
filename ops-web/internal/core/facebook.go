@@ -16,7 +16,7 @@ import (
 // 函式名稱後面註明「拿著鎖呼叫」的要先拿 a.Mu,其他的不能拿著 a.Mu 呼叫。
 
 // FBNotConnected 還沒連線時的訊息
-const FBNotConnected = "Ops 還沒連上 Facebook 粉絲專頁。請人在 Ops 的 AI 自動化 › 粉絲專頁 設定連線(Meta 登入或貼上 Page access token),並勾選要管理的專頁。"
+const FBNotConnected = "omixor 還沒連上 Facebook 粉絲專頁。請人在 omixor 的 AI 自動化 › 粉絲專頁 設定連線(Meta 登入或貼上 Page access token),並勾選要管理的專頁。"
 
 // FBConfirmOwner 發佈與排程前確認是本人(Swift 用 Touch ID / 電腦密碼)。Go 版畫面的登入就是身分確認,預設通過;測試可以換掉
 var FBConfirmOwner = func(reason string) bool { return true }

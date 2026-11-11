@@ -24,14 +24,14 @@ function LoginPage() {
   const [p, setP] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
-  useEffect(() => void (document.title = "登入 · Ops"), []);
+  useEffect(() => void (document.title = "登入 · omixor"), []);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setErr(undefined);
     try {
       await login(u, p);
-      document.title = "Ops";
+      document.title = "omixor";
     } catch (e: any) {
       setErr(e.message);
       setP("");
@@ -44,7 +44,7 @@ function LoginPage() {
       <form className="login-card" onSubmit={submit}>
         <div className="row gap8" style={{ justifyContent: "center" }}>
           <Icon name="server.rack" size={22} />
-          <span className="h2">Ops</span>
+          <span className="h2">omixor</span>
         </div>
         <div className="muted caption" style={{ textAlign: "center" }}>用公司的 LDAP 帳號登入</div>
         <input className="input" placeholder="帳號" autoComplete="username" autoFocus value={u} onChange={(e) => setU(e.target.value)} />

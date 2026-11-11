@@ -61,7 +61,7 @@ func init() {
 				ahead++
 			}
 		}
-		note := "馬上送出。完成後由人在 Ops › CI/CD › 旁白發佈 試聽並發佈;可用 ops_voice_jobs 查進度"
+		note := "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 ops_voice_jobs 查進度"
 		if ahead > 0 {
 			note = fmt.Sprintf("前面還有 %d 批,輪到時自動送出", ahead)
 		}

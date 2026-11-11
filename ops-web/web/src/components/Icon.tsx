@@ -20,7 +20,7 @@ const MAP: Record<string, LucideIcon> = {
   cube: L.Box, "play.circle": L.CirclePlay, "dollarsign.circle": L.CircleDollarSign, "text.word.spacing": L.Type, speedometer: L.Gauge,
   nosign: L.Ban, "hand.raised.slash": L.HandMetal, stethoscope: L.Stethoscope, "arrow.triangle.2.circlepath": L.RefreshCw,
   "sidebar.left": L.PanelLeft, "sidebar.trailing": L.PanelRight, "arrow.uturn.right.circle": L.Redo2, "circle.dotted": L.CircleDashed,
-  "puzzlepiece.extension": L.Puzzle, power: L.Power, moon: L.Moon, "list.bullet.clipboard": L.ClipboardList, "square.and.arrow.up": L.Upload,
+  "puzzlepiece.extension": L.Puzzle, power: L.Power, moon: L.Moon, "list.bullet.clipboard": L.ClipboardList, "square.and.arrow.up": L.Upload, "square.and.arrow.down": L.Download, photo: L.Image,
   "ellipsis.circle": L.Ellipsis, briefcase: L.Briefcase, storefront: L.Store, flask: L.FlaskConical, heart: L.Heart, leaf: L.Leaf, star: L.Star,
   "folder.badge.plus": L.FolderPlus, "minus.circle": L.CircleMinus, "chevron.up.chevron.down": L.ChevronsUpDown, "brain.head.profile": L.Brain,
   "arrow.up.circle": L.CircleArrowUp, "person.crop.circle.badge.exclamationmark": L.UserX, "arrow.up.left.and.arrow.down.right": L.Scale,

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,8 +22,21 @@ import (
 //  3. 開瀏覽器授權,導回 127.0.0.1 的回呼,用 code + code_verifier 換 token
 //  4. token 快過期時用 refresh_token 換新
 
-// OpenBrowser 開瀏覽器的方式(預設用 macOS 的 open);測試時換成直接打回呼網址。跑 go test 時預設什麼都不做。
-var OpenBrowser = func(u string) { _ = exec.Command("open", u).Start() }
+// OpenBrowser 開瀏覽器的方式(依系統用 open / rundll32 / xdg-open);測試時換成直接打回呼網址。跑 go test 時預設什麼都不做。
+var OpenBrowser = func(u string) { _ = OpenURLCommand(u).Start() }
+
+// OpenURLCommand 用系統預設瀏覽器開網址的指令。
+// Windows 用 rundll32 而不是 cmd /c start:網址裡的 & 不會被 cmd 拆開。
+func OpenURLCommand(u string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", u)
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
+	default:
+		return exec.Command("xdg-open", u)
+	}
+}
 
 func init() {
 	if testing.Testing() {
@@ -36,7 +50,7 @@ func clientLabel() string {
 	if err != nil || name == "" {
 		name = "Mac"
 	}
-	return "Ops(" + strings.TrimSuffix(name, ".local") + ")"
+	return "omixor(" + strings.TrimSuffix(name, ".local") + ")"
 }
 
 // OAuthMetadata 授權伺服器的端點
@@ -328,12 +342,38 @@ func oauthLogin(c Connection, scope string) (*TokenSet, OAuthSettings, error) {
 	if m.Resource != "" {
 		fields["resource"] = m.Resource
 	}
-	r, err := connCheck(connForm(&c, m.TokenEndpoint, fields))
+	r, err := oauthTokenCheck(connForm(&c, m.TokenEndpoint, fields))
 	if err != nil {
 		return nil, settings, err
 	}
 	t, err := oauthParseTokens(r.JSON(), nil)
 	return t, settings, err
+}
+
+// oauthTokenCheck 用授權碼換 token 的回應:失敗時保留伺服器的 error / error_description
+// (connCheck 會把 401 一律改成「登入已失效」,換 token 時那通常是 invalid_client,會誤導)
+func oauthTokenCheck(r *ConnResponse, err error) (*ConnResponse, error) {
+	if err != nil {
+		return nil, err
+	}
+	if r.OK() {
+		return r, nil
+	}
+	o, _ := r.JSON().(map[string]any)
+	code, _ := o["error"].(string)
+	msg := "換 token 失敗(HTTP " + strconv.Itoa(r.Status) + "):"
+	if desc, _ := o["error_description"].(string); code != "" && desc != "" {
+		msg += code + ":" + desc
+	} else {
+		msg += connErrorMessage(r)
+	}
+	switch code {
+	case "invalid_client":
+		msg += "。用戶端驗證失敗:OAuth 應用程式如果是 Confidential(機密),要把 Secret 填進連線設定;或確認 client_id 正確"
+	case "invalid_grant":
+		msg += "。授權碼無效或回呼網址不符:請重新登入;一直失敗的話確認應用程式的回呼網址"
+	}
+	return nil, ConnError{Status: r.Status, Message: msg}
 }
 
 func oauthRefresh(c Connection, scope string, t *TokenSet) (*TokenSet, error) {
