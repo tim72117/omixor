@@ -18,7 +18,10 @@ services:
       retries: 20
 
   ops-web:
-    build: .
+    # 建置內容是 repo 根目錄:ops-web 編譯時要引入旁邊的 omixor-core
+    build:
+      context: ..
+      dockerfile: ops-web/Dockerfile
     restart: unless-stopped
     depends_on:
       db:

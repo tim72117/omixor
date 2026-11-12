@@ -1,0 +1,15 @@
+# repo 根目錄當 docker 建置內容時(ops-web/Dockerfile、ops-web/Dockerfile.issues)略過的東西
+.git
+.github
+.claude
+ops
+prototypes
+**/node_modules
+ops-web/web/dist
+ops-web/conformance
+ops-web/omixor
+ops-web/omixor-issues
+omixor-core/omixor
+omixor-core/omixor-server
+**/*.log
+**/.DS_Store

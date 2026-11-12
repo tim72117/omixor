@@ -1,14 +1,25 @@
 package main
 
-import "testing"
+import (
+	"net/http/httptest"
+	"testing"
 
-func TestEnvOr(t *testing.T) {
-	t.Setenv("OMIXOR_TEST_X", "")
-	if envOr("OMIXOR_TEST_X", "d") != "d" {
-		t.Fatal("沒設要用預設值")
+	"omixor-core/server"
+	"omixor-core/service"
+	"omixor-core/store"
+)
+
+// 這個指令就是核心的 omixor-server:健康檢查與 API 都在
+func TestServesCoreHandler(t *testing.T) {
+	h := server.Handler(&service.Service{Store: store.NewMem()})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/health", nil))
+	if rec.Code != 200 || rec.Body.String() != "ok" {
+		t.Fatal(rec.Code, rec.Body.String())
 	}
-	t.Setenv("OMIXOR_TEST_X", "v")
-	if envOr("OMIXOR_TEST_X", "d") != "v" {
-		t.Fatal("有設要用設定值")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/orgs", nil))
+	if rec.Code != 401 {
+		t.Fatal("沒登入要 401", rec.Code)
 	}
 }

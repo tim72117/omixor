@@ -13,7 +13,7 @@ struct OpsApp: App {
 
     var body: some Scene {
         WindowGroup("omixor") {
-            RootView()
+            LoginGate { RootView() }
                 .environmentObject(app)
                 .frame(minWidth: 1180, minHeight: 720)
                 .onAppear {

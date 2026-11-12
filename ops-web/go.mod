@@ -7,6 +7,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/jimlambrt/gldap v0.1.13
 	golang.org/x/sys v0.28.0
+	omixor-core v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -30,3 +31,5 @@ require (
 	golang.org/x/text v0.21.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace omixor-core => ../omixor-core

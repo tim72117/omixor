@@ -1,47 +1,98 @@
 package core
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"omixor-core/client"
+	"omixor-core/model"
+	"omixor-core/service"
+	"omixor-core/store"
 )
 
-// Issue 伺服器(同 Swift 的 Issues/IssueRemote.swift):設了 OPS_ISSUE_SERVER 時,Issue 不存本機也不存這台的資料庫,
-// 改透過 omixor-issues 服務(或另一台 ops-web)的 /api/issues/<組織> 讀寫,它是唯一的資料來源。
+// Issue 交給 omixor 核心(omixor-core)。ops-web 啟動時二選一:
 //
-//	OPS_ISSUE_SERVER        例如 https://omixor-issues-….run.app
-//	OPS_ISSUE_SERVER_TOKEN  固定的 Bearer token(另一台 ops-web 的 OPS_API_TOKEN);沒設時用 omixor 自己的 token(omx_…,
-//	                        存在鑰匙圈的 omixor-issues):沒有或被拒絕(401)時,拿 evoleap 連線的 token 去
-//	                        /api/auth/evoleap 換一個再重送(evoleap 只證明身分,能不能用由 omixor 的使用者名單決定)
+//	遠端:OMIXOR_SERVER(或舊的 OPS_ISSUE_SERVER)指向線上 omixor server,用 omixor-core/client 讀寫
+//	      token:OPS_ISSUE_SERVER_TOKEN 固定的;沒設時用 omixor 自己的 token(鑰匙圈的 omixor-issues),
+//	      沒有或被拒絕(401)就拿 evoleap 連線的 token 去 /api/auth/evoleap 換一個再重送
+//	內建:有 OPS_DATABASE_URL(PostgreSQL)時,核心的 service 跑在同一個程式裡,用同一個資料庫
+//	都沒有:照舊存組織資料夾的 issues.json(測試、跨版比對用)
 //
-// 讀:組織載入時、每次修改前、ops_issues 查詢前重讀(最多每 2 秒一次)。寫:每個動作各自送出,用伺服器回傳的內容。
-// 這些請求在拿著 Mu 時發出(Issue 的介面是同步的),逾時 8 秒。
+// 讀:組織載入時在背景讀、每次修改前、ops_issues 查詢前重讀;遠端模式每 5 秒在背景同步一次。
+// 寫:每個動作各自送給核心,用回傳的內容。內建模式以「ops-web」(伺服器管理員)身分呼叫核心。
 
 const (
 	issueRemoteEvoleapConn = "evoleap"
 	issueRemoteTokenID     = "omixor-issues"
 )
 
-var issueRemoteClient = &http.Client{Timeout: 8 * time.Second}
-
-// IssueRemoteURL 設定的 Issue 伺服器(沒設回傳 "")
+// IssueRemoteURL 設定的 omixor server(沒設回傳 "")
 func IssueRemoteURL() string {
-	return strings.TrimRight(strings.TrimSpace(os.Getenv("OPS_ISSUE_SERVER")), "/")
+	for _, k := range []string{"OMIXOR_SERVER", "OPS_ISSUE_SERVER"} {
+		if v := strings.TrimRight(strings.TrimSpace(os.Getenv(k)), "/"); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
-func issueRemoteOn() bool { return IssueRemoteURL() != "" }
+// issueBackend 核心的 Issue 操作(遠端或內建)
+type issueBackend interface {
+	List(scope, org string) ([]model.Issue, error)
+	Create(scope, org string, in service.IssueInput) (*model.Issue, error)
+	Update(scope, org, id string, p service.IssuePatch) (*model.Issue, error)
+	Delete(scope, org, id string) error
+}
 
-// IssueRemoteError 最近一次 Issue 伺服器的錯誤(成功後清掉;拿著 Mu 呼叫)
-func (a *App) IssueRemoteError() string { return a.issueSt().remoteErr }
+var (
+	backendOnce sync.Once
+	backendVal  issueBackend
+	backendMu   sync.Mutex
+)
+
+// issueRemoteOn 有沒有交給核心(遠端或內建)
+func issueRemoteOn() bool { return currentIssueBackend() != nil }
+
+func currentIssueBackend() issueBackend {
+	backendMu.Lock()
+	defer backendMu.Unlock()
+	if url := IssueRemoteURL(); url != "" {
+		if r, ok := backendVal.(*remoteBackend); !ok || r.base != url {
+			backendVal = &remoteBackend{base: url}
+		}
+		return backendVal
+	}
+	if pgPool != nil {
+		if _, ok := backendVal.(*localBackend); !ok {
+			st, err := store.NewPGFromPool(pgPool)
+			if err != nil {
+				log.Printf("核心建表失敗,Issue 改存檔案:%v", err)
+				backendVal = nil
+				return nil
+			}
+			svc := &service.Service{Store: st}
+			if err := svc.EnsureOrgsForIssues(); err != nil {
+				log.Printf("補建組織失敗:%v", err)
+			}
+			backendVal = &localBackend{svc: svc}
+		}
+		return backendVal
+	}
+	backendVal = nil
+	return nil
+}
+
+// ---- 遠端:omixor-core/client ----
+
+type remoteBackend struct{ base string }
+
+var issueRemoteExchangeMu sync.Mutex
 
 // issueRemoteToken 固定的 token,或存著的 omixor token(沒有就回 "")
 func issueRemoteToken(scope string) string {
@@ -54,11 +105,19 @@ func issueRemoteToken(scope string) string {
 	return ""
 }
 
-var issueRemoteExchangeMu sync.Mutex
+func (r *remoteBackend) client(scope string) *client.Client {
+	c := client.New(r.base)
+	c.HTTP.Timeout = 8 * time.Second
+	c.Token = func() string { return issueRemoteToken(scope) }
+	if os.Getenv("OPS_ISSUE_SERVER_TOKEN") == "" {
+		c.Refresh = func(stale string) (string, error) { return issueRemoteExchange(r.base, scope, stale) }
+	}
+	return c
+}
 
-// issueRemoteExchange 用 evoleap 連線的登入,向 omixor-issues 換一個 omixor 自己的 token(存進鑰匙圈)。
-// 同時只換一次:別的請求剛換好(鑰匙圈裡已經有、而且不是 stale 那一把)就直接用,不重複換
-func issueRemoteExchange(scope, stale string) (string, error) {
+// issueRemoteExchange 用 evoleap 連線的登入,向 omixor server 換一個 omixor 自己的 token(存進鑰匙圈)。
+// 同時只換一次:別的請求剛換好(鑰匙圈裡已經有、而且不是 stale 那一把)就直接用
+func issueRemoteExchange(base, scope, stale string) (string, error) {
 	issueRemoteExchangeMu.Lock()
 	defer issueRemoteExchangeMu.Unlock()
 	if t := vaultTokens(scope, issueRemoteTokenID); t != nil && t.AccessToken != "" && t.AccessToken != stale {
@@ -68,110 +127,94 @@ func issueRemoteExchange(scope, stale string) (string, error) {
 	if evo == nil || evo.AccessToken == "" {
 		return "", errors.New("還沒登入 evoleap 連線:請在 設定 › 連線 登入「evoleap 正式站」,omixor 會用它證明身分")
 	}
-	b, _ := json.Marshal(map[string]any{"token": evo.AccessToken, "device": clientLabel() + " 網頁版"})
-	req, err := http.NewRequest("POST", IssueRemoteURL()+"/api/auth/evoleap", bytes.NewReader(b))
+	c := client.New(base)
+	c.HTTP.Timeout = 8 * time.Second
+	res, err := c.LoginWithEvoleap(evo.AccessToken, clientLabel()+" 網頁版")
 	if err != nil {
-		return "", err
+		if client.Status(err) == 0 {
+			return "", err
+		}
+		return "", fmt.Errorf("omixor 拒絕登入:%v", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := issueRemoteClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("連不到 Issue 伺服器:%v", err)
+	var exp *Time
+	if res.ExpiresAt != nil {
+		exp = &Time{res.ExpiresAt.Time}
 	}
-	defer resp.Body.Close()
-	var out struct {
-		Token     string `json:"token"`
-		ExpiresAt *Time  `json:"expiresAt"`
-		Error     string `json:"error"`
-	}
-	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
-	if out.Error != "" {
-		return "", errors.New("omixor 拒絕登入:" + out.Error)
-	}
-	if resp.StatusCode != 200 || out.Token == "" {
-		return "", fmt.Errorf("omixor 登入失敗(HTTP %d)", resp.StatusCode)
-	}
-	vaultSetTokens(scope, issueRemoteTokenID, &TokenSet{AccessToken: out.Token, ExpiresAt: out.ExpiresAt, TokenType: strPtr("Bearer")})
-	return out.Token, nil
+	vaultSetTokens(scope, issueRemoteTokenID, &TokenSet{AccessToken: res.Token, ExpiresAt: exp, TokenType: strPtr("Bearer")})
+	return res.Token, nil
 }
 
-// issueRemoteCall 拿著 Mu 呼叫
-func (a *App) issueRemoteCall(method, org string, path []string, body any) (json.RawMessage, error) {
-	return issueRemoteCallScoped(a.conns().Scope, method, org, path, body)
+func (r *remoteBackend) List(scope, org string) ([]model.Issue, error) { return r.client(scope).ListIssues(org) }
+func (r *remoteBackend) Create(scope, org string, in service.IssueInput) (*model.Issue, error) {
+	return r.client(scope).CreateIssue(org, in)
+}
+func (r *remoteBackend) Update(scope, org, id string, p service.IssuePatch) (*model.Issue, error) {
+	return r.client(scope).UpdateIssue(org, id, p)
+}
+func (r *remoteBackend) Delete(scope, org, id string) error { return r.client(scope).DeleteIssue(org, id) }
+
+// ---- 內建:核心 service 跑在同一個程式 ----
+
+type localBackend struct{ svc *service.Service }
+
+// ops-web 以伺服器管理員身分呼叫核心(畫面與 MCP 的權限由 ops-web 自己管)
+var localPrincipal = &model.Principal{User: model.User{ID: "ops-web", Email: "ops-web", Role: "admin"}}
+
+// ensureOrg 組織還沒建就補建(ops-web 的組織是自己管的)
+func (l *localBackend) ensureOrg(org string) {
+	if _, err := l.svc.Store.GetOrg(org); err != nil {
+		_ = l.svc.Store.CreateOrg(model.Org{ID: org, Name: org, CreatedAt: model.Now()})
+	}
 }
 
-// issueRemoteCallScoped 不用拿鎖(scope 是鑰匙圈的組織前綴)
-func issueRemoteCallScoped(scope, method, org string, path []string, body any) (json.RawMessage, error) {
-	u := IssueRemoteURL() + "/api/issues/" + url.PathEscape(org)
-	for _, p := range path {
-		u += "/" + url.PathEscape(p)
-	}
-	var payload []byte
-	if body != nil {
-		payload, _ = json.Marshal(body)
-	}
-	send := func(token string) (*http.Response, error) {
-		var rd io.Reader
-		if payload != nil {
-			rd = bytes.NewReader(payload)
-		}
-		req, err := http.NewRequest(method, u, rd)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Accept", "application/json")
-		if payload != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		resp, err := issueRemoteClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("連不到 Issue 伺服器:%v", err)
-		}
-		return resp, nil
-	}
-	fixed := os.Getenv("OPS_ISSUE_SERVER_TOKEN") != ""
-	token := issueRemoteToken(scope)
-	if token == "" && !fixed {
-		t, err := issueRemoteExchange(scope, "")
-		if err != nil {
-			return nil, err
-		}
-		token = t
-	}
-	resp, err := send(token)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode == 401 && !fixed {
-		// omixor token 過期或被撤銷:換一個再送一次
-		resp.Body.Close()
-		t, err := issueRemoteExchange(scope, token)
-		if err != nil {
-			return nil, err
-		}
-		if resp, err = send(t); err != nil {
-			return nil, err
-		}
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Result json.RawMessage `json:"result"`
-		Error  string          `json:"error"`
-	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(&out) != nil {
-		return nil, fmt.Errorf("Issue 伺服器回應不對(HTTP %d)", resp.StatusCode)
-	}
-	if out.Error != "" {
-		return nil, errors.New(out.Error)
-	}
-	if resp.StatusCode/100 != 2 || out.Result == nil {
-		return nil, fmt.Errorf("Issue 伺服器回應不對(HTTP %d)", resp.StatusCode)
-	}
-	return out.Result, nil
+func (l *localBackend) List(_, org string) ([]model.Issue, error) {
+	l.ensureOrg(org)
+	return l.svc.ListIssues(localPrincipal, org)
 }
+func (l *localBackend) Create(_, org string, in service.IssueInput) (*model.Issue, error) {
+	l.ensureOrg(org)
+	return l.svc.CreateIssue(localPrincipal, org, in)
+}
+func (l *localBackend) Update(_, org, id string, p service.IssuePatch) (*model.Issue, error) {
+	l.ensureOrg(org)
+	return l.svc.UpdateIssue(localPrincipal, org, id, p)
+}
+func (l *localBackend) Delete(_, org, id string) error {
+	l.ensureOrg(org)
+	return l.svc.DeleteIssue(localPrincipal, org, id)
+}
+
+// ---- 型別轉換(JSON 格式相同) ----
+
+func toOps(i model.Issue) OpsIssue {
+	b, _ := json.Marshal(i)
+	var o OpsIssue
+	_ = json.Unmarshal(b, &o)
+	return o
+}
+
+func toOpsList(l []model.Issue) []OpsIssue {
+	out := []OpsIssue{}
+	for _, i := range l {
+		out = append(out, toOps(i))
+	}
+	return out
+}
+
+func toModelComments(cs []IssueComment) []model.Comment {
+	b, _ := json.Marshal(cs)
+	var out []model.Comment
+	_ = json.Unmarshal(b, &out)
+	if out == nil {
+		out = []model.Comment{}
+	}
+	return out
+}
+
+// ---- App 用的操作(拿著 Mu 呼叫) ----
+
+// IssueRemoteError 最近一次核心的錯誤(成功後清掉;拿著 Mu 呼叫)
+func (a *App) IssueRemoteError() string { return a.issueSt().remoteErr }
 
 func (a *App) issueRemoteFailed(err error) {
 	s := a.issueSt()
@@ -181,13 +224,13 @@ func (a *App) issueRemoteFailed(err error) {
 	s.remoteErr = err.Error()
 }
 
-// issueRemoteLoad 從伺服器讀 s.Org 的全部 Issue;失敗時保留原本的清單
+// issueRemoteLoad 從核心讀 s.Org 的全部 Issue;失敗時保留原本的清單
 func (a *App) issueRemoteLoad(s *issueState) {
-	raw, err := a.issueRemoteCall("GET", s.Org, nil, nil)
-	var list []OpsIssue
-	if err == nil {
-		err = json.Unmarshal(raw, &list)
+	b := currentIssueBackend()
+	if b == nil {
+		return
 	}
+	list, err := b.List(a.conns().Scope, s.Org)
 	if err != nil {
 		a.issueRemoteFailed(err)
 		if s.Issues == nil {
@@ -195,14 +238,11 @@ func (a *App) issueRemoteLoad(s *issueState) {
 		}
 		return
 	}
-	if list == nil {
-		list = []OpsIssue{}
-	}
-	s.Issues, s.remoteErr, s.fetched = list, "", time.Now()
+	s.Issues, s.remoteErr, s.fetched = toOpsList(list), "", time.Now()
 	s.gen++
 }
 
-// RefreshIssuesIfStale Issue 伺服器模式:超過 maxAge 沒讀就重讀(拿著 Mu 呼叫;不是伺服器模式不做事)
+// RefreshIssuesIfStale 交給核心時:超過 maxAge 沒讀就重讀(拿著 Mu 呼叫;存檔案時不做事)
 func (a *App) RefreshIssuesIfStale(maxAge time.Duration) {
 	if !issueRemoteOn() {
 		return
@@ -214,35 +254,37 @@ func (a *App) RefreshIssuesIfStale(maxAge time.Duration) {
 }
 
 func (a *App) issueRemoteCreate(title, body, priority string, labels []string, source, link, author string) (OpsIssue, error) {
-	raw, err := a.issueRemoteCall("POST", a.issueSt().Org, nil, map[string]any{
-		"title": title, "body": body, "priority": priority, "labels": labels, "source": source, "link": link, "author": author,
-	})
-	var i OpsIssue
-	if err == nil {
-		err = json.Unmarshal(raw, &i)
+	b := currentIssueBackend()
+	i, err := b.Create(a.conns().Scope, a.issueSt().Org, service.IssueInput{Title: title, Body: body, Priority: priority,
+		Labels: labels, Source: source, Link: link, Author: author})
+	if err != nil {
+		return OpsIssue{}, err
 	}
-	return i, err
+	return toOps(*i), nil
 }
 
 func (a *App) issueRemoteUpdate(n OpsIssue, author string) (OpsIssue, error) {
-	raw, err := a.issueRemoteCall("POST", a.issueSt().Org, []string{n.ID}, map[string]any{
-		"author": author, "title": n.Title, "body": n.Body, "status": n.Status, "priority": n.Priority,
-		"labels": n.Labels, "source": n.Source, "link": n.Link, "comments": n.Comments,
-	})
-	var i OpsIssue
-	if err == nil {
-		err = json.Unmarshal(raw, &i)
+	b := currentIssueBackend()
+	labels, comments := n.Labels, toModelComments(n.Comments)
+	i, err := b.Update(a.conns().Scope, a.issueSt().Org, n.ID, service.IssuePatch{Title: &n.Title, Body: &n.Body, Status: &n.Status,
+		Priority: &n.Priority, Labels: &labels, Source: &n.Source, Link: &n.Link, Comments: &comments, Author: author})
+	if err != nil {
+		return OpsIssue{}, err
 	}
-	return i, err
+	return toOps(*i), nil
 }
 
-// issueRemoteSync 在鎖外讀 org 的 Issue,讀到就換上並通知畫面(組織已經換掉就丟掉)
+func (a *App) issueRemoteDelete(id string) error {
+	return currentIssueBackend().Delete(a.conns().Scope, a.issueSt().Org, id)
+}
+
+// issueRemoteSync 在鎖外讀 org 的 Issue,讀到就換上並通知畫面(組織換了或清單在這期間變過就丟掉)
 func (a *App) issueRemoteSync(org, scope string, gen int) {
-	raw, err := issueRemoteCallScoped(scope, "GET", org, nil, nil)
-	var list []OpsIssue
-	if err == nil {
-		err = json.Unmarshal(raw, &list)
+	b := currentIssueBackend()
+	if b == nil {
+		return
 	}
+	list, err := b.List(scope, org)
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
 	s := a.issueSt()
@@ -253,21 +295,19 @@ func (a *App) issueRemoteSync(org, scope string, gen int) {
 		a.issueRemoteFailed(err)
 		return
 	}
-	if list == nil {
-		list = []OpsIssue{}
-	}
-	changed := string(Marshal(s.Issues)) != string(Marshal(list))
-	s.Issues, s.fetched, s.remoteErr = list, time.Now(), ""
+	ops := toOpsList(list)
+	changed := string(Marshal(s.Issues)) != string(Marshal(ops))
+	s.Issues, s.fetched, s.remoteErr = ops, time.Now(), ""
 	s.gen++
 	if changed {
 		a.changedIssues()
 	}
 }
 
-// 伺服器模式:每 5 秒在背景重讀一次(網路請求在鎖外),有變就通知畫面,別處(Swift app、其他 ops-web)的修改才看得到
+// 遠端模式:每 5 秒在背景重讀一次(網路請求在鎖外),別處(app、其他 ops-web)的修改才看得到
 func init() {
 	OnStart(func(a *App) {
-		if !issueRemoteOn() || os.Getenv("OPS_NO_TIMERS") == "1" {
+		if IssueRemoteURL() == "" || os.Getenv("OPS_NO_TIMERS") == "1" {
 			return
 		}
 		go func() {

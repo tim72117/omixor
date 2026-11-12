@@ -1,14 +1,14 @@
-# omixor-issues:只有 Issue API 的服務(Cloud Run)。在 ops-web/ 底下建置:
-#   docker build -f Dockerfile.issues -t omixor-issues .
+# 已改由 omixor-core/Dockerfile 建置 omixor-server(核心的線上服務)。
+# 這個檔案保留給舊的建置指令用:要在 repo 根目錄執行(需要旁邊的 omixor-core)
+#   docker build -f ops-web/Dockerfile.issues .
 FROM golang:1.26 AS build
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /omixor-issues ./cmd/omixor-issues
+COPY omixor-core ./omixor-core
+WORKDIR /src/omixor-core
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /omixor-server ./cmd/omixor-server
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /omixor-issues /omixor-issues
+COPY --from=build /omixor-server /omixor-server
 ENV PORT=8080
 EXPOSE 8080
-ENTRYPOINT ["/omixor-issues"]
+ENTRYPOINT ["/omixor-server"]

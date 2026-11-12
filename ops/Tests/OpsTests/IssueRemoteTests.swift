@@ -30,7 +30,11 @@ final class FakeIssueServer: URLProtocol {
         let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let path = request.url!.path
         Self.requests.append((request.httpMethod ?? "GET", path, body, request.value(forHTTPHeaderField: "Authorization")))
-        let parts = path.split(separator: "/").map(String.init)   // api issues <org> [id] [delete]
+        // 核心的新路徑 api/orgs/<org>/issues[/id[/delete]] 換成舊的 api/issues/<org>[/id[/delete]] 再處理
+        var parts = path.split(separator: "/").map(String.init)
+        if parts.count >= 4, parts[1] == "orgs", parts[3] == "issues" {
+            parts = ["api", "issues", parts[2]] + parts.dropFirst(4)
+        }
         var status = 200
         var out: [String: Any]
         if Self.validTokens != nil {
@@ -168,7 +172,7 @@ final class IssueRemoteTests: XCTestCase {
         XCTAssertEqual(d["createdBy"] as? String, "MCP 用戶端")
         let create = try XCTUnwrap(FakeIssueServer.requests.last)
         XCTAssertEqual(create.method, "POST")
-        XCTAssertEqual(create.path, "/api/issues/default")
+        XCTAssertEqual(create.path, "/api/orgs/default/issues", "走核心的組織路徑")
         XCTAssertEqual(create.body["author"] as? String, "mcp")
         XCTAssertEqual(create.auth, "Bearer tok-123")
         XCTAssertEqual(app.issues.first?.id, "ISS-5")

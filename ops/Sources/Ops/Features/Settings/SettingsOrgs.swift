@@ -13,6 +13,9 @@ struct SettingsOrgsPane: View {
     @AppStorage(IssueServerConfig.defaultsKey) private var issueServer = ""
     @State private var issueServerDraft = ""
     @State private var issueServerStatus: String?
+    @State private var omixorAccount: OmixorAccount?
+    @State private var omixorBusy = false
+    @State private var omixorError: String?
 
     var body: some View {
         Form {
@@ -100,12 +103,91 @@ struct SettingsOrgsPane: View {
             }
             if let env { Text("由環境變數 OPS_ISSUE_SERVER 設定:\(env)").font(.caption).foregroundStyle(.secondary) }
             if let st = issueServerStatus { Text(st).font(.caption).foregroundStyle(.secondary) }
+            if let server = IssueServerConfig.current?.url {
+                omixorLoginRow(server)
+            }
         } header: {
             Text("Issue 伺服器")
         } footer: {
-            Text("留空:Issue 存在這台 Mac(issues.json)。填 Go 版 ops-web 的網址:Issue 改存在那台伺服器(可以接 PostgreSQL),各組織分開;畫面與 MCP 工具用法不變。伺服器啟用 LDAP 時要設環境變數 OPS_ISSUE_SERVER_TOKEN。")
+            Text("留空:Issue 存在這台 Mac(issues.json)。填 omixor-issues(或 Go 版 ops-web)的網址:Issue 改存在那台伺服器,各組織分開;畫面與 MCP 工具用法不變。正式的 omixor-issues 要登入 omixor:按「用瀏覽器登入」,在 evoleap 的核准頁核准後,omixor 依自己的使用者名單決定能不能用。")
         }
         .onAppear { issueServerDraft = issueServer }
+        .task(id: issueServer) { await refreshOmixorAccount() }
+    }
+
+    /// 登入 omixor 的狀態與按鈕
+    @ViewBuilder private func omixorLoginRow(_ server: URL) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            if let a = omixorAccount {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("已登入 omixor:\(a.email)(\(a.role == "admin" ? "管理員" : "成員"))")
+                        if let exp = a.expiresAt {
+                            Text("到期:\(exp.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                } icon: { Image(systemName: "person.crop.circle.badge.checkmark").foregroundStyle(.green) }
+                Spacer()
+                Button("登出") {
+                    Task {
+                        omixorBusy = true
+                        await OmixorAuth.logout(server: server)
+                        omixorAccount = nil
+                        omixorBusy = false
+                        app.omixorLogin = .needLogin   // 回到登入畫面
+                    }
+                }
+                .disabled(omixorBusy)
+            } else {
+                Label("還沒登入 omixor", systemImage: "person.crop.circle.badge.questionmark").foregroundStyle(.secondary)
+                Spacer()
+                Button(omixorBusy ? "等瀏覽器核准…" : "用瀏覽器登入") {
+                    Task {
+                        omixorBusy = true
+                        omixorError = nil
+                        do {
+                            let a = try await OmixorAuth.login(app, server: server)
+                            omixorAccount = a
+                            app.omixorLogin = .loggedIn(a)
+                            app.startIssues().load()
+                        } catch {
+                            omixorError = error.localizedDescription
+                        }
+                        omixorBusy = false
+                    }
+                }
+                .disabled(omixorBusy)
+            }
+        }
+        if let e = omixorError { Text(e).font(.caption).foregroundStyle(.orange) }
+        if omixorAccount != nil {
+            let cur = app.currentOrgId
+            VStack(alignment: .leading, spacing: 4) {
+                Text("伺服器上我能用的組織").font(.caption).foregroundStyle(.secondary)
+                if app.serverOrgs.isEmpty {
+                    Text("沒有(請 omixor 管理員把你加進組織)").font(.caption).foregroundStyle(.orange)
+                }
+                ForEach(app.serverOrgs) { o in
+                    HStack(spacing: 6) {
+                        Image(systemName: o.id == cur ? "checkmark.circle.fill" : "building.2").foregroundStyle(o.id == cur ? .green : .secondary)
+                        Text(o.name)
+                        Text(o.id).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        if let r = o.myRole { Text(r == "admin" ? "管理員" : "成員").font(.caption2).foregroundStyle(.secondary) }
+                    }
+                    .font(.callout)
+                }
+                if !app.serverOrgs.isEmpty, !app.serverOrgs.contains(where: { $0.id == cur }) {
+                    Text("目前的組織(\(cur))不在伺服器上,Issue 會讀寫失敗;請伺服器管理員用 omixor orgs create \(cur) 建立。")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+            }
+            .task { if let orgs = await OmixorAuth.fetchOrgs(server: server) { app.serverOrgs = orgs } }
+        }
+    }
+
+    private func refreshOmixorAccount() async {
+        guard let server = IssueServerConfig.current?.url else { omixorAccount = nil; return }
+        omixorAccount = await OmixorAuth.me(server: server)
     }
 
     private func applyIssueServer() {

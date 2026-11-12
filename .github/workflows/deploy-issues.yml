@@ -1,4 +1,4 @@
-# omixor-issues(只有 Issue API 的服務)部署到 Cloud Run。照 evoleap 的做法:
+# omixor-server(omixor-core 的線上服務,Cloud Run 服務名稱仍是 omixor-issues)部署到 Cloud Run。照 evoleap 的做法:
 #   - Workload Identity Federation:provider github-provider-omixor 只允許 tim72117/omixor
 #   - 資料庫:Cloud SQL onagent-prod:asia-east1:onagent-db 上的 omixor 資料庫(帳號 omixor_app),
 #     連線字串在 Secret Manager 的 OMIXOR_DATABASE_URL
@@ -11,7 +11,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'ops-web/**'
+      - 'omixor-core/**'
       - '.github/workflows/deploy-issues.yml'
   workflow_dispatch:
 
@@ -31,14 +31,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ops-web
+        working-directory: omixor-core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: ops-web/go.mod
-      - run: go vet ./internal/core ./internal/web ./internal/omixor ./cmd/omixor-issues ./cmd/omixor
-      - run: go test ./internal/core ./internal/web ./internal/omixor ./cmd/omixor-issues ./cmd/omixor
+          go-version-file: omixor-core/go.mod
+      - run: go vet ./...
+      - run: go test ./...
 
   deploy:
     needs: test
@@ -58,10 +58,10 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Build and push image
-        working-directory: ops-web
+        working-directory: omixor-core
         run: |
           gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
-          docker build -f Dockerfile.issues -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
 
