@@ -47,7 +47,7 @@ final class OrgTests: XCTestCase {
 
     func testCreateSwitchIsolateAndDelete() async throws {
         let app = AppState()
-        app.startIssues(); app.startAgents(timer: false); app.startCabinet(); app.startConnections()
+        app.startIssues(); app.startTestAgents(); app.startCabinet(); app.startConnections()
         app.startIssues().create(title: "evoleap 的 Issue", by: "tim")
         Cabinet.create(app, title: "evoleap 文件", body: "", section: "levels", tab: "/studio/tools", tags: [], by: "tim")
         TokenVault.setTokens(TokenSet(accessToken: "default-token", tokenType: "Bearer"), "evoleap")

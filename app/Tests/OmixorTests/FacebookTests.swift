@@ -32,7 +32,7 @@ final class FacebookTests: XCTestCase {
         StubProtocol.handler = Self.fakeGraph
         FacebookStore.confirmOwner = { _ in true }
         app = AppState()
-        app.startAgents(timer: false)
+        app.startTestAgents()
         fb = app.startFacebook()
         mcp = MCPHandler(app: app)
     }

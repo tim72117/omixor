@@ -22,9 +22,19 @@ final class AgentTests: XCTestCase {
         return ((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? ["text": text], r["isError"] as? Bool ?? false)
     }
 
+    /// 沒有內建預設角色,也不從資料夾根目錄的舊 agents.json 匯入
+    func testNoDefaultOrImportedAgents() throws {
+        let root = #"{"agents":[{"id":"old","name":"舊版角色","routines":[]}],"tasks":[]}"#
+        try Data(root.utf8).write(to: OrgFiles.root.appendingPathComponent("agents.json"))
+        let app = AppState()
+        app.startAgents(timer: false)
+        XCTAssertTrue(app.agents.isEmpty, "\(app.agents.map(\.name))")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("agents.json").path), "沒有角色就不寫檔")
+    }
+
     func testAssignClaimReportFlow() async throws {
         let app = AppState()
-        let store = app.startAgents(timer: false)
+        let store = app.startTestAgents()
         XCTAssertEqual(app.agents.map(\.id), ["visitor-analyst", "narrator", "triager", "course-dev", "marketing"])
         let mcp = MCPHandler(app: app)
 

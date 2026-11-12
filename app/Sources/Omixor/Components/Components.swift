@@ -67,8 +67,9 @@ struct Pill: View {
     var body: some View {
         HStack(spacing: 4) {
             if let icon { Image(systemName: icon) }
-            Text(text)
+            Text(text).lineLimit(1)
         }
+        .fixedSize()   // 標籤不換行(窄的時候由外層決定少放幾個)
         .font(.caption.weight(.medium))
         .padding(.horizontal, 7).padding(.vertical, 3)
         .foregroundStyle(color)

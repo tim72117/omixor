@@ -24,7 +24,7 @@ final class CabinetTests: XCTestCase {
 
     func testRoleScopedDocs() async throws {
         let app = AppState()
-        app.startAgents(timer: false)
+        app.startTestAgents()
         let mcp = MCPHandler(app: app)
 
         // 課程開發:課程區塊可讀寫
@@ -104,8 +104,8 @@ final class CabinetTests: XCTestCase {
     func testOldAgentsFileStillLoads() throws {
         // 沒有 docAccess 欄位的舊檔要讀得出來,不能被預設值蓋掉
         let old = #"{"agents":[{"id":"x","name":"舊角色","routines":[]}],"tasks":[]}"#
-        try Data(old.utf8).write(to: dataDir.appendingPathComponent("agents.json"))
         let app = AppState()
+        try Data(old.utf8).write(to: app.dataDir.appendingPathComponent("agents.json"))
         app.startAgents(timer: false)
         XCTAssertEqual(app.agents.map(\.name), ["舊角色"])
         XCTAssertEqual(app.agents.first?.docAccess, [:])
@@ -114,7 +114,7 @@ final class CabinetTests: XCTestCase {
     /// ops_agent_context:只回傳角色能讀的文件、標出讀寫權限,任務只列這個角色未完成的
     func testAgentContext() async throws {
         let app = AppState()
-        app.startAgents(timer: false)
+        app.startTestAgents()
         let mcp = MCPHandler(app: app)
         _ = try await call(mcp, "ops_doc_save", ["title": "L0", "tab": "L0", "body": "你好"])
         _ = try await call(mcp, "ops_doc_save", ["title": "待辦", "section": "todo", "body": "x"])

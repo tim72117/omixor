@@ -37,7 +37,7 @@ enum OrgTemplate: String, CaseIterable, Identifiable {
 /// 組織檔案的位置與搬遷
 enum OrgFiles {
     static let defaultId = "default"
-    static let perOrgFiles = ["issues.json", "agents.json", "cabinet.json", "cabinet-layout.json", "connections.json", "github.json", "gcp.json"]
+    static let perOrgFiles = ["issues.json", "cabinet.json", "cabinet-layout.json", "connections.json", "github.json", "gcp.json"]
 
     /// 跑測試卻沒指定 OPS_DATA_DIR 時用的暫存資料夾:測試絕對不能碰到真正的資料
     private static let testFallback = FileManager.default.temporaryDirectory
@@ -73,7 +73,7 @@ enum OrgFiles {
         return d
     }
 
-    /// 讀組織清單;沒有就建立預設組織,並把舊版放在根目錄的檔案複製進去
+    /// 讀組織清單;沒有就建立預設組織,並把舊版放在根目錄的檔案複製進去(虛擬角色 agents.json 不複製)
     static func loadIndex() -> OrgIndex {
         if let data = try? Data(contentsOf: indexURL), let idx = try? decoder().decode(OrgIndex.self, from: data), !idx.orgs.isEmpty {
             return idx

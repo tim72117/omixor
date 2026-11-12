@@ -30,7 +30,10 @@ struct AutoAgentsView: View {
             Divider()
             Group {
                 if let id = selection, let a = app.agents.first(where: { $0.id == id }) {
-                    AgentDetail(agent: a, edit: { editing = a }).id(a.id)
+                    VStack(spacing: 0) {
+                        if let e = store.remoteError { RemoteErrorBar(message: e) }
+                        AgentDetail(agent: a, edit: { editing = a }).id(a.id)
+                    }
                 } else {
                     EmptyStateView(title: "選一個角色", icon: "person.2",
                                    message: "每個角色有自己的角色設定與例行任務。任務指派後,在 Claude Code 請 AI 以角色身分透過 MCP 領取並回報。")
@@ -65,6 +68,18 @@ private struct AgentRow: View {
         }
         .opacity(agent.active ? 1 : 0.5)
         .padding(.vertical, 2)
+    }
+}
+
+/// 遠端模式和 omixor server 溝通失敗時的提示列
+struct RemoteErrorBar: View {
+    let message: String
+    var body: some View {
+        Label(message, systemImage: "exclamationmark.icloud")
+            .font(.caption).foregroundStyle(.orange)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16).padding(.vertical, 6)
+            .background(.orange.opacity(0.08))
     }
 }
 
@@ -258,6 +273,10 @@ private struct AgentDetail: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("\(store.authorName(t.createdBy)) 建立 · ") .font(.caption).foregroundStyle(.secondary)
                 + Text(t.createdAt, format: .dateTime.month().day().hour().minute()).font(.caption).foregroundStyle(.secondary)
+            if let lease = t.leaseLabel {
+                Label(lease, systemImage: "lock").font(.caption).foregroundStyle(.secondary)
+                    .help("領取租約:鎖定期間不能被其他人領取;逾時沒回報會自動退回待領取")
+            }
             if !t.instructions.isEmpty { MarkdownText(t.instructions) }
             ForEach(t.notes) { n in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -291,10 +310,10 @@ private struct AgentDetail: View {
                     Button { copy(store.prompt(agent: agent, task: t), t.id) } label: {
                         Label(copied == t.id ? "已複製" : "複製給 Claude Code", systemImage: "doc.on.clipboard")
                     }
-                    Button("取消任務", role: .destructive) { store.update(t.id) { $0.status = .canceled } }
-                    if t.status != .queued { Button("退回待領取") { store.update(t.id) { $0.status = .queued } } }
+                    Button("取消任務", role: .destructive) { store.cancel(t.id) }
+                    if t.status != .queued { Button("退回待領取") { store.requeue(t.id) } }
                 } else {
-                    Button("重新排入") { store.update(t.id) { $0.status = .queued } }
+                    Button("重新排入") { store.requeue(t.id) }
                 }
             }
             .controlSize(.small)
@@ -319,6 +338,7 @@ private struct AgentEditSheet: View {
     let onSave: (Agent) -> Void
     @State private var draft: Agent
     @State private var confirmDelete = false
+    @State private var saveError: String?
 
     init(original: Agent, onSave: @escaping (Agent) -> Void) {
         self.original = original
@@ -363,6 +383,7 @@ private struct AgentEditSheet: View {
                 } header: { Text("例行任務") }
             }
             .formStyle(.grouped)
+            if let e = saveError { Text("沒有存起來:\(e)").font(.caption).foregroundStyle(.orange) }
             HStack {
                 if !isNew { Button("刪除角色", role: .destructive) { confirmDelete = true } }
                 Spacer()
@@ -372,9 +393,13 @@ private struct AgentEditSheet: View {
                     var a = draft
                     if isNew { a.id = store.newId(for: a.name); a.createdAt = .now }
                     a.routines = a.routines.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
-                    store.upsert(a)
-                    onSave(a)
-                    dismiss()
+                    do {
+                        let saved = try store.save(agent: a)
+                        onSave(saved)
+                        dismiss()
+                    } catch {
+                        saveError = error.localizedDescription
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)

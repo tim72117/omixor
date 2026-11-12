@@ -55,8 +55,12 @@ struct OpsIssue: Codable, Hashable, Identifiable {
     var updatedAt: Date = .now
     var closedAt: Date?
     var comments: [IssueComment] = []
+    /// 指派給的虛擬角色 id(nil 或空 = 未指派)。遠端模式時伺服器會自動替該角色排任務(core/service/agents.go 的 syncAssignee)
+    var assignee: String?
 
     var number: Int { Int(id.filter(\.isNumber)) ?? 0 }
+    /// 指派的角色 id(空字串換成 nil)
+    var assignedAgent: String? { assignee.flatMap { $0.isEmpty ? nil : $0 } }
 }
 
 /// 讀寫 issues.json;畫面與 MCP 共用。
@@ -156,26 +160,29 @@ final class IssueStore {
 
     @discardableResult
     func create(title: String, body: String = "", priority: IssuePriority = .normal, labels: [String] = [],
-                source: String = "", link: String = "", by author: String) -> OpsIssue {
+                source: String = "", link: String = "", assignee: String? = nil, by author: String) -> OpsIssue {
+        let assignee = assignee.flatMap { $0.isEmpty ? nil : $0 }
         if let r = remote {
             do {
                 let issue = try r.create(org: app.currentOrgId, title: title, body: body, priority: priority,
-                                         labels: Self.clean(labels), source: source, link: link, author: author)
+                                         labels: Self.clean(labels), source: source, link: link, author: author, assignee: assignee)
                 remoteError = nil
                 app.issues.removeAll { $0.id == issue.id }
                 app.issues.insert(issue, at: 0)
                 app.log(actor(author), "exclamationmark.bubble", "建立 \(issue.id)「\(title)」", .development)
+                // 有指派:伺服器替角色排了任務,重新讀任務清單
+                if assignee != nil { app.agentStore?.refresh() }
                 return issue
             } catch {
                 // 伺服器連不上:回傳沒有存起來的草稿(id 是空的),不寫本機檔案
                 remoteFailed(error)
                 return OpsIssue(id: "", title: title, body: body, priority: priority, labels: Self.clean(labels),
-                                source: source, link: link, createdBy: author)
+                                source: source, link: link, createdBy: author, assignee: assignee)
             }
         }
         let num = (app.issues.map(\.number).max() ?? 0) + 1
         let issue = OpsIssue(id: "ISS-\(num)", title: title, body: body, priority: priority,
-                             labels: Self.clean(labels), source: source, link: link, createdBy: author)
+                             labels: Self.clean(labels), source: source, link: link, createdBy: author, assignee: assignee)
         app.issues.insert(issue, at: 0)
         save()
         app.log(actor(author), "exclamationmark.bubble", "建立 \(issue.id)「\(title)」", .development)
@@ -191,6 +198,8 @@ final class IssueStore {
         var n = before
         change(&n)
         n.labels = Self.clean(n.labels)
+        if n.assignee?.isEmpty == true { n.assignee = nil }
+        let assigneeChanged = n.assignedAgent != before.assignedAgent
         let statusChanged = n.status != before.status
         if statusChanged { n.closedAt = n.status == .closed ? .now : nil }
         func logStatus() {
@@ -201,10 +210,12 @@ final class IssueStore {
         if let r = remote {
             guard n != before else { return n }
             do {
-                let saved = try r.update(org: app.currentOrgId, n, author: author)
+                let saved = try r.update(org: app.currentOrgId, n, author: author, sendAssignee: assigneeChanged)
                 remoteError = nil
                 if let k = app.issues.firstIndex(where: { $0.id == saved.id }) { app.issues[k] = saved }
                 logStatus()
+                // 指派變了:伺服器取消舊角色未領取的任務、替新角色排任務,重新讀任務清單
+                if assigneeChanged { app.agentStore?.refresh() }
                 return saved
             } catch {
                 remoteFailed(error)

@@ -54,13 +54,13 @@ final class IssueRemote {
         session = URLSession(configuration: c)
     }
 
-    private static func encoder() -> JSONEncoder {
+    static func encoder() -> JSONEncoder {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         return e
     }
 
-    private static func decoder() -> JSONDecoder {
+    static func decoder() -> JSONDecoder {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
         return d
@@ -68,15 +68,19 @@ final class IssueRemote {
 
     private func url(_ org: String, _ rest: [String]) -> URL {
         // 核心的路徑:/api/orgs/<組織>/issues[/<id>[/delete]](伺服器也還接受舊的 /api/issues/<組織>)
-        // 遠端組織在 app 裡的 id 有 "~" 前綴,送給伺服器時去掉
+        orgURL(org, ["issues"] + rest)
+    }
+
+    /// /api/orgs/<組織>/<rest…>;遠端組織在 app 裡的 id 有 "~" 前綴,送給伺服器時去掉
+    func orgURL(_ org: String, _ rest: [String]) -> URL {
         var u = config.url.appendingPathComponent("api").appendingPathComponent("orgs")
-            .appendingPathComponent(OmixorMode.serverOrgId(org)).appendingPathComponent("issues")
+            .appendingPathComponent(OmixorMode.serverOrgId(org))
         for r in rest { u = u.appendingPathComponent(r) }
         return u
     }
 
     /// 同步送出一個請求,回傳 (HTTP 狀態, 內容)
-    private func perform(_ req: URLRequest) throws -> (Int, Data) {
+    func perform(_ req: URLRequest) throws -> (Int, Data) {
         final class Box: @unchecked Sendable { var data: Data?; var resp: URLResponse?; var err: Error? }
         let box = Box()
         let sem = DispatchSemaphore(value: 0)
@@ -133,7 +137,7 @@ final class IssueRemote {
 
     /// 送出請求、等回應(同步),回傳 {"result": …} 的 result(JSON)。
     /// 沒設固定 token 時帶 omixor token;沒有或被拒絕(401)就換一個新的再送一次
-    private func send(_ method: String, _ url: URL, _ body: Data?) throws -> Data {
+    func send(_ method: String, _ url: URL, _ body: Data?) throws -> Data {
         func request(_ token: String?) -> URLRequest {
             var req = URLRequest(url: url, timeoutInterval: timeout)
             req.httpMethod = method
@@ -164,7 +168,7 @@ final class IssueRemote {
         return try JSONSerialization.data(withJSONObject: result, options: .fragmentsAllowed)
     }
 
-    private func json(_ dict: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: dict) }
+    func json(_ dict: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: dict) }
 
     /// 留言 id 不是 UUID 的(例如 Go 版從 Jira 匯入的 jira-123):換成固定的 UUID 給 app 用,送回去時換回原本的 id
     private var foreignIds: [String: String] = [:]
@@ -202,20 +206,25 @@ final class IssueRemote {
         try decodeIssues(try send("GET", url(org, []), nil))
     }
 
+    /// assignee:指派給的角色 id(nil 或空 = 不指派);伺服器會自動替該角色排任務,角色不存在回 400
     func create(org: String, title: String, body: String, priority: IssuePriority, labels: [String],
-                source: String, link: String, author: String) throws -> OpsIssue {
-        let b = try json(["title": title, "body": body, "priority": priority.rawValue, "labels": labels,
-                          "source": source, "link": link, "author": author])
-        return try decodeIssue(try send("POST", url(org, []), b))
+                source: String, link: String, author: String, assignee: String? = nil) throws -> OpsIssue {
+        var d: [String: Any] = ["title": title, "body": body, "priority": priority.rawValue, "labels": labels,
+                                "source": source, "link": link, "author": author]
+        if let a = assignee, !a.isEmpty { d["assignee"] = a }
+        return try decodeIssue(try send("POST", url(org, []), try json(d)))
     }
 
-    /// 修改:送出可以改的欄位(整個取代),伺服器處理更新時間、關閉時間與動態牆
-    func update(org: String, _ i: OpsIssue, author: String) throws -> OpsIssue {
+    /// 修改:送出可以改的欄位(整個取代),伺服器處理更新時間、關閉時間與動態牆。
+    /// assignee 只在 sendAssignee 時送(空字串 = 取消指派):伺服器每收到一次 assignee 就會同步任務,
+    /// 前一筆任務已完成時會重新排一筆,所以指派沒變就不能送
+    func update(org: String, _ i: OpsIssue, author: String, sendAssignee: Bool = false) throws -> OpsIssue {
         let enc = try Self.encoder().encode(i)
         guard var d = try JSONSerialization.jsonObject(with: enc) as? [String: Any] else {
             throw IssueRemoteError(message: "Issue 編碼失敗")
         }
-        for k in ["id", "createdAt", "createdBy", "updatedAt", "closedAt"] { d.removeValue(forKey: k) }
+        for k in ["id", "createdAt", "createdBy", "updatedAt", "closedAt", "assignee"] { d.removeValue(forKey: k) }
+        if sendAssignee { d["assignee"] = i.assignee ?? "" }
         if let cs = d["comments"] as? [[String: Any]] {
             d["comments"] = cs.map { c -> [String: Any] in
                 var c = c
