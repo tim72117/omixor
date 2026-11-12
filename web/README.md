@@ -1,6 +1,6 @@
 # Ops(Go + React + Vite 版)
 
-`../ops`(macOS SwiftUI)的 Web 版本:後端 Go、畫面 React + Vite。**MCP 橋接的規格和 Swift 版一模一樣**,Claude Code 等 MCP 用戶端換成連這個版本不用改任何設定。
+`../app`(macOS SwiftUI)的 Web 版本:後端 Go、畫面 React + Vite。**MCP 橋接的規格和 Swift 版一模一樣**,Claude Code 等 MCP 用戶端換成連這個版本不用改任何設定。
 
 ## 執行
 

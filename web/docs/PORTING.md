@@ -1,6 +1,6 @@
 # 從 Swift 版搬到 Go + React 的規則
 
-Swift 版在 `../ops`(macOS SwiftUI app)。Go 版的 **MCP 規格必須和 Swift 版一模一樣**:同樣的工具、參數、輸出欄位、錯誤訊息、預設值、副作用(含寫進動態牆的文字)。畫面盡量照 Swift 版的版面與文字。
+Swift 版在 `../app`(macOS SwiftUI app)。Go 版的 **MCP 規格必須和 Swift 版一模一樣**:同樣的工具、參數、輸出欄位、錯誤訊息、預設值、副作用(含寫進動態牆的文字)。畫面盡量照 Swift 版的版面與文字。
 
 ## 架構
 
@@ -125,7 +125,7 @@ conformance/stop.sh <埠A> <埠B> <畫面埠>
 
 ## 不能做的事
 
-- 不能直連任何資料庫;不能改 `../ops`(Swift 版)與 `../../shuttle`(evoleap)的檔案。
+- 不能直連任何資料庫;不能改 `../app`(Swift 版)與 `../../shuttle`(evoleap)的檔案。
 - 不能呼叫會改變外部服務的 API(部署、發佈、送出旁白批次、GitHub 寫入…)。
 - 不能讀或印出鑰匙圈裡的 token。
 - 不要 git commit(由主持的人統一提交)。
