@@ -2,7 +2,8 @@ import SwiftUI
 
 /// 文件櫃用的閱讀版 Markdown:字大一點、行距寬、段落與標題之間有呼吸空間,版面寬度限制在好讀的範圍。
 /// 支援:# 到 ####、段落、- / * / 1. 清單(依縮排分層)、- [ ] / - [x] 待辦、「名稱:說明」清單(名稱加粗)、
-/// > 引言、``` 程式碼(可橫向捲動)、| 表格 |、--- 分隔線、![圖片](網址);行內的粗體、斜體、連結、`程式碼` 交給 AttributedString。
+/// > 引言、``` 程式碼(可橫向捲動)、```html preview / ```js preview 展示(按了才在沙盒執行,見 SandboxPreview.swift)、
+/// | 表格 |、--- 分隔線、![圖片](網址);行內的粗體、斜體、連結、`程式碼` 交給 AttributedString。
 /// Issue 的留言等精簡顯示仍用 MarkdownText(Features/Development/DevIssuesTab.swift)。
 struct ReadingMarkdown: View {
     let source: String
@@ -153,6 +154,8 @@ struct ReadingMarkdown: View {
                 }
             }
             .padding(.vertical, 4)
+        case .code(let lang, let t) where Self.previewLang(lang) != nil:
+            SandboxBlock(source: t, lang: Self.previewLang(lang)!)
         case .code(let lang, let t):
             VStack(alignment: .leading, spacing: 4) {
                 if !lang.isEmpty { Text(lang).font(.caption2.monospaced()).foregroundStyle(.tertiary) }
@@ -170,6 +173,13 @@ struct ReadingMarkdown: View {
         case .image(let alt, let src):
             MarkdownImage(alt: alt, src: src)
         }
+    }
+
+    /// ```html preview、```js preview 是可以在沙盒執行的展示;回傳 html / js,其他是 nil
+    static func previewLang(_ info: String) -> String? {
+        let w = info.lowercased().split(separator: " ").map(String.init)
+        guard w.count >= 2, w[1] == "preview", ["html", "js", "javascript"].contains(w[0]) else { return nil }
+        return w[0] == "html" ? "html" : "js"
     }
 
     @ViewBuilder private func markerView(_ m: Marker, level: Int) -> some View {
