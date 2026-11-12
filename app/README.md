@@ -1,4 +1,4 @@
-# Ops
+# omixor(macOS app)
 
 維運線上服務的原生 macOS app(SwiftUI)。把開發進度、CI/CD、伺服器狀態、監控告警、事件處理放在同一個地方,並讓 AI 在人的監督下自動化部分環節。
 
@@ -30,7 +30,7 @@
 ```bash
 cd ops
 swift run
-./scripts/build-app.sh && open build/Ops.app
+./scripts/build-app.sh && open build/omixor.app
 ```
 
 需要 macOS 14 以上與 Swift 6 工具鏈。
@@ -55,7 +55,7 @@ swift build -c release --product omixor-mcp   # 產生 .build/release/omixor-mcp
 { "mcpServers": { "ops": { "command": "/絕對路徑/app/.build/release/omixor-mcp" } } }
 ```
 
-連接埠可用環境變數 `OPS_MCP_PORT`(app 與 `omixor-mcp` 都讀)或 `defaults write com.tim72117.ops mcp.port 4000`(打包後的 Ops.app)修改。
+連接埠可用環境變數 `OPS_MCP_PORT`(app 與 `omixor-mcp` 都讀)或 `defaults write com.tim72117.ops mcp.port 4000`(打包後的 omixor.app)修改。
 
 | 工具 | 作用 |
 |---|---|

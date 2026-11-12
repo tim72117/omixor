@@ -69,7 +69,7 @@ while let line = readLine(strippingNewline: true) {
         if status == 200 { write(data); continue }
         let text = String(decoding: data, as: UTF8.self)
         log("HTTP \(status): \(text)")
-        if let id { write(errorReply(id: id, "Ops app 回應 HTTP \(status):\(text)")) }
+        if let id { write(errorReply(id: id, "omixor app 回應 HTTP \(status):\(text)")) }
     case .failure(let err):
         log("無法連線:\(err.localizedDescription)")
         if let id {
