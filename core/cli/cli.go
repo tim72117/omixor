@@ -15,6 +15,7 @@
 //	omixor issues import [--org default] <檔案>     第一次搬資料用;伺服器上已經有 Issue 就會拒絕
 //	omixor issues restore <id>… --from <檔案> [--org default]   資料被改壞時改回檔案裡的內容(不是同步)
 //	omixor issues delete <id>… | --all [--org default] [--yes]   沒加 --yes 只列出
+//	omixor agents import [--org default] <agents.json>   第一次搬資料用:角色與任務(格式同 app 的 agents.json);伺服器上已經有角色或任務就會拒絕
 //
 // 登入資料存在 ~/.config/omixor/credentials.json(權限 600;OMIXOR_CREDENTIALS 可改)。
 // 登入時的伺服器:--server > OMIXOR_SERVER > 上次登入的 > 正式站;之後的指令只送回發 token 的那台。
@@ -133,7 +134,7 @@ func readIssues(file string) ([]model.Issue, error) {
 	return list, nil
 }
 
-const usage = `用法:omixor login|logout|whoami|orgs|members|users|tokens|audit|issues …(說明見 core/cli/cli.go)`
+const usage = `用法:omixor login|logout|whoami|orgs|members|users|tokens|audit|issues|agents …(說明見 core/cli/cli.go)`
 
 // Main 給 cmd 用:執行並在出錯時結束程式
 func Main(args []string) {
@@ -351,6 +352,26 @@ func Run(args []string, out io.Writer) error {
 		printJSON(out, l)
 	case "issues":
 		return issues(cl, out, sub, pos, *org, *outFile, *from, *yes, *all)
+	case "agents":
+		if sub != "import" || len(pos) < 2 {
+			return errors.New("用法:omixor agents import <agents.json> --org <組織>(第一次搬資料;檔案格式同 app 的 agents.json:{agents, tasks})")
+		}
+		b, err := os.ReadFile(pos[1])
+		if err != nil {
+			return err
+		}
+		var in service.AgentImport
+		if err := json.Unmarshal(b, &in); err != nil {
+			return fmt.Errorf("%s 讀不出來:%w", pos[1], err)
+		}
+		r, err := cl.ImportAgents(*org, in)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "已匯入 %s:角色 %d 個、任務 %d 筆\n", r.Org, r.Agents, r.Tasks)
+		if len(r.Requeue) > 0 {
+			fmt.Fprintf(out, "原本進行中、改成待領取:%s\n", strings.Join(r.Requeue, "、"))
+		}
 	default:
 		return errors.New(usage)
 	}

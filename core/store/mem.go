@@ -490,6 +490,21 @@ func (m *Mem) GetAgentTask(org, id string) (*model.AgentTask, error) {
 	return nil, ErrNotFound
 }
 
+func (m *Mem) ImportAgents(org string, agents []model.Agent, tasks []model.AgentTask) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.agents[org]) > 0 || len(m.tasks[org]) > 0 {
+		return fmt.Errorf("組織 %s 已經有角色或任務", org)
+	}
+	for _, g := range agents {
+		m.agents[org] = append(m.agents[org], g.Clone())
+	}
+	for _, t := range tasks {
+		m.tasks[org] = append(m.tasks[org], t.Clone())
+	}
+	return nil
+}
+
 func (m *Mem) CreateAgentTask(org string, t model.AgentTask) (model.AgentTask, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

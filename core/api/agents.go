@@ -44,6 +44,17 @@ func (a *API) agentRoutes(mux *http.ServeMux) {
 		reply(w, t, err)
 	}))
 
+	// 第一次搬資料:{"agents": [...], "tasks": [...]}(組織管理員;已有角色或任務回 409)
+	mux.HandleFunc("POST /api/orgs/{org}/agents-import", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in service.AgentImport
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		res, err := a.Svc.ImportAgents(p, r.PathValue("org"), in)
+		reply(w, res, err)
+	}))
+
 	tk := "/api/orgs/{org}/agent-tasks"
 	mux.HandleFunc("GET "+tk, a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		q := r.URL.Query()

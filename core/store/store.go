@@ -79,6 +79,8 @@ type Store interface {
 	AgentCredentialByHash(h []byte) (*model.AgentCredential, error)
 	// DeleteAgentCredentials 刪任務的憑證(taskID 不空)或某角色的全部憑證(agentID 不空)
 	DeleteAgentCredentials(org, taskID, agentID string) error
+	// ImportAgents 第一次搬資料用:角色與任務整批寫入,保留 id、時間與備註;組織已經有角色或任務就回錯誤
+	ImportAgents(org string, agents []model.Agent, tasks []model.AgentTask) error
 	// PruneAgentCredentials 清掉到期的憑證
 	PruneAgentCredentials(now time.Time) error
 

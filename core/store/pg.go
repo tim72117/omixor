@@ -993,6 +993,48 @@ func (p *PG) CreateAgentTask(org string, t model.AgentTask) (model.AgentTask, er
 	return t, tx.Commit(c)
 }
 
+func (p *PG) ImportAgents(org string, agents []model.Agent, tasks []model.AgentTask) error {
+	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(c)
+	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-agent-tasks:' || $1))`, org); err != nil {
+		return err
+	}
+	var na, nt int
+	if err := tx.QueryRow(c, `select (select count(*) from omixor_agents where org = $1), (select count(*) from omixor_agent_tasks where org = $1)`, org).Scan(&na, &nt); err != nil {
+		return err
+	}
+	if na > 0 || nt > 0 {
+		return fmt.Errorf("組織 %s 已經有 %d 個角色、%d 筆任務", org, na, nt)
+	}
+	for _, a := range agents {
+		if a.DocAccess == nil {
+			a.DocAccess = map[string]string{}
+		}
+		if a.Routines == nil {
+			a.Routines = []model.AgentRoutine{}
+		}
+		if _, err := tx.Exec(c, `insert into omixor_agents (org, id, name, role, instructions, active, symbol, color, doc_access, routines, created_at)
+			values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+			org, a.ID, a.Name, a.Role, a.Instructions, a.Active, a.Symbol, a.Color, jb(a.DocAccess), jb(a.Routines), secs(a.CreatedAt.Time)); err != nil {
+			return fmt.Errorf("角色 %s:%w", a.ID, err)
+		}
+	}
+	for _, t := range tasks {
+		if _, err := tx.Exec(c, `insert into omixor_agent_tasks (org, id, number, agent_id, title, instructions, priority, status, result, links, notes,
+			routine_id, created_by, created_at, updated_at, claimed_at, completed_at, locked_until, claimed_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+			org, t.ID, t.Number(), t.AgentID, t.Title, t.Instructions, t.Priority, t.Status, t.Result, jb(linksOrEmpty(t.Links)), jb(notesOrEmpty(t.Notes)),
+			t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt), optSecs(t.LockedUntil), t.ClaimedBy); err != nil {
+			return fmt.Errorf("任務 %s:%w", t.ID, err)
+		}
+	}
+	return tx.Commit(c)
+}
+
 const updateTaskSQL = `update omixor_agent_tasks set agent_id = $3, title = $4, instructions = $5, priority = $6, status = $7,
 		result = $8, links = $9, notes = $10, routine_id = $11, created_by = $12, created_at = $13, updated_at = $14, claimed_at = $15,
 		completed_at = $16, locked_until = $17, claimed_by = $18 where org = $1 and id = $2`

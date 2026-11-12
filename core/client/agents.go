@@ -108,3 +108,9 @@ func (c *Client) RunRoutine(org, agentID, routineID, author string) (*model.Agen
 	var t model.AgentTask
 	return &t, c.Do("POST", c.agents(org)+"/"+esc(agentID)+"/routines/"+esc(routineID)+"/run", map[string]any{"author": author}, &t)
 }
+
+// ImportAgents 第一次搬資料:角色與任務整批匯入(組織管理員)
+func (c *Client) ImportAgents(org string, in service.AgentImport) (*service.AgentImportResult, error) {
+	var r service.AgentImportResult
+	return &r, c.Do("POST", "/api/orgs/"+esc(org)+"/agents-import", in, &r)
+}
