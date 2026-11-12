@@ -3,7 +3,6 @@ import { action, useView } from "./api";
 import { AssistantPanel } from "./assistant/AssistantPanel";
 import { CommandPalette } from "./assistant/CommandPalette";
 import { useAssistantVisible } from "./assistant/store";
-import { UserMenu } from "./auth/UserMenu";
 import { AccountBox } from "./auth/AccountBox";
 import { DirectoryProvider } from "./components/bits";
 import { Icon } from "./components/Icon";
@@ -60,7 +59,6 @@ export function App() {
         ))}
         <div style={{ flex: 1 }} />
         <AccountBox />
-        <UserMenu />
         <McpStatus />
       </aside>
       <main className="main">

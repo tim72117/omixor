@@ -1,0 +1,1339 @@
+[
+  {
+    "date": "2026-11-11T00:15:20Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000096",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 152ms",
+    "service": "course-web",
+    "traceId": "9e8a6b4d72f78d8d5d71363c5483cb07"
+  },
+  {
+    "date": "2026-11-11T00:14:52Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000095",
+    "level": "warn",
+    "message": "rate limit exceeded ip=203.0.113.3 route=/v1/login",
+    "service": "auth",
+    "traceId": "d85a7624aa77abcb0ffda5fb5a326b85"
+  },
+  {
+    "date": "2026-11-11T00:14:31Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000094",
+    "level": "warn",
+    "message": "rate limit exceeded ip=203.0.113.8 route=/v1/login",
+    "service": "auth",
+    "traceId": "71a03ef80e5560913177cece9e507164"
+  },
+  {
+    "date": "2026-11-11T00:13:58Z",
+    "host": "pg-prod-primary",
+    "id": "0000A11C-0000-4000-8000-000000000093",
+    "level": "warn",
+    "message": "process 28190 still waiting for ShareLock on transaction after 1000.112 ms",
+    "service": "postgres"
+  },
+  {
+    "date": "2026-11-11T00:13:42Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000092",
+    "level": "warn",
+    "message": "rebuffer event country=TW isp=HiNet duration=1576ms",
+    "service": "live-player",
+    "traceId": "45a2e7cb1f8e52c9c7ebb299b19863da"
+  },
+  {
+    "date": "2026-11-11T00:13:18Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000091",
+    "level": "debug",
+    "message": "cache hit key=progress:99498:c147",
+    "service": "api-server"
+  },
+  {
+    "date": "2026-11-11T00:12:58Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000090",
+    "level": "warn",
+    "message": "duplicate webhook delivery evt_1632aa05ca1c (paddle retry #6)",
+    "service": "payments",
+    "traceId": "7e6657fdf5e25ffa59c647e4ee2a0734"
+  },
+  {
+    "date": "2026-11-11T00:12:24Z",
+    "host": "pg-prod-primary",
+    "id": "0000A11C-0000-4000-8000-00000000008F",
+    "level": "warn",
+    "message": "process 26680 still waiting for ShareLock on transaction after 1000.112 ms",
+    "service": "postgres"
+  },
+  {
+    "date": "2026-11-11T00:12:00Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000008E",
+    "level": "debug",
+    "message": "cache hit key=progress:39813:c125",
+    "service": "api-server"
+  },
+  {
+    "date": "2026-11-11T00:11:37Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000008D",
+    "level": "info",
+    "message": "login ok provider=google uid=94133",
+    "service": "auth",
+    "traceId": "e265394c505c568c3fd19f535158a80a"
+  },
+  {
+    "date": "2026-11-11T00:11:08Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000008C",
+    "level": "info",
+    "message": "POST /v1/lessons/378/events 204 in 78ms",
+    "service": "api-server",
+    "traceId": "ea56a641bfaccc934443d46136626658"
+  },
+  {
+    "date": "2026-11-11T00:10:44Z",
+    "host": "gke-prod-uc1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000008B",
+    "level": "warn",
+    "message": "webhook handler slow: 4024ms event=subscription.activated (threshold 2000ms)",
+    "service": "payments",
+    "traceId": "3e55df1aad542093012bb45196be3f11"
+  },
+  {
+    "date": "2026-11-11T00:10:22Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000008A",
+    "level": "info",
+    "message": "session start lesson=l2-4.1 first_frame=37ms",
+    "service": "live-player",
+    "traceId": "0241390800c3f53c32fd6503cf836a72"
+  },
+  {
+    "date": "2026-11-11T00:09:55Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000089",
+    "level": "warn",
+    "message": "duplicate webhook delivery evt_ca2926921d0d (paddle retry #7)",
+    "service": "payments",
+    "traceId": "0e0370b1af31638633839ffb887d5352"
+  },
+  {
+    "date": "2026-11-11T00:09:42Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000088",
+    "level": "info",
+    "message": "login ok provider=google uid=59779",
+    "service": "auth",
+    "traceId": "9f42a55971e207ce76fccc24485ca6b8"
+  },
+  {
+    "date": "2026-11-11T00:09:23Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000087",
+    "level": "error",
+    "message": "webhook handler timeout after 5000ms: context deadline exceeded (tx: UPDATE subscriptions)",
+    "service": "payments",
+    "traceId": "40737da5bf2de33723e066ab1dfc0868"
+  },
+  {
+    "date": "2026-11-11T00:09:01Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000086",
+    "level": "info",
+    "message": "session start lesson=l2-4.7 first_frame=100ms",
+    "service": "live-player",
+    "traceId": "3d632f9f3bd869970b18d7a2f5093672"
+  },
+  {
+    "date": "2026-11-11T00:08:37Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000085",
+    "level": "warn",
+    "message": "duplicate webhook delivery evt_083c69bee6a1 (paddle retry #8)",
+    "service": "payments",
+    "traceId": "3e727c51093fdc32c251fa75975f013c"
+  },
+  {
+    "date": "2026-11-11T00:07:59Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000084",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 54ms",
+    "service": "course-web",
+    "traceId": "a42635bd0433046309c0677a46074019"
+  },
+  {
+    "date": "2026-11-11T00:07:46Z",
+    "host": "worker-prod-ae1-2",
+    "id": "0000A11C-0000-4000-8000-000000000083",
+    "level": "info",
+    "message": "transcode done video=v_33 renditions=4 took 68ms",
+    "service": "worker",
+    "traceId": "3ecea0f4441c6a8cec9a549e977efc3b"
+  },
+  {
+    "date": "2026-11-11T00:07:16Z",
+    "host": "worker-prod-ae1-2",
+    "id": "0000A11C-0000-4000-8000-000000000082",
+    "level": "info",
+    "message": "transcode done video=v_44 renditions=4 took 73ms",
+    "service": "worker",
+    "traceId": "5ceb4a57b3d328b152a699287de87a47"
+  },
+  {
+    "date": "2026-11-11T00:06:42Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000081",
+    "level": "warn",
+    "message": "rebuffer event country=TW isp=HiNet duration=4735ms",
+    "service": "live-player",
+    "traceId": "4a9f200a02ffba7b4424eaa775da8f91"
+  },
+  {
+    "date": "2026-11-11T00:06:21Z",
+    "host": "gke-prod-uc1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000080",
+    "level": "warn",
+    "message": "webhook handler slow: 4202ms event=subscription.activated (threshold 2000ms)",
+    "service": "payments",
+    "traceId": "0753f6e58b14e28f8307bdf7068a387c"
+  },
+  {
+    "date": "2026-11-11T00:06:05Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000007F",
+    "level": "info",
+    "message": "session start lesson=l2-4.9 first_frame=49ms",
+    "service": "live-player",
+    "traceId": "57b154502c8d94c9c027f20aab611902"
+  },
+  {
+    "date": "2026-11-11T00:05:27Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000007E",
+    "level": "info",
+    "message": "GET /v1/courses/925/progress 200 in 233ms",
+    "service": "api-server",
+    "traceId": "0f515a87e8a943ff6d0992fe034ce9d5"
+  },
+  {
+    "date": "2026-11-11T00:05:21Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000007D",
+    "level": "info",
+    "message": "GET /v1/courses/475/progress 200 in 50ms",
+    "service": "api-server",
+    "traceId": "423d34dfacf5fcf384fbc931e5f21b16"
+  },
+  {
+    "date": "2026-11-11T00:04:45Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-00000000007C",
+    "level": "info",
+    "message": "email sent template=lesson_reminder to=user:50069",
+    "service": "notifier",
+    "traceId": "f5e6f9788fab7acdb0e93ee3b7255984"
+  },
+  {
+    "date": "2026-11-11T00:04:34Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000007B",
+    "level": "info",
+    "message": "session start lesson=l2-4.5 first_frame=25ms",
+    "service": "live-player",
+    "traceId": "840adabd6bddaa2fb63f56c73086d0f2"
+  },
+  {
+    "date": "2026-11-11T00:03:55Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-00000000007A",
+    "level": "info",
+    "message": "email sent template=lesson_reminder to=user:56734",
+    "service": "notifier",
+    "traceId": "2462dea014fb1952157c101e5e21f3ae"
+  },
+  {
+    "date": "2026-11-11T00:03:32Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000079",
+    "level": "info",
+    "message": "login ok provider=google uid=25625",
+    "service": "auth",
+    "traceId": "88a6d7f1bb7a61641c5e7d746aca9790"
+  },
+  {
+    "date": "2026-11-11T00:03:22Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000078",
+    "level": "error",
+    "message": "webhook handler timeout after 5000ms: context deadline exceeded (tx: UPDATE subscriptions)",
+    "service": "payments",
+    "traceId": "ca4f4ecf6074e858b6491ca0a5ce5da3"
+  },
+  {
+    "date": "2026-11-11T00:02:54Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000077",
+    "level": "warn",
+    "message": "duplicate webhook delivery evt_5ba13a147d76 (paddle retry #3)",
+    "service": "payments",
+    "traceId": "1f1422f27b4f75fcc53f8574b48cc30b"
+  },
+  {
+    "date": "2026-11-11T00:02:27Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000076",
+    "level": "info",
+    "message": "session start lesson=l2-4.3 first_frame=80ms",
+    "service": "live-player",
+    "traceId": "177b7a9711545226822d9002e4a06f79"
+  },
+  {
+    "date": "2026-11-11T00:02:00Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000075",
+    "level": "debug",
+    "message": "cache hit key=progress:17091:c156",
+    "service": "api-server"
+  },
+  {
+    "date": "2026-11-11T00:01:38Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000074",
+    "level": "info",
+    "message": "session start lesson=l2-4.2 first_frame=195ms",
+    "service": "live-player",
+    "traceId": "7798988e78e89d7ed0ba91e30cc43d55"
+  },
+  {
+    "date": "2026-11-11T00:01:19Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000073",
+    "level": "info",
+    "message": "session start lesson=l2-4.1 first_frame=203ms",
+    "service": "live-player",
+    "traceId": "6821889cdec30ac128fcf46137d7c0f9"
+  },
+  {
+    "date": "2026-11-11T00:00:43Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000072",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 28ms",
+    "service": "course-web",
+    "traceId": "84b905df69843cb9a2a5cdd07822bb1c"
+  },
+  {
+    "date": "2026-11-11T00:00:22Z",
+    "host": "gke-prod-uc1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000071",
+    "level": "warn",
+    "message": "webhook handler slow: 3887ms event=subscription.activated (threshold 2000ms)",
+    "service": "payments",
+    "traceId": "a79173f0db1931c7cf2ba20f8f682e7b"
+  },
+  {
+    "date": "2026-11-11T00:00:00Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000070",
+    "level": "info",
+    "message": "session start lesson=l2-4.2 first_frame=47ms",
+    "service": "live-player",
+    "traceId": "9502f14c748d62eaa1f3b76c79393b6a"
+  },
+  {
+    "date": "2026-11-10T23:59:43Z",
+    "host": "worker-prod-ae1-2",
+    "id": "0000A11C-0000-4000-8000-00000000006F",
+    "level": "info",
+    "message": "transcode done video=v_22 renditions=4 took 93ms",
+    "service": "worker",
+    "traceId": "41734707df850a1eb542b5e3266805f3"
+  },
+  {
+    "date": "2026-11-10T23:59:09Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000006E",
+    "level": "info",
+    "message": "GET /v1/courses/419/progress 200 in 97ms",
+    "service": "api-server",
+    "traceId": "b604bdba5d2d6bf574d2e53abefcc1cf"
+  },
+  {
+    "date": "2026-11-10T23:58:56Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000006D",
+    "level": "info",
+    "message": "POST /v1/lessons/625/events 204 in 54ms",
+    "service": "api-server",
+    "traceId": "cdc0bf5a835ce7bc32b85290f76eff75"
+  },
+  {
+    "date": "2026-11-10T23:58:24Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-00000000006C",
+    "level": "error",
+    "message": "billing job grant_access failed: pq: canceling statement due to lock timeout",
+    "service": "worker",
+    "traceId": "a03944d05ec9d1df80e9e6c72264712d"
+  },
+  {
+    "date": "2026-11-10T23:57:56Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000006B",
+    "level": "info",
+    "message": "POST /v1/lessons/121/events 204 in 149ms",
+    "service": "api-server",
+    "traceId": "c2e96d5d6d6d8b3bfb4c3715e9400be1"
+  },
+  {
+    "date": "2026-11-10T23:57:36Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000006A",
+    "level": "error",
+    "message": "POST /v1/enrollments/import 500: csv: bare \" in non-quoted field (line 1, BOM detected) [canary]",
+    "service": "api-server",
+    "traceId": "691e34fce0077706a4711deb88562c57"
+  },
+  {
+    "date": "2026-11-10T23:57:05Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000069",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 148ms",
+    "service": "course-web",
+    "traceId": "e7d777648582e2dbeab5b1f9bbad6ece"
+  },
+  {
+    "date": "2026-11-10T23:56:48Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000068",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 162ms",
+    "service": "course-web",
+    "traceId": "4efac03b0cd330a6094637d7b755f1de"
+  },
+  {
+    "date": "2026-11-10T23:56:31Z",
+    "host": "gke-prod-uc1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000067",
+    "level": "warn",
+    "message": "webhook handler slow: 3356ms event=subscription.activated (threshold 2000ms)",
+    "service": "payments",
+    "traceId": "b4501d1cdaa22910c78fe16ae717dc0c"
+  },
+  {
+    "date": "2026-11-10T23:56:07Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000066",
+    "level": "info",
+    "message": "POST /v1/lessons/958/events 204 in 141ms",
+    "service": "api-server",
+    "traceId": "0e12e5e30c4ce793f423c48f165d2500"
+  },
+  {
+    "date": "2026-11-10T23:55:40Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000065",
+    "level": "info",
+    "message": "session start lesson=l2-4.1 first_frame=29ms",
+    "service": "live-player",
+    "traceId": "27888854a70f58b6d3460dbb14cb7bdb"
+  },
+  {
+    "date": "2026-11-10T23:55:19Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-000000000064",
+    "level": "info",
+    "message": "email sent template=lesson_reminder to=user:44963",
+    "service": "notifier",
+    "traceId": "b1ee7725e6637d49c12dbcf164da4f23"
+  },
+  {
+    "date": "2026-11-10T23:54:45Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000063",
+    "level": "info",
+    "message": "login ok provider=google uid=92992",
+    "service": "auth",
+    "traceId": "a9e976dba48a2ad7a9c80970d8a08885"
+  },
+  {
+    "date": "2026-11-10T23:54:30Z",
+    "host": "pg-prod-primary",
+    "id": "0000A11C-0000-4000-8000-000000000062",
+    "level": "warn",
+    "message": "process 34730 still waiting for ShareLock on transaction after 1000.112 ms",
+    "service": "postgres"
+  },
+  {
+    "date": "2026-11-10T23:54:07Z",
+    "host": "worker-prod-ae1-2",
+    "id": "0000A11C-0000-4000-8000-000000000061",
+    "level": "info",
+    "message": "transcode done video=v_22 renditions=4 took 183ms",
+    "service": "worker",
+    "traceId": "655fef9810f908b50ff860f18c6c594c"
+  },
+  {
+    "date": "2026-11-10T23:53:33Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000060",
+    "level": "error",
+    "message": "POST /v1/enrollments/import 500: csv: bare \" in non-quoted field (line 1, BOM detected) [canary]",
+    "service": "api-server",
+    "traceId": "fdecc43b595e16e58c08dac2160e111c"
+  },
+  {
+    "date": "2026-11-10T23:53:16Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000005F",
+    "level": "info",
+    "message": "GET /v1/courses/801/progress 200 in 29ms",
+    "service": "api-server",
+    "traceId": "f06a322125687faf23add7ed4e5f6e17"
+  },
+  {
+    "date": "2026-11-10T23:52:39Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000005E",
+    "level": "info",
+    "message": "login ok provider=google uid=13232",
+    "service": "auth",
+    "traceId": "549fc38ec2d66148205c3b5ab2ee8345"
+  },
+  {
+    "date": "2026-11-10T23:52:17Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000005D",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 50ms",
+    "service": "course-web",
+    "traceId": "9c9b569937713d1d5b8184cff8c56f58"
+  },
+  {
+    "date": "2026-11-10T23:52:05Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000005C",
+    "level": "info",
+    "message": "login ok provider=google uid=95720",
+    "service": "auth",
+    "traceId": "c64b1d314f383206c69d1a08bb3935f2"
+  },
+  {
+    "date": "2026-11-10T23:51:41Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000005B",
+    "level": "info",
+    "message": "POST /v1/lessons/704/events 204 in 160ms",
+    "service": "api-server",
+    "traceId": "a6d447ef6106c400b782a0f17b651f12"
+  },
+  {
+    "date": "2026-11-10T23:51:13Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000005A",
+    "level": "info",
+    "message": "webhook received event=transaction.completed id=evt_1ebf4b79fcf7",
+    "service": "payments",
+    "traceId": "f63ba510f10032aa134e020c89cea9a4"
+  },
+  {
+    "date": "2026-11-10T23:50:46Z",
+    "host": "pg-prod-primary",
+    "id": "0000A11C-0000-4000-8000-000000000059",
+    "level": "error",
+    "message": "remaining connection slots are reserved for non-replication superuser connections",
+    "service": "postgres"
+  },
+  {
+    "date": "2026-11-10T23:50:18Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000058",
+    "level": "info",
+    "message": "webhook received event=transaction.completed id=evt_7a7581c08a1a",
+    "service": "payments",
+    "traceId": "3e532987f9643dbd9412599d92cf3d7f"
+  },
+  {
+    "date": "2026-11-10T23:50:01Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000057",
+    "level": "info",
+    "message": "login ok provider=google uid=20960",
+    "service": "auth",
+    "traceId": "5c74b6c0c4b1cb8c0a9e89e6eef78cb1"
+  },
+  {
+    "date": "2026-11-10T23:49:32Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000056",
+    "level": "info",
+    "message": "session start lesson=l2-4.3 first_frame=159ms",
+    "service": "live-player",
+    "traceId": "7d4354217ca8ac56387b42e5bff6a585"
+  },
+  {
+    "date": "2026-11-10T23:49:03Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000055",
+    "level": "info",
+    "message": "GET /v1/courses/332/progress 200 in 60ms",
+    "service": "api-server",
+    "traceId": "f672c0a512529f922e080dd81113d603"
+  },
+  {
+    "date": "2026-11-10T23:48:33Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000054",
+    "level": "info",
+    "message": "GET /v1/courses/536/progress 200 in 213ms",
+    "service": "api-server",
+    "traceId": "b7a25ded7d73e5712e8b8e624ec71e70"
+  },
+  {
+    "date": "2026-11-10T23:48:22Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000053",
+    "level": "info",
+    "message": "webhook received event=transaction.completed id=evt_a2de9eacf13c",
+    "service": "payments",
+    "traceId": "27ec5aec23f4a0aa6b2346295f1ee83b"
+  },
+  {
+    "date": "2026-11-10T23:48:00Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000052",
+    "level": "debug",
+    "message": "cache hit key=progress:28755:c123",
+    "service": "api-server"
+  },
+  {
+    "date": "2026-11-10T23:47:30Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000051",
+    "level": "warn",
+    "message": "webhook handler slow: 3162ms event=subscription.activated (threshold 2000ms)",
+    "service": "payments",
+    "traceId": "fa8b9bc6885acafc2d9a5b3a82517c2a"
+  },
+  {
+    "date": "2026-11-10T23:47:03Z",
+    "host": "worker-prod-ae1-2",
+    "id": "0000A11C-0000-4000-8000-000000000050",
+    "level": "info",
+    "message": "transcode done video=v_22 renditions=4 took 95ms",
+    "service": "worker",
+    "traceId": "2e1be74abddf28d0d6fce20de502f81d"
+  },
+  {
+    "date": "2026-11-10T23:46:48Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000004F",
+    "level": "info",
+    "message": "POST /v1/lessons/409/events 204 in 238ms",
+    "service": "api-server",
+    "traceId": "ff5c072849f8c44eb2a47529772f3574"
+  },
+  {
+    "date": "2026-11-10T23:46:25Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000004E",
+    "level": "info",
+    "message": "GET /v1/courses/113/progress 200 in 185ms",
+    "service": "api-server",
+    "traceId": "03bc6c62882a1ac371d613328eab319e"
+  },
+  {
+    "date": "2026-11-10T23:46:00Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000004D",
+    "level": "info",
+    "message": "POST /v1/lessons/187/events 204 in 72ms",
+    "service": "api-server",
+    "traceId": "d668802e05f4aa04d9d681edd728f5f6"
+  },
+  {
+    "date": "2026-11-10T23:45:30Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000004C",
+    "level": "warn",
+    "message": "duplicate webhook delivery evt_dc094c980eaa (paddle retry #4)",
+    "service": "payments",
+    "traceId": "8be43454e2bd20ec5fd919d7b05844a7"
+  },
+  {
+    "date": "2026-11-10T23:45:08Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000004B",
+    "level": "error",
+    "message": "webhook handler timeout after 5000ms: context deadline exceeded (tx: UPDATE subscriptions)",
+    "service": "payments",
+    "traceId": "05ad762cd0d58565e093e59ae8322fae"
+  },
+  {
+    "date": "2026-11-10T23:44:44Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000004A",
+    "level": "info",
+    "message": "login ok provider=google uid=72526",
+    "service": "auth",
+    "traceId": "4932260a933abc94fc31a5ee7c21f467"
+  },
+  {
+    "date": "2026-11-10T23:44:16Z",
+    "host": "worker-prod-ae1-2",
+    "id": "0000A11C-0000-4000-8000-000000000049",
+    "level": "info",
+    "message": "transcode done video=v_11 renditions=4 took 19ms",
+    "service": "worker",
+    "traceId": "5d5bf7fcaf6abc65d69d6ec077c38250"
+  },
+  {
+    "date": "2026-11-10T23:43:59Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000048",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 35ms",
+    "service": "course-web",
+    "traceId": "b97f4f849824d018251c5baaceb13968"
+  },
+  {
+    "date": "2026-11-10T23:43:33Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000047",
+    "level": "info",
+    "message": "login ok provider=google uid=15961",
+    "service": "auth",
+    "traceId": "fb0e28ce4fd3b77824385816718b46a9"
+  },
+  {
+    "date": "2026-11-10T23:43:06Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000046",
+    "level": "info",
+    "message": "session start lesson=l2-4.2 first_frame=77ms",
+    "service": "live-player",
+    "traceId": "462a8d240321305e23cfa90e57218b20"
+  },
+  {
+    "date": "2026-11-10T23:42:31Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000045",
+    "level": "info",
+    "message": "GET /v1/courses/854/progress 200 in 115ms",
+    "service": "api-server",
+    "traceId": "93a92ffad25d6375ff2eca85fb3119b9"
+  },
+  {
+    "date": "2026-11-10T23:42:18Z",
+    "host": "gke-prod-uc1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000044",
+    "level": "warn",
+    "message": "webhook handler slow: 4300ms event=subscription.activated (threshold 2000ms)",
+    "service": "payments",
+    "traceId": "8788a45c97dbf5e1b733cba60be0385e"
+  },
+  {
+    "date": "2026-11-10T23:41:46Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-000000000043",
+    "level": "warn",
+    "message": "queue billing depth=502 consumers=4 lag=8m",
+    "service": "worker",
+    "traceId": "432b0cd6b3b73131365cf51409430e0e"
+  },
+  {
+    "date": "2026-11-10T23:41:33Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-000000000042",
+    "level": "warn",
+    "message": "queue billing depth=497 consumers=4 lag=6m",
+    "service": "worker",
+    "traceId": "10ca5ac5aea44140448954f5b89887bf"
+  },
+  {
+    "date": "2026-11-10T23:40:59Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000041",
+    "level": "info",
+    "message": "GET /v1/courses/374/progress 200 in 23ms",
+    "service": "api-server",
+    "traceId": "ea4df37be0083bec4db788f8ab27936a"
+  },
+  {
+    "date": "2026-11-10T23:40:43Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000040",
+    "level": "warn",
+    "message": "rebuffer event country=TW isp=HiNet duration=3085ms",
+    "service": "live-player",
+    "traceId": "7d13ca6fc065acb27544523dad9f48aa"
+  },
+  {
+    "date": "2026-11-10T23:40:08Z",
+    "host": "pg-prod-primary",
+    "id": "0000A11C-0000-4000-8000-00000000003F",
+    "level": "warn",
+    "message": "process 36303 still waiting for ShareLock on transaction after 1000.112 ms",
+    "service": "postgres"
+  },
+  {
+    "date": "2026-11-10T23:39:42Z",
+    "host": "gke-prod-uc1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000003E",
+    "level": "warn",
+    "message": "webhook handler slow: 3733ms event=subscription.activated (threshold 2000ms)",
+    "service": "payments",
+    "traceId": "2be1038d75e6cf08947bbe49b2e8ecf6"
+  },
+  {
+    "date": "2026-11-10T23:39:31Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000003D",
+    "level": "info",
+    "message": "POST /v1/lessons/471/events 204 in 36ms",
+    "service": "api-server",
+    "traceId": "c96a612f54491511ab4f2c416fec3bb6"
+  },
+  {
+    "date": "2026-11-10T23:39:14Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000003C",
+    "level": "info",
+    "message": "GET /v1/courses/520/progress 200 in 30ms",
+    "service": "api-server",
+    "traceId": "46c6041d9c1a74c929478455ff8412f5"
+  },
+  {
+    "date": "2026-11-10T23:38:33Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000003B",
+    "level": "info",
+    "message": "login ok provider=google uid=41003",
+    "service": "auth",
+    "traceId": "8a3f5832d365fdef875992e9c6754dfb"
+  },
+  {
+    "date": "2026-11-10T23:38:10Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000003A",
+    "level": "info",
+    "message": "POST /v1/lessons/816/events 204 in 109ms",
+    "service": "api-server",
+    "traceId": "d99d93cc9ee198ab85bc2db014649381"
+  },
+  {
+    "date": "2026-11-10T23:38:00Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000039",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 109ms",
+    "service": "course-web",
+    "traceId": "167964bf015ede844ce284c38e0c889d"
+  },
+  {
+    "date": "2026-11-10T23:37:32Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000038",
+    "level": "warn",
+    "message": "webhook handler slow: 3771ms event=subscription.activated (threshold 2000ms)",
+    "service": "payments",
+    "traceId": "20ecda8a82a7bd6f2f3c45f0f7f7176f"
+  },
+  {
+    "date": "2026-11-10T23:37:09Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000037",
+    "level": "error",
+    "message": "POST /v1/enrollments/import 500: csv: bare \" in non-quoted field (line 1, BOM detected) [canary]",
+    "service": "api-server",
+    "traceId": "1819b885e69bddc56342580a468b6980"
+  },
+  {
+    "date": "2026-11-10T23:36:45Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000036",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 228ms",
+    "service": "course-web",
+    "traceId": "01d0d077d9c0661a7c8e0b4f3f5330b4"
+  },
+  {
+    "date": "2026-11-10T23:36:16Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000035",
+    "level": "error",
+    "message": "POST /v1/enrollments/import 500: csv: bare \" in non-quoted field (line 1, BOM detected) [canary]",
+    "service": "api-server",
+    "traceId": "1d02935b568cfa863b44e9a14a1f23d1"
+  },
+  {
+    "date": "2026-11-10T23:35:57Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000034",
+    "level": "info",
+    "message": "POST /v1/lessons/697/events 204 in 103ms",
+    "service": "api-server",
+    "traceId": "e2b00d5ddd09373583ba5b43807ef20a"
+  },
+  {
+    "date": "2026-11-10T23:35:29Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000033",
+    "level": "info",
+    "message": "login ok provider=google uid=69084",
+    "service": "auth",
+    "traceId": "d462dae8c47ebe3382547f0fd150e990"
+  },
+  {
+    "date": "2026-11-10T23:35:08Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000032",
+    "level": "info",
+    "message": "session start lesson=l2-4.7 first_frame=186ms",
+    "service": "live-player",
+    "traceId": "b8506237d455bc0c7b49ecb79dd230ce"
+  },
+  {
+    "date": "2026-11-10T23:34:47Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000031",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 98ms",
+    "service": "course-web",
+    "traceId": "b1a216772441013bb2362b72ac871575"
+  },
+  {
+    "date": "2026-11-10T23:34:06Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000030",
+    "level": "info",
+    "message": "GET /v1/courses/569/progress 200 in 170ms",
+    "service": "api-server",
+    "traceId": "be9e4ed372fcca98da64ce3bf0ffc107"
+  },
+  {
+    "date": "2026-11-10T23:33:51Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-00000000002F",
+    "level": "error",
+    "message": "POST /v1/enrollments/import 500: csv: bare \" in non-quoted field (line 1, BOM detected) [canary]",
+    "service": "api-server",
+    "traceId": "8fb37b47504d4b8f8c9e1334e55c9ada"
+  },
+  {
+    "date": "2026-11-10T23:33:16Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000002E",
+    "level": "info",
+    "message": "GET /v1/courses/351/progress 200 in 33ms",
+    "service": "api-server",
+    "traceId": "c8ea7b751f7dfd9fde4084dc08befce3"
+  },
+  {
+    "date": "2026-11-10T23:33:03Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000002D",
+    "level": "warn",
+    "message": "upstream api-server slow response 1645ms (/v1/me/summary)",
+    "service": "course-web",
+    "traceId": "5ecbc178f511cc0d03e0c4555d04f131"
+  },
+  {
+    "date": "2026-11-10T23:32:27Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000002C",
+    "level": "info",
+    "message": "webhook received event=transaction.completed id=evt_e8ab31fcacb8",
+    "service": "payments",
+    "traceId": "3a77910e4fcd4c7ff3726e1487c65a33"
+  },
+  {
+    "date": "2026-11-10T23:32:20Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000002B",
+    "level": "warn",
+    "message": "duplicate webhook delivery evt_8f9ccb19bfd9 (paddle retry #9)",
+    "service": "payments",
+    "traceId": "8b268583f9a80279c815473892c6f464"
+  },
+  {
+    "date": "2026-11-10T23:31:49Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000002A",
+    "level": "info",
+    "message": "GET /v1/courses/234/progress 200 in 220ms",
+    "service": "api-server",
+    "traceId": "5ac89cf98b4d4825f43e1680d07941e9"
+  },
+  {
+    "date": "2026-11-10T23:31:34Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000029",
+    "level": "debug",
+    "message": "cache hit key=progress:44093:c103",
+    "service": "api-server"
+  },
+  {
+    "date": "2026-11-10T23:30:53Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000028",
+    "level": "info",
+    "message": "GET /v1/courses/940/progress 200 in 49ms",
+    "service": "api-server",
+    "traceId": "cadb0bfcab5917846df601612b396ee5"
+  },
+  {
+    "date": "2026-11-10T23:30:39Z",
+    "host": "gke-prod-uc1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000027",
+    "level": "warn",
+    "message": "webhook handler slow: 4774ms event=subscription.activated (threshold 2000ms)",
+    "service": "payments",
+    "traceId": "75051b18b208ad2c57d677c990102a14"
+  },
+  {
+    "date": "2026-11-10T23:30:19Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-000000000026",
+    "level": "warn",
+    "message": "queue billing depth=238 consumers=4 lag=8m",
+    "service": "worker",
+    "traceId": "b80952e8a62ca08e4fa52935b641b2f0"
+  },
+  {
+    "date": "2026-11-10T23:29:57Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000025",
+    "level": "debug",
+    "message": "cache hit key=progress:69871:c130",
+    "service": "api-server"
+  },
+  {
+    "date": "2026-11-10T23:29:20Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000024",
+    "level": "warn",
+    "message": "duplicate webhook delivery evt_73bd3432c3c6 (paddle retry #1)",
+    "service": "payments",
+    "traceId": "1a3c8e6f2bb8b164e634d45149d6684f"
+  },
+  {
+    "date": "2026-11-10T23:28:58Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000023",
+    "level": "info",
+    "message": "GET /v1/courses/796/progress 200 in 19ms",
+    "service": "api-server",
+    "traceId": "bfdbc1dcbd4f719268c5e23dbc98e859"
+  },
+  {
+    "date": "2026-11-10T23:28:39Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000022",
+    "level": "error",
+    "message": "webhook handler timeout after 5000ms: context deadline exceeded (tx: UPDATE subscriptions)",
+    "service": "payments",
+    "traceId": "37890c32caffd9b3fbede5ce68c0b6e3"
+  },
+  {
+    "date": "2026-11-10T23:28:10Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-000000000021",
+    "level": "warn",
+    "message": "queue billing depth=188 consumers=4 lag=2m",
+    "service": "worker",
+    "traceId": "ee466328be0c58d49ebebfe415b42a27"
+  },
+  {
+    "date": "2026-11-10T23:27:42Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000020",
+    "level": "info",
+    "message": "login ok provider=google uid=78867",
+    "service": "auth",
+    "traceId": "b65121e271e9fae0b91c11ce82f3b353"
+  },
+  {
+    "date": "2026-11-10T23:27:23Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000001F",
+    "level": "info",
+    "message": "POST /v1/lessons/988/events 204 in 131ms",
+    "service": "api-server",
+    "traceId": "5a0d6bc28cc80c1716dd177a2046f481"
+  },
+  {
+    "date": "2026-11-10T23:27:02Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000001E",
+    "level": "info",
+    "message": "POST /v1/lessons/768/events 204 in 134ms",
+    "service": "api-server",
+    "traceId": "00990b9e0bcb3274b703a5a7ded6afc0"
+  },
+  {
+    "date": "2026-11-10T23:26:28Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000001D",
+    "level": "error",
+    "message": "webhook handler timeout after 5000ms: context deadline exceeded (tx: UPDATE subscriptions)",
+    "service": "payments",
+    "traceId": "b5b45ff89edbff7bb9063ee299661ce4"
+  },
+  {
+    "date": "2026-11-10T23:26:00Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000001C",
+    "level": "info",
+    "message": "session start lesson=l2-4.3 first_frame=100ms",
+    "service": "live-player",
+    "traceId": "41d3b121817e6228bee2d1d73a3c495e"
+  },
+  {
+    "date": "2026-11-10T23:25:51Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-00000000001B",
+    "level": "info",
+    "message": "GET /v1/courses/240/progress 200 in 215ms",
+    "service": "api-server",
+    "traceId": "0325b8e8d889eb0e581b385110ffdecd"
+  },
+  {
+    "date": "2026-11-10T23:25:27Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000001A",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 210ms",
+    "service": "course-web",
+    "traceId": "05f895bf2024ef1a7db094a2c7a53fe6"
+  },
+  {
+    "date": "2026-11-10T23:24:56Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000019",
+    "level": "info",
+    "message": "webhook received event=transaction.completed id=evt_0b23883ad120",
+    "service": "payments",
+    "traceId": "c8c764bbb30586007d3f45ce0a81a4c0"
+  },
+  {
+    "date": "2026-11-10T23:24:43Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000018",
+    "level": "warn",
+    "message": "rebuffer event country=TW isp=HiNet duration=4294ms",
+    "service": "live-player",
+    "traceId": "e061742d7eb9408b93b8ebb12d75ddd0"
+  },
+  {
+    "date": "2026-11-10T23:24:20Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000017",
+    "level": "info",
+    "message": "SSR /courses/vibe-coding rendered in 201ms",
+    "service": "course-web",
+    "traceId": "7f4601cca1e092fb0bb54db51eb8fe54"
+  },
+  {
+    "date": "2026-11-10T23:23:40Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-000000000016",
+    "level": "error",
+    "message": "billing job grant_access failed: pq: canceling statement due to lock timeout",
+    "service": "worker",
+    "traceId": "fa760f423309b4192cd5df9f58327b1d"
+  },
+  {
+    "date": "2026-11-10T23:23:11Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000015",
+    "level": "info",
+    "message": "POST /v1/lessons/847/events 204 in 240ms",
+    "service": "api-server",
+    "traceId": "93bb4cbe022a9aba630e0c40036cea91"
+  },
+  {
+    "date": "2026-11-10T23:23:02Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000014",
+    "level": "info",
+    "message": "session start lesson=l2-4.4 first_frame=37ms",
+    "service": "live-player",
+    "traceId": "83565865b1d35311421e02a559e6cb87"
+  },
+  {
+    "date": "2026-11-10T23:22:28Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000013",
+    "level": "info",
+    "message": "GET /v1/courses/197/progress 200 in 184ms",
+    "service": "api-server",
+    "traceId": "f0b4e6467aa25ca4f5b20c5d1287ae1d"
+  },
+  {
+    "date": "2026-11-10T23:22:00Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000012",
+    "level": "debug",
+    "message": "cache hit key=progress:16253:c132",
+    "service": "api-server"
+  },
+  {
+    "date": "2026-11-10T23:21:41Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000011",
+    "level": "info",
+    "message": "POST /v1/lessons/203/events 204 in 205ms",
+    "service": "api-server",
+    "traceId": "338a542b4fce3223e7381292ac36f775"
+  },
+  {
+    "date": "2026-11-10T23:21:24Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000010",
+    "level": "info",
+    "message": "webhook received event=transaction.completed id=evt_ef9517208de7",
+    "service": "payments",
+    "traceId": "0fb7074f75db0228e2e0185ea8600a30"
+  },
+  {
+    "date": "2026-11-10T23:20:51Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000000F",
+    "level": "info",
+    "message": "session start lesson=l2-4.3 first_frame=201ms",
+    "service": "live-player",
+    "traceId": "a82c2af561c3b8ec66e980afbe559324"
+  },
+  {
+    "date": "2026-11-10T23:20:25Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000000E",
+    "level": "info",
+    "message": "POST /v1/lessons/624/events 204 in 235ms",
+    "service": "api-server",
+    "traceId": "017ca44fcbada2df8829d4c6036d7c02"
+  },
+  {
+    "date": "2026-11-10T23:20:05Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000000D",
+    "level": "warn",
+    "message": "upstream api-server slow response 4551ms (/v1/me/summary)",
+    "service": "course-web",
+    "traceId": "a5f1a46283411a50b0188eb8dd5eaf68"
+  },
+  {
+    "date": "2026-11-10T23:19:42Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000000C",
+    "level": "warn",
+    "message": "rebuffer event country=TW isp=HiNet duration=1737ms",
+    "service": "live-player",
+    "traceId": "bd34726e66163310b47f634ded74baf6"
+  },
+  {
+    "date": "2026-11-10T23:19:12Z",
+    "host": "redis-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-00000000000B",
+    "level": "debug",
+    "message": "keyspace hits=98.7% evicted_keys=0",
+    "service": "redis"
+  },
+  {
+    "date": "2026-11-10T23:18:47Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-00000000000A",
+    "level": "info",
+    "message": "GET /v1/courses/318/progress 200 in 82ms",
+    "service": "api-server",
+    "traceId": "f7bc1b8b089b1b105b125756d67c176a"
+  },
+  {
+    "date": "2026-11-10T23:18:32Z",
+    "host": "worker-prod-ae1-1",
+    "id": "0000A11C-0000-4000-8000-000000000009",
+    "level": "info",
+    "message": "email sent template=lesson_reminder to=user:57358",
+    "service": "notifier",
+    "traceId": "0a0d31f8f9972b060c0624043f05a5f0"
+  },
+  {
+    "date": "2026-11-10T23:17:57Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000008",
+    "level": "info",
+    "message": "login ok provider=google uid=67334",
+    "service": "auth",
+    "traceId": "0e569cef60eade47086de124e70269c1"
+  },
+  {
+    "date": "2026-11-10T23:17:36Z",
+    "host": "worker-prod-ae1-2",
+    "id": "0000A11C-0000-4000-8000-000000000007",
+    "level": "info",
+    "message": "transcode done video=v_99 renditions=4 took 21ms",
+    "service": "worker",
+    "traceId": "91d751b75ee40121fc2b60a69ea0334e"
+  },
+  {
+    "date": "2026-11-10T23:17:19Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000006",
+    "level": "info",
+    "message": "login ok provider=google uid=12338",
+    "service": "auth",
+    "traceId": "7c1ab7c65924224b7d107696741d6a42"
+  },
+  {
+    "date": "2026-11-10T23:16:56Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000005",
+    "level": "info",
+    "message": "session start lesson=l2-4.9 first_frame=113ms",
+    "service": "live-player",
+    "traceId": "8f0ff9a015cdd7528c6cb83040bebfad"
+  },
+  {
+    "date": "2026-11-10T23:16:36Z",
+    "host": "gke-prod-uc1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000004",
+    "level": "info",
+    "message": "session start lesson=l2-4.8 first_frame=66ms",
+    "service": "live-player",
+    "traceId": "233723f12e53fef29ea15e29a2c937c4"
+  },
+  {
+    "date": "2026-11-10T23:16:07Z",
+    "host": "gke-prod-ae1-a3",
+    "id": "0000A11C-0000-4000-8000-000000000003",
+    "level": "info",
+    "message": "webhook received event=transaction.completed id=evt_cc1deee7aeba",
+    "service": "payments",
+    "traceId": "9765a04ed03d844b6f4ff2a4e9a70cb9"
+  },
+  {
+    "date": "2026-11-10T23:15:36Z",
+    "host": "gke-prod-ae1-a1",
+    "id": "0000A11C-0000-4000-8000-000000000002",
+    "level": "warn",
+    "message": "rebuffer event country=TW isp=HiNet duration=4536ms",
+    "service": "live-player",
+    "traceId": "0082b7d2424f62ccd05ca2b53d7fcfe4"
+  },
+  {
+    "date": "2026-11-10T23:15:07Z",
+    "host": "gke-prod-ae1-a2",
+    "id": "0000A11C-0000-4000-8000-000000000001",
+    "level": "error",
+    "message": "POST /v1/enrollments/import 500: csv: bare \" in non-quoted field (line 1, BOM detected) [canary]",
+    "service": "api-server",
+    "traceId": "585a7783c97ae691ab9bb657f551c50e"
+  }
+]

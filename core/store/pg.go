@@ -54,6 +54,9 @@ create table if not exists omixor_orgs (
   name text not null,
   created_at timestamptz not null default now()
 );
+alter table omixor_orgs add column if not exists symbol text not null default '';
+alter table omixor_orgs add column if not exists color text not null default '';
+alter table omixor_orgs add column if not exists note text not null default '';
 create table if not exists omixor_org_members (
   org text not null references omixor_orgs(id),
   user_id text not null references omixor_users(id),
@@ -338,7 +341,7 @@ func (p *PG) ListAudit(limit int) ([]model.AuditEntry, error) {
 func (p *PG) ListOrgs() ([]model.Org, error) {
 	c, cancel := ctx()
 	defer cancel()
-	rows, err := p.pool.Query(c, `select id, name, created_at from omixor_orgs order by created_at, id`)
+	rows, err := p.pool.Query(c, `select id, name, symbol, color, note, created_at from omixor_orgs order by created_at, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +350,7 @@ func (p *PG) ListOrgs() ([]model.Org, error) {
 	for rows.Next() {
 		var o model.Org
 		var created time.Time
-		if err := rows.Scan(&o.ID, &o.Name, &created); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.Symbol, &o.Color, &o.Note, &created); err != nil {
 			return nil, err
 		}
 		o.CreatedAt = model.Time{Time: created.UTC()}
@@ -361,7 +364,7 @@ func (p *PG) GetOrg(id string) (*model.Org, error) {
 	defer cancel()
 	var o model.Org
 	var created time.Time
-	if err := p.pool.QueryRow(c, `select id, name, created_at from omixor_orgs where id = $1`, id).Scan(&o.ID, &o.Name, &created); err != nil {
+	if err := p.pool.QueryRow(c, `select id, name, symbol, color, note, created_at from omixor_orgs where id = $1`, id).Scan(&o.ID, &o.Name, &o.Symbol, &o.Color, &o.Note, &created); err != nil {
 		return nil, notFound(err)
 	}
 	o.CreatedAt = model.Time{Time: created.UTC()}
@@ -371,11 +374,47 @@ func (p *PG) GetOrg(id string) (*model.Org, error) {
 func (p *PG) CreateOrg(o model.Org) error {
 	c, cancel := ctx()
 	defer cancel()
-	tag, err := p.pool.Exec(c, `insert into omixor_orgs (id, name, created_at) values ($1,$2,$3) on conflict (id) do nothing`, o.ID, o.Name, o.CreatedAt.Time)
+	tag, err := p.pool.Exec(c, `insert into omixor_orgs (id, name, symbol, color, note, created_at) values ($1,$2,$3,$4,$5,$6) on conflict (id) do nothing`, o.ID, o.Name, o.Symbol, o.Color, o.Note, o.CreatedAt.Time)
 	if err == nil && tag.RowsAffected() == 0 {
 		return fmt.Errorf("組織 %s 已經存在", o.ID)
 	}
 	return err
+}
+
+func (p *PG) UpdateOrg(o model.Org) error {
+	c, cancel := ctx()
+	defer cancel()
+	tag, err := p.pool.Exec(c, `update omixor_orgs set name = $2, symbol = $3, color = $4, note = $5 where id = $1`, o.ID, o.Name, o.Symbol, o.Color, o.Note)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (p *PG) DeleteOrg(id string) error {
+	c, cancel := ctx()
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(c)
+	for _, q := range []string{
+		`delete from ops_issues where org = $1`, // 留言跟著刪(on delete cascade)
+		`delete from omixor_org_members where org = $1`,
+	} {
+		if _, err := tx.Exec(c, q, id); err != nil {
+			return err
+		}
+	}
+	tag, err := tx.Exec(c, `delete from omixor_orgs where id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(c)
 }
 
 func (p *PG) MemberRole(org, userID string) (string, error) {
@@ -429,7 +468,7 @@ func (p *PG) RemoveMember(org, userID string) error {
 func (p *PG) OrgsOfUser(userID string) ([]model.Org, error) {
 	c, cancel := ctx()
 	defer cancel()
-	rows, err := p.pool.Query(c, `select o.id, o.name, o.created_at, m.role
+	rows, err := p.pool.Query(c, `select o.id, o.name, o.symbol, o.color, o.note, o.created_at, m.role
 from omixor_org_members m join omixor_orgs o on o.id = m.org where m.user_id = $1 order by o.created_at, o.id`, userID)
 	if err != nil {
 		return nil, err
@@ -439,7 +478,7 @@ from omixor_org_members m join omixor_orgs o on o.id = m.org where m.user_id = $
 	for rows.Next() {
 		var o model.Org
 		var created time.Time
-		if err := rows.Scan(&o.ID, &o.Name, &created, &o.MyRole); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.Symbol, &o.Color, &o.Note, &created, &o.MyRole); err != nil {
 			return nil, err
 		}
 		o.CreatedAt = model.Time{Time: created.UTC()}

@@ -1,0 +1,39 @@
+{
+  "id": "ideas",
+  "label": "構想",
+  "path": "/studio/mcp",
+  "tabs": [
+    {
+      "label": "課程 MCP",
+      "path": "/studio/mcp"
+    },
+    {
+      "label": "即時腳本 MCP",
+      "path": "/studio/live-script-mcp"
+    },
+    {
+      "label": "會員空間",
+      "path": "/studio/member"
+    },
+    {
+      "label": "兒童課家長模式",
+      "path": "/studio/kids-family"
+    },
+    {
+      "label": "資源系統",
+      "path": "/studio/resources"
+    },
+    {
+      "label": "科技新知動態牆",
+      "path": "/studio/news-feed"
+    },
+    {
+      "label": "延伸課程",
+      "path": "/studio/extensions"
+    },
+    {
+      "label": "從上線到維運",
+      "path": "/studio/ops-course"
+    }
+  ]
+}

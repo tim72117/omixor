@@ -4,7 +4,7 @@ import Foundation
 //   - 文件內文開頭可以有欄位(第一行 ---,欄位一行一個「key: value」,再一行 --- 結束),其中 kind 是文件類型
 //   - 範本本身也是文件櫃裡的文件:kind: template、for: <套用的 kind>、required: <必填欄位,逗號分隔>,
 //     內文放一個 ```html 區塊(版面,{{…}} 填欄位)與一個 ```css 區塊(樣式)
-//   - 有對應範本的文件,畫面用網頁顯示(轉換器是 web/spec/docrender.js,兩版共用);沒有就照舊顯示 Markdown
+//   - 有對應範本的文件,畫面用網頁顯示(轉換器是 templates/doc/docrender.js,兩版共用);沒有就照舊顯示 Markdown
 //   - ops_doc_save 存檔前依範本檢查必填欄位
 // 範本是資料:AI 用 ops_doc_save 就能新增或修改,不用改程式。
 

@@ -26,6 +26,16 @@ omixor 的核心後端模組(Go)。目前有:
 - 組織管理員(`org_members.role = admin`):管自己組織的成員
 - 組織成員:讀寫自己組織的 Issue;作者一律是自己(不能冒名)
 
+## 組織
+
+組織的所有資訊都存在核心(`omixor_orgs`):`id`(建立後不能改)、`name`、`symbol`(圖示名稱)、`color`(顏色)、`note`(備註)、`createdAt`;列出「我的組織」時另外帶 `myRole`。圖示、顏色、備註沒設是空字串,怎麼顯示由介面決定。
+
+- `POST /api/orgs`:`{id, name, symbol?, color?, note?}` 建立(伺服器管理員)
+- `PUT /api/orgs/{org}`:`{name, symbol?, color?, note?}` 修改(伺服器管理員;name 不能空白)
+- 刪除組織只有 `service.DeleteOrg`(連成員與 Issue 一起刪,不能復原),沒有 HTTP 路由
+
+舊的 PostgreSQL 資料庫啟動時會自動補上 `symbol`、`color`、`note` 三欄(`alter table … add column if not exists`)。
+
 ## 測試
 
 ```bash

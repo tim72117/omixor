@@ -1,0 +1,538 @@
+[
+  {
+    "automation": "ai-alert-triage",
+    "costUSD": 0.62,
+    "id": "AR-8842",
+    "startedAt": "2026-11-10T23:22:28Z",
+    "status": "running",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000C2",
+        "output": "p95 4.8s,成功率 97.3%,19:12 開始上升",
+        "status": "done",
+        "title": "查 webhook 延遲與錯誤率",
+        "tool": "grafana query"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000C3",
+        "output": "payments 24 小時內無部署;api-server canary 不影響 webhook 路徑",
+        "status": "done",
+        "title": "檢查最近部署",
+        "tool": "gh api deployments"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000C4",
+        "output": "subscriptions 表 lock wait 平均 4.1s;64 個 idle in transaction",
+        "status": "done",
+        "title": "查資料庫鎖等待",
+        "tool": "psql (read-only)"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000C5",
+        "output": "context deadline exceeded ×212,duplicate delivery ×97",
+        "status": "done",
+        "title": "比對 payments 日誌",
+        "tool": "kubectl logs -l app=payments"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000C6",
+        "output": "APV-312 等待核准",
+        "status": "done",
+        "title": "送出清除卡住連線的核准請求",
+        "tool": "approval"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000C7",
+        "output": "SMTP 快速失敗後 p95 3.9s",
+        "status": "running",
+        "title": "持續追蹤緩解效果",
+        "tool": "grafana query"
+      }
+    ],
+    "summary": "根因鎖定在交易內同步寄信造成的鎖競爭;已送出 APV-312,持續追蹤中。",
+    "target": "INC-2041 / payments",
+    "tokens": 48200
+  },
+  {
+    "automation": "ai-autoscale",
+    "costUSD": 0.17000000000000001,
+    "id": "AR-8843",
+    "startedAt": "2026-11-10T23:44:28Z",
+    "status": "waitingApproval",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000C8",
+        "output": "depth 1,284,進 31/s、出 22/s",
+        "status": "done",
+        "title": "讀佇列深度與消費速率",
+        "tool": "promql"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000C9",
+        "output": "10 個消費者可在 ~25 分鐘清空",
+        "status": "done",
+        "title": "預估需要的消費者數量"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000CA",
+        "output": "目前 182/200 連線;建議先清除 idle 連線(APV-312)再擴容",
+        "status": "done",
+        "title": "檢查資料庫是否承受得住",
+        "tool": "psql (read-only)"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000CB",
+        "output": "kubectl -n prod scale deploy/worker-billing --replicas=10",
+        "status": "done",
+        "title": "準備擴容指令",
+        "tool": "kubectl scale"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000CC",
+        "output": "APV-311",
+        "status": "pending",
+        "title": "等待核准",
+        "tool": "approval"
+      }
+    ],
+    "summary": "建議把 billing 消費者從 4 擴到 10,等待核准。",
+    "target": "worker / billing queue",
+    "tokens": 12900
+  },
+  {
+    "automation": "ai-review",
+    "costUSD": 0.28000000000000003,
+    "finishedAt": "2026-11-11T00:09:28Z",
+    "id": "AR-8844",
+    "startedAt": "2026-11-11T00:07:28Z",
+    "status": "succeeded",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000CD",
+        "output": "+412 −138,關聯 INC-2041",
+        "status": "done",
+        "title": "讀 diff 與關聯事件",
+        "tool": "gh pr diff 1426"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000CE",
+        "output": "0087 會鎖 subscriptions 表",
+        "status": "done",
+        "title": "檢查 migration"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000CF",
+        "output": "outbox 缺 event_id 唯一索引",
+        "status": "done",
+        "title": "檢查冪等性"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D0",
+        "output": "3 個問題、風險:中",
+        "status": "done",
+        "title": "留言審查結果",
+        "tool": "gh pr comment"
+      }
+    ],
+    "summary": "中風險:3 個需處理的問題,包含重複開通的風險。",
+    "target": "PR #1426",
+    "tokens": 21400
+  },
+  {
+    "automation": "ai-rollback",
+    "costUSD": 0.13,
+    "id": "AR-8845",
+    "startedAt": "2026-11-11T00:09:28Z",
+    "status": "running",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D1",
+        "output": "5xx 0.42% vs 0.18%,p95 相同",
+        "status": "done",
+        "title": "比較 canary 與 stable",
+        "tool": "promql"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D2",
+        "output": "全部是 POST /v1/enrollments/import 的 CSV BOM 解析錯誤",
+        "status": "done",
+        "title": "分析錯誤分布",
+        "tool": "sentry issues"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D3",
+        "output": "未達門檻 1%,且只影響新功能 → 不回滾,持續觀察",
+        "status": "done",
+        "title": "判斷是否回滾"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D4",
+        "status": "running",
+        "title": "每分鐘重新評估",
+        "tool": "promql"
+      }
+    ],
+    "summary": "canary 錯誤率偏高但只影響新功能,暫不回滾,持續監看。",
+    "target": "api-server v2.14.0 canary",
+    "tokens": 9800
+  },
+  {
+    "automation": "ai-ci-triage",
+    "costUSD": 0.20000000000000001,
+    "finishedAt": "2026-11-10T23:34:28Z",
+    "id": "AR-8841",
+    "startedAt": "2026-11-10T23:33:28Z",
+    "status": "succeeded",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D5",
+        "output": "course-map.spec.ts:48 webkit 逾時",
+        "status": "done",
+        "title": "讀失敗 job 的 log",
+        "tool": "gh run view 1286 --log-failed"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D6",
+        "output": "此測試在 main 14 天 100% 通過",
+        "status": "done",
+        "title": "比對歷史成功率",
+        "tool": "gh run list"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D7",
+        "output": "PR 造成(debounce 300ms),不是 flaky → 不重試",
+        "status": "done",
+        "title": "判斷類型"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D8",
+        "output": "已留言",
+        "status": "done",
+        "title": "在 PR 留下診斷",
+        "tool": "gh pr comment 1418"
+      }
+    ],
+    "summary": "判斷為 PR 本身造成的失敗,已在 PR #1418 留下修正建議。",
+    "target": "course-web #1286",
+    "tokens": 15600
+  },
+  {
+    "automation": "ai-postmortem",
+    "costUSD": 0.23999999999999999,
+    "id": "AR-8840",
+    "startedAt": "2026-11-10T23:25:28Z",
+    "status": "running",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000D9",
+        "output": "16 筆事件",
+        "status": "done",
+        "title": "彙整時間軸",
+        "tool": "incident timeline"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000DA",
+        "output": "已更新(第 4 版)",
+        "status": "done",
+        "title": "更新事件摘要"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000DB",
+        "status": "pending",
+        "title": "等待事件解決後產生檢討草稿"
+      }
+    ],
+    "summary": "每 10 分鐘更新一次事件摘要。",
+    "target": "INC-2041",
+    "tokens": 18300
+  },
+  {
+    "automation": "ai-alert-triage",
+    "costUSD": 0.14999999999999999,
+    "id": "AR-8839",
+    "startedAt": "2026-11-10T23:47:28Z",
+    "status": "waitingApproval",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000DC",
+        "output": "64 個,全部來自 payments,最久 23 分鐘",
+        "status": "done",
+        "title": "列出 idle in transaction 連線",
+        "tool": "psql (read-only)"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000DD",
+        "output": "都卡在 UPDATE subscriptions,中止後 webhook 會由 Paddle 重送,有冪等鍵",
+        "status": "done",
+        "title": "確認這些交易可安全中止"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000DE",
+        "output": "SELECT pg_terminate_backend(pid) …",
+        "status": "done",
+        "title": "準備指令",
+        "tool": "psql"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000DF",
+        "output": "APV-312",
+        "status": "pending",
+        "title": "等待核准",
+        "tool": "approval"
+      }
+    ],
+    "summary": "建議終止 64 個卡住的連線,等待核准。",
+    "target": "ALT-5123 / pg-prod-primary",
+    "tokens": 11200
+  },
+  {
+    "automation": "ai-ci-triage",
+    "costUSD": 0.11,
+    "finishedAt": "2026-11-10T20:35:28Z",
+    "id": "AR-8836",
+    "startedAt": "2026-11-10T20:33:28Z",
+    "status": "succeeded",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E0",
+        "output": "govulncheck: GO-2024-3333",
+        "status": "done",
+        "title": "讀失敗 job 的 log",
+        "tool": "gh run view 1284 --log-failed"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E1",
+        "output": "是:internal/oauth/callback.go:88",
+        "status": "done",
+        "title": "確認是否實際呼叫到弱點函式",
+        "tool": "govulncheck -show traces"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E2",
+        "output": "觸發 ai-deps",
+        "status": "done",
+        "title": "交給依賴套件更新"
+      }
+    ],
+    "summary": "安全掃描失敗,原因是 x/net 弱點;已交給「依賴套件更新」開 PR。",
+    "target": "auth #1284",
+    "tokens": 8700
+  },
+  {
+    "automation": "ai-deps",
+    "costUSD": 0.080000000000000002,
+    "finishedAt": "2026-11-10T20:50:28Z",
+    "id": "AR-8837",
+    "startedAt": "2026-11-10T20:36:28Z",
+    "status": "succeeded",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E3",
+        "output": "go.mod 更新",
+        "status": "done",
+        "title": "升級套件",
+        "tool": "go get golang.org/x/net@v0.31.0"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E4",
+        "output": "PASS",
+        "status": "done",
+        "title": "跑測試",
+        "tool": "go test ./..."
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E5",
+        "output": "No vulnerabilities found.",
+        "status": "done",
+        "title": "重新掃描",
+        "tool": "govulncheck ./..."
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E6",
+        "output": "PR #1424",
+        "status": "done",
+        "title": "開 PR",
+        "tool": "gh pr create"
+      }
+    ],
+    "summary": "已開 PR #1424,等待人工合併。",
+    "target": "auth / golang.org/x/net",
+    "tokens": 6400
+  },
+  {
+    "automation": "ai-rollback",
+    "costUSD": 0.17999999999999999,
+    "finishedAt": "2026-11-10T18:51:28Z",
+    "id": "AR-8831",
+    "startedAt": "2026-11-10T18:45:28Z",
+    "status": "succeeded",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E7",
+        "output": "5xx 3.1% vs 0.2%,p95 2.8s vs 1.1s",
+        "status": "done",
+        "title": "比較 canary 與 stable",
+        "tool": "promql"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E8",
+        "output": "aborted",
+        "status": "done",
+        "title": "中止 rollout",
+        "tool": "argo rollouts abort live-player"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000E9",
+        "output": "rolled back",
+        "status": "done",
+        "title": "回滾到 v1.8.0",
+        "tool": "argo rollouts undo live-player"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000EA",
+        "output": "5xx 0.21%",
+        "status": "done",
+        "title": "確認恢復",
+        "tool": "promql"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000EB",
+        "output": "INC-2036、PR #1416",
+        "status": "done",
+        "title": "開事件與 revert PR",
+        "tool": "gh pr create"
+      }
+    ],
+    "summary": "v1.8.1 異常,1 分鐘內自動回滾到 v1.8.0。",
+    "target": "live-player v1.8.1",
+    "tokens": 14100
+  },
+  {
+    "automation": "ai-ci-triage",
+    "costUSD": 0.32000000000000001,
+    "finishedAt": "2026-11-10T15:43:28Z",
+    "id": "AR-8829",
+    "startedAt": "2026-11-10T15:25:28Z",
+    "status": "succeeded",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000EC",
+        "output": "enrollment.spec.ts 14 天失敗 9 次",
+        "status": "done",
+        "title": "找出 flaky 測試",
+        "tool": "gh run list --status failure"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000ED",
+        "output": "等待 API 回應後再斷言",
+        "status": "done",
+        "title": "修正測試",
+        "tool": "git commit"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000EE",
+        "output": "PR #1421,run #1282 通過",
+        "status": "done",
+        "title": "開 PR 並重跑",
+        "tool": "gh pr create && gh run rerun"
+      }
+    ],
+    "summary": "修正 flaky 的 enrollment e2e 測試。",
+    "target": "course-web PR #1421",
+    "tokens": 24800
+  },
+  {
+    "automation": "ai-cost",
+    "costUSD": 0.40999999999999998,
+    "finishedAt": "2026-11-10T00:29:52Z",
+    "id": "AR-8820",
+    "startedAt": "2026-11-10T00:15:28Z",
+    "status": "succeeded",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000EF",
+        "output": "上週 US$2,184(+6%)",
+        "status": "done",
+        "title": "查詢帳單",
+        "tool": "bq query"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000F0",
+        "output": "3 個未掛載磁碟、staging 夜間 CPU < 3%",
+        "status": "done",
+        "title": "找出閒置資源",
+        "tool": "gcloud recommender"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000F1",
+        "output": "PR #1419",
+        "status": "done",
+        "title": "產生 Terraform 草稿",
+        "tool": "terraform plan"
+      }
+    ],
+    "summary": "找到每月約 US$420 的節省空間。",
+    "target": "GCP 帳單(上週)",
+    "tokens": 31000
+  },
+  {
+    "automation": "ai-autoscale",
+    "costUSD": 0.070000000000000007,
+    "finishedAt": "2026-11-10T15:18:28Z",
+    "id": "AR-8815",
+    "startedAt": "2026-11-10T15:15:28Z",
+    "status": "failed",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000F2",
+        "output": "gke-prod-ae1-a3 記憶體壓力",
+        "status": "done",
+        "title": "讀 CPU 與 rps",
+        "tool": "promql"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000F3",
+        "output": "Error: forbidden — 權限範圍不含 namespace prod-legacy",
+        "status": "failed",
+        "title": "調高 HPA maxReplicas",
+        "tool": "kubectl patch hpa api-server"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000F4",
+        "output": "已通知 hao",
+        "status": "done",
+        "title": "通知值班",
+        "tool": "slack"
+      }
+    ],
+    "summary": "權限不足,改由值班人工處理。",
+    "target": "api-server HPA",
+    "tokens": 5200
+  },
+  {
+    "automation": "ai-deps",
+    "costUSD": 0.050000000000000003,
+    "finishedAt": "2026-11-10T06:21:28Z",
+    "id": "AR-8812",
+    "startedAt": "2026-11-10T06:15:28Z",
+    "status": "canceled",
+    "steps": [
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000F5",
+        "output": "12 個套件有新版",
+        "status": "done",
+        "title": "掃描 package.json",
+        "tool": "pnpm outdated"
+      },
+      {
+        "id": "0000A11C-0000-4000-8000-0000000000F6",
+        "status": "skipped",
+        "title": "升級 vite 到 6.0",
+        "tool": "pnpm update vite"
+      }
+    ],
+    "summary": "主版本升級需人工評估,本次取消。",
+    "target": "course-web / 每日掃描",
+    "tokens": 3900
+  }
+]

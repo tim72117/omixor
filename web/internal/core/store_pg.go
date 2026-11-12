@@ -180,6 +180,13 @@ func (pgBackend) MoveDir(oldPrefix, newPrefix string) error {
 	return err
 }
 
+func (pgBackend) RemoveDir(prefix string) error {
+	ctx, cancel := pgCtx()
+	defer cancel()
+	_, err := pgPool.Exec(ctx, `delete from ops_documents where starts_with(path, $1)`, strings.TrimSuffix(prefix, "/")+"/")
+	return err
+}
+
 func (pgBackend) DirExists(prefix string) bool {
 	ctx, cancel := pgCtx()
 	defer cancel()

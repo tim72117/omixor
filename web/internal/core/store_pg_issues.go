@@ -373,21 +373,3 @@ func OpenIssueDB(url string) error {
 	pgPool = pool
 	return nil
 }
-
-// pgMoveOrgIssues 刪除組織時,把它的 Issue 改掛到 deleted-orgs/<組織>-<時間>(不直接刪掉,同 ops_documents)
-func pgMoveOrgIssues(id string) {
-	ctx, cancel := pgCtx()
-	defer cancel()
-	if _, err := pgPool.Exec(ctx, `update ops_issues set org = $2 where org = $1`, id,
-		fmt.Sprintf("deleted-orgs/%s-%d", id, time.Now().Unix())); err != nil {
-		log.Printf("搬移組織 %s 的 Issue 失敗:%v", id, err)
-	}
-}
-
-func init() {
-	OnOrgDelete(func(a *App, id, dir string) {
-		if pgPool != nil {
-			pgMoveOrgIssues(id)
-		}
-	})
-}

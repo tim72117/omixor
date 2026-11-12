@@ -1,0 +1,141 @@
+[
+  {
+    "aiNote": "延遲從 19:12 開始上升,和 pg-prod-primary 上 `subscriptions` 表的 lock wait 同時發生。webhook 在同一個交易裡同步開通權限並寄信,一筆卡住就整條佇列排隊。Paddle 會在 5 秒內未回 200 時重送,重送又放大流量。",
+    "id": "ALT-5121",
+    "incidentId": "INC-2041",
+    "rule": "histogram_quantile(0.95, paddle_webhook_duration_seconds) > 2 for 5m",
+    "service": "payments",
+    "severity": "critical",
+    "startedAt": "2026-11-10T23:21:28Z",
+    "state": "firing",
+    "title": "Paddle webhook 處理延遲過高",
+    "value": "p95 4.8s"
+  },
+  {
+    "aiNote": "是 ALT-5121 的連帶影響,不是獨立問題。worker 消費速率 ~22/s,進入速率 ~31/s。擴容到 10 個消費者預計 25 分鐘內清空(已送出核准請求)。",
+    "id": "ALT-5122",
+    "incidentId": "INC-2041",
+    "rule": "queue_depth{queue=\"billing\"} > 500 for 10m",
+    "service": "worker",
+    "severity": "warning",
+    "startedAt": "2026-11-10T23:34:28Z",
+    "state": "firing",
+    "title": "billing 佇列積壓",
+    "value": "1,284 筆"
+  },
+  {
+    "aiNote": "有 64 個連線處於 idle in transaction 超過 10 分鐘,來源都是 payments。建議終止這些連線,並把 payments 的 pgbouncer pool_mode 改成 transaction。",
+    "id": "ALT-5123",
+    "incidentId": "INC-2041",
+    "rule": "pg_stat_activity_count / pg_settings_max_connections > 0.85 for 5m",
+    "service": "postgres",
+    "severity": "warning",
+    "startedAt": "2026-11-10T23:42:28Z",
+    "state": "firing",
+    "title": "pg-prod-primary 連線數接近上限",
+    "value": "182 / 200"
+  },
+  {
+    "aiNote": "錯誤集中在 `POST /v1/enrollments/import`(新功能)回 500,原因是 CSV 有 BOM 時解析失敗,不影響既有流量。尚未超過自動回滾門檻 1%,建議繼續觀察,同時修正 BOM 處理。",
+    "id": "ALT-5124",
+    "rule": "rate(http_5xx{track=\"canary\"}[5m]) / rate(http_5xx{track=\"stable\"}[5m]) > 2",
+    "service": "api-server",
+    "severity": "warning",
+    "startedAt": "2026-11-11T00:09:28Z",
+    "state": "firing",
+    "title": "api-server canary 錯誤率高於基準",
+    "value": "0.42% vs 0.18%"
+  },
+  {
+    "acknowledgedBy": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "aiNote": "問題集中在 HiNet 用戶,Cloudflare 台北 POP 回源到 us-central1。和 Cloudflare 狀態頁的 TPE 路由事件時間吻合。",
+    "id": "ALT-5118",
+    "incidentId": "INC-2039",
+    "rule": "histogram_quantile(0.95, player_start_seconds{country=\"TW\"}) > 2.5 for 10m",
+    "service": "live-player",
+    "severity": "warning",
+    "startedAt": "2026-11-10T21:03:28Z",
+    "state": "acknowledged",
+    "title": "台灣地區影片起播時間 p95 上升",
+    "value": "p95 3.1s"
+  },
+  {
+    "acknowledgedBy": {
+      "id": "ai-alert-triage",
+      "kind": "ai"
+    },
+    "aiNote": "與 ALT-5118 同源,已併入 INC-2039。",
+    "id": "ALT-5117",
+    "incidentId": "INC-2039",
+    "rule": "cdn_cache_hit_ratio < 0.9 for 15m",
+    "service": "media-cdn",
+    "severity": "info",
+    "startedAt": "2026-11-10T21:15:28Z",
+    "state": "acknowledged",
+    "title": "CDN 快取命中率下降",
+    "value": "86.4%"
+  },
+  {
+    "acknowledgedBy": {
+      "id": "ai-rollback",
+      "kind": "ai"
+    },
+    "aiNote": "與 5 分鐘前的 v1.8.1 canary 部署相關,已自動回滾。",
+    "id": "ALT-5112",
+    "incidentId": "INC-2036",
+    "rule": "rate(http_5xx[5m]) / rate(http_requests[5m]) > 0.02",
+    "service": "live-player",
+    "severity": "critical",
+    "startedAt": "2026-11-10T18:45:28Z",
+    "state": "resolved",
+    "title": "live-player 5xx 比例過高",
+    "value": "3.1%"
+  },
+  {
+    "acknowledgedBy": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "id": "ALT-5108",
+    "rule": "node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.1",
+    "service": "api-server",
+    "severity": "warning",
+    "startedAt": "2026-11-10T15:15:28Z",
+    "state": "resolved",
+    "title": "gke-prod-ae1-a3 記憶體壓力",
+    "value": "可用 7.8%"
+  },
+  {
+    "acknowledgedBy": {
+      "id": "tim",
+      "kind": "person"
+    },
+    "aiNote": "主要是舊的 docker image(41 GB),可安全執行 docker image prune。",
+    "id": "ALT-5104",
+    "rule": "disk_used_percent > 85",
+    "service": "api-server",
+    "severity": "info",
+    "startedAt": "2026-11-10T10:15:28Z",
+    "state": "silenced",
+    "title": "dev-ae1-1 磁碟使用率 85%",
+    "value": "86%"
+  },
+  {
+    "acknowledgedBy": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "aiNote": "來自 3 個 IP 段的撞庫嘗試,rate limit 已生效,不是系統問題。",
+    "id": "ALT-5099",
+    "rule": "rate(auth_login_failed[10m]) / rate(auth_login_total[10m]) > 0.08",
+    "service": "auth",
+    "severity": "warning",
+    "startedAt": "2026-11-09T17:03:28Z",
+    "state": "resolved",
+    "title": "登入失敗率上升",
+    "value": "11.2%"
+  }
+]

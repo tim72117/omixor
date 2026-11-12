@@ -9,6 +9,6 @@ cd "$(dirname "$0")/.."
 DIR=${3:-$(mktemp -d /tmp/ops-conf-go-$PORT.XXXX)}
 BIN=/tmp/omixor-web-conf-$PORT
 go build -o $BIN ./cmd/omixor-web
-OPS_NO_BROWSER=1 OPS_DATA_DIR="$DIR" OPS_MCP_PORT=$PORT OPS_WEB_PORT=$WEB $BIN >/tmp/omixor-web-conf-$PORT.log 2>&1 &
+OMIXOR_TEMPLATES=1 OPS_NO_BROWSER=1 OPS_DATA_DIR="$DIR" OPS_MCP_PORT=$PORT OPS_WEB_PORT=$WEB $BIN >/tmp/omixor-web-conf-$PORT.log 2>&1 &
 for i in $(seq 1 75); do curl -s -o /dev/null -X POST -d '{}' http://127.0.0.1:$PORT/mcp && break; sleep 0.2; done
 echo "Go 版 MCP:http://127.0.0.1:$PORT/mcp  畫面:http://127.0.0.1:$WEB  資料夾:$DIR  紀錄:/tmp/omixor-web-conf-$PORT.log"

@@ -1,0 +1,106 @@
+[
+  {
+    "category": "原始碼",
+    "connected": true,
+    "detail": "coursely 組織,6 個 repo,GitHub App 權限:contents、pull requests、checks",
+    "icon": "chevron.left.forwardslash.chevron.right",
+    "id": "github",
+    "name": "GitHub"
+  },
+  {
+    "category": "CI/CD",
+    "connected": true,
+    "detail": "3 個 self-hosted runner + GitHub-hosted;OIDC 部署到 GCP",
+    "icon": "arrow.triangle.branch",
+    "id": "github-actions",
+    "name": "GitHub Actions"
+  },
+  {
+    "category": "雲端",
+    "connected": true,
+    "detail": "專案 coursely-prod、coursely-staging;Workload Identity,唯讀 + 指定操作",
+    "icon": "cloud",
+    "id": "gcp",
+    "name": "Google Cloud"
+  },
+  {
+    "category": "雲端",
+    "connected": true,
+    "detail": "GKE 叢集 prod-ae1、prod-uc1、stg-ae1;Argo Rollouts",
+    "icon": "shippingbox",
+    "id": "cloud-run",
+    "name": "Cloud Run / GKE"
+  },
+  {
+    "category": "監控",
+    "connected": true,
+    "detail": "Grafana Cloud,4 個儀表板、11 條告警規則",
+    "icon": "chart.xyaxis.line",
+    "id": "grafana",
+    "name": "Grafana + Prometheus"
+  },
+  {
+    "category": "監控",
+    "connected": true,
+    "detail": "course-web、live-player、api-server 的錯誤追蹤與 release 標記",
+    "icon": "ant",
+    "id": "sentry",
+    "name": "Sentry"
+  },
+  {
+    "category": "通知",
+    "connected": true,
+    "detail": "#ops、#incident、#deploy、#player;AI 動作會同步發到 #ops",
+    "icon": "bubble.left.and.bubble.right",
+    "id": "slack",
+    "name": "Slack"
+  },
+  {
+    "category": "通知",
+    "connected": true,
+    "detail": "服務「Coursely Production」,值班表同步",
+    "icon": "phone.badge.waveform",
+    "id": "pagerduty",
+    "name": "PagerDuty"
+  },
+  {
+    "category": "金流",
+    "connected": true,
+    "detail": "Webhook 狀態、交易與訂閱事件(唯讀 API key)",
+    "icon": "creditcard",
+    "id": "paddle",
+    "name": "Paddle Billing"
+  },
+  {
+    "category": "AI",
+    "connected": true,
+    "detail": "AI 自動化使用的模型;本月用量 US$84.20 / 上限 US$300",
+    "icon": "sparkles",
+    "id": "anthropic",
+    "name": "Anthropic API"
+  },
+  {
+    "category": "基礎設施",
+    "connected": true,
+    "detail": "workspace infra-prod、infra-staging;AI 只能 plan,apply 需核准",
+    "icon": "square.stack.3d.up",
+    "id": "terraform",
+    "name": "Terraform Cloud"
+  },
+  {
+    "category": "網路",
+    "connected": true,
+    "detail": "DNS、CDN、WAF;coursely.tw 與 media.coursely.tw",
+    "icon": "network",
+    "id": "cloudflare",
+    "name": "Cloudflare"
+  },
+  {
+    "category": "專案管理",
+    "connected": false,
+    "detail": "尚未連線:目前工作項目存在 omixor 內建看板",
+    "icon": "checklist",
+    "id": "linear",
+    "name": "Linear"
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "id": "dev",
+  "label": "開發",
+  "path": "/studio/visuals",
+  "tabs": [
+    {
+      "label": "即時教學影像",
+      "path": "/studio/visuals"
+    },
+    {
+      "label": "演員互動",
+      "path": "/studio/actor-interaction"
+    },
+    {
+      "label": "直式舞台",
+      "path": "/studio/portrait"
+    },
+    {
+      "label": "場景",
+      "path": "/studio/scenes"
+    }
+  ]
+}

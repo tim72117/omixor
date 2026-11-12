@@ -1,0 +1,234 @@
+[
+  {
+    "by": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "canaryPercent": 25,
+    "changes": [
+      "課程推薦 API(依學習進度)",
+      "批次匯入學員 CSV",
+      "migration 0085、0086(可回滾)",
+      "升級 pgx 到 v5.7.1"
+    ],
+    "env": "production",
+    "healthGate": "running",
+    "id": "dep-3071",
+    "previousVersion": "v2.13.2",
+    "progress": 0.25,
+    "service": "api-server",
+    "startedAt": "2026-11-11T00:01:28Z",
+    "status": "running",
+    "strategy": "Canary",
+    "version": "v2.14.0"
+  },
+  {
+    "by": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "changes": [
+      "年繳方案 price",
+      "優惠碼(discount)處理",
+      "subscription.updated 亂序保護"
+    ],
+    "env": "production",
+    "healthGate": "pending",
+    "id": "dep-3070",
+    "previousVersion": "v3.3.7",
+    "progress": 0,
+    "service": "payments",
+    "startedAt": "2026-11-10T22:23:28Z",
+    "status": "waitingApproval",
+    "strategy": "Blue/Green",
+    "version": "v3.4.0"
+  },
+  {
+    "by": {
+      "id": "yuting",
+      "kind": "person"
+    },
+    "changes": [
+      "會員中心顯示訂閱到期日",
+      "結帳頁 loading 狀態"
+    ],
+    "env": "staging",
+    "finishedAt": "2026-11-10T21:51:28Z",
+    "healthGate": "passed",
+    "id": "dep-3069",
+    "previousVersion": "v5.21.0",
+    "progress": 1,
+    "service": "course-web",
+    "startedAt": "2026-11-10T21:45:28Z",
+    "status": "succeeded",
+    "strategy": "Rolling",
+    "version": "v5.22.0-rc.1"
+  },
+  {
+    "by": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "changes": [
+      "課程推薦 API",
+      "批次匯入學員"
+    ],
+    "env": "staging",
+    "finishedAt": "2026-11-10T23:55:28Z",
+    "healthGate": "passed",
+    "id": "dep-3068",
+    "previousVersion": "v2.13.2",
+    "progress": 1,
+    "service": "api-server",
+    "startedAt": "2026-11-10T23:51:28Z",
+    "status": "succeeded",
+    "strategy": "Rolling",
+    "version": "v2.14.0"
+  },
+  {
+    "by": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "changes": [
+      "手機直式播放窗字幕修正",
+      "HLS 預載加並行上限(2)"
+    ],
+    "env": "staging",
+    "finishedAt": "2026-11-10T23:09:28Z",
+    "healthGate": "passed",
+    "id": "dep-3067",
+    "previousVersion": "v1.8.0",
+    "progress": 1,
+    "service": "live-player",
+    "startedAt": "2026-11-10T23:05:28Z",
+    "status": "succeeded",
+    "strategy": "Rolling",
+    "version": "v1.8.2"
+  },
+  {
+    "by": {
+      "id": "ai-rollback",
+      "kind": "ai"
+    },
+    "changes": [
+      "自動回滾:v1.8.1 canary 5xx 3.1% 超過門檻 1%",
+      "詳見 INC-2036"
+    ],
+    "env": "production",
+    "finishedAt": "2026-11-10T18:57:28Z",
+    "healthGate": "passed",
+    "id": "dep-3066",
+    "previousVersion": "v1.8.1",
+    "progress": 1,
+    "service": "live-player",
+    "startedAt": "2026-11-10T18:51:28Z",
+    "status": "succeeded",
+    "strategy": "Rolling",
+    "version": "v1.8.0"
+  },
+  {
+    "by": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "canaryPercent": 10,
+    "changes": [
+      "HLS 預載下一段影片",
+      "播放器 bundle 拆分"
+    ],
+    "env": "production",
+    "finishedAt": "2026-11-10T18:51:28Z",
+    "healthGate": "failed",
+    "id": "dep-3065",
+    "previousVersion": "v1.8.0",
+    "progress": 0.10000000000000001,
+    "service": "live-player",
+    "startedAt": "2026-11-10T18:39:28Z",
+    "status": "failed",
+    "strategy": "Canary",
+    "version": "v1.8.1"
+  },
+  {
+    "by": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "changes": [
+      "HLS segment 快取 TTL 從 1h 改為 24h"
+    ],
+    "env": "production",
+    "finishedAt": "2026-11-10T04:09:28Z",
+    "healthGate": "passed",
+    "id": "dep-3064",
+    "previousVersion": "cfg-141",
+    "progress": 1,
+    "service": "media-cdn",
+    "startedAt": "2026-11-10T03:57:28Z",
+    "status": "succeeded",
+    "strategy": "Rolling",
+    "version": "cfg-142"
+  },
+  {
+    "by": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "canaryPercent": 100,
+    "changes": [
+      "OAuth state cookie 改為 SameSite=Lax"
+    ],
+    "env": "production",
+    "finishedAt": "2026-11-09T20:15:28Z",
+    "healthGate": "passed",
+    "id": "dep-3063",
+    "previousVersion": "v1.9.3",
+    "progress": 1,
+    "service": "auth",
+    "startedAt": "2026-11-09T19:39:28Z",
+    "status": "succeeded",
+    "strategy": "Canary",
+    "version": "v1.9.4"
+  },
+  {
+    "by": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "changes": [
+      "billing queue 消費者可水平擴展(實驗)"
+    ],
+    "env": "development",
+    "finishedAt": "2026-11-10T21:18:28Z",
+    "healthGate": "passed",
+    "id": "dep-3062",
+    "previousVersion": "v2.15.0-dev.2",
+    "progress": 1,
+    "service": "worker",
+    "startedAt": "2026-11-10T21:15:28Z",
+    "status": "succeeded",
+    "strategy": "Rolling",
+    "version": "v2.15.0-dev.3"
+  },
+  {
+    "by": {
+      "id": "yuting",
+      "kind": "person"
+    },
+    "changes": [
+      "課程地圖讀資料庫",
+      "手機直式 4:5 播放窗"
+    ],
+    "env": "production",
+    "finishedAt": "2026-11-08T22:05:52Z",
+    "healthGate": "passed",
+    "id": "dep-3061",
+    "previousVersion": "v5.20.3",
+    "progress": 1,
+    "service": "course-web",
+    "startedAt": "2026-11-08T21:51:28Z",
+    "status": "succeeded",
+    "strategy": "Rolling",
+    "version": "v5.21.0"
+  }
+]

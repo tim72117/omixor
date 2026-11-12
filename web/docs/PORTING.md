@@ -5,7 +5,8 @@ Swift 版在 `../ops`(macOS SwiftUI app)。Go 版的 **MCP 規格必須和 Swift
 ## 架構
 
 ```
-spec/                 從 Swift 版匯出的標準答案(不要手改):tools.json、initialize.json、seed.json(範例資料)
+spec/                 從 Swift 版匯出的標準答案(不要手改):tools.json、initialize.json
+../templates/         範本資料(預設角色、文件櫃結構、示範資料、文件轉換器),預設不載入,OMIXOR_TEMPLATES=1 才讀
 internal/core/        狀態與功能邏輯(package core,一個功能一個檔案)
 internal/mcp/         MCP 協定與工具(package mcp,一個功能一個 tools_<功能>.go)
 internal/web/         給畫面的 HTTP API

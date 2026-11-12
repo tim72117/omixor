@@ -1,0 +1,49 @@
+{
+  "id": "levels",
+  "label": "課程",
+  "path": "/studio/tools",
+  "tabs": [
+    {
+      "code": "L0",
+      "group": "做出自己的軟體",
+      "label": "AI 工具介紹",
+      "path": "/studio/tools"
+    },
+    {
+      "code": "L1",
+      "group": "做出自己的軟體",
+      "label": "AI 工具入門",
+      "path": "/studio/ai-tools"
+    },
+    {
+      "code": "L2",
+      "group": "做出自己的軟體",
+      "label": "Vibe Coding 入門",
+      "path": "/studio/vibe-coding"
+    },
+    {
+      "code": "L3",
+      "group": "做出自己的軟體",
+      "label": "AI Agent 整合應用",
+      "path": "/studio/ai-agent"
+    },
+    {
+      "code": "L4",
+      "group": "做出自己的軟體",
+      "label": "進階",
+      "path": "/studio/advanced"
+    },
+    {
+      "label": "AI 工具技巧",
+      "path": "/studio/ai-tips"
+    },
+    {
+      "label": "兒童網頁課",
+      "path": "/studio/kids-web"
+    },
+    {
+      "label": "網頁運作知識",
+      "path": "/studio/web-basics"
+    }
+  ]
+}

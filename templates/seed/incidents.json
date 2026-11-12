@@ -1,0 +1,548 @@
+[
+  {
+    "aiSummary": "根因:payments v3.3.7 的 grant_access 在資料庫交易裡同步寄信,SMTP 變慢時交易持鎖過久,webhook 逾時觸發 Paddle 重送,鎖競爭與重送互相放大。目前:SMTP 快速失敗已部分緩解(p95 4.8s → 3.9s),billing 佇列 1,284 筆仍在增加。下一步:核准 APV-311(消費者擴到 10)與 APV-312(清除卡住連線),並以 PR #1426 的 outbox 作為根本修正。",
+    "commander": "tim",
+    "followUps": [
+      "OPS-151",
+      "OPS-152",
+      "OPS-153"
+    ],
+    "id": "INC-2041",
+    "impact": "約 9% 新付款學員課程開通延遲 5–40 分鐘;付款本身成功,沒有重複扣款。已收到 12 筆客服詢問。",
+    "services": [
+      "payments",
+      "worker",
+      "postgres"
+    ],
+    "sev": 2,
+    "startedAt": "2026-11-10T23:23:28Z",
+    "status": "identified",
+    "timeline": [
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "date": "2026-11-10T23:21:28Z",
+        "id": "0000A11C-0000-4000-8000-000000000097",
+        "kind": "alert",
+        "text": "ALT-5121 觸發:Paddle webhook 處理 p95 2.3s(門檻 2s)"
+      },
+      {
+        "actor": {
+          "id": "ai-alert-triage",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T23:22:28Z",
+        "id": "0000A11C-0000-4000-8000-000000000098",
+        "kind": "aiFinding",
+        "text": "初判:延遲與 pg-prod-primary 的 lock wait 同時上升;過去 24 小時沒有 payments 部署,排除變更造成。"
+      },
+      {
+        "actor": {
+          "id": "tim",
+          "kind": "person"
+        },
+        "date": "2026-11-10T23:23:28Z",
+        "id": "0000A11C-0000-4000-8000-000000000099",
+        "kind": "status",
+        "text": "開立 INC-2041(SEV2),擔任指揮官,狀態「調查中」"
+      },
+      {
+        "actor": {
+          "id": "tim",
+          "kind": "person"
+        },
+        "date": "2026-11-10T23:25:28Z",
+        "id": "0000A11C-0000-4000-8000-00000000009A",
+        "kind": "note",
+        "text": "PagerDuty 呼叫 mei(payments 負責人)加入;在 #inc-2041 開戰情室"
+      },
+      {
+        "actor": {
+          "id": "sharon",
+          "kind": "person"
+        },
+        "date": "2026-11-10T23:28:28Z",
+        "id": "0000A11C-0000-4000-8000-00000000009B",
+        "kind": "note",
+        "text": "客服回報:有 12 位學員付款成功但課程還沒開通,已先在 FAQ 公告「開通可能延遲 30 分鐘」"
+      },
+      {
+        "actor": {
+          "id": "ai-alert-triage",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T23:31:28Z",
+        "id": "0000A11C-0000-4000-8000-00000000009C",
+        "kind": "aiFinding",
+        "text": "查詢 pg_locks:payments 的 `UPDATE subscriptions` 交易平均持有鎖 4.1s,交易內同步呼叫 notifier 寄信(外部 SMTP 偶發 3s 以上)。webhook 逾時後 Paddle 重送,同一個 subscription 產生鎖競爭。"
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "date": "2026-11-10T23:34:28Z",
+        "id": "0000A11C-0000-4000-8000-00000000009D",
+        "kind": "alert",
+        "text": "ALT-5122 觸發:billing 佇列積壓 612 筆"
+      },
+      {
+        "actor": {
+          "id": "mei",
+          "kind": "person"
+        },
+        "date": "2026-11-10T23:37:28Z",
+        "id": "0000A11C-0000-4000-8000-00000000009E",
+        "kind": "note",
+        "text": "確認 AI 的判讀:v3.3.7 的 grant_access 在交易內 await 寄信,平常 SMTP 很快所以沒被發現"
+      },
+      {
+        "actor": {
+          "id": "mei",
+          "kind": "person"
+        },
+        "date": "2026-11-10T23:40:28Z",
+        "id": "0000A11C-0000-4000-8000-00000000009F",
+        "kind": "status",
+        "text": "狀態改為「已找到原因」"
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "date": "2026-11-10T23:42:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A0",
+        "kind": "alert",
+        "text": "ALT-5123 觸發:pg-prod-primary 連線數 182 / 200"
+      },
+      {
+        "actor": {
+          "id": "ai-autoscale",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T23:45:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A1",
+        "kind": "action",
+        "text": "準備把 worker billing 消費者從 4 擴到 10(等待核准 APV-311)"
+      },
+      {
+        "actor": {
+          "id": "ai-alert-triage",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T23:48:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A2",
+        "kind": "action",
+        "text": "準備終止 64 個 idle in transaction 超過 10 分鐘的連線(等待核准 APV-312)"
+      },
+      {
+        "actor": {
+          "id": "tim",
+          "kind": "person"
+        },
+        "date": "2026-11-10T23:53:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A3",
+        "kind": "action",
+        "text": "暫時把 notifier 的 SMTP 逾時從 30s 降到 3s(feature flag smtp_fast_fail)"
+      },
+      {
+        "actor": {
+          "id": "jason",
+          "kind": "person"
+        },
+        "date": "2026-11-10T23:57:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A4",
+        "kind": "note",
+        "text": "PR #1415 billing 消費者水平擴展,dev 驗證中"
+      },
+      {
+        "actor": {
+          "id": "ai-alert-triage",
+          "kind": "ai"
+        },
+        "date": "2026-11-11T00:03:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A5",
+        "kind": "aiFinding",
+        "text": "降低 SMTP 逾時後,webhook p95 從 4.8s 降到 3.9s,但佇列仍在增加(+9/s)。單靠降逾時不夠,需要擴容消費者或清掉卡住的連線。"
+      },
+      {
+        "actor": {
+          "id": "mei",
+          "kind": "person"
+        },
+        "date": "2026-11-11T00:09:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A6",
+        "kind": "deploy",
+        "text": "PR #1426(webhook outbox)已開,預計修補後走 hotfix v3.3.8"
+      }
+    ],
+    "title": "Paddle 付款 webhook 處理延遲,訂閱開通延後"
+  },
+  {
+    "aiSummary": "外部因素:Cloudflare 台北 POP 路由異常導致跨洋回源。已改用 asia-east1 原點緩解,等待供應商修復後恢復原設定。",
+    "commander": "hao",
+    "followUps": [
+      "OPS-155"
+    ],
+    "id": "INC-2039",
+    "impact": "HiNet 用戶起播時間 p95 從 1.6s 升到 3.1s,目前 2.4s;未有播放失敗。",
+    "services": [
+      "live-player",
+      "media-cdn"
+    ],
+    "sev": 3,
+    "startedAt": "2026-11-10T21:10:28Z",
+    "status": "monitoring",
+    "timeline": [
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "date": "2026-11-10T21:03:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A7",
+        "kind": "alert",
+        "text": "ALT-5118 觸發:台灣地區起播時間 p95 2.7s"
+      },
+      {
+        "actor": {
+          "id": "ai-alert-triage",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T21:05:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A8",
+        "kind": "aiFinding",
+        "text": "影響集中在 HiNet(AS3462),其他 ISP 正常。Cloudflare TPE POP 有 42% 請求被導到 LAX 回源。"
+      },
+      {
+        "actor": {
+          "id": "hao",
+          "kind": "person"
+        },
+        "date": "2026-11-10T21:10:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000A9",
+        "kind": "status",
+        "text": "開立 INC-2039(SEV3),狀態「調查中」"
+      },
+      {
+        "actor": {
+          "id": "hao",
+          "kind": "person"
+        },
+        "date": "2026-11-10T21:24:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000AA",
+        "kind": "note",
+        "text": "Cloudflare 狀態頁確認台北機房路由問題,非我方變更"
+      },
+      {
+        "actor": {
+          "id": "hao",
+          "kind": "person"
+        },
+        "date": "2026-11-10T21:35:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000AB",
+        "kind": "action",
+        "text": "把 HLS 切片的原點暫時改指 asia-east1 bucket,減少跨洋回源"
+      },
+      {
+        "actor": {
+          "id": "ai-alert-triage",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T21:55:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000AC",
+        "kind": "aiFinding",
+        "text": "調整後 p95 從 3.1s 降到 2.4s,快取命中率回升到 91%。"
+      },
+      {
+        "actor": {
+          "id": "hao",
+          "kind": "person"
+        },
+        "date": "2026-11-10T22:03:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000AD",
+        "kind": "status",
+        "text": "狀態改為「觀察中」,等待 Cloudflare 修復"
+      }
+    ],
+    "title": "台灣部分用戶影片起播變慢"
+  },
+  {
+    "aiSummary": "v1.8.1 的 HLS 預載讓每個播放器同時發出 3 倍 segment 請求,超過原點連線上限。AI 在 1 分鐘內自動回滾,影響時間 6 分鐘。",
+    "commander": "kai",
+    "followUps": [
+      "OPS-145"
+    ],
+    "id": "INC-2036",
+    "impact": "10% canary 流量的學員約 6 分鐘無法載入影片片段。",
+    "resolvedAt": "2026-11-10T18:55:28Z",
+    "services": [
+      "live-player",
+      "media-cdn"
+    ],
+    "sev": 2,
+    "startedAt": "2026-11-10T18:44:28Z",
+    "status": "resolved",
+    "timeline": [
+      {
+        "actor": {
+          "id": "kai",
+          "kind": "person"
+        },
+        "date": "2026-11-10T18:39:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000AE",
+        "kind": "deploy",
+        "text": "開始部署 live-player v1.8.1(canary 10%)"
+      },
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "date": "2026-11-10T18:44:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000AF",
+        "kind": "alert",
+        "text": "ALT-5112 觸發:live-player 5xx 3.1%"
+      },
+      {
+        "actor": {
+          "id": "ai-rollback",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T18:45:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B0",
+        "kind": "aiFinding",
+        "text": "canary 5xx 3.1% 超過門檻 1%,p95 2.8s;stable 正常。判定為 v1.8.1 造成。"
+      },
+      {
+        "actor": {
+          "id": "ai-rollback",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T18:46:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B1",
+        "kind": "action",
+        "text": "自動回滾到 v1.8.0(自動執行模式)"
+      },
+      {
+        "actor": {
+          "id": "ai-rollback",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T18:51:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B2",
+        "kind": "status",
+        "text": "回滾完成,5xx 回到 0.21%"
+      },
+      {
+        "actor": {
+          "id": "kai",
+          "kind": "person"
+        },
+        "date": "2026-11-10T18:55:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B3",
+        "kind": "status",
+        "text": "確認回滾,狀態改為「已解決」"
+      },
+      {
+        "actor": {
+          "id": "ai-postmortem",
+          "kind": "ai"
+        },
+        "date": "2026-11-10T19:15:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B4",
+        "kind": "note",
+        "text": "已產生事件檢討草稿,等待 kai 補充"
+      }
+    ],
+    "title": "live-player v1.8.1 上線後 5xx 升高"
+  },
+  {
+    "aiSummary": "OAuth state cookie 設成 SameSite=Strict,Safari 跨站回呼時不送 cookie。修正為 Lax。",
+    "commander": "jason",
+    "followUps": [
+      "OPS-146",
+      "OPS-143"
+    ],
+    "id": "INC-2031",
+    "impact": "Safari 使用者約 3.5 小時無法用 Google 登入,影響約 640 人次。",
+    "resolvedAt": "2026-11-01T23:03:28Z",
+    "services": [
+      "auth",
+      "course-web"
+    ],
+    "sev": 3,
+    "startedAt": "2026-11-01T19:27:28Z",
+    "status": "resolved",
+    "timeline": [
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "date": "2026-11-01T19:27:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B5",
+        "kind": "alert",
+        "text": "ALT-4877 觸發:登入失敗率 9.4%"
+      },
+      {
+        "actor": {
+          "id": "ai-alert-triage",
+          "kind": "ai"
+        },
+        "date": "2026-11-01T19:41:52Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B6",
+        "kind": "aiFinding",
+        "text": "失敗全部來自 Safari,錯誤為 state mismatch;與 2 小時前的 auth v1.9.2 部署時間相符。"
+      },
+      {
+        "actor": {
+          "id": "jason",
+          "kind": "person"
+        },
+        "date": "2026-11-01T20:39:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B7",
+        "kind": "action",
+        "text": "確認 state cookie 被設為 SameSite=Strict,修正並部署 v1.9.3"
+      },
+      {
+        "actor": {
+          "id": "jason",
+          "kind": "person"
+        },
+        "date": "2026-11-01T23:03:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B8",
+        "kind": "status",
+        "text": "狀態改為「已解決」"
+      }
+    ],
+    "title": "Google 登入回呼失敗(Safari)"
+  },
+  {
+    "aiSummary": "失效的 CDC replication slot 讓 WAL 無法回收。已移除並加上 slot lag 告警。",
+    "commander": "tim",
+    "followUps": [
+      "OPS-148"
+    ],
+    "id": "INC-2027",
+    "impact": "所有寫入失敗 12 分鐘(學習進度、付款開通);讀取正常。",
+    "resolvedAt": "2026-10-20T17:03:28Z",
+    "services": [
+      "postgres",
+      "api-server",
+      "payments"
+    ],
+    "sev": 1,
+    "startedAt": "2026-10-20T14:39:28Z",
+    "status": "resolved",
+    "timeline": [
+      {
+        "actor": {
+          "kind": "system"
+        },
+        "date": "2026-10-20T14:39:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000B9",
+        "kind": "alert",
+        "text": "ALT-4702 觸發:pg-prod-primary 磁碟 98%"
+      },
+      {
+        "actor": {
+          "id": "tim",
+          "kind": "person"
+        },
+        "date": "2026-10-20T14:53:52Z",
+        "id": "0000A11C-0000-4000-8000-0000000000BA",
+        "kind": "status",
+        "text": "開立 INC-2027(SEV1)"
+      },
+      {
+        "actor": {
+          "id": "ai-alert-triage",
+          "kind": "ai"
+        },
+        "date": "2026-10-20T15:08:16Z",
+        "id": "0000A11C-0000-4000-8000-0000000000BB",
+        "kind": "aiFinding",
+        "text": "replication slot `analytics_cdc` 已 3 天沒消費,WAL 累積 410 GB。"
+      },
+      {
+        "actor": {
+          "id": "tim",
+          "kind": "person"
+        },
+        "date": "2026-10-20T15:37:04Z",
+        "id": "0000A11C-0000-4000-8000-0000000000BC",
+        "kind": "action",
+        "text": "刪除失效的 replication slot,磁碟回到 61%"
+      },
+      {
+        "actor": {
+          "id": "tim",
+          "kind": "person"
+        },
+        "date": "2026-10-20T17:03:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000BD",
+        "kind": "status",
+        "text": "狀態改為「已解決」"
+      }
+    ],
+    "title": "pg-prod-primary WAL 磁碟寫滿,API 唯讀 12 分鐘"
+  },
+  {
+    "aiSummary": "手動在 Cloudflare 新增的快取規則忽略了 Cookie,快取了已登入版本的 HTML。",
+    "commander": "hao",
+    "followUps": [
+      "OPS-150"
+    ],
+    "id": "INC-2022",
+    "impact": "約 40 分鐘內,少數登入使用者的課程頁標頭顯示錯誤名稱;沒有付款或個資欄位外洩。",
+    "resolvedAt": "2026-10-07T13:27:28Z",
+    "services": [
+      "course-web",
+      "media-cdn"
+    ],
+    "sev": 2,
+    "startedAt": "2026-10-07T12:15:28Z",
+    "status": "resolved",
+    "timeline": [
+      {
+        "actor": {
+          "id": "sharon",
+          "kind": "person"
+        },
+        "date": "2026-10-07T12:15:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000BE",
+        "kind": "note",
+        "text": "客服回報有學員看到別人的名字"
+      },
+      {
+        "actor": {
+          "id": "hao",
+          "kind": "person"
+        },
+        "date": "2026-10-07T12:29:52Z",
+        "id": "0000A11C-0000-4000-8000-0000000000BF",
+        "kind": "status",
+        "text": "開立 INC-2022(SEV2)"
+      },
+      {
+        "actor": {
+          "id": "hao",
+          "kind": "person"
+        },
+        "date": "2026-10-07T12:44:16Z",
+        "id": "0000A11C-0000-4000-8000-0000000000C0",
+        "kind": "action",
+        "text": "清除 CDN 快取,對 /courses/* 關閉快取"
+      },
+      {
+        "actor": {
+          "id": "hao",
+          "kind": "person"
+        },
+        "date": "2026-10-07T13:27:28Z",
+        "id": "0000A11C-0000-4000-8000-0000000000C1",
+        "kind": "status",
+        "text": "狀態改為「已解決」"
+      }
+    ],
+    "title": "課程頁 CDN 快取錯誤,顯示其他人的會員資訊"
+  }
+]

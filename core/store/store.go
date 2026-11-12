@@ -31,6 +31,10 @@ type Store interface {
 	ListOrgs() ([]model.Org, error)
 	GetOrg(id string) (*model.Org, error)
 	CreateOrg(o model.Org) error
+	// UpdateOrg 更新名稱、圖示、顏色、備註(不存在回 ErrNotFound)
+	UpdateOrg(o model.Org) error
+	// DeleteOrg 連成員與 Issue 一起刪掉(不能復原)
+	DeleteOrg(id string) error
 	MemberRole(org, userID string) (string, error) // 不是成員回傳 ErrNotFound
 	ListMembers(org string) ([]model.Member, error)
 	SaveMember(m model.Member) error

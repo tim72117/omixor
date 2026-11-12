@@ -5,14 +5,14 @@ import (
 	"sort"
 	"strings"
 
-	"omixor-web/spec"
+	"omixor-web/internal/templates"
 )
 
 // 文件櫃的範本(同 Swift 的 Cabinet/DocTemplates.swift):
 //   - 文件內文開頭可以有欄位(第一行 ---,欄位一行一個「key: value」,再一行 --- 結束),其中 kind 是文件類型
 //   - 範本本身也是文件櫃裡的文件:kind: template、for: <套用的 kind>、required: <必填欄位,逗號分隔>,
 //     內文放一個 ```html 區塊(版面,{{…}} 填欄位)與一個 ```css 區塊(樣式)
-//   - 有對應範本的文件,畫面用網頁顯示(轉換器是 spec/docrender.js,兩版共用);沒有就照舊顯示 Markdown
+//   - 有對應範本的文件,畫面用網頁顯示(轉換器是 templates/doc/docrender.js,兩版共用);沒有就照舊顯示 Markdown
 //   - ops_doc_save 存檔前依範本檢查必填欄位
 
 const DocTemplateKind = "template"
@@ -155,14 +155,14 @@ func DocHTML(d CabinetDoc, docs []CabinetDoc) (string, bool) {
 	return DocPage(d.Body, t), true
 }
 
-// DocPage 和 Swift 的 DocTemplates.page 一字不差(spec/docpage.html 比對)
+// DocPage 和 Swift 的 DocTemplates.page 一字不差(templates/doc/docpage.html 比對)
 func DocPage(md string, t DocTemplate) string {
 	data, _ := json.Marshal(map[string]string{"md": md, "template": t.HTML})
 	css := strings.ReplaceAll(t.CSS, "</", "<\\/")
 	return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">` +
 		`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">` +
 		`<meta name="viewport" content="width=device-width, initial-scale=1"><style>` + css + `</style></head>` +
-		`<body class="studio"><main id="root"></main><script>` + strings.TrimSuffix(spec.DocRenderJS, "\n") + "\n" +
+		`<body class="studio"><main id="root"></main><script>` + strings.TrimSuffix(templates.DocRenderJS(), "\n") + "\n" +
 		`MdRender.mount(` + string(data) + `)</script></body></html>`
 }
 

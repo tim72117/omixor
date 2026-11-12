@@ -2,11 +2,14 @@ package core
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 	"unicode"
+
+	"omixor-core/model"
+	"omixor-web/internal/templates"
 )
 
 // 組織:同 Swift 版 Orgs.swift。每個組織的資料放在 <資料夾>/orgs/<組織 id>/,orgs.json 記清單與目前的組織。
@@ -98,34 +101,81 @@ func loadOrgIndex() OrgIndex {
 		}
 		return idx
 	}
-	if err := ReadJSON(orgIndexPath(), &idx); err == nil && len(idx.Orgs) > 0 {
-		found := false
-		for _, o := range idx.Orgs {
-			found = found || o.ID == idx.Current
-		}
-		if !found {
-			idx.Current = idx.Orgs[0].ID
-		}
-		return idx
+	return loadLocalOrgIndex()
+}
+
+// localOrgErr 本機模式讀不到組織的原因(沒有資料庫等);正常時是空的。給畫面顯示
+var localOrgErr string
+
+// loadLocalOrgIndex 本機模式:組織以核心(omixor-core,PostgreSQL)的組織表為準,名稱與建立時間照核心;
+// orgs.json 只是覆蓋層,存每個組織的圖示、顏色、備註與目前的組織
+// fromCoreOrg 核心的組織 → web 的組織(圖示、顏色沒填的用預設;prefix 是遠端組織的 id 前綴)
+func fromCoreOrg(o model.Org, prefix string) Organization {
+	name := o.Name
+	if name == "" {
+		name = o.ID
 	}
-	// 搬遷:舊版放在根目錄的檔案複製到預設組織,原檔保留
-	target := OrgDir(DefaultOrgID)
-	for _, f := range PerOrgFiles {
-		src, dst := filepath.Join(DataRoot(), f), filepath.Join(target, f)
-		if Exists(src) && !Exists(dst) {
-			if b, err := ReadData(src); err == nil {
-				_ = WriteData(dst, b)
-			}
+	sym, col := o.Symbol, o.Color
+	if sym == "" {
+		sym = "building.2"
+	}
+	if col == "" {
+		col = "blue"
+	}
+	return Organization{ID: prefix + o.ID, Name: name, Symbol: sym, Color: col, Note: o.Note, CreatedAt: Time{o.CreatedAt.Time}}
+}
+
+// toCoreOrg web 的組織 → 核心的組織(遠端組織的 id 要去掉前綴)
+func toCoreOrg(o Organization) model.Org {
+	return model.Org{ID: serverOrgID(o.ID), Name: o.Name, Symbol: o.Symbol, Color: o.Color, Note: o.Note}
+}
+
+// loadLocalOrgIndex 本機模式:組織的所有資訊(名稱、圖示、顏色、備註)都在核心(PostgreSQL);
+// orgs.json 只記「目前選的組織」
+func loadLocalOrgIndex() OrgIndex {
+	empty := OrgIndex{Orgs: []Organization{}}
+	l := localCore()
+	if l == nil {
+		localOrgErr = errNoDB.Error()
+		return empty
+	}
+	list, err := l.svc.ListOrgs(localPrincipal)
+	if err == nil && len(list) == 0 {
+		name, symbol, color := templates.Org() // 沒開範本是 omixor
+		if _, err = l.svc.CreateOrgWith(localPrincipal, model.Org{ID: DefaultOrgID, Name: name, Symbol: symbol, Color: color}); err == nil {
+			list, err = l.svc.ListOrgs(localPrincipal)
 		}
 	}
-	idx = OrgIndex{Current: DefaultOrgID, Orgs: []Organization{{
-		ID: DefaultOrgID, Name: "evoleap", Symbol: "graduationcap", Color: "teal", CreatedAt: Now(),
-	}}}
-	_ = WriteJSON(orgIndexPath(), idx)
+	if err != nil {
+		localOrgErr = err.Error()
+		return empty
+	}
+	localOrgErr = ""
+	var saved struct {
+		Current string `json:"current"`
+	}
+	_ = ReadJSON(orgIndexPath(), &saved)
+	idx := OrgIndex{Current: saved.Current, Orgs: make([]Organization, 0, len(list))}
+	found := false
+	for _, c := range list {
+		idx.Orgs = append(idx.Orgs, fromCoreOrg(c, ""))
+		found = found || c.ID == idx.Current
+	}
+	if !found {
+		idx.Current = idx.Orgs[0].ID
+	}
+	_ = WriteJSON(orgIndexPath(), map[string]string{"current": idx.Current})
 	return idx
 }
 
-func (a *App) saveOrgs() { _ = WriteJSON(orgIndexPath(), a.orgs().Index) }
+// saveOrgs 存組織索引:本機只存「目前的組織」(其餘都在核心);遠端存伺服器組織清單的快取
+func (a *App) saveOrgs() {
+	if IsRemote() {
+		_ = WriteJSON(orgIndexPath(), a.orgs().Index)
+		return
+	}
+	_ = WriteJSON(orgIndexPath(), map[string]string{"current": a.orgs().Index.Current})
+}
 
 // NewOrgID 由名稱產生 id(英數字,其他換成 -;重複時加 -2、-3…)
 func (a *App) NewOrgID(name string) string {
@@ -170,8 +220,21 @@ func (a *App) LoadOrgData() {
 
 // CreateOrg 建立組織並寫好初始檔案;不會切換過去(呼叫時要拿著 Mu)
 func (a *App) CreateOrg(name, symbol, color, template string) Organization {
+	org, err := a.createOrg(name, symbol, color, template)
+	if err != nil {
+		log.Printf("建立組織失敗:%v", err)
+	}
+	return org
+}
+
+// createOrg 先在核心建立組織(伺服器管理員身分),成功才寫資料夾與覆蓋層;失敗回傳錯誤
+func (a *App) createOrg(name, symbol, color, template string) (Organization, error) {
 	if IsRemote() {
-		return Organization{} // 遠端組織在伺服器建(org_create 動作處理),這裡不該被呼叫
+		return Organization{}, UserError{"遠端的組織要用 omixor server 建立"} // org_create 動作走 remoteCreateOrg
+	}
+	l := localCore()
+	if l == nil {
+		return Organization{}, errNoDB
 	}
 	if symbol == "" {
 		symbol = "building.2"
@@ -182,7 +245,12 @@ func (a *App) CreateOrg(name, symbol, color, template string) Organization {
 	if template != "copyCurrent" {
 		template = "blank"
 	}
-	org := Organization{ID: a.NewOrgID(name), Name: name, Symbol: symbol, Color: color, CreatedAt: Now()}
+	id := a.NewOrgID(name)
+	made, err := l.svc.CreateOrgWith(localPrincipal, model.Org{ID: id, Name: name, Symbol: symbol, Color: color})
+	if err != nil {
+		return Organization{}, err
+	}
+	org := fromCoreOrg(*made, "")
 	dir := OrgDir(org.ID)
 	for _, f := range orgCreateHooks {
 		f(a, dir, template)
@@ -192,27 +260,38 @@ func (a *App) CreateOrg(name, symbol, color, template string) Organization {
 	a.saveOrgs()
 	a.Log(a.Actor(), "building.2", "建立組織「"+name+"」", "settings")
 	go a.Changed("orgs")
-	return org
+	return org, nil
 }
 
+// UpdateOrg 改組織的名稱、圖示、顏色、備註:本機寫進核心(呼叫時要拿著 Mu)
 func (a *App) UpdateOrg(org Organization) bool {
 	if IsRemote() {
 		return false
 	}
 	s := a.orgs()
-	for i := range s.Index.Orgs {
-		if s.Index.Orgs[i].ID == org.ID {
-			org.CreatedAt = s.Index.Orgs[i].CreatedAt
-			s.Index.Orgs[i] = org
-			a.saveOrgs()
-			go a.Changed("orgs")
-			return true
+	for k := range s.Index.Orgs {
+		if s.Index.Orgs[k].ID != org.ID {
+			continue
 		}
+		l := localCore()
+		if l == nil {
+			return false
+		}
+		if err := l.svc.UpdateOrg(localPrincipal, toCoreOrg(org)); err != nil {
+			log.Printf("改組織失敗:%v", err)
+			return false
+		}
+		org.CreatedAt = s.Index.Orgs[k].CreatedAt
+		s.Index.Orgs[k] = org
+		a.saveOrgs()
+		go a.Changed("orgs")
+		return true
 	}
 	return false
 }
 
-// DeleteOrg 資料夾移到垃圾桶(~/.Trash);不能刪目前的組織或最後一個(呼叫時要拿著 Mu)
+// DeleteOrg 刪除組織:核心裡的組織(連 Issue)與組織資料夾都直接刪掉,不備份、不能復原;
+// 不能刪目前的組織或最後一個(呼叫時要拿著 Mu)
 func (a *App) DeleteOrg(id string) error {
 	if IsRemote() {
 		return UserError{"遠端的組織要在 omixor server 管理,這裡不能刪"}
@@ -224,19 +303,20 @@ func (a *App) DeleteOrg(id string) error {
 	if len(s.Index.Orgs) <= 1 {
 		return UserError{"至少要留一個組織"}
 	}
+	l := localCore()
+	if l == nil {
+		return errNoDB
+	}
+	if err := l.svc.DeleteOrg(localPrincipal, id); err != nil {
+		return err
+	}
 	dir := filepath.Join(DataRoot(), "orgs", id)
 	for _, f := range orgDeleteHooks {
 		f(a, id, dir)
 	}
 	if DataDirExists(dir) {
-		home, _ := os.UserHomeDir()
-		trash := filepath.Join(home, ".Trash", fmt.Sprintf("omixor 組織 %s-%d", id, time.Now().Unix()))
-		// 檔案存放處搬到垃圾桶;資料庫存放處搬到資料庫裡的 deleted-orgs/(不直接刪掉)
-		if err := MoveDataDir(dir, trash); err != nil {
-			keep := filepath.Join(DataRoot(), "deleted-orgs", fmt.Sprintf("%s-%d", id, time.Now().Unix()))
-			if err := MoveDataDir(dir, keep); err != nil {
-				return err
-			}
+		if err := RemoveDataDir(dir); err != nil {
+			return err
 		}
 	}
 	name := id
@@ -250,7 +330,7 @@ func (a *App) DeleteOrg(id string) error {
 	}
 	s.Index.Orgs = kept
 	a.saveOrgs()
-	a.Log(a.Actor(), "trash", "刪除組織「"+name+"」(資料夾已移到垃圾桶)", "settings")
+	a.Log(a.Actor(), "trash", "刪除組織「"+name+"」", "settings")
 	go a.Changed("orgs")
 	return nil
 }
@@ -298,18 +378,18 @@ func init() {
 		tpl, _ := args["template"].(string)
 		sw, _ := args["switch"].(bool)
 		if IsRemote() {
-			return a.remoteCreateOrg(strings.TrimSpace(name), sw)
+			return a.remoteCreateOrg(strings.TrimSpace(name), sym, col, sw)
 		}
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
 		var org Organization
+		var err error
 		a.As(UserActor(a, args), func() {
-			org = a.CreateOrg(strings.TrimSpace(name), sym, col, tpl)
-			if sw {
+			if org, err = a.createOrg(strings.TrimSpace(name), sym, col, tpl); err == nil && sw {
 				a.SwitchOrg(org.ID)
 			}
 		})
-		return org, nil
+		return org, err
 	})
 	RegisterAction("org_update", func(a *App, args map[string]any) (any, error) {
 		var org Organization
@@ -317,7 +397,7 @@ func init() {
 			return nil, err
 		}
 		if IsRemote() {
-			return nil, UserError{"遠端的組織要在 omixor server 管理,這裡不能改"}
+			return a.remoteUpdateOrg(org) // 寫到 omixor server(要伺服器管理員)
 		}
 		a.Mu.Lock()
 		defer a.Mu.Unlock()

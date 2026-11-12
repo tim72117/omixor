@@ -194,6 +194,7 @@ func JiraImport(a *App, projects []string, includeClosed bool) (JiraImportResult
 
 	a.Mu.Lock()
 	s := a.issueSt()
+	a.issueRemoteLoad(s) // 用核心裡最新的清單比對(用 Jira 網址)
 	byLink := map[string]int{}
 	num := 0
 	for i, is := range s.Issues {
@@ -202,7 +203,7 @@ func JiraImport(a *App, projects []string, includeClosed bool) (JiraImportResult
 		}
 		num = max(num, is.Number())
 	}
-	var created []OpsIssue
+	var created, updated []OpsIssue
 	for _, ji := range all {
 		n := jiraToIssue(c.TrimmedBase(), ji)
 		res.Comments += len(ji.notes)
@@ -221,21 +222,21 @@ func JiraImport(a *App, projects []string, includeClosed bool) (JiraImportResult
 				}
 			}
 			sort.SliceStable(n.Comments, func(i, j int) bool { return n.Comments[i].At.Before(n.Comments[j].At.Time) })
-			s.Issues[idx] = n
+			updated = append(updated, n)
 			res.Updated++
 			continue
 		}
 		num++
-		n.ID = "ISS-" + strconv.Itoa(num)
+		n.ID = "ISS-" + strconv.Itoa(num) // 實際的編號由核心依目前最大號碼往後給
 		created = append(created, n)
 		res.Created++
 	}
-	// 新的放前面(和 CreateIssue 一樣新的在前),同一批裡較新建立的在前
-	for i, j := 0, len(created)-1; i < j; i, j = i+1, j-1 {
-		created[i], created[j] = created[j], created[i]
+	if err := a.issueRemoteSave(s.Org, updated, created); err != nil {
+		a.issueRemoteFailed(err)
+		a.Mu.Unlock()
+		return res, UserError{"Issue 沒有存起來:" + err.Error()}
 	}
-	s.Issues = append(created, s.Issues...)
-	a.saveIssues()
+	a.issueRemoteLoad(s)
 	a.Log(a.Actor(), "square.and.arrow.down", "從 Jira 匯入 "+strings.Join(keys, "、")+":新增 "+strconv.Itoa(res.Created)+
 		" 筆、更新 "+strconv.Itoa(res.Updated)+" 筆", "development")
 	a.Mu.Unlock()

@@ -1,0 +1,2242 @@
+[
+  {
+    "branch": "main",
+    "commitMessage": "release: v2.14.0(課程推薦、批次匯入學員)",
+    "commitSHA": "92a1e23c5216a3254eb0b6293d2747c300efac6a",
+    "id": 1290,
+    "pipeline": "api-server / main",
+    "repo": "api-server",
+    "stages": [
+      {
+        "id": "1290-s0",
+        "jobs": [
+          {
+            "duration": 85,
+            "id": "1290-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at 92a1e23",
+              "Checked out coursely/api-server"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1290-s1",
+        "jobs": [
+          {
+            "duration": 98,
+            "id": "1290-s1-j0",
+            "log": [
+              "$ go build -trimpath -ldflags \"-s -w\" ./cmd/...",
+              "go: downloading modules (cache hit 97%)",
+              "build OK in 41s"
+            ],
+            "name": "go build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 121,
+            "id": "1290-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/api-server:92a1e23 .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:92a1e23c5216a3254eb0b6293d2747c300efac6a…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1290-s2",
+        "jobs": [
+          {
+            "duration": 37,
+            "id": "1290-s2-j0",
+            "log": [
+              "$ go test -race -count=1 ./...",
+              "ok   coursely/api-server/internal/api      4.112s",
+              "ok   coursely/api-server/internal/store    6.870s",
+              "coverage: 79.1% of statements"
+            ],
+            "name": "go test ./...",
+            "status": "succeeded"
+          },
+          {
+            "duration": 123,
+            "id": "1290-s2-j1",
+            "log": [
+              "starting postgres:16.4 container",
+              "starting redis:7.2.5 container",
+              "PASS: 148 tests, 0 failed"
+            ],
+            "name": "integration (testcontainers)",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1290-s3",
+        "jobs": [
+          {
+            "duration": 100,
+            "id": "1290-s3-j0",
+            "log": [
+              "$ trivy image --severity HIGH,CRITICAL api-server:92a1e23",
+              "Total: 0 (HIGH: 0, CRITICAL: 0)"
+            ],
+            "name": "trivy image",
+            "status": "succeeded"
+          },
+          {
+            "duration": 68,
+            "id": "1290-s3-j1",
+            "log": [
+              "$ govulncheck ./...",
+              "No vulnerabilities found."
+            ],
+            "name": "govulncheck",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Security scan",
+        "status": "succeeded"
+      },
+      {
+        "id": "1290-s4",
+        "jobs": [
+          {
+            "duration": 59,
+            "id": "1290-s4-j0",
+            "log": [
+              "$ kubectl -n staging set image deploy/api-server api-server=api-server:92a1e23",
+              "deployment.apps/api-server image updated",
+              "deployment \"api-server\" successfully rolled out"
+            ],
+            "name": "kubectl rollout (staging)",
+            "status": "succeeded"
+          },
+          {
+            "duration": 82,
+            "id": "1290-s4-j1",
+            "log": [
+              "GET /healthz 200 (12ms)",
+              "GET /api/v1/courses 200 (88ms)",
+              "smoke test passed (6/6)"
+            ],
+            "name": "smoke test",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Deploy staging",
+        "status": "succeeded"
+      },
+      {
+        "id": "1290-s5",
+        "jobs": [
+          {
+            "duration": 134,
+            "id": "1290-s5-j0",
+            "log": [
+              "已由 蔡庭宇 核准",
+              "approved"
+            ],
+            "name": "人工核准",
+            "status": "succeeded"
+          },
+          {
+            "id": "1290-s5-j1",
+            "log": [
+              "argo rollouts: setWeight 10",
+              "analysis run: success-rate ≥ 99.5% ✓"
+            ],
+            "name": "canary rollout (prod)",
+            "status": "running"
+          },
+          {
+            "id": "1290-s5-j2",
+            "log": [],
+            "name": "health gate",
+            "status": "queued"
+          }
+        ],
+        "name": "Deploy prod",
+        "status": "running"
+      }
+    ],
+    "startedAt": "2026-11-10T23:37:28Z",
+    "status": "running",
+    "targetEnv": "production",
+    "trigger": "push",
+    "triggeredBy": {
+      "id": "mei",
+      "kind": "person"
+    }
+  },
+  {
+    "branch": "yuting/paddle-inline",
+    "commitMessage": "fix: 處理 checkout.closed 事件",
+    "commitSHA": "d43bff804188813f7aa3979421d2ccc866ed3cbd",
+    "id": 1289,
+    "pipeline": "course-web / PR #1423",
+    "repo": "course-web",
+    "stages": [
+      {
+        "id": "1289-s0",
+        "jobs": [
+          {
+            "id": "1289-s0-j0",
+            "log": [],
+            "name": "checkout",
+            "status": "queued"
+          }
+        ],
+        "name": "Checkout",
+        "status": "queued"
+      },
+      {
+        "id": "1289-s1",
+        "jobs": [
+          {
+            "id": "1289-s1-j0",
+            "log": [],
+            "name": "pnpm build",
+            "status": "queued"
+          },
+          {
+            "id": "1289-s1-j1",
+            "log": [],
+            "name": "docker build & push",
+            "status": "queued"
+          }
+        ],
+        "name": "Build",
+        "status": "queued"
+      },
+      {
+        "id": "1289-s2",
+        "jobs": [
+          {
+            "id": "1289-s2-j0",
+            "log": [],
+            "name": "vitest",
+            "status": "queued"
+          },
+          {
+            "id": "1289-s2-j1",
+            "log": [],
+            "name": "playwright e2e",
+            "status": "queued"
+          }
+        ],
+        "name": "Test",
+        "status": "queued"
+      },
+      {
+        "id": "1289-s3",
+        "jobs": [
+          {
+            "id": "1289-s3-j0",
+            "log": [],
+            "name": "trivy image",
+            "status": "queued"
+          },
+          {
+            "id": "1289-s3-j1",
+            "log": [],
+            "name": "pnpm audit",
+            "status": "queued"
+          }
+        ],
+        "name": "Security scan",
+        "status": "queued"
+      }
+    ],
+    "startedAt": "2026-11-11T00:14:28Z",
+    "status": "queued",
+    "trigger": "PR",
+    "triggeredBy": {
+      "id": "yuting",
+      "kind": "person"
+    }
+  },
+  {
+    "branch": "main",
+    "commitMessage": "feat: 會員中心顯示訂閱到期日",
+    "commitSHA": "59029bf9b82c6614d74f17beb5b55df3a50b0aa3",
+    "id": 1288,
+    "pipeline": "course-web / main",
+    "repo": "course-web",
+    "stages": [
+      {
+        "id": "1288-s0",
+        "jobs": [
+          {
+            "duration": 13,
+            "id": "1288-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at 59029bf",
+              "Checked out coursely/course-web"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1288-s1",
+        "jobs": [
+          {
+            "duration": 18,
+            "id": "1288-s1-j0",
+            "log": [
+              "$ pnpm install --frozen-lockfile",
+              "Packages: +1,284 (cached)",
+              "$ pnpm build",
+              "vite v5.4.10 building for production...",
+              "✓ 1,912 modules transformed",
+              "dist/assets/index-59029b.js  412.8 kB │ gzip: 131.2 kB"
+            ],
+            "name": "pnpm build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 21,
+            "id": "1288-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/course-web:59029bf .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:59029bf9b82c6614d74f17beb5b55df3a50b0aa3…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1288-s2",
+        "jobs": [
+          {
+            "duration": 120,
+            "id": "1288-s2-j0",
+            "log": [
+              "$ pnpm vitest run --coverage",
+              "Test Files  212 passed (212)",
+              "Tests  1,406 passed (1,406)"
+            ],
+            "name": "vitest",
+            "status": "succeeded"
+          },
+          {
+            "id": "1288-s2-j1",
+            "log": [
+              "$ pnpm playwright test --project=chromium --project=webkit",
+              "Running 86 tests using 4 workers"
+            ],
+            "name": "playwright e2e",
+            "status": "running"
+          }
+        ],
+        "name": "Test",
+        "status": "running"
+      },
+      {
+        "id": "1288-s3",
+        "jobs": [
+          {
+            "id": "1288-s3-j0",
+            "log": [],
+            "name": "trivy image",
+            "status": "queued"
+          },
+          {
+            "id": "1288-s3-j1",
+            "log": [],
+            "name": "pnpm audit",
+            "status": "queued"
+          }
+        ],
+        "name": "Security scan",
+        "status": "queued"
+      },
+      {
+        "id": "1288-s4",
+        "jobs": [
+          {
+            "id": "1288-s4-j0",
+            "log": [],
+            "name": "kubectl rollout (staging)",
+            "status": "queued"
+          },
+          {
+            "id": "1288-s4-j1",
+            "log": [],
+            "name": "smoke test",
+            "status": "queued"
+          }
+        ],
+        "name": "Deploy staging",
+        "status": "queued"
+      },
+      {
+        "id": "1288-s5",
+        "jobs": [
+          {
+            "id": "1288-s5-j0",
+            "log": [],
+            "name": "人工核准",
+            "status": "queued"
+          },
+          {
+            "id": "1288-s5-j1",
+            "log": [],
+            "name": "canary rollout (prod)",
+            "status": "queued"
+          },
+          {
+            "id": "1288-s5-j2",
+            "log": [],
+            "name": "health gate",
+            "status": "queued"
+          }
+        ],
+        "name": "Deploy prod",
+        "status": "queued"
+      }
+    ],
+    "startedAt": "2026-11-11T00:08:28Z",
+    "status": "running",
+    "targetEnv": "staging",
+    "trigger": "push",
+    "triggeredBy": {
+      "id": "yuting",
+      "kind": "person"
+    }
+  },
+  {
+    "branch": "main",
+    "commitMessage": "release: v3.4.0(年繳方案、優惠碼)",
+    "commitSHA": "779d48e8f277015b10e7d91a39c6b00882cd8e7c",
+    "id": 1287,
+    "pipeline": "payments / main",
+    "repo": "payments",
+    "stages": [
+      {
+        "id": "1287-s0",
+        "jobs": [
+          {
+            "duration": 64,
+            "id": "1287-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at 779d48e",
+              "Checked out coursely/payments"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1287-s1",
+        "jobs": [
+          {
+            "duration": 12,
+            "id": "1287-s1-j0",
+            "log": [
+              "$ go build -trimpath -ldflags \"-s -w\" ./cmd/...",
+              "go: downloading modules (cache hit 97%)",
+              "build OK in 41s"
+            ],
+            "name": "go build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 105,
+            "id": "1287-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/payments:779d48e .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:779d48e8f277015b10e7d91a39c6b00882cd8e7c…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1287-s2",
+        "jobs": [
+          {
+            "duration": 111,
+            "id": "1287-s2-j0",
+            "log": [
+              "$ go test -race -count=1 ./...",
+              "ok   coursely/payments/internal/api      4.112s",
+              "ok   coursely/payments/internal/store    6.870s",
+              "coverage: 79.1% of statements"
+            ],
+            "name": "go test ./...",
+            "status": "succeeded"
+          },
+          {
+            "duration": 15,
+            "id": "1287-s2-j1",
+            "log": [
+              "starting postgres:16.4 container",
+              "starting redis:7.2.5 container",
+              "PASS: 148 tests, 0 failed"
+            ],
+            "name": "integration (testcontainers)",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1287-s3",
+        "jobs": [
+          {
+            "duration": 29,
+            "id": "1287-s3-j0",
+            "log": [
+              "$ trivy image --severity HIGH,CRITICAL payments:779d48e",
+              "Total: 0 (HIGH: 0, CRITICAL: 0)"
+            ],
+            "name": "trivy image",
+            "status": "succeeded"
+          },
+          {
+            "duration": 16,
+            "id": "1287-s3-j1",
+            "log": [
+              "$ govulncheck ./...",
+              "No vulnerabilities found."
+            ],
+            "name": "govulncheck",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Security scan",
+        "status": "succeeded"
+      },
+      {
+        "id": "1287-s4",
+        "jobs": [
+          {
+            "duration": 68,
+            "id": "1287-s4-j0",
+            "log": [
+              "$ kubectl -n staging set image deploy/payments payments=payments:779d48e",
+              "deployment.apps/payments image updated",
+              "deployment \"payments\" successfully rolled out"
+            ],
+            "name": "kubectl rollout (staging)",
+            "status": "succeeded"
+          },
+          {
+            "duration": 13,
+            "id": "1287-s4-j1",
+            "log": [
+              "GET /healthz 200 (12ms)",
+              "GET /api/v1/courses 200 (88ms)",
+              "smoke test passed (6/6)"
+            ],
+            "name": "smoke test",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Deploy staging",
+        "status": "succeeded"
+      },
+      {
+        "id": "1287-s5",
+        "jobs": [
+          {
+            "id": "1287-s5-j0",
+            "log": [
+              "等待 production 環境核准(需要 1 位 reviewer)"
+            ],
+            "name": "人工核准",
+            "status": "waitingApproval"
+          },
+          {
+            "id": "1287-s5-j1",
+            "log": [],
+            "name": "canary rollout (prod)",
+            "status": "queued"
+          },
+          {
+            "id": "1287-s5-j2",
+            "log": [],
+            "name": "health gate",
+            "status": "queued"
+          }
+        ],
+        "name": "Deploy prod",
+        "status": "waitingApproval"
+      }
+    ],
+    "startedAt": "2026-11-10T22:03:28Z",
+    "status": "waitingApproval",
+    "targetEnv": "production",
+    "trigger": "push",
+    "triggeredBy": {
+      "id": "mei",
+      "kind": "person"
+    }
+  },
+  {
+    "aiDiagnosis": "playwright e2e `course-map.spec.ts:48` 在 webkit 失敗:篩選後等待 `.course-card` 出現逾時。同一測試在 main 過去 14 天通過 100%,判斷不是 flaky,而是這個 PR 把篩選改成 debounce 300ms 造成斷言太早。建議在測試中等待 `/api/v1/courses?level=` 回應後再斷言,或把 debounce 移到元件外。信心:高。",
+    "branch": "yuting/course-map-filter",
+    "commitMessage": "feat: 課程地圖零基礎篩選",
+    "commitSHA": "ba9feeafc46b11b55a77ec47b417e4f45c2c466f",
+    "duration": 570,
+    "id": 1286,
+    "pipeline": "course-web / PR #1418",
+    "repo": "course-web",
+    "stages": [
+      {
+        "id": "1286-s0",
+        "jobs": [
+          {
+            "duration": 88,
+            "id": "1286-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at ba9feea",
+              "Checked out coursely/course-web"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1286-s1",
+        "jobs": [
+          {
+            "duration": 100,
+            "id": "1286-s1-j0",
+            "log": [
+              "$ pnpm install --frozen-lockfile",
+              "Packages: +1,284 (cached)",
+              "$ pnpm build",
+              "vite v5.4.10 building for production...",
+              "✓ 1,912 modules transformed",
+              "dist/assets/index-ba9fee.js  412.8 kB │ gzip: 131.2 kB"
+            ],
+            "name": "pnpm build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 127,
+            "id": "1286-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/course-web:ba9feea .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:ba9feeafc46b11b55a77ec47b417e4f45c2c466f…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1286-s2",
+        "jobs": [
+          {
+            "duration": 118,
+            "id": "1286-s2-j0",
+            "log": [
+              "$ pnpm vitest run --coverage",
+              "Test Files  212 passed (212)",
+              "Tests  1,406 passed (1,406)"
+            ],
+            "name": "vitest",
+            "status": "succeeded"
+          },
+          {
+            "duration": 65,
+            "id": "1286-s2-j1",
+            "log": [
+              "$ pnpm playwright test --project=chromium --project=webkit",
+              "Running 86 tests using 4 workers",
+              "86 passed (2.4m)",
+              "  ✘  [webkit] › course-map.spec.ts:48:5 › 零基礎篩選只顯示對應課程 (10.2s)",
+              "    Error: Timed out 10000ms waiting for expect(locator).toHaveCount(6)",
+              "    Locator: locator('.course-card')  Expected: 6  Received: 14",
+              "  1 failed, 85 passed (2.6m)",
+              "Error: Process completed with exit code 1."
+            ],
+            "name": "playwright e2e",
+            "status": "failed"
+          }
+        ],
+        "name": "Test",
+        "status": "failed"
+      },
+      {
+        "id": "1286-s3",
+        "jobs": [
+          {
+            "id": "1286-s3-j0",
+            "log": [],
+            "name": "trivy image",
+            "status": "canceled"
+          },
+          {
+            "id": "1286-s3-j1",
+            "log": [],
+            "name": "pnpm audit",
+            "status": "canceled"
+          }
+        ],
+        "name": "Security scan",
+        "status": "canceled"
+      }
+    ],
+    "startedAt": "2026-11-10T23:23:28Z",
+    "status": "failed",
+    "trigger": "PR",
+    "triggeredBy": {
+      "id": "yuting",
+      "kind": "person"
+    }
+  },
+  {
+    "branch": "main",
+    "commitMessage": "fix: 手機直式播放窗字幕被切掉",
+    "commitSHA": "e1da5b30c42012175f232125ad8311aea7136302",
+    "duration": 1260,
+    "id": 1285,
+    "pipeline": "live-player / main",
+    "repo": "live-player",
+    "stages": [
+      {
+        "id": "1285-s0",
+        "jobs": [
+          {
+            "duration": 66,
+            "id": "1285-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at e1da5b3",
+              "Checked out coursely/live-player"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1285-s1",
+        "jobs": [
+          {
+            "duration": 102,
+            "id": "1285-s1-j0",
+            "log": [
+              "$ pnpm install --frozen-lockfile",
+              "Packages: +1,284 (cached)",
+              "$ pnpm build",
+              "vite v5.4.10 building for production...",
+              "✓ 1,912 modules transformed",
+              "dist/assets/index-e1da5b.js  412.8 kB │ gzip: 131.2 kB"
+            ],
+            "name": "pnpm build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 23,
+            "id": "1285-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/live-player:e1da5b3 .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:e1da5b30c42012175f232125ad8311aea7136302…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1285-s2",
+        "jobs": [
+          {
+            "duration": 36,
+            "id": "1285-s2-j0",
+            "log": [
+              "$ pnpm vitest run --coverage",
+              "Test Files  212 passed (212)",
+              "Tests  1,406 passed (1,406)"
+            ],
+            "name": "vitest",
+            "status": "succeeded"
+          },
+          {
+            "duration": 48,
+            "id": "1285-s2-j1",
+            "log": [
+              "$ pnpm playwright test --project=chromium --project=webkit",
+              "Running 86 tests using 4 workers",
+              "86 passed (2.4m)"
+            ],
+            "name": "playwright e2e",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1285-s3",
+        "jobs": [
+          {
+            "duration": 115,
+            "id": "1285-s3-j0",
+            "log": [
+              "$ trivy image --severity HIGH,CRITICAL live-player:e1da5b3",
+              "Total: 0 (HIGH: 0, CRITICAL: 0)"
+            ],
+            "name": "trivy image",
+            "status": "succeeded"
+          },
+          {
+            "duration": 8,
+            "id": "1285-s3-j1",
+            "log": [
+              "$ pnpm audit --audit-level=high",
+              "1 moderate vulnerability (ignored: dev dependency)"
+            ],
+            "name": "pnpm audit",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Security scan",
+        "status": "succeeded"
+      },
+      {
+        "id": "1285-s4",
+        "jobs": [
+          {
+            "duration": 87,
+            "id": "1285-s4-j0",
+            "log": [
+              "$ kubectl -n staging set image deploy/live-player live-player=live-player:e1da5b3",
+              "deployment.apps/live-player image updated",
+              "deployment \"live-player\" successfully rolled out"
+            ],
+            "name": "kubectl rollout (staging)",
+            "status": "succeeded"
+          },
+          {
+            "duration": 100,
+            "id": "1285-s4-j1",
+            "log": [
+              "GET /healthz 200 (12ms)",
+              "GET /api/v1/courses 200 (88ms)",
+              "smoke test passed (6/6)"
+            ],
+            "name": "smoke test",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Deploy staging",
+        "status": "succeeded"
+      },
+      {
+        "id": "1285-s5",
+        "jobs": [
+          {
+            "duration": 345,
+            "id": "1285-s5-j0",
+            "log": [
+              "已由 蔡庭宇 核准",
+              "approved"
+            ],
+            "name": "人工核准",
+            "status": "succeeded"
+          },
+          {
+            "duration": 21,
+            "id": "1285-s5-j1",
+            "log": [
+              "argo rollouts: setWeight 10",
+              "analysis run: success-rate ≥ 99.5% ✓",
+              "argo rollouts: setWeight 25"
+            ],
+            "name": "canary rollout (prod)",
+            "status": "succeeded"
+          },
+          {
+            "duration": 24,
+            "id": "1285-s5-j2",
+            "log": [
+              "檢查 5xx、p95 latency、錯誤預算消耗"
+            ],
+            "name": "health gate",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Deploy prod",
+        "status": "succeeded"
+      }
+    ],
+    "startedAt": "2026-11-10T22:55:28Z",
+    "status": "succeeded",
+    "targetEnv": "production",
+    "trigger": "push",
+    "triggeredBy": {
+      "id": "kai",
+      "kind": "person"
+    }
+  },
+  {
+    "aiDiagnosis": "govulncheck 找到 GO-2024-3333(CVE-2024-45338,golang.org/x/net/html 的 DoS 弱點),auth 透過 OAuth callback 的 HTML 解析會呼叫到受影響函式。不是程式邏輯錯誤。「依賴套件更新」已開 PR #1424 把 x/net 升到 v0.31.0,合併後重跑即可。",
+    "branch": "main",
+    "commitMessage": "feat: Google One Tap 登入",
+    "commitSHA": "1cc9f21cac082cac0148d64fe282c175f7bf1c41",
+    "duration": 372,
+    "id": 1284,
+    "pipeline": "auth / main",
+    "repo": "auth",
+    "stages": [
+      {
+        "id": "1284-s0",
+        "jobs": [
+          {
+            "duration": 58,
+            "id": "1284-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at 1cc9f21",
+              "Checked out coursely/auth"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1284-s1",
+        "jobs": [
+          {
+            "duration": 57,
+            "id": "1284-s1-j0",
+            "log": [
+              "$ go build -trimpath -ldflags \"-s -w\" ./cmd/...",
+              "go: downloading modules (cache hit 97%)",
+              "build OK in 41s"
+            ],
+            "name": "go build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 101,
+            "id": "1284-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/auth:1cc9f21 .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:1cc9f21cac082cac0148d64fe282c175f7bf1c41…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1284-s2",
+        "jobs": [
+          {
+            "duration": 119,
+            "id": "1284-s2-j0",
+            "log": [
+              "$ go test -race -count=1 ./...",
+              "ok   coursely/auth/internal/api      4.112s",
+              "ok   coursely/auth/internal/store    6.870s",
+              "coverage: 79.1% of statements"
+            ],
+            "name": "go test ./...",
+            "status": "succeeded"
+          },
+          {
+            "duration": 23,
+            "id": "1284-s2-j1",
+            "log": [
+              "starting postgres:16.4 container",
+              "starting redis:7.2.5 container",
+              "PASS: 148 tests, 0 failed"
+            ],
+            "name": "integration (testcontainers)",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1284-s3",
+        "jobs": [
+          {
+            "duration": 36,
+            "id": "1284-s3-j0",
+            "log": [
+              "$ trivy image --severity HIGH,CRITICAL auth:1cc9f21",
+              "Total: 0 (HIGH: 0, CRITICAL: 0)"
+            ],
+            "name": "trivy image",
+            "status": "succeeded"
+          },
+          {
+            "duration": 105,
+            "id": "1284-s3-j1",
+            "log": [
+              "$ govulncheck ./...",
+              "No vulnerabilities found.",
+              "Vulnerability #1: GO-2024-3333",
+              "    Non-linear parsing of case-insensitive content in golang.org/x/net/html",
+              "  Found in: golang.org/x/net@v0.29.0  Fixed in: golang.org/x/net@v0.31.0",
+              "  Example traces found: #1: internal/oauth/callback.go:88:24: oauth.parseForm calls html.Parse",
+              "Your code is affected by 1 vulnerability.",
+              "Error: Process completed with exit code 3."
+            ],
+            "name": "govulncheck",
+            "status": "failed"
+          }
+        ],
+        "name": "Security scan",
+        "status": "failed"
+      },
+      {
+        "id": "1284-s4",
+        "jobs": [
+          {
+            "id": "1284-s4-j0",
+            "log": [],
+            "name": "kubectl rollout (staging)",
+            "status": "canceled"
+          },
+          {
+            "id": "1284-s4-j1",
+            "log": [],
+            "name": "smoke test",
+            "status": "canceled"
+          }
+        ],
+        "name": "Deploy staging",
+        "status": "canceled"
+      },
+      {
+        "id": "1284-s5",
+        "jobs": [
+          {
+            "id": "1284-s5-j0",
+            "log": [],
+            "name": "人工核准",
+            "status": "canceled"
+          },
+          {
+            "id": "1284-s5-j1",
+            "log": [],
+            "name": "canary rollout (prod)",
+            "status": "canceled"
+          },
+          {
+            "id": "1284-s5-j2",
+            "log": [],
+            "name": "health gate",
+            "status": "canceled"
+          }
+        ],
+        "name": "Deploy prod",
+        "status": "canceled"
+      }
+    ],
+    "startedAt": "2026-11-10T20:25:28Z",
+    "status": "failed",
+    "targetEnv": "staging",
+    "trigger": "push",
+    "triggeredBy": {
+      "id": "jason",
+      "kind": "person"
+    }
+  },
+  {
+    "branch": "jason/progress-cache",
+    "commitMessage": "perf: 課程進度 API 加 Redis 快取",
+    "commitSHA": "6475115d712abd9531444a5875509c5ee090c271",
+    "duration": 504,
+    "id": 1283,
+    "pipeline": "api-server / PR #1425",
+    "repo": "api-server",
+    "stages": [
+      {
+        "id": "1283-s0",
+        "jobs": [
+          {
+            "duration": 116,
+            "id": "1283-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at 6475115",
+              "Checked out coursely/api-server"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1283-s1",
+        "jobs": [
+          {
+            "duration": 107,
+            "id": "1283-s1-j0",
+            "log": [
+              "$ go build -trimpath -ldflags \"-s -w\" ./cmd/...",
+              "go: downloading modules (cache hit 97%)",
+              "build OK in 41s"
+            ],
+            "name": "go build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 98,
+            "id": "1283-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/api-server:6475115 .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:6475115d712abd9531444a5875509c5ee090c271…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1283-s2",
+        "jobs": [
+          {
+            "duration": 84,
+            "id": "1283-s2-j0",
+            "log": [
+              "$ go test -race -count=1 ./...",
+              "ok   coursely/api-server/internal/api      4.112s",
+              "ok   coursely/api-server/internal/store    6.870s",
+              "coverage: 79.1% of statements"
+            ],
+            "name": "go test ./...",
+            "status": "succeeded"
+          },
+          {
+            "duration": 118,
+            "id": "1283-s2-j1",
+            "log": [
+              "starting postgres:16.4 container",
+              "starting redis:7.2.5 container",
+              "PASS: 148 tests, 0 failed"
+            ],
+            "name": "integration (testcontainers)",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1283-s3",
+        "jobs": [
+          {
+            "duration": 127,
+            "id": "1283-s3-j0",
+            "log": [
+              "$ trivy image --severity HIGH,CRITICAL api-server:6475115",
+              "Total: 0 (HIGH: 0, CRITICAL: 0)"
+            ],
+            "name": "trivy image",
+            "status": "succeeded"
+          },
+          {
+            "duration": 29,
+            "id": "1283-s3-j1",
+            "log": [
+              "$ govulncheck ./...",
+              "No vulnerabilities found."
+            ],
+            "name": "govulncheck",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Security scan",
+        "status": "succeeded"
+      }
+    ],
+    "startedAt": "2026-11-10T22:10:28Z",
+    "status": "succeeded",
+    "trigger": "PR",
+    "triggeredBy": {
+      "id": "jason",
+      "kind": "person"
+    }
+  },
+  {
+    "branch": "ai/fix-flaky-enrollment-e2e",
+    "commitMessage": "fix(ci): enrollment e2e 等待 network idle",
+    "commitSHA": "9beabe8f73918b7285a2c54b1b6207da3f6de024",
+    "duration": 474,
+    "id": 1282,
+    "pipeline": "course-web / PR #1421",
+    "repo": "course-web",
+    "stages": [
+      {
+        "id": "1282-s0",
+        "jobs": [
+          {
+            "duration": 37,
+            "id": "1282-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at 9beabe8",
+              "Checked out coursely/course-web"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1282-s1",
+        "jobs": [
+          {
+            "duration": 79,
+            "id": "1282-s1-j0",
+            "log": [
+              "$ pnpm install --frozen-lockfile",
+              "Packages: +1,284 (cached)",
+              "$ pnpm build",
+              "vite v5.4.10 building for production...",
+              "✓ 1,912 modules transformed",
+              "dist/assets/index-9beabe.js  412.8 kB │ gzip: 131.2 kB"
+            ],
+            "name": "pnpm build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 130,
+            "id": "1282-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/course-web:9beabe8 .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:9beabe8f73918b7285a2c54b1b6207da3f6de024…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1282-s2",
+        "jobs": [
+          {
+            "duration": 88,
+            "id": "1282-s2-j0",
+            "log": [
+              "$ pnpm vitest run --coverage",
+              "Test Files  212 passed (212)",
+              "Tests  1,406 passed (1,406)"
+            ],
+            "name": "vitest",
+            "status": "succeeded"
+          },
+          {
+            "duration": 12,
+            "id": "1282-s2-j1",
+            "log": [
+              "$ pnpm playwright test --project=chromium --project=webkit",
+              "Running 86 tests using 4 workers",
+              "86 passed (2.4m)"
+            ],
+            "name": "playwright e2e",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1282-s3",
+        "jobs": [
+          {
+            "duration": 99,
+            "id": "1282-s3-j0",
+            "log": [
+              "$ trivy image --severity HIGH,CRITICAL course-web:9beabe8",
+              "Total: 0 (HIGH: 0, CRITICAL: 0)"
+            ],
+            "name": "trivy image",
+            "status": "succeeded"
+          },
+          {
+            "duration": 66,
+            "id": "1282-s3-j1",
+            "log": [
+              "$ pnpm audit --audit-level=high",
+              "1 moderate vulnerability (ignored: dev dependency)"
+            ],
+            "name": "pnpm audit",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Security scan",
+        "status": "succeeded"
+      }
+    ],
+    "startedAt": "2026-11-10T15:35:28Z",
+    "status": "succeeded",
+    "trigger": "AI 重試",
+    "triggeredBy": {
+      "id": "ai-ci-triage",
+      "kind": "ai"
+    }
+  },
+  {
+    "aiDiagnosis": "部署後 health gate 失敗:5xx 比例在 canary 10% 時升到 3.1%(門檻 1%)。錯誤集中在 `GET /segments/*.ts` 回 503,原因是預載讓每個播放器同時發出 3 倍的 segment 請求,打爆 media-cdn 原點的連線上限。「異常部署自動回滾」已回滾到 v1.8.0。建議預載加上並行上限,並先在 staging 用 k6 壓測。",
+    "branch": "main",
+    "commitMessage": "feat: HLS 預載下一段影片",
+    "commitSHA": "ca996543c66514cc6d20513090693ab826d925d2",
+    "duration": 1098,
+    "id": 1281,
+    "pipeline": "live-player / main",
+    "repo": "live-player",
+    "stages": [
+      {
+        "id": "1281-s0",
+        "jobs": [
+          {
+            "duration": 127,
+            "id": "1281-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at ca99654",
+              "Checked out coursely/live-player"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1281-s1",
+        "jobs": [
+          {
+            "duration": 30,
+            "id": "1281-s1-j0",
+            "log": [
+              "$ pnpm install --frozen-lockfile",
+              "Packages: +1,284 (cached)",
+              "$ pnpm build",
+              "vite v5.4.10 building for production...",
+              "✓ 1,912 modules transformed",
+              "dist/assets/index-ca9965.js  412.8 kB │ gzip: 131.2 kB"
+            ],
+            "name": "pnpm build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 38,
+            "id": "1281-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/live-player:ca99654 .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:ca996543c66514cc6d20513090693ab826d925d2…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1281-s2",
+        "jobs": [
+          {
+            "duration": 40,
+            "id": "1281-s2-j0",
+            "log": [
+              "$ pnpm vitest run --coverage",
+              "Test Files  212 passed (212)",
+              "Tests  1,406 passed (1,406)"
+            ],
+            "name": "vitest",
+            "status": "succeeded"
+          },
+          {
+            "duration": 115,
+            "id": "1281-s2-j1",
+            "log": [
+              "$ pnpm playwright test --project=chromium --project=webkit",
+              "Running 86 tests using 4 workers",
+              "86 passed (2.4m)"
+            ],
+            "name": "playwright e2e",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1281-s3",
+        "jobs": [
+          {
+            "duration": 118,
+            "id": "1281-s3-j0",
+            "log": [
+              "$ trivy image --severity HIGH,CRITICAL live-player:ca99654",
+              "Total: 0 (HIGH: 0, CRITICAL: 0)"
+            ],
+            "name": "trivy image",
+            "status": "succeeded"
+          },
+          {
+            "duration": 78,
+            "id": "1281-s3-j1",
+            "log": [
+              "$ pnpm audit --audit-level=high",
+              "1 moderate vulnerability (ignored: dev dependency)"
+            ],
+            "name": "pnpm audit",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Security scan",
+        "status": "succeeded"
+      },
+      {
+        "id": "1281-s4",
+        "jobs": [
+          {
+            "duration": 101,
+            "id": "1281-s4-j0",
+            "log": [
+              "$ kubectl -n staging set image deploy/live-player live-player=live-player:ca99654",
+              "deployment.apps/live-player image updated",
+              "deployment \"live-player\" successfully rolled out"
+            ],
+            "name": "kubectl rollout (staging)",
+            "status": "succeeded"
+          },
+          {
+            "duration": 73,
+            "id": "1281-s4-j1",
+            "log": [
+              "GET /healthz 200 (12ms)",
+              "GET /api/v1/courses 200 (88ms)",
+              "smoke test passed (6/6)"
+            ],
+            "name": "smoke test",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Deploy staging",
+        "status": "succeeded"
+      },
+      {
+        "id": "1281-s5",
+        "jobs": [
+          {
+            "duration": 69,
+            "id": "1281-s5-j0",
+            "log": [
+              "已由 蔡庭宇 核准",
+              "approved"
+            ],
+            "name": "人工核准",
+            "status": "succeeded"
+          },
+          {
+            "duration": 25,
+            "id": "1281-s5-j1",
+            "log": [
+              "argo rollouts: setWeight 10",
+              "analysis run: success-rate ≥ 99.5% ✓",
+              "argo rollouts: setWeight 25"
+            ],
+            "name": "canary rollout (prod)",
+            "status": "succeeded"
+          },
+          {
+            "duration": 39,
+            "id": "1281-s5-j2",
+            "log": [
+              "檢查 5xx、p95 latency、錯誤預算消耗",
+              "health gate: 5xx ratio 3.12% > 1.00% (window 5m)",
+              "health gate: p95 latency 2,840ms > 1,500ms",
+              "abort rollout: live-player",
+              "Error: health gate failed"
+            ],
+            "name": "health gate",
+            "status": "failed"
+          }
+        ],
+        "name": "Deploy prod",
+        "status": "failed"
+      }
+    ],
+    "startedAt": "2026-11-10T18:30:28Z",
+    "status": "failed",
+    "targetEnv": "production",
+    "trigger": "push",
+    "triggeredBy": {
+      "id": "kai",
+      "kind": "person"
+    }
+  },
+  {
+    "branch": "main",
+    "commitMessage": "cdn: 調整 HLS segment 快取 TTL",
+    "commitSHA": "1976a929cde71899a71f3526b870ca46a84c7549",
+    "duration": 756,
+    "id": 1280,
+    "pipeline": "infra / main",
+    "repo": "infra",
+    "stages": [
+      {
+        "id": "1280-s0",
+        "jobs": [
+          {
+            "duration": 55,
+            "id": "1280-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at 1976a92",
+              "Checked out coursely/infra"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1280-s1",
+        "jobs": [
+          {
+            "duration": 90,
+            "id": "1280-s1-j0",
+            "log": [
+              "$ terraform init",
+              "done"
+            ],
+            "name": "terraform init",
+            "status": "succeeded"
+          },
+          {
+            "duration": 95,
+            "id": "1280-s1-j1",
+            "log": [
+              "$ terraform validate",
+              "done"
+            ],
+            "name": "terraform validate",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1280-s2",
+        "jobs": [
+          {
+            "duration": 16,
+            "id": "1280-s2-j0",
+            "log": [
+              "$ tflint",
+              "done"
+            ],
+            "name": "tflint",
+            "status": "succeeded"
+          },
+          {
+            "duration": 122,
+            "id": "1280-s2-j1",
+            "log": [
+              "$ terraform plan",
+              "done"
+            ],
+            "name": "terraform plan",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1280-s3",
+        "jobs": [
+          {
+            "duration": 110,
+            "id": "1280-s3-j0",
+            "log": [
+              "$ terraform apply (staging)",
+              "done"
+            ],
+            "name": "terraform apply (staging)",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Deploy staging",
+        "status": "succeeded"
+      },
+      {
+        "id": "1280-s4",
+        "jobs": [
+          {
+            "duration": 18,
+            "id": "1280-s4-j0",
+            "log": [
+              "$ terraform apply (prod)",
+              "done"
+            ],
+            "name": "terraform apply (prod)",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Deploy prod",
+        "status": "succeeded"
+      }
+    ],
+    "startedAt": "2026-11-10T03:55:28Z",
+    "status": "succeeded",
+    "targetEnv": "production",
+    "trigger": "push",
+    "triggeredBy": {
+      "id": "hao",
+      "kind": "person"
+    }
+  },
+  {
+    "branch": "main",
+    "commitMessage": "chore: 更新文案",
+    "commitSHA": "ff8d8d455bd5a5ab4cba69e9cdaecde58e2d9f56",
+    "duration": 126,
+    "id": 1279,
+    "pipeline": "course-web / main",
+    "repo": "course-web",
+    "stages": [
+      {
+        "id": "1279-s0",
+        "jobs": [
+          {
+            "duration": 28,
+            "id": "1279-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at ff8d8d4",
+              "Checked out coursely/course-web"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1279-s1",
+        "jobs": [
+          {
+            "duration": 23,
+            "id": "1279-s1-j0",
+            "log": [
+              "$ pnpm install --frozen-lockfile",
+              "Packages: +1,284 (cached)",
+              "$ pnpm build",
+              "vite v5.4.10 building for production...",
+              "✓ 1,912 modules transformed",
+              "dist/assets/index-ff8d8d.js  412.8 kB │ gzip: 131.2 kB"
+            ],
+            "name": "pnpm build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 40,
+            "id": "1279-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/course-web:ff8d8d4 .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:ff8d8d455bd5a5ab4cba69e9cdaecde58e2d9f56…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1279-s2",
+        "jobs": [
+          {
+            "duration": 131,
+            "id": "1279-s2-j0",
+            "log": [
+              "$ pnpm vitest run --coverage",
+              "Test Files  212 passed (212)",
+              "Tests  1,406 passed (1,406)",
+              "Run canceled by user"
+            ],
+            "name": "vitest",
+            "status": "canceled"
+          },
+          {
+            "id": "1279-s2-j1",
+            "log": [],
+            "name": "playwright e2e",
+            "status": "queued"
+          }
+        ],
+        "name": "Test",
+        "status": "canceled"
+      },
+      {
+        "id": "1279-s3",
+        "jobs": [
+          {
+            "id": "1279-s3-j0",
+            "log": [],
+            "name": "trivy image",
+            "status": "canceled"
+          },
+          {
+            "id": "1279-s3-j1",
+            "log": [],
+            "name": "pnpm audit",
+            "status": "canceled"
+          }
+        ],
+        "name": "Security scan",
+        "status": "canceled"
+      },
+      {
+        "id": "1279-s4",
+        "jobs": [
+          {
+            "id": "1279-s4-j0",
+            "log": [],
+            "name": "kubectl rollout (staging)",
+            "status": "canceled"
+          },
+          {
+            "id": "1279-s4-j1",
+            "log": [],
+            "name": "smoke test",
+            "status": "canceled"
+          }
+        ],
+        "name": "Deploy staging",
+        "status": "canceled"
+      },
+      {
+        "id": "1279-s5",
+        "jobs": [
+          {
+            "id": "1279-s5-j0",
+            "log": [],
+            "name": "人工核准",
+            "status": "canceled"
+          },
+          {
+            "id": "1279-s5-j1",
+            "log": [],
+            "name": "canary rollout (prod)",
+            "status": "canceled"
+          },
+          {
+            "id": "1279-s5-j2",
+            "log": [],
+            "name": "health gate",
+            "status": "canceled"
+          }
+        ],
+        "name": "Deploy prod",
+        "status": "canceled"
+      }
+    ],
+    "startedAt": "2026-11-10T01:15:28Z",
+    "status": "canceled",
+    "targetEnv": "staging",
+    "trigger": "push",
+    "triggeredBy": {
+      "id": "sharon",
+      "kind": "person"
+    }
+  },
+  {
+    "branch": "main",
+    "commitMessage": "nightly: 完整整合測試與 benchmark",
+    "commitSHA": "da0f1e141a46da3bf2f490f4840b80ef961187e6",
+    "duration": 1440,
+    "id": 1278,
+    "pipeline": "api-server / nightly",
+    "repo": "api-server",
+    "stages": [
+      {
+        "id": "1278-s0",
+        "jobs": [
+          {
+            "duration": 16,
+            "id": "1278-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at da0f1e1",
+              "Checked out coursely/api-server"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1278-s1",
+        "jobs": [
+          {
+            "duration": 92,
+            "id": "1278-s1-j0",
+            "log": [
+              "$ go build -trimpath -ldflags \"-s -w\" ./cmd/...",
+              "go: downloading modules (cache hit 97%)",
+              "build OK in 41s"
+            ],
+            "name": "go build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 88,
+            "id": "1278-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/api-server:da0f1e1 .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:da0f1e141a46da3bf2f490f4840b80ef961187e6…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1278-s2",
+        "jobs": [
+          {
+            "duration": 55,
+            "id": "1278-s2-j0",
+            "log": [
+              "$ go test -race -count=1 ./...",
+              "ok   coursely/api-server/internal/api      4.112s",
+              "ok   coursely/api-server/internal/store    6.870s",
+              "coverage: 79.1% of statements"
+            ],
+            "name": "go test ./...",
+            "status": "succeeded"
+          },
+          {
+            "duration": 98,
+            "id": "1278-s2-j1",
+            "log": [
+              "starting postgres:16.4 container",
+              "starting redis:7.2.5 container",
+              "PASS: 148 tests, 0 failed"
+            ],
+            "name": "integration (testcontainers)",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1278-s3",
+        "jobs": [
+          {
+            "duration": 111,
+            "id": "1278-s3-j0",
+            "log": [
+              "$ trivy image --severity HIGH,CRITICAL api-server:da0f1e1",
+              "Total: 0 (HIGH: 0, CRITICAL: 0)"
+            ],
+            "name": "trivy image",
+            "status": "succeeded"
+          },
+          {
+            "duration": 87,
+            "id": "1278-s3-j1",
+            "log": [
+              "$ govulncheck ./...",
+              "No vulnerabilities found."
+            ],
+            "name": "govulncheck",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Security scan",
+        "status": "succeeded"
+      }
+    ],
+    "startedAt": "2026-11-09T23:15:28Z",
+    "status": "succeeded",
+    "trigger": "排程",
+    "triggeredBy": {
+      "kind": "system"
+    }
+  },
+  {
+    "branch": "main",
+    "commitMessage": "fix: OAuth state cookie 改為 SameSite=Lax",
+    "commitSHA": "5dd2ace8c6ec78563873147c42c114bde704ef30",
+    "duration": 1164,
+    "id": 1277,
+    "pipeline": "auth / main",
+    "repo": "auth",
+    "stages": [
+      {
+        "id": "1277-s0",
+        "jobs": [
+          {
+            "duration": 109,
+            "id": "1277-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at 5dd2ace",
+              "Checked out coursely/auth"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1277-s1",
+        "jobs": [
+          {
+            "duration": 17,
+            "id": "1277-s1-j0",
+            "log": [
+              "$ go build -trimpath -ldflags \"-s -w\" ./cmd/...",
+              "go: downloading modules (cache hit 97%)",
+              "build OK in 41s"
+            ],
+            "name": "go build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 84,
+            "id": "1277-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/auth:5dd2ace .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:5dd2ace8c6ec78563873147c42c114bde704ef30…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1277-s2",
+        "jobs": [
+          {
+            "duration": 26,
+            "id": "1277-s2-j0",
+            "log": [
+              "$ go test -race -count=1 ./...",
+              "ok   coursely/auth/internal/api      4.112s",
+              "ok   coursely/auth/internal/store    6.870s",
+              "coverage: 79.1% of statements"
+            ],
+            "name": "go test ./...",
+            "status": "succeeded"
+          },
+          {
+            "duration": 11,
+            "id": "1277-s2-j1",
+            "log": [
+              "starting postgres:16.4 container",
+              "starting redis:7.2.5 container",
+              "PASS: 148 tests, 0 failed"
+            ],
+            "name": "integration (testcontainers)",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Test",
+        "status": "succeeded"
+      },
+      {
+        "id": "1277-s3",
+        "jobs": [
+          {
+            "duration": 99,
+            "id": "1277-s3-j0",
+            "log": [
+              "$ trivy image --severity HIGH,CRITICAL auth:5dd2ace",
+              "Total: 0 (HIGH: 0, CRITICAL: 0)"
+            ],
+            "name": "trivy image",
+            "status": "succeeded"
+          },
+          {
+            "duration": 31,
+            "id": "1277-s3-j1",
+            "log": [
+              "$ govulncheck ./...",
+              "No vulnerabilities found."
+            ],
+            "name": "govulncheck",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Security scan",
+        "status": "succeeded"
+      },
+      {
+        "id": "1277-s4",
+        "jobs": [
+          {
+            "duration": 76,
+            "id": "1277-s4-j0",
+            "log": [
+              "$ kubectl -n staging set image deploy/auth auth=auth:5dd2ace",
+              "deployment.apps/auth image updated",
+              "deployment \"auth\" successfully rolled out"
+            ],
+            "name": "kubectl rollout (staging)",
+            "status": "succeeded"
+          },
+          {
+            "duration": 135,
+            "id": "1277-s4-j1",
+            "log": [
+              "GET /healthz 200 (12ms)",
+              "GET /api/v1/courses 200 (88ms)",
+              "smoke test passed (6/6)"
+            ],
+            "name": "smoke test",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Deploy staging",
+        "status": "succeeded"
+      },
+      {
+        "id": "1277-s5",
+        "jobs": [
+          {
+            "duration": 293,
+            "id": "1277-s5-j0",
+            "log": [
+              "已由 蔡庭宇 核准",
+              "approved"
+            ],
+            "name": "人工核准",
+            "status": "succeeded"
+          },
+          {
+            "duration": 111,
+            "id": "1277-s5-j1",
+            "log": [
+              "argo rollouts: setWeight 10",
+              "analysis run: success-rate ≥ 99.5% ✓",
+              "argo rollouts: setWeight 25"
+            ],
+            "name": "canary rollout (prod)",
+            "status": "succeeded"
+          },
+          {
+            "duration": 91,
+            "id": "1277-s5-j2",
+            "log": [
+              "檢查 5xx、p95 latency、錯誤預算消耗"
+            ],
+            "name": "health gate",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Deploy prod",
+        "status": "succeeded"
+      }
+    ],
+    "startedAt": "2026-11-09T19:35:28Z",
+    "status": "succeeded",
+    "targetEnv": "production",
+    "trigger": "push",
+    "triggeredBy": {
+      "id": "jason",
+      "kind": "person"
+    }
+  },
+  {
+    "aiDiagnosis": "`TestWebhookSubscriptionUpdated_OutOfOrder` 失敗:測試送出兩個亂序事件,預期以 occurred_at 較新者為準,但實作用到達順序覆寫。這是真正的 bug,不是 flaky;mei 已在後續 commit 改為比較 occurred_at,PR #1413 重跑通過後合併。",
+    "branch": "release/v3.4.0",
+    "commitMessage": "feat: 年繳方案與優惠碼",
+    "commitSHA": "76b6d90da54e2bac7f534c293da7025225f947f8",
+    "duration": 342,
+    "id": 1276,
+    "pipeline": "payments / PR #1413",
+    "repo": "payments",
+    "stages": [
+      {
+        "id": "1276-s0",
+        "jobs": [
+          {
+            "duration": 20,
+            "id": "1276-s0-j0",
+            "log": [
+              "$ git fetch --depth=50 origin",
+              "HEAD is now at 76b6d90",
+              "Checked out coursely/payments"
+            ],
+            "name": "checkout",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Checkout",
+        "status": "succeeded"
+      },
+      {
+        "id": "1276-s1",
+        "jobs": [
+          {
+            "duration": 92,
+            "id": "1276-s1-j0",
+            "log": [
+              "$ go build -trimpath -ldflags \"-s -w\" ./cmd/...",
+              "go: downloading modules (cache hit 97%)",
+              "build OK in 41s"
+            ],
+            "name": "go build",
+            "status": "succeeded"
+          },
+          {
+            "duration": 38,
+            "id": "1276-s1-j1",
+            "log": [
+              "$ docker buildx build --push -t asia-docker.pkg.dev/coursely/payments:76b6d90 .",
+              "#12 exporting layers 3.1s done",
+              "pushed sha256:76b6d90da54e2bac7f534c293da7025225f947f8…"
+            ],
+            "name": "docker build & push",
+            "status": "succeeded"
+          }
+        ],
+        "name": "Build",
+        "status": "succeeded"
+      },
+      {
+        "id": "1276-s2",
+        "jobs": [
+          {
+            "duration": 32,
+            "id": "1276-s2-j0",
+            "log": [
+              "$ go test -race -count=1 ./...",
+              "ok   coursely/payments/internal/api      4.112s",
+              "ok   coursely/payments/internal/store    6.870s",
+              "coverage: 79.1% of statements",
+              "--- FAIL: TestWebhookSubscriptionUpdated_OutOfOrder (0.04s)",
+              "    webhook_test.go:211: status = \"past_due\", want \"active\"",
+              "FAIL\tcoursely/payments/internal/webhook\t1.882s"
+            ],
+            "name": "go test ./...",
+            "status": "failed"
+          },
+          {
+            "id": "1276-s2-j1",
+            "log": [],
+            "name": "integration (testcontainers)",
+            "status": "canceled"
+          }
+        ],
+        "name": "Test",
+        "status": "failed"
+      },
+      {
+        "id": "1276-s3",
+        "jobs": [
+          {
+            "id": "1276-s3-j0",
+            "log": [],
+            "name": "trivy image",
+            "status": "canceled"
+          },
+          {
+            "id": "1276-s3-j1",
+            "log": [],
+            "name": "govulncheck",
+            "status": "canceled"
+          }
+        ],
+        "name": "Security scan",
+        "status": "canceled"
+      }
+    ],
+    "startedAt": "2026-11-09T16:25:28Z",
+    "status": "failed",
+    "trigger": "PR",
+    "triggeredBy": {
+      "id": "mei",
+      "kind": "person"
+    }
+  }
+]

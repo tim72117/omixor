@@ -5,7 +5,8 @@
 //	POST /api/auth/logout                      撤銷目前這個 token
 //
 //	GET  /api/orgs                             我能用的組織(伺服器管理員是全部;myRole 是我的角色)
-//	POST /api/orgs                             {id, name} 建立組織(伺服器管理員)
+//	POST /api/orgs                             {id, name, symbol?, color?, note?} 建立組織(伺服器管理員)
+//	PUT  /api/orgs/{org}                       {name, symbol?, color?, note?} 修改組織(伺服器管理員)
 //	GET  /api/orgs/{org}/members               成員
 //	POST /api/orgs/{org}/members               {email, role} 加入或改角色(組織管理員)
 //	POST /api/orgs/{org}/members/remove        {email}
@@ -113,12 +114,26 @@ func (a *API) Handler() http.Handler {
 		reply(w, l, err)
 	}))
 	mux.HandleFunc("POST /api/orgs", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
-		var in struct{ ID, Name string }
+		var in model.Org
 		if err := read(r, &in); err != nil {
 			bad(w, err)
 			return
 		}
-		o, err := a.Svc.CreateOrg(p, in.ID, in.Name)
+		o, err := a.Svc.CreateOrgWith(p, in)
+		reply(w, o, err)
+	}))
+	mux.HandleFunc("PUT /api/orgs/{org}", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in model.Org
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		in.ID = r.PathValue("org")
+		if err := a.Svc.UpdateOrg(p, in); err != nil {
+			reply(w, nil, err)
+			return
+		}
+		o, err := a.Svc.Store.GetOrg(in.ID)
 		reply(w, o, err)
 	}))
 	mux.HandleFunc("GET /api/orgs/{org}/members", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {

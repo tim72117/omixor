@@ -2,7 +2,7 @@ import XCTest
 import WebKit
 @testable import Ops
 
-/// 文件櫃的範本:欄位解析、存檔檢查、產生網頁;轉換器與網頁要和 Go 版一模一樣(web/spec)
+/// 文件櫃的範本:欄位解析、存檔檢查、產生網頁;轉換器與網頁要和 Go 版一模一樣(templates/doc)
 @MainActor
 final class DocTemplateTests: XCTestCase {
     var dataDir: URL!
@@ -99,11 +99,11 @@ final class DocTemplateTests: XCTestCase {
         XCTAssertNil(DocTemplates.html(for: try XCTUnwrap(Cabinet.doc(app, tplId)), in: app.cabinetDocs))
     }
 
-    /// 轉換器和網頁要和 Go 版一樣:web/spec/docrender.js 與 docpage.html(OPS_EXPORT_DOCPAGE=1 時重新匯出網頁)
+    /// 轉換器和網頁要和 Go 版一樣:templates/doc/docrender.js 與 docpage.html(OPS_EXPORT_DOCPAGE=1 時重新匯出網頁)
     func testSharedWithGo() throws {
-        let spec = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../web/spec").standardized
+        let spec = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../templates/doc").standardized
         guard let js = try? String(contentsOf: spec.appendingPathComponent("docrender.js"), encoding: .utf8) else {
-            throw XCTSkip("沒有 web/spec(單獨拿到 ops 時略過)")
+            throw XCTSkip("沒有 templates/doc(單獨拿到 ops 時略過)")
         }
         XCTAssertEqual(DocRenderJS.source, js.hasSuffix("\n") ? String(js.dropLast()) : js, "改了 docrender.js 要跑 app/scripts/gen-docrender.py")
         let tpl = try XCTUnwrap(DocTemplates.parse(CabinetDoc(id: "DOC-1", title: "範本", body: Self.template, section: "tools", tab: nil, author: "mcp")))

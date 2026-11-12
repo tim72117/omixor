@@ -1,0 +1,350 @@
+[
+  {
+    "actor": {
+      "id": "yuting",
+      "kind": "person"
+    },
+    "date": "2026-11-11T00:14:28Z",
+    "icon": "arrow.triangle.branch",
+    "id": "0000A11C-0000-4000-8000-0000000000F7",
+    "section": "pipelines",
+    "text": "推送 commit 到 PR #1423,觸發 course-web #1289"
+  },
+  {
+    "actor": {
+      "id": "ai-postmortem",
+      "kind": "ai"
+    },
+    "date": "2026-11-11T00:12:28Z",
+    "icon": "doc.text",
+    "id": "0000A11C-0000-4000-8000-0000000000F8",
+    "section": "incidents",
+    "text": "更新 INC-2041 事件摘要(第 4 版)"
+  },
+  {
+    "actor": {
+      "id": "ai-review",
+      "kind": "ai"
+    },
+    "date": "2026-11-11T00:09:28Z",
+    "icon": "text.magnifyingglass",
+    "id": "0000A11C-0000-4000-8000-0000000000F9",
+    "section": "development",
+    "text": "審查 PR #1426:中風險,3 個問題"
+  },
+  {
+    "actor": {
+      "id": "ai-rollback",
+      "kind": "ai"
+    },
+    "date": "2026-11-11T00:09:28Z",
+    "icon": "eye",
+    "id": "0000A11C-0000-4000-8000-0000000000FA",
+    "section": "pipelines",
+    "text": "api-server canary 錯誤率偏高,判斷暫不回滾"
+  },
+  {
+    "actor": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "date": "2026-11-11T00:09:28Z",
+    "icon": "arrow.triangle.pull",
+    "id": "0000A11C-0000-4000-8000-0000000000FB",
+    "section": "development",
+    "text": "開啟 PR #1426「Paddle webhook 改為 outbox」"
+  },
+  {
+    "actor": {
+      "id": "ai-alert-triage",
+      "kind": "ai"
+    },
+    "date": "2026-11-11T00:03:28Z",
+    "icon": "sparkles",
+    "id": "0000A11C-0000-4000-8000-0000000000FC",
+    "section": "incidents",
+    "text": "INC-2041:降低 SMTP 逾時後 p95 降到 3.9s,但佇列仍增加"
+  },
+  {
+    "actor": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "date": "2026-11-11T00:01:28Z",
+    "icon": "shippingbox",
+    "id": "0000A11C-0000-4000-8000-0000000000FD",
+    "section": "pipelines",
+    "text": "開始部署 api-server v2.14.0 到 Production(canary 25%)"
+  },
+  {
+    "actor": {
+      "id": "ai-alert-triage",
+      "kind": "ai"
+    },
+    "date": "2026-11-11T00:00:28Z",
+    "icon": "hand.raised",
+    "id": "0000A11C-0000-4000-8000-0000000000FE",
+    "section": "automation",
+    "text": "送出核准請求「重放 97 筆失敗的 Paddle webhook 事件」"
+  },
+  {
+    "actor": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "date": "2026-11-10T23:55:28Z",
+    "icon": "arrow.triangle.pull",
+    "id": "0000A11C-0000-4000-8000-0000000000FF",
+    "section": "development",
+    "text": "開啟草稿 PR #1415「billing queue 消費者水平擴展」"
+  },
+  {
+    "actor": {
+      "id": "tim",
+      "kind": "person"
+    },
+    "date": "2026-11-10T23:53:28Z",
+    "icon": "flag",
+    "id": "0000A11C-0000-4000-8000-000000000100",
+    "section": "incidents",
+    "text": "開啟 feature flag smtp_fast_fail"
+  },
+  {
+    "actor": {
+      "id": "ai-alert-triage",
+      "kind": "ai"
+    },
+    "date": "2026-11-10T23:48:28Z",
+    "icon": "hand.raised",
+    "id": "0000A11C-0000-4000-8000-000000000101",
+    "section": "automation",
+    "text": "送出核准請求「終止 pg-prod-primary 上 64 個卡住的連線」"
+  },
+  {
+    "actor": {
+      "id": "ai-autoscale",
+      "kind": "ai"
+    },
+    "date": "2026-11-10T23:45:28Z",
+    "icon": "hand.raised",
+    "id": "0000A11C-0000-4000-8000-000000000102",
+    "section": "automation",
+    "text": "送出核准請求「worker billing 消費者擴到 10 個」"
+  },
+  {
+    "actor": {
+      "kind": "system"
+    },
+    "date": "2026-11-10T23:42:28Z",
+    "icon": "bell.badge",
+    "id": "0000A11C-0000-4000-8000-000000000103",
+    "section": "monitoring",
+    "text": "告警觸發:pg-prod-primary 連線數接近上限"
+  },
+  {
+    "actor": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "date": "2026-11-10T23:40:28Z",
+    "icon": "flame",
+    "id": "0000A11C-0000-4000-8000-000000000104",
+    "section": "incidents",
+    "text": "INC-2041 狀態改為已找到原因"
+  },
+  {
+    "actor": {
+      "id": "ai-ci-triage",
+      "kind": "ai"
+    },
+    "date": "2026-11-10T23:34:28Z",
+    "icon": "stethoscope",
+    "id": "0000A11C-0000-4000-8000-000000000105",
+    "section": "pipelines",
+    "text": "診斷 course-web #1286:PR 造成的失敗,不是 flaky"
+  },
+  {
+    "actor": {
+      "kind": "system"
+    },
+    "date": "2026-11-10T23:34:28Z",
+    "icon": "bell.badge",
+    "id": "0000A11C-0000-4000-8000-000000000106",
+    "section": "monitoring",
+    "text": "告警觸發:billing 佇列積壓"
+  },
+  {
+    "actor": {
+      "id": "tim",
+      "kind": "person"
+    },
+    "date": "2026-11-10T23:23:28Z",
+    "icon": "flame",
+    "id": "0000A11C-0000-4000-8000-000000000107",
+    "section": "incidents",
+    "text": "開立 INC-2041(SEV2)Paddle 付款 webhook 處理延遲"
+  },
+  {
+    "actor": {
+      "kind": "system"
+    },
+    "date": "2026-11-10T23:21:28Z",
+    "icon": "bell.badge",
+    "id": "0000A11C-0000-4000-8000-000000000108",
+    "section": "monitoring",
+    "text": "告警觸發:Paddle webhook 處理延遲過高"
+  },
+  {
+    "actor": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "date": "2026-11-10T23:09:28Z",
+    "icon": "checkmark.circle",
+    "id": "0000A11C-0000-4000-8000-000000000109",
+    "section": "pipelines",
+    "text": "live-player v1.8.2 部署到 Staging"
+  },
+  {
+    "actor": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "date": "2026-11-10T22:23:28Z",
+    "icon": "hand.raised",
+    "id": "0000A11C-0000-4000-8000-00000000010A",
+    "section": "pipelines",
+    "text": "payments v3.4.0 等待 Production 核准"
+  },
+  {
+    "actor": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "date": "2026-11-10T22:03:28Z",
+    "icon": "flame",
+    "id": "0000A11C-0000-4000-8000-00000000010B",
+    "section": "incidents",
+    "text": "INC-2039 狀態改為觀察中"
+  },
+  {
+    "actor": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "date": "2026-11-10T21:35:28Z",
+    "icon": "server.rack",
+    "id": "0000A11C-0000-4000-8000-00000000010C",
+    "section": "infrastructure",
+    "text": "HLS 原點暫時改指 asia-east1 bucket"
+  },
+  {
+    "actor": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "date": "2026-11-10T21:10:28Z",
+    "icon": "flame",
+    "id": "0000A11C-0000-4000-8000-00000000010D",
+    "section": "incidents",
+    "text": "開立 INC-2039(SEV3)台灣部分用戶影片起播變慢"
+  },
+  {
+    "actor": {
+      "id": "ai-deps",
+      "kind": "ai"
+    },
+    "date": "2026-11-10T20:50:28Z",
+    "icon": "shippingbox.and.arrow.backward",
+    "id": "0000A11C-0000-4000-8000-00000000010E",
+    "section": "development",
+    "text": "開啟 PR #1424 修補 CVE-2024-45338"
+  },
+  {
+    "actor": {
+      "id": "ai-ci-triage",
+      "kind": "ai"
+    },
+    "date": "2026-11-10T20:35:28Z",
+    "icon": "stethoscope",
+    "id": "0000A11C-0000-4000-8000-00000000010F",
+    "section": "pipelines",
+    "text": "診斷 auth #1284:x/net 安全性弱點"
+  },
+  {
+    "actor": {
+      "id": "ai-rollback",
+      "kind": "ai"
+    },
+    "date": "2026-11-10T18:51:28Z",
+    "icon": "arrow.uturn.backward",
+    "id": "0000A11C-0000-4000-8000-000000000110",
+    "section": "pipelines",
+    "text": "自動回滾 live-player 到 v1.8.0"
+  },
+  {
+    "actor": {
+      "kind": "system"
+    },
+    "date": "2026-11-10T18:44:28Z",
+    "icon": "bell.badge",
+    "id": "0000A11C-0000-4000-8000-000000000111",
+    "section": "monitoring",
+    "text": "告警觸發:live-player 5xx 比例過高"
+  },
+  {
+    "actor": {
+      "id": "ai-ci-triage",
+      "kind": "ai"
+    },
+    "date": "2026-11-10T15:43:28Z",
+    "icon": "wrench.and.screwdriver",
+    "id": "0000A11C-0000-4000-8000-000000000112",
+    "section": "development",
+    "text": "開啟 PR #1421 修正 flaky enrollment 測試"
+  },
+  {
+    "actor": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "date": "2026-11-10T15:15:28Z",
+    "icon": "memorychip",
+    "id": "0000A11C-0000-4000-8000-000000000113",
+    "section": "infrastructure",
+    "text": "處理 gke-prod-ae1-a3 記憶體壓力(驅逐 2 個 pod)"
+  },
+  {
+    "actor": {
+      "id": "tim",
+      "kind": "person"
+    },
+    "date": "2026-11-10T02:15:28Z",
+    "icon": "checkmark.seal",
+    "id": "0000A11C-0000-4000-8000-000000000114",
+    "section": "automation",
+    "text": "核准 AI 請求「刪除 3 個未掛載的磁碟」"
+  },
+  {
+    "actor": {
+      "id": "ai-cost",
+      "kind": "ai"
+    },
+    "date": "2026-11-10T00:15:28Z",
+    "icon": "dollarsign.circle",
+    "id": "0000A11C-0000-4000-8000-000000000115",
+    "section": "automation",
+    "text": "週報:找到每月約 US$420 的節省空間"
+  },
+  {
+    "actor": {
+      "id": "sharon",
+      "kind": "person"
+    },
+    "date": "2026-11-09T23:55:28Z",
+    "icon": "list.bullet.rectangle",
+    "id": "0000A11C-0000-4000-8000-000000000116",
+    "section": "development",
+    "text": "Sprint 47 新增 3 個工作項目"
+  }
+]

@@ -120,3 +120,9 @@ table.table { width: 100%; border-collapse: collapse; }
 .account-current:hover { background: var(--bg2); }
 .account-menu { top: auto; bottom: 100%; margin-bottom: 4px; }
 .account-menu .menu-item { flex-wrap: wrap; }
+.connect-card { width: 380px; max-width: calc(100vw - 32px); }
+.connect-option { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; color: inherit; text-align: left; cursor: pointer; }
+.connect-option:hover { border-color: var(--accent); background: var(--bg3); }
+.account-logout { display: flex; align-items: center; justify-content: center; gap: 6px; width: calc(100% - 16px); margin: 2px 8px 4px; padding: 4px 8px; background: none; border: 1px solid var(--line); border-radius: 6px; color: inherit; cursor: pointer; font-size: 12.5px; }
+.account-logout:hover:not(:disabled) { background: var(--bg3); }
+.account-logout:disabled { opacity: .45; }

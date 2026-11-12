@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"testing"
 	"time"
 
 	"omixor-core/client"
@@ -15,16 +16,16 @@ import (
 	"omixor-core/store"
 )
 
-// Issue 交給 omixor 核心(omixor-core)。omixor-web 啟動時二選一:
+// Issue(與本機的組織)一律交給 omixor 核心(omixor-core),依模式(mode.go)二選一,兩邊完全分開:
 //
-//	遠端:OMIXOR_SERVER(或舊的 OPS_ISSUE_SERVER)指向線上 omixor server,用 core/client 讀寫
+//	遠端模式:OMIXOR_SERVER 指向線上 omixor server,用 core/client 讀寫
 //	      token:OPS_ISSUE_SERVER_TOKEN 固定的;沒設時用 omixor 自己的 token(鑰匙圈的 omixor-issues),
 //	      沒有或被拒絕(401)就拿 evoleap 連線的 token 去 /api/auth/evoleap 換一個再重送
-//	內建:有 OPS_DATABASE_URL(PostgreSQL)時,核心的 service 跑在同一個程式裡,用同一個資料庫
-//	都沒有:照舊存組織資料夾的 issues.json(測試、跨版比對用)
+//	本機模式:核心的 service 跑在同一個程式裡,連本機的 PostgreSQL(OPS_DATABASE_URL);
+//	      沒有資料庫就不能用(回 errNoDB),不再退回存檔案。測試時沒有資料庫就用核心的記憶體存放處
 //
-// 讀:組織載入時在背景讀、每次修改前、ops_issues 查詢前重讀;遠端模式每 5 秒在背景同步一次。
-// 寫:每個動作各自送給核心,用回傳的內容。內建模式以「omixor-web」(伺服器管理員)身分呼叫核心。
+// 讀:組織載入時讀、每次修改前重讀;遠端模式每 5 秒在背景同步一次。
+// 寫:每個動作各自送給核心,用回傳的內容。本機模式以「omixor-web」(伺服器管理員)身分呼叫核心。
 
 const (
 	issueRemoteEvoleapConn = "evoleap"
@@ -45,37 +46,73 @@ var (
 	backendMu   sync.Mutex
 )
 
-// issueRemoteOn 有沒有交給核心(遠端或內建)
-func issueRemoteOn() bool { return currentIssueBackend() != nil }
+// errNoDB 本機模式沒有資料庫
+var errNoDB = errors.New("本機模式要連 PostgreSQL:設環境變數 OPS_DATABASE_URL 與 OPS_SECRET_KEY(本機開發可以用 web/docker-compose.dev.yml 開一個)")
 
+// currentIssueBackend 目前的核心:遠端模式是 omixor server;本機模式是同一個程式裡的核心(service + PostgreSQL)。
+// 本機沒有資料庫時回傳一個一律回錯誤的 backend(不再退回存檔案)。
 func currentIssueBackend() issueBackend {
-	backendMu.Lock()
-	defer backendMu.Unlock()
 	if url := IssueRemoteURL(); url != "" {
+		backendMu.Lock()
+		defer backendMu.Unlock()
 		if r, ok := backendVal.(*remoteBackend); !ok || r.base != url {
 			backendVal = &remoteBackend{base: url}
 		}
 		return backendVal
 	}
+	if l := localCore(); l != nil {
+		return l
+	}
+	return noDBBackend{}
+}
+
+var (
+	localCoreMu  sync.Mutex
+	localCoreVal *localBackend
+	localCoreKey any // 建立核心時的資料庫連線池(或記憶體資料夾),換了就重建
+	memCores     = map[string]*localBackend{}
+)
+
+// localCore 本機模式的核心:連 PostgreSQL(OPS_DATABASE_URL);測試時沒有資料庫就用記憶體(每個資料夾一份)。都沒有回傳 nil
+func localCore() *localBackend {
+	localCoreMu.Lock()
+	defer localCoreMu.Unlock()
 	if pgPool != nil {
-		if _, ok := backendVal.(*localBackend); !ok {
+		if localCoreVal == nil || localCoreKey != any(pgPool) {
 			st, err := store.NewPGFromPool(pgPool)
 			if err != nil {
-				log.Printf("核心建表失敗,Issue 改存檔案:%v", err)
-				backendVal = nil
+				log.Printf("核心建表失敗:%v", err)
 				return nil
 			}
 			svc := &service.Service{Store: st}
 			if err := svc.EnsureOrgsForIssues(); err != nil {
 				log.Printf("補建組織失敗:%v", err)
 			}
-			backendVal = &localBackend{svc: svc}
+			localCoreVal, localCoreKey = &localBackend{svc: svc}, any(pgPool)
 		}
-		return backendVal
+		return localCoreVal
 	}
-	backendVal = nil
+	if testing.Testing() {
+		k := DataRoot()
+		if memCores[k] == nil {
+			memCores[k] = &localBackend{svc: &service.Service{Store: store.NewMem()}}
+		}
+		return memCores[k]
+	}
 	return nil
 }
+
+// noDBBackend 本機模式沒有資料庫:所有操作都回錯誤
+type noDBBackend struct{}
+
+func (noDBBackend) List(string, string) ([]model.Issue, error) { return nil, errNoDB }
+func (noDBBackend) Create(string, string, service.IssueInput) (*model.Issue, error) {
+	return nil, errNoDB
+}
+func (noDBBackend) Update(string, string, string, service.IssuePatch) (*model.Issue, error) {
+	return nil, errNoDB
+}
+func (noDBBackend) Delete(string, string, string) error { return errNoDB }
 
 // ---- 遠端:core/client ----
 
@@ -181,6 +218,66 @@ func (l *localBackend) Delete(_, org, id string) error {
 	return l.svc.DeleteIssue(localPrincipal, org, id)
 }
 
+// ---- 一次存多筆(Jira 匯入用) ----
+
+// issueSaver 一次改多筆、新增多筆(新增的由核心給編號,新的在前)
+type issueSaver interface {
+	Save(scope, org string, updates, creates []model.Issue) error
+}
+
+// Save 本機:直接用核心的存放處,保留 Jira 的建立時間與留言作者
+func (l *localBackend) Save(_, org string, updates, creates []model.Issue) error {
+	l.ensureOrg(org)
+	for _, i := range updates {
+		if err := l.svc.Store.UpdateIssue(org, i); err != nil {
+			return err
+		}
+	}
+	for _, i := range creates {
+		if _, err := l.svc.Store.CreateIssue(org, i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Save 遠端:一筆一筆送(伺服器的 API 沒有批次;新增的建立時間會是送出的時間)
+func (r *remoteBackend) Save(scope, org string, updates, creates []model.Issue) error {
+	c := r.client(scope)
+	org = serverOrgID(org)
+	for _, i := range updates {
+		labels, comments := i.Labels, i.Comments
+		if _, err := c.UpdateIssue(org, i.ID, service.IssuePatch{Title: &i.Title, Body: &i.Body, Status: &i.Status,
+			Priority: &i.Priority, Labels: &labels, Source: &i.Source, Link: &i.Link, Comments: &comments, Author: i.CreatedBy}); err != nil {
+			return err
+		}
+	}
+	for _, i := range creates {
+		if _, err := c.CreateIssue(org, service.IssueInput{Title: i.Title, Body: i.Body, Priority: i.Priority,
+			Labels: i.Labels, Source: i.Source, Link: i.Link, Author: i.CreatedBy}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (noDBBackend) Save(string, string, []model.Issue, []model.Issue) error { return errNoDB }
+
+func toModelIssues(l []OpsIssue) []model.Issue {
+	b, _ := json.Marshal(l)
+	var out []model.Issue
+	_ = json.Unmarshal(b, &out)
+	return out
+}
+
+func (a *App) issueRemoteSave(org string, updates, creates []OpsIssue) error {
+	sv, ok := currentIssueBackend().(issueSaver)
+	if !ok {
+		return errors.New("這個模式不能一次存多筆")
+	}
+	return sv.Save(a.conns().Scope, org, toModelIssues(updates), toModelIssues(creates))
+}
+
 // ---- 型別轉換(JSON 格式相同) ----
 
 func toOps(i model.Issue) OpsIssue {
@@ -241,9 +338,6 @@ func (a *App) issueRemoteLoad(s *issueState) {
 
 // RefreshIssuesIfStale 交給核心時:超過 maxAge 沒讀就重讀(拿著 Mu 呼叫;存檔案時不做事)
 func (a *App) RefreshIssuesIfStale(maxAge time.Duration) {
-	if !issueRemoteOn() {
-		return
-	}
 	s := a.issueSt()
 	if time.Since(s.fetched) >= maxAge {
 		a.issueRemoteLoad(s)
@@ -309,7 +403,7 @@ func init() {
 		}
 		go func() {
 			for range time.Tick(5 * time.Second) {
-				if !issueRemoteOn() {
+				if !IsRemote() { // 本機模式只有這個程式在寫,不用輪詢
 					continue
 				}
 				a.Mu.Lock()

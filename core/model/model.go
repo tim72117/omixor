@@ -123,6 +123,10 @@ type Org struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	CreatedAt Time   `json:"createdAt"`
+	// 畫面用的外觀與說明(圖示名稱、顏色、備註);沒設是空字串
+	Symbol string `json:"symbol,omitempty"`
+	Color  string `json:"color,omitempty"`
+	Note   string `json:"note,omitempty"`
 	// 目前使用者在這個組織的角色(列出「我的組織」時才有;伺服器管理員是 "admin")
 	MyRole string `json:"myRole,omitempty"`
 }

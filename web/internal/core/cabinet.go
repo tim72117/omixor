@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"omixor-web/internal/templates"
 	"unicode"
 )
 
@@ -58,60 +60,13 @@ func BlankCabinetLayout() []CabinetSection {
 	}
 }
 
-// EvoleapStudioLayout evoleap 研發基地的結構(預設組織)
-func EvoleapStudioLayout() []CabinetSection {
-	g := "做出自己的軟體"
-	tab := func(path, label string) CabinetTab { return CabinetTab{Path: path, Label: label} }
-	lv := func(path, label, code string) CabinetTab {
-		return CabinetTab{Path: path, Label: label, Code: cabSP(code), Group: cabSP(g)}
+// TemplateCabinetLayout 範本的文件櫃結構(templates/cabinet/,一個區塊一個檔);沒開範本就是空白的結構
+func TemplateCabinetLayout() []CabinetSection {
+	var layout []CabinetSection
+	if err := json.Unmarshal(templates.Array("cabinet"), &layout); err != nil || len(layout) == 0 {
+		return BlankCabinetLayout()
 	}
-	return []CabinetSection{
-		{ID: "overview", Label: "總覽", Path: "/studio", Tabs: []CabinetTab{}},
-		{ID: "todo", Label: "待辦", Path: "/studio/todo", Tabs: []CabinetTab{}},
-		{ID: "members", Label: "會員", Path: "/studio/members", Tabs: []CabinetTab{}},
-		{ID: "levels", Label: "課程", Path: "/studio/tools", Tabs: []CabinetTab{
-			lv("/studio/tools", "AI 工具介紹", "L0"),
-			lv("/studio/ai-tools", "AI 工具入門", "L1"),
-			lv("/studio/vibe-coding", "Vibe Coding 入門", "L2"),
-			lv("/studio/ai-agent", "AI Agent 整合應用", "L3"),
-			lv("/studio/advanced", "進階", "L4"),
-			tab("/studio/ai-tips", "AI 工具技巧"),
-			tab("/studio/kids-web", "兒童網頁課"),
-			tab("/studio/web-basics", "網頁運作知識"),
-		}},
-		{ID: "dev", Label: "開發", Path: "/studio/visuals", Tabs: []CabinetTab{
-			tab("/studio/visuals", "即時教學影像"),
-			tab("/studio/actor-interaction", "演員互動"),
-			tab("/studio/portrait", "直式舞台"),
-			tab("/studio/scenes", "場景"),
-		}},
-		{ID: "ideas", Label: "構想", Path: "/studio/mcp", Tabs: []CabinetTab{
-			tab("/studio/mcp", "課程 MCP"),
-			tab("/studio/live-script-mcp", "即時腳本 MCP"),
-			tab("/studio/member", "會員空間"),
-			tab("/studio/kids-family", "兒童課家長模式"),
-			tab("/studio/resources", "資源系統"),
-			tab("/studio/news-feed", "科技新知動態牆"),
-			tab("/studio/extensions", "延伸課程"),
-			tab("/studio/ops-course", "從上線到維運"),
-		}},
-		{ID: "docs", Label: "文件", Path: "/studio/docs", Tabs: []CabinetTab{
-			tab("/studio/docs", "全部文件"),
-			tab("/docs/course-goals", "課程目標"),
-			tab("/docs/research-report", "研究報告"),
-			tab("/docs/research/methodology", "課程設計方法論"),
-			tab("/docs/research/recording", "影音錄製實務"),
-			tab("/docs/research/video-shotcraft", "video-shotcraft"),
-			tab("/docs/research/hyperframes", "HyperFrames"),
-			tab("/docs/research/marketing", "軟體與課程行銷手法"),
-			tab("/docs/research/voice-cost", "旁白語音的費用評估"),
-			tab("/docs/research/tts-landscape", "文字轉語音工具現況"),
-			tab("/docs/research/script-template", "腳本範本結構"),
-			tab("/docs/live", "即時教學畫面規格"),
-			tab("/docs/recorder", "宣傳影片錄製工具"),
-		}},
-		{ID: "tools", Label: "工具", Path: "/materials", Tabs: []CabinetTab{}},
-	}
+	return layout
 }
 
 type CabinetDoc struct {
@@ -186,7 +141,7 @@ func (a *App) loadCabinet() {
 	if err := ReadJSON(a.cabinetLayoutPath(), &layout); err == nil && layout != nil {
 		s.Layout = layout
 	} else {
-		s.Layout = EvoleapStudioLayout()
+		s.Layout = TemplateCabinetLayout()
 	}
 	path := a.cabinetPath()
 	b, err := ReadData(path)

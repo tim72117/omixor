@@ -1,0 +1,44 @@
+[
+  {
+    "colorHex": 6000111,
+    "id": "tim",
+    "name": "蔡庭宇",
+    "role": "SRE / 平台負責人"
+  },
+  {
+    "colorHex": 14709148,
+    "id": "mei",
+    "name": "林美君",
+    "role": "後端 Tech Lead"
+  },
+  {
+    "colorHex": 4175262,
+    "id": "jason",
+    "name": "陳建宏",
+    "role": "後端工程師"
+  },
+  {
+    "colorHex": 15902017,
+    "id": "yuting",
+    "name": "王郁婷",
+    "role": "前端工程師"
+  },
+  {
+    "colorHex": 9333983,
+    "id": "hao",
+    "name": "張志豪",
+    "role": "SRE"
+  },
+  {
+    "colorHex": 4895702,
+    "id": "kai",
+    "name": "李冠廷",
+    "role": "全端工程師"
+  },
+  {
+    "colorHex": 14249039,
+    "id": "sharon",
+    "name": "黃詩涵",
+    "role": "產品經理"
+  }
+]

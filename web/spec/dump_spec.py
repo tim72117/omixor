@@ -1,7 +1,6 @@
 """從執行中的 Ops(Swift 版)匯出 MCP 規格,當 Go 版的標準答案。
 用法:python3 spec/dump_spec.py [http://127.0.0.1:3765/mcp]
-範例資料(seed.json)另外用 Swift 版匯出:
-  cd ../app && OPS_EXPORT_SEED=$PWD/../web/spec/seed.json swift test --filter SpecExportTests"""
+範例資料(templates/seed/)另外用 Swift 版匯出再拆開,見 ../templates/README.md"""
 import json, os, sys, urllib.request
 URL = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:3765/mcp"
 HERE = os.path.dirname(os.path.abspath(__file__))

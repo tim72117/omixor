@@ -1,0 +1,23 @@
+# 本機開發用的 PostgreSQL(只有資料庫,不含 omixor-web):本機模式的資料都存在這裡。
+#   docker compose -f docker-compose.dev.yml up -d
+# 只發布到這台電腦的 127.0.0.1:5433(5432 常被別的資料庫占用),帳密是固定的開發用值,不要拿去正式環境。
+#   OPS_DATABASE_URL=postgres://omixor:omixor-dev@127.0.0.1:5433/omixor?sslmode=disable
+name: omixor-dev
+services:
+  db:
+    image: postgres:17.2-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: omixor
+      POSTGRES_USER: omixor
+      POSTGRES_PASSWORD: omixor-dev
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - omixor-dev-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omixor -d omixor"]
+      interval: 5s
+      retries: 20
+volumes:
+  omixor-dev-db:

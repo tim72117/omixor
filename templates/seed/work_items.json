@@ -1,0 +1,356 @@
+[
+  {
+    "assignee": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-128",
+    "points": 5,
+    "service": "auth",
+    "status": "done",
+    "title": "Google One Tap 登入",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "yuting",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-129",
+    "points": 3,
+    "service": "course-web",
+    "status": "done",
+    "title": "會員中心顯示訂閱到期日",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-130",
+    "points": 2,
+    "service": "api-server",
+    "status": "done",
+    "title": "api-server v2.14.0 發版",
+    "type": "chore"
+  },
+  {
+    "assignee": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-131",
+    "points": 8,
+    "service": "payments",
+    "status": "review",
+    "title": "年繳方案與優惠碼",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-132",
+    "points": 5,
+    "service": "api-server",
+    "status": "done",
+    "title": "課程推薦 API(依學習進度)",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "yuting",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-133",
+    "points": 5,
+    "service": "course-web",
+    "status": "review",
+    "title": "結帳頁改用 Paddle inline checkout",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-134",
+    "points": 5,
+    "service": "api-server",
+    "status": "inProgress",
+    "title": "批次匯入學員(CSV)",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "yuting",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-135",
+    "points": 3,
+    "service": "course-web",
+    "status": "inProgress",
+    "title": "課程地圖「零基礎」篩選",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-136",
+    "points": 8,
+    "service": "live-player",
+    "status": "todo",
+    "title": "播放器課中練習作答紀錄",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-137",
+    "points": 3,
+    "service": "payments",
+    "status": "todo",
+    "title": "退款後自動停用課程權限",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-138",
+    "points": 2,
+    "service": "api-server",
+    "status": "review",
+    "title": "課程進度 API 加快取",
+    "type": "chore"
+  },
+  {
+    "assignee": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-139",
+    "points": 3,
+    "status": "todo",
+    "title": "Grafana 儀表板改用 SLO burn rate",
+    "type": "chore"
+  },
+  {
+    "assignee": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-140",
+    "points": 2,
+    "service": "live-player",
+    "status": "done",
+    "title": "手機直式播放窗字幕被切掉",
+    "type": "bug"
+  },
+  {
+    "assignee": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-141",
+    "points": 2,
+    "service": "live-player",
+    "status": "review",
+    "title": "Safari 17 字幕不同步",
+    "type": "bug"
+  },
+  {
+    "assignee": {
+      "id": "tim",
+      "kind": "person"
+    },
+    "createdByAI": true,
+    "id": "OPS-142",
+    "points": 3,
+    "service": "postgres",
+    "status": "inProgress",
+    "title": "pg-prod-primary 連線數接近上限",
+    "type": "bug"
+  },
+  {
+    "assignee": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "createdByAI": true,
+    "id": "OPS-143",
+    "points": 3,
+    "service": "auth",
+    "status": "todo",
+    "title": "auth 錯誤預算剩 18%,檢查 OAuth callback 重試",
+    "type": "bug"
+  },
+  {
+    "assignee": {
+      "id": "ai-ci-triage",
+      "kind": "ai"
+    },
+    "createdByAI": true,
+    "id": "OPS-144",
+    "points": 1,
+    "service": "course-web",
+    "status": "review",
+    "title": "穩定 flaky enrollment e2e 測試",
+    "type": "chore"
+  },
+  {
+    "assignee": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-145",
+    "points": 2,
+    "service": "live-player",
+    "status": "inProgress",
+    "title": "INC-2036 檢討:HLS 預載上線前缺少壓測",
+    "type": "incident"
+  },
+  {
+    "assignee": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-146",
+    "points": 2,
+    "service": "auth",
+    "status": "done",
+    "title": "INC-2031 檢討:OAuth state cookie SameSite 設定",
+    "type": "incident"
+  },
+  {
+    "assignee": {
+      "id": "ai-deps",
+      "kind": "ai"
+    },
+    "createdByAI": true,
+    "id": "OPS-147",
+    "points": 1,
+    "service": "auth",
+    "status": "review",
+    "title": "修補 CVE-2024-45338(golang.org/x/net)",
+    "type": "chore"
+  },
+  {
+    "assignee": {
+      "id": "tim",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-148",
+    "points": 3,
+    "service": "postgres",
+    "status": "done",
+    "title": "INC-2027 檢討:WAL 磁碟告警門檻與自動擴充",
+    "type": "incident"
+  },
+  {
+    "assignee": {
+      "id": "ai-cost",
+      "kind": "ai"
+    },
+    "createdByAI": true,
+    "id": "OPS-149",
+    "points": 2,
+    "status": "backlog",
+    "title": "staging 夜間縮容省成本",
+    "type": "chore"
+  },
+  {
+    "assignee": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-150",
+    "points": 3,
+    "service": "media-cdn",
+    "status": "done",
+    "title": "INC-2022 檢討:CDN 快取規則改為 Terraform 管理",
+    "type": "incident"
+  },
+  {
+    "assignee": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-151",
+    "points": 5,
+    "service": "payments",
+    "status": "inProgress",
+    "title": "Paddle webhook 改 outbox 非同步處理",
+    "type": "incident"
+  },
+  {
+    "assignee": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-152",
+    "points": 3,
+    "service": "worker",
+    "status": "inProgress",
+    "title": "billing queue 消費者水平擴展",
+    "type": "incident"
+  },
+  {
+    "createdByAI": true,
+    "id": "OPS-153",
+    "points": 2,
+    "service": "payments",
+    "status": "backlog",
+    "title": "webhook 處理延遲的 SLO 與告警",
+    "type": "incident"
+  },
+  {
+    "createdByAI": false,
+    "id": "OPS-154",
+    "points": 8,
+    "service": "course-web",
+    "status": "backlog",
+    "title": "兒童課家長儀表板",
+    "type": "feature"
+  },
+  {
+    "assignee": {
+      "id": "hao",
+      "kind": "person"
+    },
+    "createdByAI": false,
+    "id": "OPS-155",
+    "points": 3,
+    "service": "live-player",
+    "status": "backlog",
+    "title": "影片起播時間改用 RUM 量測",
+    "type": "chore"
+  }
+]

@@ -1,0 +1,124 @@
+[
+  {
+    "autoRemediation": "ai-alert-triage",
+    "enabled": true,
+    "expression": "histogram_quantile(0.95, paddle_webhook_duration_seconds) > 2 for 5m",
+    "id": "rule-webhook-latency",
+    "name": "Paddle webhook 延遲",
+    "notify": [
+      "PagerDuty",
+      "Slack #incident"
+    ],
+    "severity": "critical"
+  },
+  {
+    "autoRemediation": "ai-autoscale",
+    "enabled": true,
+    "expression": "queue_depth > 500 for 10m",
+    "id": "rule-queue-backlog",
+    "name": "佇列積壓",
+    "notify": [
+      "Slack #ops"
+    ],
+    "severity": "warning"
+  },
+  {
+    "autoRemediation": "ai-rollback",
+    "enabled": true,
+    "expression": "rate(http_5xx[5m]) / rate(http_requests[5m]) > 0.02",
+    "id": "rule-5xx-ratio",
+    "name": "服務 5xx 比例",
+    "notify": [
+      "PagerDuty",
+      "Slack #incident"
+    ],
+    "severity": "critical"
+  },
+  {
+    "autoRemediation": "ai-rollback",
+    "enabled": true,
+    "expression": "canary_5xx_ratio / stable_5xx_ratio > 2 for 5m",
+    "id": "rule-canary-errors",
+    "name": "Canary 錯誤率偏離基準",
+    "notify": [
+      "Slack #deploy"
+    ],
+    "severity": "warning"
+  },
+  {
+    "autoRemediation": "ai-alert-triage",
+    "enabled": true,
+    "expression": "histogram_quantile(0.95, http_request_duration_seconds) > 0.8 for 5m",
+    "id": "rule-p95-latency",
+    "name": "API p95 延遲",
+    "notify": [
+      "Slack #ops"
+    ],
+    "severity": "warning"
+  },
+  {
+    "autoRemediation": "ai-alert-triage",
+    "enabled": true,
+    "expression": "pg_stat_activity_count / max_connections > 0.85 for 5m",
+    "id": "rule-pg-connections",
+    "name": "資料庫連線數",
+    "notify": [
+      "Slack #ops",
+      "PagerDuty(上班時間)"
+    ],
+    "severity": "warning"
+  },
+  {
+    "autoRemediation": "ai-autoscale",
+    "enabled": true,
+    "expression": "avg by (node) (cpu_usage) > 0.85 for 15m",
+    "id": "rule-cpu-saturation",
+    "name": "節點 CPU 飽和",
+    "notify": [
+      "Slack #ops"
+    ],
+    "severity": "warning"
+  },
+  {
+    "enabled": true,
+    "expression": "disk_used_percent > 85",
+    "id": "rule-disk",
+    "name": "磁碟使用率",
+    "notify": [
+      "Slack #ops"
+    ],
+    "severity": "info"
+  },
+  {
+    "autoRemediation": "ai-alert-triage",
+    "enabled": true,
+    "expression": "histogram_quantile(0.95, player_start_seconds) > 2.5 for 10m",
+    "id": "rule-player-start",
+    "name": "影片起播時間",
+    "notify": [
+      "Slack #player"
+    ],
+    "severity": "warning"
+  },
+  {
+    "enabled": true,
+    "expression": "slo_burn_rate{window=\"1h\"} > 14.4",
+    "id": "rule-error-budget",
+    "name": "錯誤預算燃燒速度",
+    "notify": [
+      "PagerDuty",
+      "Slack #incident"
+    ],
+    "severity": "critical"
+  },
+  {
+    "enabled": false,
+    "expression": "ssl_cert_expiry_days < 14",
+    "id": "rule-cert-expiry",
+    "name": "TLS 憑證到期",
+    "notify": [
+      "Email"
+    ],
+    "severity": "info"
+  }
+]

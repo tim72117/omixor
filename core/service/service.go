@@ -391,10 +391,15 @@ func (s *Service) ListOrgs(p *model.Principal) ([]model.Org, error) {
 
 // CreateOrg 建立組織(伺服器管理員)
 func (s *Service) CreateOrg(p *model.Principal, id, name string) (*model.Org, error) {
+	return s.CreateOrgWith(p, model.Org{ID: id, Name: name})
+}
+
+// CreateOrgWith 建立組織,含圖示、顏色、備註(伺服器管理員)
+func (s *Service) CreateOrgWith(p *model.Principal, in model.Org) (*model.Org, error) {
 	if err := needServerAdmin(p); err != nil {
 		return nil, err
 	}
-	id = strings.TrimSpace(id)
+	id, name := strings.TrimSpace(in.ID), in.Name
 	if !model.ValidOrgID(id) || strings.HasPrefix(id, "deleted-orgs") {
 		return nil, fail(400, "組織 id 只能用英數字、- 與 _")
 	}
@@ -402,13 +407,43 @@ func (s *Service) CreateOrg(p *model.Principal, id, name string) (*model.Org, er
 	if name == "" {
 		name = id
 	}
-	o := model.Org{ID: id, Name: name, CreatedAt: s.mt()}
+	o := model.Org{ID: id, Name: name, Symbol: strings.TrimSpace(in.Symbol), Color: strings.TrimSpace(in.Color),
+		Note: strings.TrimSpace(in.Note), CreatedAt: s.mt()}
 	if err := s.Store.CreateOrg(o); err != nil {
 		return nil, fail(409, "%v", err)
 	}
 	s.Audit(p, "org.create", id, map[string]any{"name": name})
 	o.MyRole = "admin"
 	return &o, nil
+}
+
+// UpdateOrg 更新組織的名稱、圖示、顏色、備註(伺服器管理員;id 不能改)
+func (s *Service) UpdateOrg(p *model.Principal, o model.Org) error {
+	if err := needServerAdmin(p); err != nil {
+		return err
+	}
+	o.Name = strings.TrimSpace(o.Name)
+	if o.Name == "" {
+		return fail(400, "要給組織名稱")
+	}
+	o.Symbol, o.Color, o.Note = strings.TrimSpace(o.Symbol), strings.TrimSpace(o.Color), strings.TrimSpace(o.Note)
+	if err := s.Store.UpdateOrg(o); err != nil {
+		return fail(404, "找不到組織 %s", o.ID)
+	}
+	s.Audit(p, "org.update", o.ID, map[string]any{"name": o.Name})
+	return nil
+}
+
+// DeleteOrg 刪除組織,連成員與 Issue 一起刪掉(伺服器管理員;不能復原)
+func (s *Service) DeleteOrg(p *model.Principal, id string) error {
+	if err := needServerAdmin(p); err != nil {
+		return err
+	}
+	if err := s.Store.DeleteOrg(id); err != nil {
+		return fail(404, "找不到組織 %s", id)
+	}
+	s.Audit(p, "org.delete", id, nil)
+	return nil
 }
 
 func (s *Service) ListMembers(p *model.Principal, org string) ([]model.Member, error) {

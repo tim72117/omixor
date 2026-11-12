@@ -1,0 +1,134 @@
+[
+  {
+    "action": "kubectl -n prod scale deploy/worker-billing --replicas=10",
+    "automation": "ai-autoscale",
+    "createdAt": "2026-11-10T23:45:28Z",
+    "evidence": [
+      "queue_depth{queue=\"billing\"} = 1,284(+9/s)",
+      "worker CPU 88%(4 個副本)",
+      "INC-2041 影響約 9% 新付款學員"
+    ],
+    "expiresAt": "2026-11-11T00:45:28Z",
+    "id": "APV-311",
+    "rationale": "billing 佇列 1,284 筆且持續增加(進 31/s、出 22/s)。擴到 10 個消費者預計 25 分鐘內清空,讓付款學員盡快開通課程。",
+    "risk": "medium",
+    "rollbackPlan": "kubectl -n prod scale deploy/worker-billing --replicas=4",
+    "state": "pending",
+    "title": "worker billing 消費者擴到 10 個"
+  },
+  {
+    "action": "SELECT pg_terminate_backend(pid) FROM pg_stat_activity\n WHERE state = 'idle in transaction'\n   AND application_name = 'payments'\n   AND now() - state_change > interval '10 minutes';",
+    "automation": "ai-alert-triage",
+    "createdAt": "2026-11-10T23:48:28Z",
+    "evidence": [
+      "pg_stat_activity:64 個 idle in transaction,最久 23 分鐘",
+      "lock wait 平均 4.1s",
+      "連線數 182 / 200"
+    ],
+    "expiresAt": "2026-11-11T00:51:28Z",
+    "id": "APV-312",
+    "rationale": "這些交易持有 subscriptions 表的鎖,讓新的 webhook 一直等待。中止後 Paddle 會重送事件,payments 以 event_id 做冪等處理,不會重複開通。",
+    "risk": "medium",
+    "rollbackPlan": "無法復原已中止的交易;被中止的 webhook 會由 Paddle 自動重送。",
+    "state": "pending",
+    "title": "終止 pg-prod-primary 上 64 個卡住的連線"
+  },
+  {
+    "action": "payments-cli webhook replay --since 19:10 --status failed --dry-run=false",
+    "automation": "ai-alert-triage",
+    "createdAt": "2026-11-11T00:00:28Z",
+    "evidence": [
+      "webhook_events: status=failed 97 筆",
+      "客服回報 12 位學員未開通",
+      "dry-run:97 筆皆可安全重放(無重複 event_id)"
+    ],
+    "expiresAt": "2026-11-11T02:15:28Z",
+    "id": "APV-313",
+    "rationale": "有 97 筆 subscription.activated 處理失敗且已超過 Paddle 重送次數,這些學員付了錢但課程還沒開通。",
+    "risk": "high",
+    "rollbackPlan": "以 payments-cli access revoke --batch <batch-id> 撤銷本次重放開通的權限。",
+    "state": "pending",
+    "title": "重放 97 筆失敗的 Paddle webhook 事件"
+  },
+  {
+    "action": "gh pr merge 1424 --repo coursely/auth --squash",
+    "automation": "ai-deps",
+    "createdAt": "2026-11-10T20:51:28Z",
+    "evidence": [
+      "govulncheck:修補後 0 個弱點",
+      "CI run 全部通過",
+      "只改 go.mod / go.sum"
+    ],
+    "expiresAt": "2026-11-11T20:15:28Z",
+    "id": "APV-309",
+    "rationale": "修補 CVE-2024-45338,auth 實際呼叫到受影響函式。測試與 staging 驗證都已通過。",
+    "risk": "low",
+    "rollbackPlan": "git revert 合併 commit 並重新部署 auth v1.9.4。",
+    "state": "pending",
+    "title": "合併 PR #1424(golang.org/x/net 安全性修補)"
+  },
+  {
+    "action": "terraform apply -target=google_container_node_pool.staging_pool(PR #1419)",
+    "automation": "ai-cost",
+    "createdAt": "2026-11-10T00:15:28Z",
+    "evidence": [
+      "過去 30 天夜間 CPU 平均 2.4%",
+      "夜間只有 nightly e2e 在 02:00 使用 staging"
+    ],
+    "expiresAt": "2026-11-13T00:15:28Z",
+    "id": "APV-308",
+    "rationale": "staging 每天 00:00–08:00 CPU 平均 < 3%,縮到 0 每月約省 US$310。",
+    "risk": "medium",
+    "rollbackPlan": "terraform apply 還原 min_node_count = 1。",
+    "state": "pending",
+    "title": "staging 節點池夜間縮到 0"
+  },
+  {
+    "action": "gh run rerun 1279 --repo coursely/course-web",
+    "automation": "ai-ci-triage",
+    "createdAt": "2026-11-10T02:15:28Z",
+    "decidedBy": "yuting",
+    "evidence": [
+      "main 最後一次成功 build 為 2 天前"
+    ],
+    "expiresAt": "2026-11-10T06:15:28Z",
+    "id": "APV-305",
+    "rationale": "使用者手動取消,但後續沒有新的 run,main 目前沒有通過的 build。",
+    "risk": "low",
+    "rollbackPlan": "無需回滾(只重跑 CI)。",
+    "state": "rejected",
+    "title": "重試 course-web #1279"
+  },
+  {
+    "action": "gcloud compute disks delete pd-old-analytics-1 pd-old-analytics-2 pd-tmp-migrate --zone asia-east1-b",
+    "automation": "ai-cost",
+    "createdAt": "2026-11-09T00:15:28Z",
+    "decidedBy": "tim",
+    "evidence": [
+      "lastAttachTimestamp > 60 天",
+      "沒有任何 snapshot 排程"
+    ],
+    "expiresAt": "2026-11-10T00:15:28Z",
+    "id": "APV-303",
+    "rationale": "3 個磁碟共 1.2 TB,超過 60 天未掛載,每月約 US$110。",
+    "risk": "medium",
+    "rollbackPlan": "刪除前先建立 snapshot,保留 30 天。",
+    "state": "approved",
+    "title": "刪除 3 個未掛載的磁碟"
+  },
+  {
+    "action": "kubectl -n prod patch hpa api-server -p '{\"spec\":{\"maxReplicas\":12}}'",
+    "automation": "ai-autoscale",
+    "createdAt": "2026-11-07T00:15:28Z",
+    "evidence": [
+      "上週一 20:00–22:00 副本數維持 8,CPU 81%"
+    ],
+    "expiresAt": "2026-11-08T00:15:28Z",
+    "id": "APV-301",
+    "rationale": "週一晚上開課高峰時 HPA 已頂到上限 8。",
+    "risk": "low",
+    "rollbackPlan": "patch 回 maxReplicas 8。",
+    "state": "expired",
+    "title": "api-server HPA maxReplicas 8 → 12"
+  }
+]

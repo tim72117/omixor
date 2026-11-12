@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"omixor-web/spec"
+	"omixor-web/internal/templates"
 )
 
 // App 是全域狀態,對應 Swift 版的 AppState。
@@ -21,7 +21,7 @@ type App struct {
 	// 目前登入的使用者(和 Swift 版一樣固定是 tim)
 	Me string
 
-	// 範例資料:和 Swift 版 MockData 一模一樣的 JSON 物件(從 spec/seed.json 載入,時間平移到現在)。
+	// 範例資料:和 Swift 版 MockData 一模一樣的 JSON 物件(從 templates/seed/ 載入,時間平移到現在)。
 	// key 是 ops_list 的集合名稱(people、services…);sprint 是單一物件,放在 Sprint。
 	C      map[string][]map[string]any
 	Sprint map[string]any
@@ -99,16 +99,10 @@ func (a *App) Start() {
 var isoRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$`)
 
 func (a *App) loadSeed() {
-	var seed struct {
-		ExportedAt  string                     `json:"exportedAt"`
-		Collections map[string]json.RawMessage `json:"collections"`
-	}
-	if err := json.Unmarshal(spec.SeedJSON, &seed); err != nil {
-		panic("spec/seed.json 讀不出來:" + err.Error())
-	}
-	exported, _ := ParseTime(seed.ExportedAt)
+	exportedAt, collections := templates.Seed() // 範本 templates/seed/
+	exported, _ := ParseTime(exportedAt)
 	shift := time.Since(exported).Truncate(time.Second)
-	for name, raw := range seed.Collections {
+	for name, raw := range collections {
 		var v any
 		_ = json.Unmarshal(raw, &v)
 		v = shiftTimes(v, shift)

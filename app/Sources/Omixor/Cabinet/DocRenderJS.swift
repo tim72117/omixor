@@ -1,5 +1,5 @@
-// 自動產生,不要手改:內容和 web/spec/docrender.js 一模一樣(DocTemplateTests 會比對)。
-// 改轉換器時改 web/spec/docrender.js,再跑 app/scripts/gen-docrender.py。
+// 自動產生,不要手改:內容和 templates/doc/docrender.js 一模一樣(DocTemplateTests 會比對)。
+// 改轉換器時改 templates/doc/docrender.js,再跑 app/scripts/gen-docrender.py。
 enum DocRenderJS {
     static let source = ##"""
 // 文件櫃的通用轉換器(Swift 版與 Go 版共用這一份,Swift 版的 DocRenderJS.swift 是它的副本):

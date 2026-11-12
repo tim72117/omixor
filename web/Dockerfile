@@ -22,6 +22,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/omixor-web ./cmd/o
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 ops
 COPY --from=go /out/ /usr/local/bin/
+# 範本資料(預設不載入;要用就設 OMIXOR_TEMPLATES=/usr/local/share/omixor/templates)
+COPY templates /usr/local/share/omixor/templates
 USER ops
 ENV OPS_DATA_DIR=/home/ops/data OPS_NO_BROWSER=1 TZ=Asia/Taipei
 EXPOSE 5191 3765

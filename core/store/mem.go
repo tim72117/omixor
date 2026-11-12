@@ -191,6 +191,30 @@ func (m *Mem) CreateOrg(o model.Org) error {
 	return nil
 }
 
+func (m *Mem) UpdateOrg(n model.Org) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o, ok := m.orgs[n.ID]
+	if !ok {
+		return ErrNotFound
+	}
+	o.Name, o.Symbol, o.Color, o.Note = n.Name, n.Symbol, n.Color, n.Note
+	m.orgs[n.ID] = o
+	return nil
+}
+
+func (m *Mem) DeleteOrg(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.orgs[id]; !ok {
+		return ErrNotFound
+	}
+	delete(m.orgs, id)
+	delete(m.members, id)
+	delete(m.issues, id)
+	return nil
+}
+
 func (m *Mem) MemberRole(org, userID string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

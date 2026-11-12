@@ -24,6 +24,8 @@ type Backend interface {
 	Rename(oldKey, newKey string) error
 	// MoveDir 搬移整個資料夾(prefix 底下的全部)
 	MoveDir(oldPrefix, newPrefix string) error
+	// RemoveDir 刪掉 prefix 底下的全部(不能復原)
+	RemoveDir(prefix string) error
 	// DirExists prefix 底下有沒有任何東西
 	DirExists(prefix string) bool
 	Name() string
@@ -94,6 +96,14 @@ func MoveDataDir(oldDir, newDir string) error {
 	return Store.MoveDir(k1, "deleted-orgs/"+filepath.Base(newDir))
 }
 
+// RemoveDataDir 直接刪掉資料夾裡的整個子資料夾(刪除組織時用;不備份、不能復原)
+func RemoveDataDir(dir string) error {
+	if k, ok := keyOf(dir); ok {
+		return Store.RemoveDir(k)
+	}
+	return os.RemoveAll(dir)
+}
+
 // DataDirExists 子資料夾有沒有東西
 func DataDirExists(dir string) bool {
 	if k, ok := keyOf(dir); ok {
@@ -129,6 +139,8 @@ func (b fileBackend) MoveDir(oldPrefix, newPrefix string) error {
 	_ = os.MkdirAll(filepath.Dir(b.path(newPrefix)), 0o755)
 	return os.Rename(b.path(oldPrefix), b.path(newPrefix))
 }
+
+func (b fileBackend) RemoveDir(prefix string) error { return os.RemoveAll(b.path(prefix)) }
 
 func (b fileBackend) DirExists(prefix string) bool {
 	_, err := os.Stat(b.path(prefix))

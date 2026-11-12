@@ -168,7 +168,7 @@ func TestIssueServerOmixorToken(t *testing.T) {
 	a := iaApp(t)
 	// 沒登入 evoleap:錯誤訊息要說清楚
 	iaErrPrefix(t, a, "ops_issue_create", map[string]any{"title": "x"}, "Issue 沒有存起來:還沒登入 omixor server")
-	core.ConnSetBearer(a, "evoleap", "evo-tok") // 自己會拿鎖
+	core.ConnSetBearer(a, "evoleap", "evo-tok")                 // 自己會拿鎖
 	if err := a.SetMode(core.ModeRemote, srv.URL); err != nil { // 用 evoleap 連線換 token、讀組織清單
 		t.Fatal(err)
 	}

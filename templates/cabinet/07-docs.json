@@ -1,0 +1,59 @@
+{
+  "id": "docs",
+  "label": "文件",
+  "path": "/studio/docs",
+  "tabs": [
+    {
+      "label": "全部文件",
+      "path": "/studio/docs"
+    },
+    {
+      "label": "課程目標",
+      "path": "/docs/course-goals"
+    },
+    {
+      "label": "研究報告",
+      "path": "/docs/research-report"
+    },
+    {
+      "label": "課程設計方法論",
+      "path": "/docs/research/methodology"
+    },
+    {
+      "label": "影音錄製實務",
+      "path": "/docs/research/recording"
+    },
+    {
+      "label": "video-shotcraft",
+      "path": "/docs/research/video-shotcraft"
+    },
+    {
+      "label": "HyperFrames",
+      "path": "/docs/research/hyperframes"
+    },
+    {
+      "label": "軟體與課程行銷手法",
+      "path": "/docs/research/marketing"
+    },
+    {
+      "label": "旁白語音的費用評估",
+      "path": "/docs/research/voice-cost"
+    },
+    {
+      "label": "文字轉語音工具現況",
+      "path": "/docs/research/tts-landscape"
+    },
+    {
+      "label": "腳本範本結構",
+      "path": "/docs/research/script-template"
+    },
+    {
+      "label": "即時教學畫面規格",
+      "path": "/docs/live"
+    },
+    {
+      "label": "宣傳影片錄製工具",
+      "path": "/docs/recorder"
+    }
+  ]
+}

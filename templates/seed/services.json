@@ -1,0 +1,312 @@
+[
+  {
+    "dependencies": [
+      "api-server",
+      "auth",
+      "live-player",
+      "media-cdn"
+    ],
+    "errorBudgetRemaining": 0.81999999999999995,
+    "errorRate": 0.059999999999999998,
+    "health": "healthy",
+    "hostIds": [
+      "gke-prod-ae1-a1",
+      "gke-prod-ae1-a2",
+      "gke-prod-uc1-a1",
+      "gke-stg-ae1-1",
+      "dev-ae1-1"
+    ],
+    "id": "course-web",
+    "language": "TypeScript",
+    "latencyP95": 182,
+    "name": "course-web",
+    "owner": "yuting",
+    "repo": "course-web",
+    "rps": 640,
+    "sloTarget": 99.900000000000006,
+    "summary": "課程網站前台(React + Vite),課程地圖、會員中心、結帳頁",
+    "team": "前端",
+    "tier": 1,
+    "uptime30d": 99.969999999999999,
+    "versions": {
+      "development": "v5.22.0-dev.8",
+      "production": "v5.21.0",
+      "staging": "v5.22.0-rc.1"
+    }
+  },
+  {
+    "dependencies": [
+      "auth",
+      "postgres",
+      "redis",
+      "payments",
+      "worker"
+    ],
+    "errorBudgetRemaining": 0.60999999999999999,
+    "errorRate": 0.20999999999999999,
+    "health": "healthy",
+    "hostIds": [
+      "gke-prod-ae1-a1",
+      "gke-prod-ae1-a2",
+      "gke-prod-ae1-a3",
+      "gke-prod-uc1-a1",
+      "gke-prod-uc1-a2",
+      "gke-stg-ae1-1",
+      "dev-ae1-1"
+    ],
+    "id": "api-server",
+    "language": "Go",
+    "latencyP95": 214,
+    "name": "api-server",
+    "owner": "mei",
+    "repo": "api-server",
+    "rps": 1830,
+    "sloTarget": 99.900000000000006,
+    "summary": "主要 REST / GraphQL API(Go),課程、進度、會員資料",
+    "team": "後端",
+    "tier": 1,
+    "uptime30d": 99.939999999999998,
+    "versions": {
+      "development": "v2.15.0-dev.3",
+      "production": "v2.13.2",
+      "staging": "v2.14.0"
+    }
+  },
+  {
+    "dependencies": [
+      "postgres",
+      "redis"
+    ],
+    "errorBudgetRemaining": 0.17999999999999999,
+    "errorRate": 0.12,
+    "health": "healthy",
+    "hostIds": [
+      "gke-prod-ae1-a2",
+      "gke-prod-ae1-a3",
+      "gke-prod-uc1-a2",
+      "gke-stg-ae1-1"
+    ],
+    "id": "auth",
+    "language": "Go",
+    "latencyP95": 96,
+    "name": "auth",
+    "owner": "jason",
+    "repo": "auth",
+    "rps": 410,
+    "sloTarget": 99.950000000000003,
+    "summary": "登入、註冊、Google OAuth、session 與權杖簽發",
+    "team": "後端",
+    "tier": 1,
+    "uptime30d": 99.909999999999997,
+    "versions": {
+      "development": "v1.10.0-dev.1",
+      "production": "v1.9.4",
+      "staging": "v1.9.5"
+    }
+  },
+  {
+    "dependencies": [
+      "postgres",
+      "worker",
+      "notifier"
+    ],
+    "errorBudgetRemaining": 0.070000000000000007,
+    "errorRate": 2.3999999999999999,
+    "health": "degraded",
+    "hostIds": [
+      "gke-prod-ae1-a3",
+      "gke-prod-uc1-a2",
+      "gke-stg-ae1-1"
+    ],
+    "id": "payments",
+    "language": "Go",
+    "latencyP95": 4820,
+    "name": "payments",
+    "owner": "mei",
+    "repo": "payments",
+    "rps": 38,
+    "sloTarget": 99.900000000000006,
+    "summary": "Paddle Billing 訂閱、結帳、webhook 處理與開通權限",
+    "team": "後端",
+    "tier": 1,
+    "uptime30d": 99.819999999999993,
+    "versions": {
+      "development": "v3.4.0",
+      "production": "v3.3.7",
+      "staging": "v3.4.0"
+    }
+  },
+  {
+    "dependencies": [
+      "media-cdn",
+      "api-server"
+    ],
+    "errorBudgetRemaining": 0.34000000000000002,
+    "errorRate": 0.34000000000000002,
+    "health": "degraded",
+    "hostIds": [
+      "gke-prod-ae1-a1",
+      "gke-prod-uc1-a1",
+      "gke-stg-ae1-1"
+    ],
+    "id": "live-player",
+    "language": "TypeScript",
+    "latencyP95": 1240,
+    "name": "live-player",
+    "owner": "kai",
+    "repo": "live-player",
+    "rps": 920,
+    "sloTarget": 99.900000000000006,
+    "summary": "互動課程播放器:影片、字幕、課中練習與進度回報",
+    "team": "前端",
+    "tier": 1,
+    "uptime30d": 99.879999999999995,
+    "versions": {
+      "development": "v1.9.0-dev.2",
+      "production": "v1.8.0",
+      "staging": "v1.8.2"
+    }
+  },
+  {
+    "dependencies": [],
+    "errorBudgetRemaining": 0.93000000000000005,
+    "errorRate": 0.02,
+    "health": "healthy",
+    "hostIds": [
+      "edge-proxy-uc1"
+    ],
+    "id": "media-cdn",
+    "language": "Terraform",
+    "latencyP95": 48,
+    "name": "media-cdn",
+    "owner": "hao",
+    "repo": "infra",
+    "rps": 5400,
+    "sloTarget": 99.950000000000003,
+    "summary": "影片與教材的 Cloud CDN + Cloud Storage 原點,HLS 切片",
+    "team": "平台",
+    "tier": 1,
+    "uptime30d": 99.989999999999995,
+    "versions": {
+      "development": "cfg-145",
+      "production": "cfg-142",
+      "staging": "cfg-145"
+    }
+  },
+  {
+    "dependencies": [
+      "postgres",
+      "redis",
+      "notifier"
+    ],
+    "errorBudgetRemaining": 0.44,
+    "errorRate": 1.1000000000000001,
+    "health": "degraded",
+    "hostIds": [
+      "worker-prod-ae1-1",
+      "worker-prod-ae1-2",
+      "gke-stg-ae1-1"
+    ],
+    "id": "worker",
+    "language": "Go",
+    "latencyP95": 3600,
+    "name": "worker",
+    "owner": "jason",
+    "repo": "api-server",
+    "rps": 64,
+    "sloTarget": 99.5,
+    "summary": "背景任務:轉檔、寄信排程、Paddle 事件處理、報表",
+    "team": "後端",
+    "tier": 2,
+    "uptime30d": 99.900000000000006,
+    "versions": {
+      "development": "v2.15.0-dev.3",
+      "production": "v2.13.2",
+      "staging": "v2.14.0"
+    }
+  },
+  {
+    "dependencies": [
+      "redis"
+    ],
+    "errorBudgetRemaining": 0.88,
+    "errorRate": 0.080000000000000002,
+    "health": "healthy",
+    "hostIds": [
+      "worker-prod-ae1-1",
+      "gke-stg-ae1-1"
+    ],
+    "id": "notifier",
+    "language": "Go",
+    "latencyP95": 320,
+    "name": "notifier",
+    "owner": "jason",
+    "repo": "api-server",
+    "rps": 22,
+    "sloTarget": 99.5,
+    "summary": "Email / LINE / App 推播通知,範本與退訂管理",
+    "team": "後端",
+    "tier": 3,
+    "uptime30d": 99.959999999999994,
+    "versions": {
+      "development": "v2.15.0-dev.3",
+      "production": "v2.13.2",
+      "staging": "v2.14.0"
+    }
+  },
+  {
+    "dependencies": [],
+    "errorBudgetRemaining": 0.90000000000000002,
+    "errorRate": 0.01,
+    "health": "degraded",
+    "hostIds": [
+      "pg-prod-primary",
+      "pg-prod-replica",
+      "pg-stg-1"
+    ],
+    "id": "postgres",
+    "language": "PostgreSQL",
+    "latencyP95": 12,
+    "name": "postgres",
+    "owner": "tim",
+    "repo": "infra",
+    "rps": 4200,
+    "sloTarget": 99.950000000000003,
+    "summary": "Cloud SQL 外的自管 PostgreSQL 16:主庫 + 唯讀副本",
+    "team": "平台",
+    "tier": 1,
+    "uptime30d": 99.989999999999995,
+    "versions": {
+      "development": "16.4",
+      "production": "16.4",
+      "staging": "16.4"
+    }
+  },
+  {
+    "dependencies": [],
+    "errorBudgetRemaining": 1,
+    "errorRate": 0,
+    "health": "healthy",
+    "hostIds": [
+      "redis-prod-ae1-1",
+      "gke-stg-ae1-1"
+    ],
+    "id": "redis",
+    "language": "Redis",
+    "latencyP95": 1.8,
+    "name": "redis",
+    "owner": "hao",
+    "repo": "infra",
+    "rps": 12800,
+    "sloTarget": 99.950000000000003,
+    "summary": "Session、快取、rate limit 與任務佇列",
+    "team": "平台",
+    "tier": 1,
+    "uptime30d": 100,
+    "versions": {
+      "development": "7.4.0",
+      "production": "7.2.5",
+      "staging": "7.2.5"
+    }
+  }
+]

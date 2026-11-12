@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"omixor-web/internal/core"
-	"omixor-web/spec"
+	"omixor-web/internal/templates"
 )
 
 // 同 Swift 的 DocTemplateTests
@@ -52,10 +52,10 @@ func TestDocSaveChecksTemplate(t *testing.T) {
 	}
 }
 
-// 網頁要和 Swift 版一字不差(spec/docpage.html 由 Swift 測試匯出)
+// 網頁要和 Swift 版一字不差(templates/doc/docpage.html 由 Swift 測試匯出)
 func TestDocPageMatchesSwift(t *testing.T) {
 	tp, _ := core.ParseDocTemplate(core.CabinetDoc{ID: "DOC-1", Body: tplBody})
-	want, err := os.ReadFile("../../spec/docpage.html")
+	want, err := os.ReadFile("../../../templates/doc/docpage.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestDocPageMatchesSwift(t *testing.T) {
 		}
 		t.Fatalf("第 %d 個字元開始不同:\ngo:    %q\nswift: %q", i, got[i:min(len(got), i+80)], string(want[i:min(len(want), i+80)]))
 	}
-	if !strings.Contains(spec.DocRenderJS, "MdRender") {
+	if !strings.Contains(templates.DocRenderJS(), "MdRender") {
 		t.Fatal("docrender.js")
 	}
 }

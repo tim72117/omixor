@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,8 +54,128 @@ func envServer() string {
 	return ""
 }
 
-// 預設的 omixor server(和 omixor CLI、Swift app 相同)
-const defaultRemoteServer = "https://omixor-issues-340121279179.asia-east1.run.app"
+// ---- 啟動設定:可以連哪些遠端 omixor ----
+//
+// 沒有設定就沒有遠端,只能用本機(本機登入)。設定來源(合併,id 或網址重複的只留第一個):
+//
+//	環境變數 OMIXOR_SERVERS:JSON 陣列,或指向 JSON 檔的路徑
+//	資料夾裡的 servers.json(和 OPS_DATA_DIR 同一個資料夾,直接讀檔,不經資料庫)
+//	環境變數 OMIXOR_SERVER:單一網址(舊的設法)
+//
+// 格式:[{"id":"prod","name":"正式站","url":"https://…","auth":["evoleap"]}];auth 是可用的授權方式,沒寫就是 ["evoleap"]。
+
+// AuthOption 一種授權方式
+type AuthOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// ServerConf 設定裡的一個遠端 omixor
+type ServerConf struct {
+	ID   string       `json:"id"`
+	Name string       `json:"name"`
+	URL  string       `json:"url"`
+	Auth []AuthOption `json:"auth"`
+}
+
+// 支援的授權方式(之後有新的就加在這裡,並在 remoteLogin 實作)
+var authLabels = map[string]string{"evoleap": "evoleap 帳號"}
+
+type serverFileEntry struct {
+	ID   string   `json:"id"`
+	Name string   `json:"name"`
+	URL  string   `json:"url"`
+	Auth []string `json:"auth"`
+}
+
+func parseServers(b []byte) []serverFileEntry {
+	var l []serverFileEntry
+	if json.Unmarshal(b, &l) != nil {
+		return nil
+	}
+	return l
+}
+
+// ConfiguredServers 啟動設定裡的遠端 omixor(沒設定回傳空陣列)
+func ConfiguredServers() []ServerConf {
+	var raw []serverFileEntry
+	if v := strings.TrimSpace(os.Getenv("OMIXOR_SERVERS")); v != "" {
+		if strings.HasPrefix(v, "[") {
+			raw = append(raw, parseServers([]byte(v))...)
+		} else if b, err := os.ReadFile(v); err == nil {
+			raw = append(raw, parseServers(b)...)
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(DataRoot(), "servers.json")); err == nil {
+		raw = append(raw, parseServers(b)...)
+	}
+	if u := envServer(); u != "" {
+		raw = append(raw, serverFileEntry{ID: "default", URL: u})
+	}
+	out := []ServerConf{}
+	seenID, seenURL := map[string]bool{}, map[string]bool{}
+	for _, e := range raw {
+		u := strings.TrimRight(strings.TrimSpace(e.URL), "/")
+		if !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+			continue
+		}
+		id := strings.TrimSpace(e.ID)
+		if id == "" {
+			id = u
+		}
+		if seenID[id] || seenURL[u] {
+			continue
+		}
+		seenID[id], seenURL[u] = true, true
+		name := strings.TrimSpace(e.Name)
+		if name == "" {
+			name = strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://")
+		}
+		methods := e.Auth
+		if len(methods) == 0 {
+			methods = []string{"evoleap"}
+		}
+		sc := ServerConf{ID: id, Name: name, URL: u, Auth: []AuthOption{}}
+		for _, m := range methods {
+			label := authLabels[m]
+			if label == "" {
+				label = m
+			}
+			sc.Auth = append(sc.Auth, AuthOption{ID: m, Label: label})
+		}
+		out = append(out, sc)
+	}
+	return out
+}
+
+// findServer 用 id 或網址找設定裡的遠端
+func findServer(idOrURL string) (ServerConf, bool) {
+	idOrURL = strings.TrimRight(strings.TrimSpace(idOrURL), "/")
+	for _, s := range ConfiguredServers() {
+		if s.ID == idOrURL || s.URL == idOrURL {
+			return s, true
+		}
+	}
+	return ServerConf{}, false
+}
+
+// 這次執行有沒有選過連接對象(有設定遠端時,啟動後要先選;登出會重設)
+var (
+	gateMu     sync.Mutex
+	gateChosen bool
+)
+
+func gateOpen() bool {
+	gateMu.Lock()
+	defer gateMu.Unlock()
+	return len(ConfiguredServers()) > 0 && !gateChosen
+}
+
+func setGateChosen(v bool) {
+	gateMu.Lock()
+	gateChosen = v
+	gateMu.Unlock()
+}
 
 func currentMode() modeFile {
 	modeMu.Lock()
@@ -71,6 +192,12 @@ func currentMode() modeFile {
 		}
 		if m.Mode == ModeRemote && m.Server == "" {
 			m.Server = envServer()
+		}
+		// 上次連的遠端已經不在啟動設定裡:回本機
+		if m.Mode == ModeRemote {
+			if _, ok := findServer(m.Server); !ok {
+				m = modeFile{Mode: ModeLocal}
+			}
 		}
 		modeCur = m
 	}
@@ -105,18 +232,19 @@ func IsRemoteOrg(id string) bool { return strings.HasPrefix(id, RemoteOrgPrefix)
 // serverOrgID 內部的組織 id 換成伺服器上的組織 id
 func serverOrgID(id string) string { return strings.TrimPrefix(id, RemoteOrgPrefix) }
 
-func normalizeServer(s string) (string, error) {
-	s = strings.TrimRight(strings.TrimSpace(s), "/")
-	if s == "" {
-		s = envServer()
+// resolveServer 要連的遠端:只能是啟動設定裡有的(id 或網址);沒指定且只設了一個就用它
+func resolveServer(idOrURL string) (ServerConf, error) {
+	list := ConfiguredServers()
+	if len(list) == 0 {
+		return ServerConf{}, UserError{"沒有設定遠端 omixor:設環境變數 OMIXOR_SERVERS 或在資料夾放 servers.json,現在只能用本機"}
 	}
-	if s == "" {
-		s = defaultRemoteServer
+	if strings.TrimSpace(idOrURL) == "" && len(list) == 1 {
+		return list[0], nil
 	}
-	if !strings.HasPrefix(s, "https://") && !strings.HasPrefix(s, "http://") {
-		return "", UserError{"伺服器網址要以 https:// 開頭"}
+	if s, ok := findServer(idOrURL); ok {
+		return s, nil
 	}
-	return s, nil
+	return ServerConf{}, UserError{"這個 omixor server 不在啟動設定裡"}
 }
 
 // ---- 遠端帳號(快取,畫面用;不在拿著鎖時連網) ----
@@ -158,7 +286,10 @@ func remoteWhoAmI(server string) (*model.User, error) {
 
 // remoteLogin 用 evoleap 的瀏覽器核准登入,換一個 omixor token 存起來。
 // 已經登入就直接回傳;會開瀏覽器等核准,所以呼叫時不能拿著 Mu
-func remoteLogin(server string) (*model.User, error) {
+func remoteLogin(server, method string) (*model.User, error) {
+	if method != "" && method != "evoleap" {
+		return nil, UserError{"還不支援授權方式「" + method + "」"}
+	}
 	if u, err := remoteWhoAmI(server); err == nil {
 		return u, nil
 	}
@@ -201,24 +332,9 @@ func remoteOrgsPath() string { return filepath.Join(DataRoot(), "orgs-remote.jso
 func toRemoteOrganizations(list []model.Org) []Organization {
 	out := make([]Organization, 0, len(list))
 	for _, o := range list {
-		name := o.Name
-		if name == "" {
-			name = o.ID
-		}
-		out = append(out, Organization{ID: RemoteOrgPrefix + o.ID, Name: name, Symbol: "building.2", Color: "blue",
-			Note: remoteRoleNote(o.MyRole), CreatedAt: Time{o.CreatedAt.Time}})
+		out = append(out, fromCoreOrg(o, RemoteOrgPrefix))
 	}
 	return out
-}
-
-func remoteRoleNote(role string) string {
-	switch role {
-	case "admin":
-		return "管理員"
-	case "member":
-		return "成員"
-	}
-	return ""
 }
 
 // fetchRemoteOrgs 從伺服器讀我的組織(連網;不要拿著 Mu 呼叫)
@@ -254,22 +370,31 @@ func (a *App) applyRemoteOrgs(orgs []Organization) bool {
 
 // SetMode 切換模式。切到遠端時若還沒登入,會先開瀏覽器用 evoleap 登入;登入失敗就留在原本的模式。
 // 呼叫時不能拿著 Mu(會連網、等登入)。
-func (a *App) SetMode(mode, server string) error {
+func (a *App) SetMode(mode, server string) error { return a.SetModeAuth(mode, server, "") }
+
+// SetModeAuth 同 SetMode,server 是設定裡的 id(或網址),auth 是授權方式(空的用該 server 的第一種)。
+// 成功就算選過連接對象了(畫面不再顯示選擇畫面)
+func (a *App) SetModeAuth(mode, server, auth string) error {
 	switch mode {
 	case ModeLocal:
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
+		setGateChosen(true)
 		if currentMode().Mode == ModeLocal {
 			return nil
 		}
 		a.enterMode(modeFile{Mode: ModeLocal}, nil)
 		return nil
 	case ModeRemote:
-		srv, err := normalizeServer(server)
+		sc, err := resolveServer(server)
 		if err != nil {
 			return err
 		}
-		u, err := remoteLogin(srv)
+		srv := sc.URL
+		if auth == "" {
+			auth = sc.Auth[0].ID
+		}
+		u, err := remoteLogin(srv, auth)
 		if err != nil {
 			return err
 		}
@@ -280,6 +405,7 @@ func (a *App) SetMode(mode, server string) error {
 		}
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
+		setGateChosen(true)
 		a.enterMode(modeFile{Mode: ModeRemote, Server: srv}, orgs)
 		return nil
 	}
@@ -328,18 +454,24 @@ type AccountView struct {
 	Name     string `json:"name,omitempty"`
 	Role     string `json:"role,omitempty"`
 	Error    string `json:"error,omitempty"`
-	// 還沒切到遠端時,輸入框預設的網址
-	DefaultServer string `json:"defaultServer"`
+	// 啟動設定裡的遠端 omixor(空的就只能用本機);ServerID 是目前連的是哪一個
+	Servers  []ServerConf `json:"servers"`
+	ServerID string       `json:"serverId"`
+	// Gate 有設定遠端、而且這次執行還沒選過連接對象:畫面要先顯示「選擇連接對象」
+	Gate bool `json:"gate"`
 }
 
 func (a *App) accountView() AccountView {
 	m := currentMode()
-	v := AccountView{Mode: m.Mode, Server: m.Server, LocalStorage: "files", DefaultServer: defaultRemoteServer}
-	if s := envServer(); s != "" {
-		v.DefaultServer = s
+	v := AccountView{Mode: m.Mode, Server: m.Server, LocalStorage: "files", Servers: ConfiguredServers(), Gate: gateOpen()}
+	if sc, ok := findServer(m.Server); ok && m.Mode == ModeRemote {
+		v.ServerID = sc.ID
 	}
 	if DB() != nil {
 		v.LocalStorage = "postgres"
+	}
+	if m.Mode == ModeLocal && DB() == nil {
+		v.Error = errNoDB.Error()
 	}
 	if m.Mode == ModeRemote {
 		u, errText := getRemoteMe()
@@ -359,14 +491,22 @@ func init() {
 	RegisterAction("mode_set", func(a *App, args map[string]any) (any, error) {
 		mode, _ := args["mode"].(string)
 		server, _ := args["server"].(string)
-		if err := a.SetMode(mode, server); err != nil {
+		auth, _ := args["auth"].(string)
+		if err := a.SetModeAuth(mode, server, auth); err != nil {
 			return nil, err
 		}
+		a.Changed("account") // 選過連接對象了:畫面重新讀帳號狀態
 		return View2(a, "account"), nil
 	})
 	RegisterAction("remote_logout", func(a *App, args map[string]any) (any, error) {
 		err := a.RemoteLogout()
 		return View2(a, "account"), err
+	})
+	// 登出後回到「選擇連接對象」
+	RegisterAction("gate_reset", func(a *App, args map[string]any) (any, error) {
+		setGateChosen(false)
+		a.Changed("account")
+		return View2(a, "account"), nil
 	})
 
 	// 遠端模式:啟動時問一次我是誰;之後每 30 秒更新帳號與組織清單(連網都在鎖外)
@@ -402,13 +542,13 @@ func init() {
 }
 
 // remoteCreateOrg 在伺服器建立組織(要伺服器管理員);建好後更新清單,sw 時順便切過去。呼叫時不能拿著 Mu
-func (a *App) remoteCreateOrg(name string, sw bool) (any, error) {
+func (a *App) remoteCreateOrg(name, symbol, color string, sw bool) (any, error) {
 	if name == "" {
 		return nil, UserError{"要給組織名稱"}
 	}
 	srv := IssueRemoteURL()
 	id := a.remoteNewOrgID(name)
-	if _, err := remoteClient(srv).CreateOrg(id, name); err != nil {
+	if _, err := remoteClient(srv).CreateOrgWith(model.Org{ID: id, Name: name, Symbol: symbol, Color: color}); err != nil {
 		return nil, fmt.Errorf("伺服器沒有建立組織:%v", err)
 	}
 	orgs, err := fetchRemoteOrgs(srv)
@@ -450,3 +590,25 @@ func (a *App) remoteNewOrgID(name string) string {
 
 // View2 在鎖外取畫面資料(動作用)
 func View2(a *App, name string) any { v, _ := View(a, name); return v }
+
+// remoteUpdateOrg 改遠端組織的名稱、圖示、顏色、備註(寫到 omixor server;要伺服器管理員)。呼叫時不能拿著 Mu
+func (a *App) remoteUpdateOrg(org Organization) (any, error) {
+	srv := IssueRemoteURL()
+	if _, err := remoteClient(srv).UpdateOrg(toCoreOrg(org)); err != nil {
+		return nil, fmt.Errorf("伺服器沒有改組織:%v", err)
+	}
+	orgs, err := fetchRemoteOrgs(srv)
+	if err != nil {
+		return nil, err
+	}
+	a.Mu.Lock()
+	defer a.Mu.Unlock()
+	a.applyRemoteOrgs(orgs)
+	go a.Changed("orgs")
+	for _, o := range orgs {
+		if o.ID == org.ID {
+			return o, nil
+		}
+	}
+	return org, nil
+}

@@ -155,8 +155,19 @@ func (c *Client) ListOrgs() ([]model.Org, error) {
 }
 
 func (c *Client) CreateOrg(id, name string) (*model.Org, error) {
+	return c.CreateOrgWith(model.Org{ID: id, Name: name})
+}
+
+// CreateOrgWith 建立組織,含圖示、顏色、備註
+func (c *Client) CreateOrgWith(in model.Org) (*model.Org, error) {
 	var o model.Org
-	return &o, c.Do("POST", "/api/orgs", map[string]any{"id": id, "name": name}, &o)
+	return &o, c.Do("POST", "/api/orgs", map[string]any{"id": in.ID, "name": in.Name, "symbol": in.Symbol, "color": in.Color, "note": in.Note}, &o)
+}
+
+// UpdateOrg 修改組織的名稱、圖示、顏色、備註(id 不能改)
+func (c *Client) UpdateOrg(in model.Org) (*model.Org, error) {
+	var o model.Org
+	return &o, c.Do("PUT", "/api/orgs/"+esc(in.ID), map[string]any{"name": in.Name, "symbol": in.Symbol, "color": in.Color, "note": in.Note}, &o)
 }
 
 func (c *Client) ListMembers(org string) ([]model.Member, error) {

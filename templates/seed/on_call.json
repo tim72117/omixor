@@ -1,0 +1,100 @@
+[
+  {
+    "end": "2026-11-08T01:00:00Z",
+    "id": "oncall-0-p",
+    "person": "hao",
+    "role": "Primary",
+    "start": "2026-11-07T01:00:00Z"
+  },
+  {
+    "end": "2026-11-08T01:00:00Z",
+    "id": "oncall-0-s",
+    "person": "tim",
+    "role": "Secondary",
+    "start": "2026-11-07T01:00:00Z"
+  },
+  {
+    "end": "2026-11-09T01:00:00Z",
+    "id": "oncall-1-p",
+    "person": "jason",
+    "role": "Primary",
+    "start": "2026-11-08T01:00:00Z"
+  },
+  {
+    "end": "2026-11-09T01:00:00Z",
+    "id": "oncall-1-s",
+    "person": "mei",
+    "role": "Secondary",
+    "start": "2026-11-08T01:00:00Z"
+  },
+  {
+    "end": "2026-11-10T01:00:00Z",
+    "id": "oncall-2-p",
+    "person": "mei",
+    "role": "Primary",
+    "start": "2026-11-09T01:00:00Z"
+  },
+  {
+    "end": "2026-11-10T01:00:00Z",
+    "id": "oncall-2-s",
+    "person": "kai",
+    "role": "Secondary",
+    "start": "2026-11-09T01:00:00Z"
+  },
+  {
+    "end": "2026-11-11T01:00:00Z",
+    "id": "oncall-3-p",
+    "person": "tim",
+    "role": "Primary",
+    "start": "2026-11-10T01:00:00Z"
+  },
+  {
+    "end": "2026-11-11T01:00:00Z",
+    "id": "oncall-3-s",
+    "person": "hao",
+    "role": "Secondary",
+    "start": "2026-11-10T01:00:00Z"
+  },
+  {
+    "end": "2026-11-12T01:00:00Z",
+    "id": "oncall-4-p",
+    "person": "hao",
+    "role": "Primary",
+    "start": "2026-11-11T01:00:00Z"
+  },
+  {
+    "end": "2026-11-12T01:00:00Z",
+    "id": "oncall-4-s",
+    "person": "jason",
+    "role": "Secondary",
+    "start": "2026-11-11T01:00:00Z"
+  },
+  {
+    "end": "2026-11-13T01:00:00Z",
+    "id": "oncall-5-p",
+    "person": "jason",
+    "role": "Primary",
+    "start": "2026-11-12T01:00:00Z"
+  },
+  {
+    "end": "2026-11-13T01:00:00Z",
+    "id": "oncall-5-s",
+    "person": "kai",
+    "role": "Secondary",
+    "start": "2026-11-12T01:00:00Z"
+  },
+  {
+    "end": "2026-11-14T01:00:00Z",
+    "id": "oncall-6-p",
+    "person": "mei",
+    "role": "Primary",
+    "start": "2026-11-13T01:00:00Z"
+  },
+  {
+    "end": "2026-11-14T01:00:00Z",
+    "id": "oncall-6-s",
+    "person": "tim",
+    "role": "Secondary",
+    "start": "2026-11-13T01:00:00Z"
+  }
+]

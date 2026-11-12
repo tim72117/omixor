@@ -41,6 +41,9 @@ func main() {
 		}
 		log.Printf("資料:PostgreSQL")
 	}
+	if core.DB() == nil && !core.IsRemote() && len(os.Args) < 2 {
+		log.Printf("提醒:本機模式要連 PostgreSQL(OPS_DATABASE_URL 與 OPS_SECRET_KEY),沒有的話組織與 Issue 不能用;本機開發可以用 docker compose -f docker-compose.dev.yml up -d 開一個")
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "import" {
 		runImport()
 		return

@@ -1,0 +1,211 @@
+[
+  {
+    "allowedTools": [
+      "gh run view",
+      "gh run rerun",
+      "gh pr create",
+      "git log",
+      "grep"
+    ],
+    "autonomy": "auto",
+    "enabled": true,
+    "icon": "stethoscope",
+    "id": "ai-ci-triage",
+    "lastRun": "2026-11-10T23:24:28Z",
+    "name": "CI 失敗診斷",
+    "runs30d": 142,
+    "scope": [
+      "所有 repo 的 GitHub Actions",
+      "重試 run(每個 commit 最多 1 次)",
+      "開修正 PR(只限測試檔)"
+    ],
+    "successRate": 0.91000000000000003,
+    "summary": "CI 失敗時讀 log、比對歷史,判斷是 flaky、環境還是程式錯誤,並附上修正建議;flaky 測試會自動重試一次",
+    "timeSavedHours": 38.5,
+    "trigger": "CI 失敗時"
+  },
+  {
+    "allowedTools": [
+      "gh pr view",
+      "gh pr diff",
+      "gh pr comment",
+      "gh pr edit --add-label"
+    ],
+    "autonomy": "auto",
+    "enabled": true,
+    "icon": "text.magnifyingglass",
+    "id": "ai-review",
+    "lastRun": "2026-11-11T00:09:28Z",
+    "name": "PR 自動審查",
+    "runs30d": 214,
+    "scope": [
+      "所有 repo",
+      "留言與標籤(不能核准或合併)"
+    ],
+    "successRate": 0.97999999999999998,
+    "summary": "每個 PR 自動產生摘要、風險等級與具體問題,高風險 PR 會要求第二位 reviewer",
+    "timeSavedHours": 52,
+    "trigger": "PR 開啟或更新時"
+  },
+  {
+    "allowedTools": [
+      "grafana query",
+      "promql",
+      "kubectl get/describe/logs",
+      "psql (read-only)",
+      "sentry issues"
+    ],
+    "autonomy": "approve",
+    "enabled": true,
+    "icon": "bell.and.waves.left.and.right",
+    "id": "ai-alert-triage",
+    "lastRun": "2026-11-11T00:03:28Z",
+    "name": "告警初判",
+    "runs30d": 87,
+    "scope": [
+      "Production 唯讀查詢",
+      "合併告警、開事件",
+      "資料庫操作需核准"
+    ],
+    "successRate": 0.85999999999999999,
+    "summary": "告警觸發時查指標、日誌、最近部署,寫下初判並把相關告警合併到同一個事件;需要變更時送出核准請求",
+    "timeSavedHours": 29,
+    "trigger": "任何 warning 以上告警觸發時"
+  },
+  {
+    "allowedTools": [
+      "kubectl scale",
+      "kubectl patch hpa",
+      "gcloud compute instance-groups"
+    ],
+    "autonomy": "approve",
+    "enabled": true,
+    "icon": "arrow.up.left.and.arrow.down.right",
+    "id": "ai-autoscale",
+    "lastRun": "2026-11-10T23:45:28Z",
+    "name": "自動擴容",
+    "runs30d": 23,
+    "scope": [
+      "worker、api-server、payments 的副本數",
+      "上限:每個服務 12 個副本",
+      "每月額外成本 ≤ US$400"
+    ],
+    "successRate": 0.95999999999999996,
+    "summary": "依佇列深度與 CPU 預測負載,調整 HPA 與 worker 副本數;超過預算上限時需核准",
+    "timeSavedHours": 6.5,
+    "trigger": "佇列積壓或 CPU 飽和告警時"
+  },
+  {
+    "allowedTools": [
+      "argo rollouts abort",
+      "argo rollouts undo",
+      "kubectl rollout undo",
+      "gh pr create"
+    ],
+    "autonomy": "auto",
+    "enabled": true,
+    "icon": "arrow.uturn.backward.circle",
+    "id": "ai-rollback",
+    "lastRun": "2026-11-11T00:09:28Z",
+    "name": "異常部署自動回滾",
+    "runs30d": 4,
+    "scope": [
+      "Production 與 Staging 部署",
+      "只能回滾到上一個成功版本",
+      "不處理資料庫 migration"
+    ],
+    "successRate": 1,
+    "summary": "部署後 15 分鐘內若 5xx 或延遲超過門檻,自動回滾到上一版並開事件",
+    "timeSavedHours": 3,
+    "trigger": "部署後 health gate 失敗或 canary 偏離基準"
+  },
+  {
+    "allowedTools": [
+      "go get",
+      "pnpm update",
+      "govulncheck",
+      "gh pr create"
+    ],
+    "autonomy": "approve",
+    "enabled": true,
+    "icon": "shippingbox.and.arrow.backward",
+    "id": "ai-deps",
+    "lastRun": "2026-11-10T20:15:28Z",
+    "name": "依賴套件更新",
+    "runs30d": 30,
+    "scope": [
+      "所有 repo 的 go.mod、package.json",
+      "只開 PR,合併需人工"
+    ],
+    "successRate": 0.93000000000000005,
+    "summary": "每天掃描依賴與 CVE,開更新 PR 並在 staging 驗證;安全性修補標為優先",
+    "timeSavedHours": 14,
+    "trigger": "每天 03:00、出現新 CVE 時"
+  },
+  {
+    "allowedTools": [
+      "incident timeline",
+      "grafana snapshot",
+      "ops workitem create (draft)"
+    ],
+    "autonomy": "suggest",
+    "enabled": true,
+    "icon": "doc.text.magnifyingglass",
+    "id": "ai-postmortem",
+    "lastRun": "2026-11-11T00:12:28Z",
+    "name": "事件摘要與檢討草稿",
+    "runs30d": 9,
+    "scope": [
+      "讀取事件、告警、部署紀錄",
+      "建立草稿文件與工作項目(草稿狀態)"
+    ],
+    "successRate": 1,
+    "summary": "事件進行中持續更新摘要;解決後依時間軸產生檢討草稿與後續待辦",
+    "timeSavedHours": 11,
+    "trigger": "事件開立與解決時"
+  },
+  {
+    "allowedTools": [
+      "bq query",
+      "gcloud recommender",
+      "terraform plan",
+      "gh pr create --draft"
+    ],
+    "autonomy": "suggest",
+    "enabled": true,
+    "icon": "dollarsign.arrow.circlepath",
+    "id": "ai-cost",
+    "lastRun": "2026-11-10T00:15:28Z",
+    "name": "成本最佳化建議",
+    "runs30d": 4,
+    "scope": [
+      "GCP billing export(唯讀)",
+      "開 Terraform PR(草稿)"
+    ],
+    "successRate": 1,
+    "summary": "每週分析 GCP 帳單與資源使用率,找出閒置資源與可縮減的規格",
+    "timeSavedHours": 5,
+    "trigger": "每週一 09:00"
+  },
+  {
+    "allowedTools": [
+      "docker image prune",
+      "docker builder prune"
+    ],
+    "autonomy": "auto",
+    "enabled": false,
+    "icon": "trash.circle",
+    "id": "ai-logs-cleanup",
+    "lastRun": "2026-10-30T00:15:28Z",
+    "name": "開發機磁碟清理",
+    "runs30d": 0,
+    "scope": [
+      "development 環境",
+      "只清 7 天以上未使用的 image"
+    ],
+    "successRate": 1,
+    "summary": "dev / CI 機器磁碟超過 85% 時清掉舊 image 與 build cache",
+    "timeSavedHours": 0,
+    "trigger": "磁碟告警(dev、CI)時"
+  }
+]

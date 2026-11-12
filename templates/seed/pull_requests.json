@@ -1,0 +1,359 @@
+[
+  {
+    "additions": 412,
+    "aiReview": {
+      "findings": [
+        "outbox 表缺少 (event_id) 唯一索引,重送時可能重複開通權限",
+        "worker 重試沒有上限,建議加 dead-letter queue",
+        "migration 0087 會鎖 subscriptions 表,建議改用 CREATE INDEX CONCURRENTLY"
+      ],
+      "risk": "medium",
+      "summary": "把 webhook handler 的同步 DB 交易拆成 outbox + worker,能直接解掉 INC-2041 的逾時問題。"
+    },
+    "author": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "branch": "mei/webhook-outbox",
+    "checks": "running",
+    "createdAt": "2026-11-10T23:40:28Z",
+    "deletions": 138,
+    "id": 1426,
+    "linkedItem": "OPS-151",
+    "repo": "payments",
+    "reviewers": [
+      "jason",
+      "tim"
+    ],
+    "status": "open",
+    "title": "payments:Paddle webhook 改為先寫入 outbox 再非同步處理",
+    "updatedAt": "2026-11-11T00:09:28Z"
+  },
+  {
+    "additions": 186,
+    "aiReview": {
+      "findings": [
+        "建議在 invalidate 時一併清除 /me/summary 的快取"
+      ],
+      "risk": "low",
+      "summary": "快取鍵包含 user_id 與 course_id,失效時機正確。預估 p95 降低約 40ms。"
+    },
+    "author": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "branch": "jason/progress-cache",
+    "checks": "passed",
+    "createdAt": "2026-11-10T04:15:28Z",
+    "deletions": 42,
+    "id": 1425,
+    "linkedItem": "OPS-138",
+    "repo": "api-server",
+    "reviewers": [
+      "mei"
+    ],
+    "status": "approved",
+    "title": "api-server:課程進度 API 加上 Redis 快取(TTL 60s)",
+    "updatedAt": "2026-11-10T22:15:28Z"
+  },
+  {
+    "additions": 6,
+    "aiReview": {
+      "findings": [
+        "修補 html tokenizer 的 DoS 弱點(CVSS 5.3)"
+      ],
+      "risk": "low",
+      "summary": "僅更新 go.mod / go.sum,無 API 變更;已在 staging 跑完整合測試。"
+    },
+    "author": {
+      "id": "ai-deps",
+      "kind": "ai"
+    },
+    "branch": "ai/deps-x-net-0.31",
+    "checks": "passed",
+    "createdAt": "2026-11-10T20:15:28Z",
+    "deletions": 6,
+    "id": 1424,
+    "linkedItem": "OPS-147",
+    "repo": "auth",
+    "reviewers": [
+      "jason"
+    ],
+    "status": "open",
+    "title": "chore(deps):升級 golang.org/x/net 到 v0.31.0(修補 CVE-2024-45338)",
+    "updatedAt": "2026-11-10T21:03:28Z"
+  },
+  {
+    "additions": 538,
+    "aiReview": {
+      "findings": [
+        "`customer.email` 預填時沒有 escape,可能造成 XSS(低機率)",
+        "缺少 checkout.closed 事件處理,使用者關掉視窗後按鈕會一直 loading",
+        "e2e 失敗原因:iframe 載入逾時 10s,建議提高到 20s 或 mock Paddle"
+      ],
+      "risk": "medium",
+      "summary": "Inline checkout 流程正確,但 e2e 測試 checkout.spec.ts 在 Safari 失敗。"
+    },
+    "author": {
+      "id": "yuting",
+      "kind": "person"
+    },
+    "branch": "yuting/paddle-inline",
+    "checks": "failed",
+    "createdAt": "2026-11-09T00:15:28Z",
+    "deletions": 211,
+    "id": 1423,
+    "linkedItem": "OPS-133",
+    "repo": "course-web",
+    "reviewers": [
+      "kai",
+      "mei"
+    ],
+    "status": "changesRequested",
+    "title": "course-web:結帳頁改用 Paddle.js v2 inline checkout",
+    "updatedAt": "2026-11-10T22:45:28Z"
+  },
+  {
+    "additions": 74,
+    "author": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "branch": "kai/safari-subtitle-sync",
+    "checks": "passed",
+    "createdAt": "2026-11-10T18:15:28Z",
+    "deletions": 19,
+    "id": 1422,
+    "linkedItem": "OPS-141",
+    "repo": "live-player",
+    "reviewers": [
+      "yuting"
+    ],
+    "status": "open",
+    "title": "live-player:修正 Safari 17 上字幕與影片不同步",
+    "updatedAt": "2026-11-10T19:15:28Z"
+  },
+  {
+    "additions": 23,
+    "aiReview": {
+      "findings": [
+        "只動測試程式,不影響產品程式碼"
+      ],
+      "risk": "low",
+      "summary": "過去 14 天此測試失敗 9 次,全部是 race condition。改為等待 API 回應後再斷言。"
+    },
+    "author": {
+      "id": "ai-ci-triage",
+      "kind": "ai"
+    },
+    "branch": "ai/fix-flaky-enrollment-e2e",
+    "checks": "passed",
+    "createdAt": "2026-11-10T15:15:28Z",
+    "deletions": 11,
+    "id": 1421,
+    "linkedItem": "OPS-144",
+    "repo": "course-web",
+    "reviewers": [
+      "yuting"
+    ],
+    "status": "open",
+    "title": "fix(ci):穩定 flaky 的 enrollment e2e 測試(等待 network idle)",
+    "updatedAt": "2026-11-10T16:15:28Z"
+  },
+  {
+    "additions": 2140,
+    "aiReview": {
+      "findings": [
+        "migration 0085 新增欄位帶預設值,PostgreSQL 16 不會重寫表,安全"
+      ],
+      "risk": "medium",
+      "summary": "包含 23 個 commit,新增 2 個 migration(皆可回滾)。"
+    },
+    "author": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "branch": "release/v2.14.0",
+    "checks": "passed",
+    "createdAt": "2026-11-09T19:27:28Z",
+    "deletions": 680,
+    "id": 1420,
+    "linkedItem": "OPS-130",
+    "repo": "api-server",
+    "reviewers": [
+      "jason",
+      "tim"
+    ],
+    "status": "merged",
+    "title": "api-server:v2.14.0 發版(課程推薦、批次匯入學員)",
+    "updatedAt": "2026-11-10T21:15:28Z"
+  },
+  {
+    "additions": 48,
+    "aiReview": {
+      "findings": [
+        "夜間排程 CI 若依賴 staging 會失敗,需同步調整 nightly e2e 時間"
+      ],
+      "risk": "medium",
+      "summary": "terraform plan:修改 1 個 node pool 的 autoscaling 與 1 個 Cloud Scheduler。"
+    },
+    "author": {
+      "id": "ai-cost",
+      "kind": "ai"
+    },
+    "branch": "ai/staging-night-scale",
+    "checks": "passed",
+    "createdAt": "2026-11-10T00:15:28Z",
+    "deletions": 4,
+    "id": 1419,
+    "linkedItem": "OPS-149",
+    "repo": "infra",
+    "reviewers": [
+      "tim"
+    ],
+    "status": "draft",
+    "title": "infra:staging 夜間縮到 0 節點(省 ~US$310/月)",
+    "updatedAt": "2026-11-10T02:15:28Z"
+  },
+  {
+    "additions": 322,
+    "author": {
+      "id": "yuting",
+      "kind": "person"
+    },
+    "branch": "yuting/course-map-filter",
+    "checks": "failed",
+    "createdAt": "2026-11-09T12:15:28Z",
+    "deletions": 97,
+    "id": 1418,
+    "linkedItem": "OPS-135",
+    "repo": "course-web",
+    "reviewers": [
+      "kai",
+      "sharon"
+    ],
+    "status": "open",
+    "title": "course-web:課程地圖支援「零基礎」篩選與學習路徑",
+    "updatedAt": "2026-11-10T23:25:28Z"
+  },
+  {
+    "additions": 296,
+    "aiReview": {
+      "findings": [
+        "建議把 Google 公鑰快取時間從 24h 改成依 Cache-Control"
+      ],
+      "risk": "medium",
+      "summary": "ID token 驗證流程正確,有檢查 aud 與 nonce。"
+    },
+    "author": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "branch": "jason/google-one-tap",
+    "checks": "passed",
+    "createdAt": "2026-11-07T00:15:28Z",
+    "deletions": 31,
+    "id": 1417,
+    "linkedItem": "OPS-128",
+    "repo": "auth",
+    "reviewers": [
+      "mei"
+    ],
+    "status": "merged",
+    "title": "auth:Google One Tap 登入",
+    "updatedAt": "2026-11-09T00:15:28Z"
+  },
+  {
+    "additions": 31,
+    "aiReview": {
+      "findings": [
+        "已自動部署 v1.8.0,詳見 INC-2036"
+      ],
+      "risk": "low",
+      "summary": "Revert commit 7f3a1c2;v1.8.1 上線後 5xx 從 0.2% 升到 3.1%。"
+    },
+    "author": {
+      "id": "ai-rollback",
+      "kind": "ai"
+    },
+    "branch": "ai/revert-hls-prefetch",
+    "checks": "passed",
+    "createdAt": "2026-11-10T18:45:28Z",
+    "deletions": 88,
+    "id": 1416,
+    "linkedItem": "OPS-145",
+    "repo": "live-player",
+    "reviewers": [
+      "kai"
+    ],
+    "status": "merged",
+    "title": "live-player:回滾 v1.8.1 的 HLS 預載策略",
+    "updatedAt": "2026-11-10T19:15:28Z"
+  },
+  {
+    "additions": 158,
+    "author": {
+      "id": "jason",
+      "kind": "person"
+    },
+    "branch": "jason/billing-consumer-scale",
+    "checks": "pending",
+    "createdAt": "2026-11-10T23:55:28Z",
+    "deletions": 64,
+    "id": 1415,
+    "linkedItem": "OPS-152",
+    "repo": "api-server",
+    "reviewers": [],
+    "status": "draft",
+    "title": "worker:billing queue 消費者改為可水平擴展",
+    "updatedAt": "2026-11-11T00:11:28Z"
+  },
+  {
+    "additions": 88,
+    "author": {
+      "id": "kai",
+      "kind": "person"
+    },
+    "branch": "kai/line-template",
+    "checks": "passed",
+    "createdAt": "2026-11-05T00:15:28Z",
+    "deletions": 20,
+    "id": 1414,
+    "repo": "api-server",
+    "reviewers": [
+      "sharon"
+    ],
+    "status": "closed",
+    "title": "notifier:LINE 推播範本改版(開課提醒)",
+    "updatedAt": "2026-11-08T00:15:28Z"
+  },
+  {
+    "additions": 980,
+    "aiReview": {
+      "findings": [
+        "金額計算全部使用整數最小單位,OK",
+        "subscription.updated 的處理順序依賴 occurred_at,建議加上版本檢查避免亂序"
+      ],
+      "risk": "high",
+      "summary": "新增年繳 price 與 discount 處理;已對 Paddle sandbox 跑完 webhook 模擬。"
+    },
+    "author": {
+      "id": "mei",
+      "kind": "person"
+    },
+    "branch": "release/v3.4.0",
+    "checks": "passed",
+    "createdAt": "2026-11-08T00:15:28Z",
+    "deletions": 245,
+    "id": 1413,
+    "linkedItem": "OPS-131",
+    "repo": "payments",
+    "reviewers": [
+      "jason",
+      "sharon"
+    ],
+    "status": "merged",
+    "title": "payments:v3.4.0(年繳方案、優惠碼)",
+    "updatedAt": "2026-11-10T22:03:28Z"
+  }
+]

@@ -2,7 +2,6 @@ package core
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -156,31 +155,14 @@ func (a *App) ReloadIssues() { a.loadIssues() }
 func (a *App) loadIssues() {
 	s := a.issueSt()
 	s.Org = a.CurrentOrgID()
-	if issueRemoteOn() {
-		// 伺服器模式:不在拿著鎖時連網(伺服器連不上會卡住畫面),先清空,在背景讀回來再通知畫面
+	if IsRemote() {
+		// 遠端模式:不在拿著鎖時連網(伺服器連不上會卡住畫面),先清空,在背景讀回來再通知畫面
 		s.Issues, s.fetched = []OpsIssue{}, time.Time{}
 		s.gen++
 		go a.issueRemoteSync(s.Org, a.conns().Scope, s.gen)
 		return
 	}
-	loadIssuesInto(s)
-}
-
-// loadIssuesInto 讀 s.Org 的 Issue:有資料庫時從 ops_issues 表(store_pg_issues.go),否則讀組織資料夾的 issues.json
-func loadIssuesInto(s *issueState) {
-	var list []OpsIssue
-	if err := ReadJSON(filepath.Join(OrgDir(s.Org), "issues.json"), &list); err != nil || list == nil {
-		list = []OpsIssue{}
-	}
-	s.Issues = list
-}
-
-func (a *App) saveIssues() {
-	s := a.issueSt()
-	if issueRemoteOn() {
-		return // 交給核心時每個動作各自送出
-	}
-	_ = WriteJSON(filepath.Join(OrgDir(s.Org), "issues.json"), s.Issues)
+	a.issueRemoteLoad(s) // 本機模式:核心在同一個程式裡(連本機 PostgreSQL),直接讀
 }
 
 // changedIssues 通知畫面(別的組織不用)
@@ -221,11 +203,7 @@ func (a *App) WithOrgIssues(org string, f func()) {
 	cur := a.Ext["issues"]
 	s := &issueState{Org: org, quiet: true}
 	a.Ext["issues"] = s
-	if issueRemoteOn() {
-		a.issueRemoteLoad(s)
-	} else {
-		loadIssuesInto(s)
-	}
+	a.issueRemoteLoad(s)
 	defer func() { a.Ext["issues"] = cur }()
 	f()
 }
@@ -284,41 +262,21 @@ func CleanLabels(labels []string) []string {
 // CreateIssue 同 Swift 的 IssueStore.create(呼叫時要拿著 Mu)
 func (a *App) CreateIssue(title, body, priority string, labels []string, source, link, author string) OpsIssue {
 	s := a.issueSt()
-	if issueRemoteOn() {
-		issue, err := a.issueRemoteCreate(title, body, priority, CleanLabels(labels), source, link, author)
-		if err != nil {
-			// 伺服器連不上:回傳沒有存起來的草稿(id 是空的),同 Swift
-			a.issueRemoteFailed(err)
-			return OpsIssue{Title: title, Body: body, Priority: priority, Labels: CleanLabels(labels), Status: "open", CreatedBy: author, Comments: []IssueComment{}}
-		}
-		s.remoteErr = ""
-		s.gen++
-		kept := []OpsIssue{issue}
-		for _, i := range s.Issues {
-			if i.ID != issue.ID {
-				kept = append(kept, i)
-			}
-		}
-		s.Issues = kept
-		a.logIssue(AuthorActor(author), "exclamationmark.bubble", "建立 "+issue.ID+"「"+title+"」")
-		a.changedIssues()
-		return issue
+	issue, err := a.issueRemoteCreate(title, body, priority, CleanLabels(labels), source, link, author)
+	if err != nil {
+		// 核心存不進去(伺服器連不上、沒有資料庫…):回傳沒有存起來的草稿(id 是空的),同 Swift
+		a.issueRemoteFailed(err)
+		return OpsIssue{Title: title, Body: body, Priority: priority, Labels: CleanLabels(labels), Status: "open", CreatedBy: author, Comments: []IssueComment{}}
 	}
-	num := 0
+	s.remoteErr = ""
+	s.gen++
+	kept := []OpsIssue{issue}
 	for _, i := range s.Issues {
-		num = max(num, i.Number())
+		if i.ID != issue.ID {
+			kept = append(kept, i)
+		}
 	}
-	now := nowPrecise()
-	if priority == "" {
-		priority = "normal"
-	}
-	issue := OpsIssue{
-		ID: "ISS-" + strconv.Itoa(num+1), Title: title, Body: body, Status: "open", Priority: priority,
-		Labels: CleanLabels(labels), Source: source, Link: link, CreatedBy: author, CreatedAt: now, UpdatedAt: now,
-		Comments: []IssueComment{},
-	}
-	s.Issues = append([]OpsIssue{issue}, s.Issues...)
-	a.saveIssues()
+	s.Issues = kept
 	a.logIssue(AuthorActor(author), "exclamationmark.bubble", "建立 "+issue.ID+"「"+title+"」")
 	a.changedIssues()
 	return issue
@@ -333,9 +291,7 @@ func cloneIssue(i OpsIssue) OpsIssue {
 // UpdateIssue 修改一筆,回傳修改後的內容;狀態變了記到動態牆(同 Swift 的 IssueStore.update;呼叫時要拿著 Mu)
 func (a *App) UpdateIssue(id, author string, change func(*OpsIssue)) *OpsIssue {
 	s := a.issueSt()
-	if issueRemoteOn() {
-		a.issueRemoteLoad(s) // 用伺服器上最新的內容來改
-	}
+	a.issueRemoteLoad(s) // 用核心裡最新的內容來改
 	idx := -1
 	for i := range s.Issues {
 		if strings.EqualFold(s.Issues[i].ID, id) {
@@ -373,25 +329,17 @@ func (a *App) UpdateIssue(id, author string, change func(*OpsIssue)) *OpsIssue {
 	if string(Marshal(n)) == string(Marshal(before)) {
 		return &n
 	}
-	if issueRemoteOn() {
-		saved, err := a.issueRemoteUpdate(n, author)
-		if err != nil {
-			a.issueRemoteFailed(err)
-			return nil
-		}
-		s.remoteErr = ""
-		s.gen++
-		s.Issues[idx] = saved
-		logStatus(saved)
-		a.changedIssues()
-		return &saved
+	saved, err := a.issueRemoteUpdate(n, author)
+	if err != nil {
+		a.issueRemoteFailed(err)
+		return nil
 	}
-	n.UpdatedAt = nowPrecise()
-	s.Issues[idx] = n
-	a.saveIssues()
-	logStatus(n)
+	s.remoteErr = ""
+	s.gen++
+	s.Issues[idx] = saved
+	logStatus(saved)
 	a.changedIssues()
-	return &n
+	return &saved
 }
 
 // CommentIssue 加留言;空白留言不做事(同 Swift 的 IssueStore.comment)
@@ -408,14 +356,12 @@ func (a *App) CommentIssue(id, text, author string) *OpsIssue {
 // DeleteIssue 刪除(id 完全相同才刪,同 Swift)
 func (a *App) DeleteIssue(id string) {
 	s := a.issueSt()
-	if issueRemoteOn() {
-		if err := a.issueRemoteDelete(id); err != nil {
-			a.issueRemoteFailed(err)
-			return
-		}
-		s.remoteErr = ""
-		s.gen++
+	if err := a.issueRemoteDelete(id); err != nil {
+		a.issueRemoteFailed(err)
+		return
 	}
+	s.remoteErr = ""
+	s.gen++
 	kept := []OpsIssue{}
 	for _, i := range s.Issues {
 		if i.ID != id {
@@ -423,7 +369,6 @@ func (a *App) DeleteIssue(id string) {
 		}
 	}
 	s.Issues = kept
-	a.saveIssues()
 	a.changedIssues()
 }
 

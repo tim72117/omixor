@@ -131,7 +131,7 @@ func TestOrgCreateAndSwitch(t *testing.T) {
 	a.AssignTask("narrator", "任務", "", "", "tim", nil)
 	// 讓例行任務有上次執行時間,複製時要重置
 	a.RunRoutineNow("narrator", a.FindAgent("narrator").Routines[0].ID)
-	a.SaveCabinetLayout(append(EvoleapStudioLayout(), CabinetSection{ID: "extra", Label: "額外", Tabs: []CabinetTab{}}))
+	a.SaveCabinetLayout(append(TemplateCabinetLayout(), CabinetSection{ID: "extra", Label: "額外", Tabs: []CabinetTab{}}))
 	a.CreateDoc("文件", "", "docs", nil, nil, "tim")
 
 	blank := a.CreateOrg("空白", "", "", "blank")
@@ -300,7 +300,7 @@ func TestCabinetValidate(t *testing.T) {
 			t.Errorf("想要「%s」,得到「%s」", want, got)
 		}
 	}
-	if got := a.ValidateCabinetLayout(EvoleapStudioLayout()); got != "" {
+	if got := a.ValidateCabinetLayout(TemplateCabinetLayout()); got != "" {
 		t.Fatal(got)
 	}
 	a.Mu.Unlock()
