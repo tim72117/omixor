@@ -10,18 +10,18 @@ import (
 
 func gcpReady(c *Call) error {
 	if !core.GCPLoggedIn(c.App) {
-		return ToolError{"omixor 還沒登入 Google Cloud。請人在 omixor 的 伺服器與服務 › GCP 設定並登入"}
+		return ToolError{Message: "omixor 還沒登入 Google Cloud。請人在 omixor 的 伺服器與服務 › GCP 設定並登入"}
 	}
 	c.App.Mu.Lock()
 	ok := core.GCPConfigured(c.App)
 	c.App.Mu.Unlock()
 	if !ok {
-		return ToolError{"還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定"}
+		return ToolError{Message: "還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定"}
 	}
 	return nil
 }
 
-func gcpFail(err error) error { return ToolError{"GCP 回應錯誤:" + core.GCPExplain(err)} }
+func gcpFail(err error) error { return ToolError{Message: "GCP 回應錯誤:" + core.GCPExplain(err)} }
 
 func optArg(c *Call, k string) *string {
 	if s, ok := c.Args.String(k); ok {
@@ -48,7 +48,7 @@ func init() {
 		account := connAccount(a, settings.Connection)
 		a.Mu.Unlock()
 		if snap.Error != nil {
-			return nil, ToolError{*snap.Error}
+			return nil, ToolError{Message: *snap.Error}
 		}
 		services := []any{}
 		for _, s := range snap.Services {
@@ -108,7 +108,7 @@ func init() {
 			valid = valid || s == sev
 		}
 		if !valid {
-			return nil, ToolError{"severity 必須是 " + strings.Join(core.GCPSeverities, "、") + " 之一"}
+			return nil, ToolError{Message: "severity 必須是 " + strings.Join(core.GCPSeverities, "、") + " 之一"}
 		}
 		hours := 24
 		if n, ok := c.Args.Int("hours"); ok {
@@ -147,7 +147,7 @@ func init() {
 				for _, s := range services {
 					names = append(names, s.ID)
 				}
-				return nil, ToolError{"請給 service,可用:" + strings.Join(names, "、")}
+				return nil, ToolError{Message: "請給 service,可用:" + strings.Join(names, "、")}
 			}
 			service = services[0].ID
 		}

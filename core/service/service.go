@@ -55,6 +55,9 @@ type Service struct {
 	TTL       time.Duration // token 有效期(0 是不到期)
 	Client    *http.Client
 	Now       func() time.Time
+	// AgentCredTTL 角色憑證有效時間(0 = 2 小時)
+	AgentCredTTL time.Duration
+	agents       agentState
 
 	// 登入端點的頻率限制(每個來源每分鐘、整個服務每分鐘)
 	LoginPerIP, LoginTotal int
@@ -347,6 +350,9 @@ func (s *Service) ListAudit(p *model.Principal, limit int) ([]model.AuditEntry, 
 
 // orgRole 呼叫的人在這個組織的角色(伺服器管理員是 admin);組織不存在 404、不是成員 403
 func (s *Service) orgRole(p *model.Principal, org string) (string, error) {
+	if p.Agent != nil { // 角色身分預設拒絕;開放的操作用 viewer(見 agents.go)
+		return "", fail(403, "角色身分不能做這件事")
+	}
 	if !model.ValidOrgID(org) {
 		return "", fail(400, "組織 id 不對:%s", org)
 	}

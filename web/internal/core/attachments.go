@@ -15,7 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// 附件(Issue 內文與留言裡的圖片):分組織存放,只收 PNG、JPEG、GIF、WebP(看檔案內容判斷,不收 SVG)。
+// 附件(Issue 內文與留言裡的圖片)現在存在核心(omixor-core,見 SaveAttachment / ReadAttachment);下面的本機存放只剩 Jira 匯入(SaveAttachmentIn)與舊資料的讀取。
+// 舊的說明:分組織存放,只收 PNG、JPEG、GIF、WebP(看檔案內容判斷,不收 SVG)。
 //   - 檔案模式:<組織資料夾>/attachments/<id>
 //   - 資料庫模式:ops_files 資料表(path = orgs/<組織>/attachments/<id>,data bytea)
 // id = 內容(或來源)的 SHA-256 前 32 碼 + 副檔名,同一張圖只存一份。
@@ -81,22 +82,47 @@ func AttachmentIDFor(orgDir, seed string) string {
 	return ""
 }
 
-// SaveAttachment 存到目前組織(呼叫時不用拿鎖)
-func SaveAttachment(a *App, data []byte) (string, error) {
-	a.Mu.Lock()
-	dir := a.DataDir()
-	a.Mu.Unlock()
-	return SaveAttachmentIn(dir, data, "")
+// attachmentCore 目前組織的附件交給核心:遠端模式是 omixor server,本機模式是同一個程式裡的核心(PostgreSQL)
+type attachmentCore interface {
+	save(org string, data []byte) (string, error)
+	get(org, id string) ([]byte, string, error)
 }
 
-// ReadAttachment 讀目前組織的附件,回傳內容與 MIME 類型
+func (l *localBackend) save(org string, data []byte) (string, error) {
+	l.ensureOrg(org)
+	return l.svc.SaveAttachment(localPrincipal, org, data)
+}
+func (l *localBackend) get(org, id string) ([]byte, string, error) {
+	return l.svc.GetAttachment(localPrincipal, org, id)
+}
+func (r *remoteBackend) save(org string, data []byte) (string, error) {
+	return r.client("").SaveAttachment(serverOrgID(org), data)
+}
+func (r *remoteBackend) get(org, id string) ([]byte, string, error) {
+	return r.client("").GetAttachment(serverOrgID(org), id)
+}
+func (noDBBackend) save(string, []byte) (string, error)        { return "", errNoDB }
+func (noDBBackend) get(string, string) ([]byte, string, error) { return nil, "", errNoDB }
+
+// SaveAttachment 存到目前組織的核心(呼叫時不用拿鎖)
+func SaveAttachment(a *App, data []byte) (string, error) {
+	a.Mu.Lock()
+	org := a.CurrentOrgID()
+	a.Mu.Unlock()
+	return currentIssueBackend().(attachmentCore).save(org, data)
+}
+
+// ReadAttachment 讀目前組織的附件,回傳內容與 MIME 類型。核心沒有的,再找舊的本機存放(Jira 匯入的圖還在那裡)
 func ReadAttachment(a *App, id string) ([]byte, string, error) {
 	if !attachmentIDRe.MatchString(id) {
 		return nil, "", fs.ErrNotExist
 	}
 	a.Mu.Lock()
-	dir := a.DataDir()
+	org, dir := a.CurrentOrgID(), a.DataDir()
 	a.Mu.Unlock()
+	if data, t, err := currentIssueBackend().(attachmentCore).get(org, id); err == nil {
+		return data, t, nil
+	}
 	data, err := attachmentRead(dir, id)
 	if err != nil {
 		return nil, "", err

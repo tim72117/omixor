@@ -9,7 +9,7 @@ omixor 的核心後端模組(Go)。目前有:
 | `service` | 商業邏輯與權限:授權(用 evoleap 證明身分,發 omixor 自己的 token)、組織與成員、Issue |
 | `api` | HTTP 路由(`api.New(svc).Handler()`) |
 | `client` | 連線上 omixor server 的用戶端,提供和 `service` 一樣的 Issue/組織操作 |
-| `cmd/omixor-server` | 線上服務(Cloud Run) |
+| (已移到 `../server`) | 線上服務 omixor-server(Cloud Run),引用本模組 |
 | `cmd/omixor` | 管理 CLI |
 
 ## 架構

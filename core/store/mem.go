@@ -20,6 +20,10 @@ type Mem struct {
 	orgs    map[string]model.Org
 	members map[string]map[string]model.Member // org → userID
 	issues  map[string][]model.Issue           // org → 新的在前
+	attach  map[string]map[string][]byte       // org → id → 內容
+	agents  map[string][]model.Agent           // org → 依建立順序
+	tasks   map[string][]model.AgentTask       // org → 新的在前
+	creds   []model.AgentCredential
 }
 
 type memToken struct {
@@ -29,7 +33,8 @@ type memToken struct {
 
 func NewMem() *Mem {
 	return &Mem{users: map[string]model.User{}, tokens: map[string]*memToken{}, orgs: map[string]model.Org{},
-		members: map[string]map[string]model.Member{}, issues: map[string][]model.Issue{}}
+		members: map[string]map[string]model.Member{}, issues: map[string][]model.Issue{}, attach: map[string]map[string][]byte{},
+		agents: map[string][]model.Agent{}, tasks: map[string][]model.AgentTask{}}
 }
 
 func (m *Mem) CountUsers() (int, error) {
@@ -212,6 +217,16 @@ func (m *Mem) DeleteOrg(id string) error {
 	delete(m.orgs, id)
 	delete(m.members, id)
 	delete(m.issues, id)
+	delete(m.attach, id)
+	delete(m.agents, id)
+	delete(m.tasks, id)
+	kept := m.creds[:0:0]
+	for _, c := range m.creds {
+		if c.Org != id {
+			kept = append(kept, c)
+		}
+	}
+	m.creds = kept
 	return nil
 }
 
@@ -368,4 +383,181 @@ func (m *Mem) IssueOrgs() ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+func (m *Mem) PutAttachment(org, id string, data []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.attach[org] == nil {
+		m.attach[org] = map[string][]byte{}
+	}
+	if _, ok := m.attach[org][id]; !ok {
+		m.attach[org][id] = append([]byte(nil), data...)
+	}
+	return nil
+}
+
+func (m *Mem) GetAttachment(org, id string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if b, ok := m.attach[org][id]; ok {
+		return append([]byte(nil), b...), nil
+	}
+	return nil, ErrNotFound
+}
+
+// ---- 虛擬角色、任務與憑證 ----
+
+func (m *Mem) ListAgents(org string) ([]model.Agent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []model.Agent{}
+	for _, g := range m.agents[org] {
+		out = append(out, g.Clone())
+	}
+	return out, nil
+}
+
+func (m *Mem) GetAgent(org, id string) (*model.Agent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, g := range m.agents[org] {
+		if g.ID == id {
+			c := g.Clone()
+			return &c, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *Mem) SaveAgent(org string, a model.Agent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a = a.Clone()
+	for k, g := range m.agents[org] {
+		if g.ID == a.ID {
+			m.agents[org][k] = a
+			return nil
+		}
+	}
+	m.agents[org] = append(m.agents[org], a)
+	return nil
+}
+
+func (m *Mem) DeleteAgent(org, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := []model.Agent{}
+	found := false
+	for _, g := range m.agents[org] {
+		if g.ID == id {
+			found = true
+			continue
+		}
+		kept = append(kept, g)
+	}
+	if !found {
+		return ErrNotFound
+	}
+	m.agents[org] = kept
+	return nil
+}
+
+func (m *Mem) ListAgentTasks(org string) ([]model.AgentTask, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []model.AgentTask{}
+	for _, t := range m.tasks[org] {
+		out = append(out, t.Clone())
+	}
+	return out, nil
+}
+
+func (m *Mem) GetAgentTask(org, id string) (*model.AgentTask, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.tasks[org] {
+		if t.ID == id {
+			c := t.Clone()
+			return &c, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *Mem) CreateAgentTask(org string, t model.AgentTask) (model.AgentTask, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, x := range m.tasks[org] {
+		n = max(n, x.Number())
+	}
+	t.ID = fmt.Sprintf("T-%d", n+1)
+	m.tasks[org] = append([]model.AgentTask{t.Clone()}, m.tasks[org]...)
+	return t, nil
+}
+
+func (m *Mem) UpdateAgentTask(org string, t model.AgentTask) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, x := range m.tasks[org] {
+		if x.ID == t.ID {
+			m.tasks[org][k] = t.Clone()
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (m *Mem) SaveAgentCredential(c model.AgentCredential) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.creds[:0:0]
+	for _, x := range m.creds {
+		if !(x.Org == c.Org && x.TaskID == c.TaskID) {
+			kept = append(kept, x)
+		}
+	}
+	c.Hash = append([]byte(nil), c.Hash...)
+	m.creds = append(kept, c)
+	return nil
+}
+
+func (m *Mem) AgentCredentialByHash(h []byte) (*model.AgentCredential, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, c := range m.creds {
+		if bytes.Equal(c.Hash, h) {
+			x := c
+			return &x, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *Mem) DeleteAgentCredentials(org, taskID, agentID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.creds[:0:0]
+	for _, c := range m.creds {
+		if c.Org == org && ((taskID != "" && c.TaskID == taskID) || (agentID != "" && c.AgentID == agentID)) {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	m.creds = kept
+	return nil
+}
+
+func (m *Mem) PruneAgentCredentials(now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.creds[:0:0]
+	for _, c := range m.creds {
+		if now.Before(c.ExpiresAt.Time) {
+			kept = append(kept, c)
+		}
+	}
+	m.creds = kept
+	return nil
 }

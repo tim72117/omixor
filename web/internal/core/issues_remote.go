@@ -344,21 +344,26 @@ func (a *App) RefreshIssuesIfStale(maxAge time.Duration) {
 	}
 }
 
-func (a *App) issueRemoteCreate(title, body, priority string, labels []string, source, link, author string) (OpsIssue, error) {
+func (a *App) issueRemoteCreate(title, body, priority string, labels []string, source, link, author, assignee string) (OpsIssue, error) {
 	b := currentIssueBackend()
 	i, err := b.Create(a.conns().Scope, a.issueSt().Org, service.IssueInput{Title: title, Body: body, Priority: priority,
-		Labels: labels, Source: source, Link: link, Author: author})
+		Labels: labels, Source: source, Link: link, Author: author, Assignee: assignee})
 	if err != nil {
 		return OpsIssue{}, err
 	}
 	return toOps(*i), nil
 }
 
-func (a *App) issueRemoteUpdate(n OpsIssue, author string) (OpsIssue, error) {
+func (a *App) issueRemoteUpdate(n, before OpsIssue, author string) (OpsIssue, error) {
 	b := currentIssueBackend()
 	labels, comments := n.Labels, toModelComments(n.Comments)
-	i, err := b.Update(a.conns().Scope, a.issueSt().Org, n.ID, service.IssuePatch{Title: &n.Title, Body: &n.Body, Status: &n.Status,
-		Priority: &n.Priority, Labels: &labels, Source: &n.Source, Link: &n.Link, Comments: &comments, Author: author})
+	patch := service.IssuePatch{Title: &n.Title, Body: &n.Body, Status: &n.Status,
+		Priority: &n.Priority, Labels: &labels, Source: &n.Source, Link: &n.Link, Comments: &comments, Author: author}
+	if n.Assignee != before.Assignee { // 指派變了才送(核心會取消舊角色未領取的任務、替新角色排任務)
+		as := n.Assignee
+		patch.Assignee = &as
+	}
+	i, err := b.Update(a.conns().Scope, a.issueSt().Org, n.ID, patch)
 	if err != nil {
 		return OpsIssue{}, err
 	}

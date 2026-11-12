@@ -266,7 +266,7 @@ function Timeline({ inc }: { inc: Incident }) {
       )}
       <div className="row gap8" style={{ alignItems: "flex-end", paddingTop: 4 }}>
         <ActorAvatar actor={{ kind: "person", id: dir.me }} size={24} />
-        <textarea className="input grow" rows={1} style={{ resize: "vertical", padding: "7px 10px", borderRadius: 8 }} value={draft}
+        <textarea className="input grow" rows={1} style={{ resize: "vertical", borderRadius: 8 }} value={draft}
           placeholder="新增備註,例如目前處置或觀察…(⌘↩ 送出)" onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }} />
         <button className="btn primary" disabled={!draft.trim() || busy} onClick={submit}><Icon name="paperplane.fill" size={12} />送出</button>

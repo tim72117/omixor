@@ -38,7 +38,7 @@ export function AutoInbox({ focusId, clearFocus, edited, setEdited, openAutomati
           <Icon name="hand.raised.fill" size={15} color="var(--purple)" />
           <span className="h3">{all.length === 0 ? "目前沒有需要你決定的事" : `${all.length} 件請求等你決定`}</span>
           <div className="grow" />
-          <select className="select" style={{ width: 120 }} value={risk} onChange={(e) => setRisk(e.target.value as Risk | "")}>
+          <select className="select" style={{ minWidth: 120 }} value={risk} onChange={(e) => setRisk(e.target.value as Risk | "")}>
             <option value="">全部風險</option>
             {(["high", "medium", "low"] as Risk[]).map((r) => <option key={r} value={r}>{RISK_LABEL[r]}</option>)}
           </select>

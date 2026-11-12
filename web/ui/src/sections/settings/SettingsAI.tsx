@@ -109,7 +109,7 @@ export function SettingsAI() {
       </Section>
       <Section header="預算" icon="dollarsign.circle">
         <Row label="每月預算上限">
-          <input className="input num" type="number" min={0} step={50} style={{ width: 90, textAlign: "right" }} value={budget} onChange={(e) => setBudget(Math.max(0, +e.target.value || 0))} />
+          <input className="input num" type="number" min={0} step={50} style={{ width: 110, textAlign: "right" }} value={budget} onChange={(e) => setBudget(Math.max(0, +e.target.value || 0))} />
           <span className="muted">USD</span>
         </Row>
         <Row>

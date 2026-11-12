@@ -12,14 +12,14 @@ import (
 // Facebook 粉絲專頁工具(只讀與草稿;沒有發佈工具),逐行對照 Swift MCPHandler.swift 的
 // fbConnected、fbTargets、fbPages、fbPosts、fbInsights、fbDrafts、fbDraftSave。
 
-func fbConnected() error { return ToolError{core.FBNotConnected} }
+func fbConnected() error { return ToolError{Message: core.FBNotConnected} }
 
 // fbFail 同 Swift 的 fbFail:錯誤轉成工具錯誤(FBError 用 errorDescription)
 func fbFail(err error) ToolError {
 	if te, ok := err.(ToolError); ok {
 		return te
 	}
-	return ToolError{err.Error()}
+	return ToolError{Message: err.Error()}
 }
 
 func fbAvailable(pages []core.FBPage) string {
@@ -42,7 +42,7 @@ func fbTargets(c *Call) ([]core.FBPage, error) {
 			return nil, Errorf("找不到專頁 %s。可用:%s", ref, fbAvailable(all))
 		}
 		if _, ok := core.FBPageToken(a, p.ID); !ok {
-			return nil, ToolError{"專頁「" + p.Name + "」沒有權杖。" + core.FBNotConnected}
+			return nil, ToolError{Message: "專頁「" + p.Name + "」沒有權杖。" + core.FBNotConnected}
 		}
 		return []core.FBPage{*p}, nil
 	}
@@ -179,7 +179,7 @@ func init() {
 			period = s
 		}
 		if !slicesContains(core.FBPeriods, period) {
-			return nil, ToolError{"period 必須是 " + strings.Join(core.FBPeriods, "、") + " 之一"}
+			return nil, ToolError{Message: "period 必須是 " + strings.Join(core.FBPeriods, "、") + " 之一"}
 		}
 		days := 28
 		if n, ok := c.Args.Int("days"); ok {
@@ -228,7 +228,7 @@ func init() {
 			status = s
 		}
 		if !slicesContains([]string{"draft", "scheduled", "published", "all"}, status) {
-			return nil, ToolError{"status 必須是 draft、scheduled、published、all 之一"}
+			return nil, ToolError{Message: "status 必須是 draft、scheduled、published、all 之一"}
 		}
 		list := []core.FBDraft{}
 		for _, d := range core.FBSettingsNow(a).Drafts {
@@ -285,7 +285,7 @@ func init() {
 		if t := c.Args.Str("proposed_time"); t != "" {
 			d, ok := fbParseISO(t)
 			if !ok {
-				return nil, ToolError{"proposed_time 要用 ISO 8601,例如 2026-11-20T20:00:00+08:00"}
+				return nil, ToolError{Message: "proposed_time 要用 ISO 8601,例如 2026-11-20T20:00:00+08:00"}
 			}
 			proposed = &d
 		}
@@ -315,7 +315,7 @@ func init() {
 			}
 			isNew = true
 		}
-		if v, ok := c.Args.iaRaw("message"); ok {
+		if v, ok := c.Args.RawString("message"); ok {
 			d.Message = v
 		}
 		if v, ok := c.Args.String("link"); ok {
@@ -334,7 +334,7 @@ func init() {
 			d.PageID = *pageID
 		}
 		if d.IsEmpty() {
-			return nil, ToolError{"草稿至少要有 message、link 或 image_url"}
+			return nil, ToolError{Message: "草稿至少要有 message、link 或 image_url"}
 		}
 		saved := core.FBSaveDraft(a, d, author)
 		verb := "修改"

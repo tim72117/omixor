@@ -3,6 +3,7 @@ package client
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -170,6 +171,11 @@ func (c *Client) UpdateOrg(in model.Org) (*model.Org, error) {
 	return &o, c.Do("PUT", "/api/orgs/"+esc(in.ID), map[string]any{"name": in.Name, "symbol": in.Symbol, "color": in.Color, "note": in.Note}, &o)
 }
 
+// DeleteOrg 刪除組織,連成員與 Issue 一起刪掉(伺服器管理員;不能復原)
+func (c *Client) DeleteOrg(id string) error {
+	return c.Do("POST", "/api/orgs/"+esc(id)+"/delete", map[string]any{}, nil)
+}
+
 func (c *Client) ListMembers(org string) ([]model.Member, error) {
 	var l []model.Member
 	return l, c.Do("GET", "/api/orgs/"+esc(org)+"/members", nil, &l)
@@ -253,4 +259,28 @@ func (c *Client) RevokeToken(id string) error {
 func (c *Client) ListAudit(limit int) ([]model.AuditEntry, error) {
 	var l []model.AuditEntry
 	return l, c.Do("GET", fmt.Sprintf("/api/admin/audit?limit=%d", limit), nil, &l)
+}
+
+// ---- 附件 ----
+
+// SaveAttachment 上傳一張圖(PNG、JPEG、GIF、WebP),回傳附件 id
+func (c *Client) SaveAttachment(org string, data []byte) (string, error) {
+	var out struct {
+		ID string `json:"id"`
+	}
+	err := c.Do("POST", "/api/orgs/"+esc(org)+"/attachments", map[string]string{"data": base64.StdEncoding.EncodeToString(data)}, &out)
+	return out.ID, err
+}
+
+// GetAttachment 讀一張圖,回傳內容與 MIME 類型
+func (c *Client) GetAttachment(org, id string) ([]byte, string, error) {
+	var out struct {
+		Type string `json:"type"`
+		Data string `json:"data"`
+	}
+	if err := c.Do("GET", "/api/orgs/"+esc(org)+"/attachments/"+esc(id), nil, &out); err != nil {
+		return nil, "", err
+	}
+	b, err := base64.StdEncoding.DecodeString(out.Data)
+	return b, out.Type, err
 }

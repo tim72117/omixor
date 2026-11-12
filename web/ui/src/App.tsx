@@ -10,6 +10,11 @@ import { color, Segmented } from "./components/ui";
 import { SECTION_VIEWS } from "./sections";
 import { SECTIONS, type Nav, type SectionId } from "./types";
 
+/** 只有這些區塊會讀工具列的環境(正式、預備、開發);其他區塊(Issue、文件櫃、自動化…)的資料屬於組織,和環境無關,不顯示切換 */
+const ENV_SECTIONS: SectionId[] = ["overview", "pipelines", "infrastructure"];
+/** 只有這些區塊會讀工具列的時間範圍 */
+const RANGE_SECTIONS: SectionId[] = ["overview", "infrastructure", "monitoring"];
+
 type OrgIndex = { current: string; orgs: { id: string; name: string; symbol: string; color: string; note: string }[] };
 
 /** 側邊欄徽章:各功能可以登記 view「badges」回傳 {section: 數字} */
@@ -63,18 +68,18 @@ export function App() {
       </aside>
       <main className="main">
         <header className="toolbar" style={{ position: "relative" }}>
-          <Segmented
+          {ENV_SECTIONS.includes(section) && <Segmented
             value={nav?.env ?? "production"}
             options={[{ value: "production", label: "Production" }, { value: "staging", label: "Staging" }, { value: "development", label: "Development" }]}
             onChange={(v) => action("navigate", { section, focusId: nav?.focusId ?? "", env: v })}
-          />
-          <select className="select" value={nav?.timeRange ?? "24h"} onChange={(e) => action("navigate", { section, focusId: nav?.focusId ?? "", timeRange: e.target.value })}>
+          />}
+          {RANGE_SECTIONS.includes(section) && <select className="select" value={nav?.timeRange ?? "24h"} onChange={(e) => action("navigate", { section, focusId: nav?.focusId ?? "", timeRange: e.target.value })}>
             <option value="1h">1 小時</option>
             <option value="6h">6 小時</option>
             <option value="24h">24 小時</option>
             <option value="7d">7 天</option>
             <option value="30d">30 天</option>
-          </select>
+          </select>}
           <div className="row gap4" style={{ position: "absolute", right: 12 }}>
             <button className="btn link" title="搜尋頁面、服務、伺服器、事件(⌘K)" onClick={() => setPalette(true)}><Icon name="magnifyingglass" size={14} /></button>
             <button className="btn link" title={showAssistant ? "隱藏 AI 助理(⌘J)" : "顯示 AI 助理(⌘J)"} onClick={() => setShowAssistant(!showAssistant)}>

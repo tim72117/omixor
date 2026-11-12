@@ -16,8 +16,13 @@ WORKDIR /src/web
 RUN go mod download
 COPY web/ ./
 COPY --from=web /src/web/dist ./ui/dist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/omixor-web ./cmd/omixor-web \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/omixor-mcp ./cmd/omixor-mcp
+# 版本資訊:docker build --build-arg VERSION=… --build-arg COMMIT=… --build-arg BUILD_TIME=…
+ARG VERSION=dev
+ARG COMMIT=dev
+ARG BUILD_TIME=dev
+RUN LDF="-s -w -X omixor-core/version.Version=${VERSION} -X omixor-core/version.Commit=${COMMIT} -X omixor-core/version.BuildTime=${BUILD_TIME}" \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="$LDF" -o /out/omixor-web ./cmd/omixor-web \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="$LDF" -o /out/omixor-mcp ./cmd/omixor-mcp
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 ops

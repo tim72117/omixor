@@ -150,7 +150,7 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
       <Card title="指派任務">
         <div className="row gap8">
           <input className="input grow" value={title} placeholder={`要${agent.name}做什麼?`} onChange={(e) => setTitle(e.target.value)} />
-          <select className="select" style={{ width: 90 }} value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>{PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}</select>
+          <select className="select" style={{ minWidth: 100 }} value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>{PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}</select>
         </div>
         <textarea className="input" rows={2} value={instructions} placeholder="補充說明(選填,Markdown)" onChange={(e) => setInstructions(e.target.value)} />
         <div className="row" style={{ justifyContent: "flex-end" }}><button className="btn primary" disabled={!title.trim() || busy} onClick={assign}>指派</button></div>
@@ -259,7 +259,7 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
               <button className="bx-icon-btn" title="刪除" onClick={() => setDraft((d) => ({ ...d, routines: d.routines.filter((x) => x.id !== r.id) }))}><Icon name="trash" size={13} color="var(--red)" /></button>
             </div>
             <div className="row gap6">
-              <select className="select" style={{ width: 120 }} value={r.kind} onChange={(e) => setRoutine(r.id, { kind: e.target.value as RoutineKind })}>
+              <select className="select" style={{ minWidth: 120 }} value={r.kind} onChange={(e) => setRoutine(r.id, { kind: e.target.value as RoutineKind })}>
                 {(Object.keys(ROUTINE_KIND_LABEL) as RoutineKind[]).map((k) => <option key={k} value={k}>{ROUTINE_KIND_LABEL[k]}</option>)}
               </select>
               {r.kind === "weekly" && (
@@ -268,11 +268,11 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
                 </select>
               )}
               {r.kind === "hourly" ? (
-                <label className="row gap4">每 <input className="input" type="number" min={1} max={48} style={{ width: 60 }} value={r.everyHours} onChange={(e) => setRoutine(r.id, { everyHours: Math.max(1, Math.min(48, +e.target.value || 1)) })} /> 小時</label>
+                <label className="row gap4">每 <input className="input" type="number" min={1} max={48} style={{ width: 72 }} value={r.everyHours} onChange={(e) => setRoutine(r.id, { everyHours: Math.max(1, Math.min(48, +e.target.value || 1)) })} /> 小時</label>
               ) : (
                 <span className="row gap4">
-                  <input className="input" type="number" min={0} max={23} style={{ width: 56 }} value={r.hour} onChange={(e) => setRoutine(r.id, { hour: Math.max(0, Math.min(23, +e.target.value || 0)) })} />:
-                  <input className="input" type="number" min={0} max={55} step={5} style={{ width: 56 }} value={r.minute} onChange={(e) => setRoutine(r.id, { minute: Math.max(0, Math.min(55, +e.target.value || 0)) })} />
+                  <input className="input" type="number" min={0} max={23} style={{ width: 72 }} value={r.hour} onChange={(e) => setRoutine(r.id, { hour: Math.max(0, Math.min(23, +e.target.value || 0)) })} />:
+                  <input className="input" type="number" min={0} max={55} step={5} style={{ width: 72 }} value={r.minute} onChange={(e) => setRoutine(r.id, { minute: Math.max(0, Math.min(55, +e.target.value || 0)) })} />
                 </span>
               )}
             </div>

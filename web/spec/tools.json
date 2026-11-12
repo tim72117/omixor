@@ -1780,5 +1780,22 @@
     },
     "name": "ops_fb_draft_save",
     "title": "存 Facebook 草稿"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "伺服器與連線資訊"
+    },
+    "description": "目前連線資訊與版本:模式(本機/遠端)、遠端 server 名稱(不含網址)、登入狀態(帳號、角色、token 到期時間)、本機資料庫是否連上與目前組織,以及 omixor web 與遠端 server 的版本(version、commit、buildTime)。不會顯示任何密鑰。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "ops_server",
+    "title": "伺服器與連線資訊"
   }
 ]

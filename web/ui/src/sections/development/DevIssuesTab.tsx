@@ -12,7 +12,7 @@ import { MdTextarea } from "../../components/MdTextarea";
 export type IssueComment = { id: string; author: string; text: string; at: string };
 export type OpsIssue = {
   id: string; title: string; body: string; status: "open" | "closed"; priority: Priority; labels: string[];
-  source: string; link: string; createdBy: string; createdAt: string; updatedAt: string; closedAt?: string | null; comments: IssueComment[];
+  source: string; link: string; assignee?: string; createdBy: string; createdAt: string; updatedAt: string; closedAt?: string | null; comments: IssueComment[];
 };
 type Priority = "urgent" | "high" | "normal" | "low";
 export const PRIORITY: Record<Priority, { label: string; color: string; rank: number }> = {
@@ -129,6 +129,8 @@ function IssueRow({ issue, on, onClick }: { issue: OpsIssue; on: boolean; onClic
 function IssueDetail({ issue }: { issue: OpsIssue }) {
   const dev = useDev();
   const { name } = useAuthor();
+  const ops = useOps();
+  const assignee = issue.assignee ? ops.agents.find((x) => x.id === issue.assignee) : undefined;
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -152,6 +154,10 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
             { header: "優先度" },
             ...PRIORITIES.map((x) => ({ label: PRIORITY[x].label, checked: x === issue.priority, onClick: () => upd({ priority: x }) })),
             "sep",
+            { header: "指派給角色(會自動排任務)" },
+            { label: "未指派", checked: !issue.assignee, onClick: () => upd({ assignee: "" }) },
+            ...ops.agents.filter((x) => x.active !== false || x.id === issue.assignee).map((x) => ({ label: x.name, checked: x.id === issue.assignee, onClick: () => upd({ assignee: x.id }) })),
+            "sep",
             { label: "編輯…", onClick: () => { setTitle(issue.title); setBody(issue.body ?? ""); setLabels((issue.labels ?? []).join(", ")); setEditing(true); } },
             { label: "刪除…", danger: true, onClick: () => ask({ title: `刪除 ${issue.id}?`, buttons: [{ label: "刪除(無法復原)", danger: true, onClick: async () => { const r = await run(() => action("issue_delete", { id: issue.id })); if (r !== undefined) dev.setSelectedIssue(undefined); } }] }) },
           ]} />
@@ -160,6 +166,7 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
         <div className="row gap6 wrap">
           <Pill text={open ? "未解決" : "已關閉"} color={open ? "green" : "secondary"} icon={open ? "circle.dotted" : "checkmark.circle"} />
           <Pill text={"優先度:" + p.label} color={p.color} />
+          {issue.assignee && <Pill text={"指派:" + (assignee?.name ?? issue.assignee)} color="purple" icon="person.crop.circle" />}
           {(issue.labels ?? []).map((l) => <Pill key={l} text={l} icon="tag" />)}
         </div>
         <div className="row gap12 caption muted wrap">

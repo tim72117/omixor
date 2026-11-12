@@ -148,7 +148,7 @@ function GitHubMain({ gh }: { gh: GitHubView }) {
             <div className="row gap8" style={{ padding: 10 }}>
               <div className="grow"><Seg value={mode} onChange={setMode} options={[{ value: "runs", label: `Actions(${snap.runs?.length ?? 0})` }, { value: "pulls", label: `Pull Requests(${snap.pulls?.length ?? 0})` }]} /></div>
               {repos.length > 1 && (
-                <select className="select" style={{ width: 130 }} value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)}>
+                <select className="select" style={{ minWidth: 130 }} value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)}>
                   <option value="">全部 repo</option>{repos.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
               )}

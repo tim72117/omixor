@@ -22,11 +22,11 @@ func init() {
 			valid = valid || x == r
 		}
 		if !valid {
-			return nil, ToolError{"range 必須是 all、30m、12h、1d、7d 之一"}
+			return nil, ToolError{Message: "range 必須是 all、30m、12h、1d、7d 之一"}
 		}
 		d, err := core.SiteVisitorsFetch(c.App, optArg(c, "connection"), r)
 		if err != nil {
-			return nil, ToolError{"讀不到訪客統計:" + err.Error() + "(請在 omixor 登入對應的連線)"}
+			return nil, ToolError{Message: "讀不到訪客統計:" + err.Error() + "(請在 omixor 登入對應的連線)"}
 		}
 		f := d.Funnel()
 		out, _ := core.Object(d).(map[string]any)

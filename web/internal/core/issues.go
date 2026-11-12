@@ -62,6 +62,8 @@ func (c *IssueComment) UnmarshalJSON(b []byte) error {
 }
 
 type OpsIssue struct {
+	// Assignee 指派給的虛擬角色 id(空 = 未指派);指派時核心會自動替該角色排任務
+	Assignee  string         `json:"assignee,omitempty"`
 	Body      string         `json:"body"`
 	ClosedAt  *Time          `json:"closedAt,omitempty"`
 	Comments  []IssueComment `json:"comments"`
@@ -261,8 +263,13 @@ func CleanLabels(labels []string) []string {
 
 // CreateIssue 同 Swift 的 IssueStore.create(呼叫時要拿著 Mu)
 func (a *App) CreateIssue(title, body, priority string, labels []string, source, link, author string) OpsIssue {
+	return a.CreateIssueFor(title, body, priority, labels, source, link, author, "")
+}
+
+// CreateIssueFor 同 CreateIssue,多一個指派的角色 id(空 = 不指派;有給核心會自動替該角色排任務)
+func (a *App) CreateIssueFor(title, body, priority string, labels []string, source, link, author, assignee string) OpsIssue {
 	s := a.issueSt()
-	issue, err := a.issueRemoteCreate(title, body, priority, CleanLabels(labels), source, link, author)
+	issue, err := a.issueRemoteCreate(title, body, priority, CleanLabels(labels), source, link, author, assignee)
 	if err != nil {
 		// 核心存不進去(伺服器連不上、沒有資料庫…):回傳沒有存起來的草稿(id 是空的),同 Swift
 		a.issueRemoteFailed(err)
@@ -279,6 +286,9 @@ func (a *App) CreateIssue(title, body, priority string, labels []string, source,
 	s.Issues = kept
 	a.logIssue(AuthorActor(author), "exclamationmark.bubble", "建立 "+issue.ID+"「"+title+"」")
 	a.changedIssues()
+	if issue.Assignee != "" {
+		go a.AgentsChanged() // 核心替角色排了任務
+	}
 	return issue
 }
 
@@ -329,7 +339,7 @@ func (a *App) UpdateIssue(id, author string, change func(*OpsIssue)) *OpsIssue {
 	if string(Marshal(n)) == string(Marshal(before)) {
 		return &n
 	}
-	saved, err := a.issueRemoteUpdate(n, author)
+	saved, err := a.issueRemoteUpdate(n, before, author)
 	if err != nil {
 		a.issueRemoteFailed(err)
 		return nil
@@ -339,6 +349,9 @@ func (a *App) UpdateIssue(id, author string, change func(*OpsIssue)) *OpsIssue {
 	s.Issues[idx] = saved
 	logStatus(saved)
 	a.changedIssues()
+	if saved.Assignee != before.Assignee {
+		go a.AgentsChanged() // 核心取消舊角色未領取的任務、替新角色排任務
+	}
 	return &saved
 }
 

@@ -51,6 +51,27 @@ type Store interface {
 	DeleteIssue(org, id string) error
 	// ImportIssues 第一次搬資料用:保留 id、作者與時間;list 是新的在前
 	ImportIssues(org string, list []model.Issue) (int, error)
+	// 附件(Issue 內文與留言裡的圖片):一個組織一份,id 是內容雜湊;同 id 再存不覆蓋
+	PutAttachment(org, id string, data []byte) error
+	GetAttachment(org, id string) ([]byte, error) // 沒有回 ErrNotFound
 	// IssueOrgs 有 Issue 的組織 id(啟動時補建組織用)
 	IssueOrgs() ([]string, error)
+
+	// 虛擬角色、任務與憑證(依組織分;DeleteOrg 一併刪除)。id 比對精確(大小寫要一致),不分大小寫的查找在 service。
+	ListAgents(org string) ([]model.Agent, error) // 依建立時間
+	GetAgent(org, id string) (*model.Agent, error) // 沒有回 ErrNotFound
+	SaveAgent(org string, a model.Agent) error     // 新增或整筆取代
+	DeleteAgent(org, id string) error
+	ListAgentTasks(org string) ([]model.AgentTask, error) // 新的在前
+	GetAgentTask(org, id string) (*model.AgentTask, error)
+	// CreateAgentTask 指定新的 id(T-<最大號碼+1>),回傳存好的
+	CreateAgentTask(org string, t model.AgentTask) (model.AgentTask, error)
+	UpdateAgentTask(org string, t model.AgentTask) error // 整筆取代
+	// SaveAgentCredential 存憑證;同一個 (org, taskId) 舊的先刪(同任務只有一組有效憑證)
+	SaveAgentCredential(c model.AgentCredential) error
+	AgentCredentialByHash(h []byte) (*model.AgentCredential, error)
+	// DeleteAgentCredentials 刪任務的憑證(taskID 不空)或某角色的全部憑證(agentID 不空)
+	DeleteAgentCredentials(org, taskID, agentID string) error
+	// PruneAgentCredentials 清掉到期的憑證
+	PruneAgentCredentials(now time.Time) error
 }

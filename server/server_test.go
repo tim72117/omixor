@@ -1,17 +1,16 @@
-package main
+package server
 
 import (
 	"net/http/httptest"
 	"testing"
 
-	"omixor-core/server"
 	"omixor-core/service"
 	"omixor-core/store"
 )
 
-// 這個指令就是核心的 omixor-server:健康檢查與 API 都在
+// 健康檢查與 API 都在
 func TestServesCoreHandler(t *testing.T) {
-	h := server.Handler(&service.Service{Store: store.NewMem()})
+	h := Handler(&service.Service{Store: store.NewMem()})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/health", nil))
 	if rec.Code != 200 || rec.Body.String() != "ok" {

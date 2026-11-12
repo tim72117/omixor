@@ -74,15 +74,22 @@ input, select, textarea { font: inherit; color: inherit; }
 .divider { height: 1px; background: var(--line); }
 
 .segmented { display: inline-flex; background: var(--bg3); border-radius: 7px; padding: 2px; gap: 2px; }
-.segmented button { flex: 1; border: 0; background: none; padding: 3px 12px; border-radius: 5px; font-size: 12px; white-space: nowrap; }
+.segmented button { flex: 1; border: 0; background: none; padding: 4px 14px; border-radius: 5px; font-size: 12px; white-space: nowrap; }
 .segmented button.on { background: var(--bg2); box-shadow: 0 1px 2px rgba(0,0,0,.15); font-weight: 500; }
-.btn { border: 1px solid var(--line); background: var(--bg2); padding: 4px 11px; border-radius: 6px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 5px; }
+.btn { border: 1px solid var(--line); background: var(--bg2); padding: 5px 12px; border-radius: 6px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 5px; }
 .btn:hover:not(:disabled) { background: var(--bg3); }
 .btn:disabled { opacity: .45; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
 .btn.danger { color: var(--red); }
 .btn.link { border: 0; background: none; color: var(--accent); padding: 2px 4px; }
-.input, .select, .textarea { border: 1px solid var(--line); background: var(--bg2); border-radius: 6px; padding: 4px 8px; font-size: 12.5px; }
+/* 表單控制項統一:內距 6px 10px、行高 1.4;select 用自訂箭頭並預留右側空間 */
+.input, .select, .textarea { border: 1px solid var(--line); background-color: var(--bg2); border-radius: 6px; padding: 6px 10px; font-size: 12.5px; line-height: 1.4; box-sizing: border-box; }
+.input:focus, .select:focus, .textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; border-color: var(--accent); }
+.select { appearance: none; -webkit-appearance: none; padding-right: 28px; min-width: 72px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--fg2) 50%), linear-gradient(135deg, var(--fg2) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+.select:disabled { opacity: .5; cursor: default; }
+input::placeholder, textarea::placeholder { opacity: 1; }
 .textarea { width: 100%; min-height: 160px; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; resize: vertical; }
 .input { min-width: 0; }
 
@@ -113,7 +120,7 @@ table.table { width: 100%; border-collapse: collapse; }
 /* 登入頁 */
 .login-bg { height: 100%; display: flex; align-items: center; justify-content: center; background: var(--bg); }
 .login-card { width: 320px; background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.12); }
-.login-card .input { padding: 7px 10px; font-size: 13.5px; }
+.login-card .input { padding: 8px 12px; font-size: 13.5px; }
 .login-card .btn { padding: 7px; font-size: 13.5px; }
 .account-box { position: relative; border-top: 1px solid var(--line); padding-top: 4px; }
 .account-current { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: none; border: 0; border-radius: 6px; color: inherit; cursor: pointer; }

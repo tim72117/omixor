@@ -18,6 +18,11 @@ import (
 //	omixor_users / omixor_tokens / omixor_audit   使用者、token(只存雜湊)、操作紀錄
 //	omixor_orgs / omixor_org_members              組織與成員(角色 admin、member)
 //	ops_issues / ops_issue_comments               Issue 與留言(主鍵 (org, id);pos 大的在前)
+//	omixor_attachments                            Issue 的圖片附件(主鍵 (org, id),id 是內容雜湊)
+//	omixor_agents                                 虛擬角色(主鍵 (org, id);docAccess、routines 是 jsonb)
+//	omixor_agent_tasks                            角色任務(主鍵 (org, id) = T-<n>;links、notes 是 jsonb)
+//	omixor_agent_credentials                      任務綁定的角色憑證(只存 SHA-256 雜湊與到期時間;token_hash 是主鍵)
+//	ops_issues.assignee                           指派給的角色 id(空字串 = 未指派)
 const pgSchema = `
 create table if not exists omixor_users (
   id text primary key,
@@ -82,6 +87,7 @@ create table if not exists ops_issues (
   closed_at timestamptz,
   primary key (org, id)
 );
+alter table ops_issues add column if not exists assignee text not null default '';
 create index if not exists ops_issues_org_pos on ops_issues (org, pos desc);
 create table if not exists ops_issue_comments (
   org text not null,
@@ -94,6 +100,57 @@ create table if not exists ops_issue_comments (
   primary key (org, issue_id, pos),
   foreign key (org, issue_id) references ops_issues (org, id) on delete cascade on update cascade
 );
+create table if not exists omixor_attachments (
+  org text not null,
+  id text not null,
+  data bytea not null,
+  created_at timestamptz not null default now(),
+  primary key (org, id)
+);
+create table if not exists omixor_agents (
+  org text not null,
+  id text not null,
+  name text not null,
+  role text not null default '',
+  instructions text not null default '',
+  active boolean not null default true,
+  symbol text not null default '',
+  color text not null default '',
+  doc_access jsonb not null default '{}',
+  routines jsonb not null default '[]',
+  created_at timestamptz not null default now(),
+  primary key (org, id)
+);
+create table if not exists omixor_agent_tasks (
+  org text not null,
+  id text not null,
+  number integer not null,
+  agent_id text not null,
+  title text not null,
+  instructions text not null default '',
+  priority text not null default 'normal',
+  status text not null check (status in ('queued','inProgress','blocked','done','canceled')),
+  result text not null default '',
+  links jsonb not null default '[]',
+  notes jsonb not null default '[]',
+  routine_id text,
+  created_by text not null default '',
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  claimed_at timestamptz,
+  completed_at timestamptz,
+  primary key (org, id)
+);
+create index if not exists omixor_agent_tasks_agent on omixor_agent_tasks (org, agent_id, status);
+create table if not exists omixor_agent_credentials (
+  token_hash bytea primary key,
+  org text not null,
+  agent_id text not null,
+  task_id text not null,
+  issued_at timestamptz not null,
+  expires_at timestamptz not null
+);
+create unique index if not exists omixor_agent_credentials_task on omixor_agent_credentials (org, task_id);
 `
 
 type PG struct{ pool *pgxpool.Pool }
@@ -401,6 +458,10 @@ func (p *PG) DeleteOrg(id string) error {
 	defer tx.Rollback(c)
 	for _, q := range []string{
 		`delete from ops_issues where org = $1`, // 留言跟著刪(on delete cascade)
+		`delete from omixor_attachments where org = $1`,
+		`delete from omixor_agent_credentials where org = $1`,
+		`delete from omixor_agent_tasks where org = $1`,
+		`delete from omixor_agents where org = $1`,
 		`delete from omixor_org_members where org = $1`,
 	} {
 		if _, err := tx.Exec(c, q, id); err != nil {
@@ -505,7 +566,7 @@ func listIssues(c context.Context, q querier, org, onlyID string) ([]model.Issue
 		where, args = `org = $1 and lower(id) = lower($2)`, []any{org, onlyID}
 	}
 	rows, err := q.Query(c, `select id, title, body, status, priority, labels, source, link, created_by,
-		created_at, updated_at, closed_at from ops_issues where `+where+` order by pos desc, number desc`, args...)
+		created_at, updated_at, closed_at, assignee from ops_issues where `+where+` order by pos desc, number desc`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -516,7 +577,7 @@ func listIssues(c context.Context, q querier, org, onlyID string) ([]model.Issue
 		var created, updated time.Time
 		var closed *time.Time
 		if err := rows.Scan(&i.ID, &i.Title, &i.Body, &i.Status, &i.Priority, &i.Labels, &i.Source, &i.Link, &i.CreatedBy,
-			&created, &updated, &closed); err != nil {
+			&created, &updated, &closed, &i.Assignee); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -581,16 +642,16 @@ func writeIssue(c context.Context, tx pgx.Tx, org string, i model.Issue, pos int
 	}
 	if insert {
 		if _, err := tx.Exec(c, `insert into ops_issues (org, id, number, pos, title, body, status, priority, labels, source, link,
-			created_by, created_at, updated_at, closed_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+			created_by, created_at, updated_at, closed_at, assignee) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 			org, i.ID, i.Number(), pos, i.Title, i.Body, i.Status, i.Priority, labels, i.Source, i.Link,
-			i.CreatedBy, secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed); err != nil {
+			i.CreatedBy, secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee); err != nil {
 			return err
 		}
 	} else {
 		tag, err := tx.Exec(c, `update ops_issues set title = $3, body = $4, status = $5, priority = $6, labels = $7, source = $8,
-			link = $9, created_by = $10, created_at = $11, updated_at = $12, closed_at = $13 where org = $1 and id = $2`,
+			link = $9, created_by = $10, created_at = $11, updated_at = $12, closed_at = $13, assignee = $14 where org = $1 and id = $2`,
 			org, i.ID, i.Title, i.Body, i.Status, i.Priority, labels, i.Source, i.Link, i.CreatedBy,
-			secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed)
+			secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee)
 		if err != nil {
 			return err
 		}
@@ -701,4 +762,270 @@ func (p *PG) IssueOrgs() ([]string, error) {
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+func (p *PG) PutAttachment(org, id string, data []byte) error {
+	c, cancel := ctx()
+	defer cancel()
+	_, err := p.pool.Exec(c, `insert into omixor_attachments (org, id, data) values ($1, $2, $3) on conflict (org, id) do nothing`, org, id, data)
+	return err
+}
+
+func (p *PG) GetAttachment(org, id string) ([]byte, error) {
+	c, cancel := ctx()
+	defer cancel()
+	var b []byte
+	err := p.pool.QueryRow(c, `select data from omixor_attachments where org = $1 and id = $2`, org, id).Scan(&b)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return b, err
+}
+
+// ---- 虛擬角色、任務與憑證 ----
+
+func jb(v any) []byte { b, _ := json.Marshal(v); return b }
+
+const agentCols = `id, name, role, instructions, active, symbol, color, doc_access, routines, created_at`
+
+func (p *PG) ListAgents(org string) ([]model.Agent, error) {
+	c, cancel := ctx()
+	defer cancel()
+	rows, err := p.pool.Query(c, `select `+agentCols+` from omixor_agents where org = $1 order by created_at, id`, org)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Agent{}
+	for rows.Next() {
+		g, err := scanAgent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *g)
+	}
+	return out, rows.Err()
+}
+
+func scanAgent(row pgx.Row) (*model.Agent, error) {
+	var g model.Agent
+	var acc, rts []byte
+	var created time.Time
+	if err := row.Scan(&g.ID, &g.Name, &g.Role, &g.Instructions, &g.Active, &g.Symbol, &g.Color, &acc, &rts, &created); err != nil {
+		return nil, err
+	}
+	g.CreatedAt = model.Time{Time: created.UTC()}
+	_ = json.Unmarshal(acc, &g.DocAccess)
+	_ = json.Unmarshal(rts, &g.Routines)
+	if g.DocAccess == nil {
+		g.DocAccess = map[string]string{}
+	}
+	if g.Routines == nil {
+		g.Routines = []model.AgentRoutine{}
+	}
+	return &g, nil
+}
+
+func (p *PG) GetAgent(org, id string) (*model.Agent, error) {
+	c, cancel := ctx()
+	defer cancel()
+	g, err := scanAgent(p.pool.QueryRow(c, `select `+agentCols+` from omixor_agents where org = $1 and id = $2`, org, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return g, err
+}
+
+func (p *PG) SaveAgent(org string, a model.Agent) error {
+	c, cancel := ctx()
+	defer cancel()
+	if a.DocAccess == nil {
+		a.DocAccess = map[string]string{}
+	}
+	if a.Routines == nil {
+		a.Routines = []model.AgentRoutine{}
+	}
+	_, err := p.pool.Exec(c, `insert into omixor_agents (org, id, name, role, instructions, active, symbol, color, doc_access, routines, created_at)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		on conflict (org, id) do update set name = $3, role = $4, instructions = $5, active = $6, symbol = $7, color = $8,
+		doc_access = $9, routines = $10`,
+		org, a.ID, a.Name, a.Role, a.Instructions, a.Active, a.Symbol, a.Color, jb(a.DocAccess), jb(a.Routines), secs(a.CreatedAt.Time))
+	return err
+}
+
+func (p *PG) DeleteAgent(org, id string) error {
+	c, cancel := ctx()
+	defer cancel()
+	tag, err := p.pool.Exec(c, `delete from omixor_agents where org = $1 and id = $2`, org, id)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+const taskCols = `id, agent_id, title, instructions, priority, status, result, links, notes, routine_id, created_by,
+	created_at, updated_at, claimed_at, completed_at`
+
+func scanTask(row pgx.Row) (*model.AgentTask, error) {
+	var t model.AgentTask
+	var links, notes []byte
+	var created, updated time.Time
+	var claimed, completed *time.Time
+	if err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.Instructions, &t.Priority, &t.Status, &t.Result, &links, &notes,
+		&t.RoutineID, &t.CreatedBy, &created, &updated, &claimed, &completed); err != nil {
+		return nil, err
+	}
+	t.CreatedAt, t.UpdatedAt = model.Time{Time: created.UTC()}, model.Time{Time: updated.UTC()}
+	t.ClaimedAt, t.CompletedAt = tp(claimed), tp(completed)
+	_ = json.Unmarshal(links, &t.Links)
+	_ = json.Unmarshal(notes, &t.Notes)
+	if t.Links == nil {
+		t.Links = []string{}
+	}
+	if t.Notes == nil {
+		t.Notes = []model.AgentTaskNote{}
+	}
+	return &t, nil
+}
+
+func (p *PG) ListAgentTasks(org string) ([]model.AgentTask, error) {
+	c, cancel := ctx()
+	defer cancel()
+	rows, err := p.pool.Query(c, `select `+taskCols+` from omixor_agent_tasks where org = $1 order by number desc`, org)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.AgentTask{}
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *t)
+	}
+	return out, rows.Err()
+}
+
+func (p *PG) GetAgentTask(org, id string) (*model.AgentTask, error) {
+	c, cancel := ctx()
+	defer cancel()
+	t, err := scanTask(p.pool.QueryRow(c, `select `+taskCols+` from omixor_agent_tasks where org = $1 and id = $2`, org, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return t, err
+}
+
+func optSecs(t *model.Time) *time.Time {
+	if t == nil || t.IsZero() {
+		return nil
+	}
+	x := secs(t.Time)
+	return &x
+}
+
+func linksOrEmpty(l []string) []string {
+	if l == nil {
+		return []string{}
+	}
+	return l
+}
+
+func notesOrEmpty(l []model.AgentTaskNote) []model.AgentTaskNote {
+	if l == nil {
+		return []model.AgentTaskNote{}
+	}
+	return l
+}
+
+func (p *PG) CreateAgentTask(org string, t model.AgentTask) (model.AgentTask, error) {
+	c, cancel := ctx()
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return t, err
+	}
+	defer tx.Rollback(c)
+	// 同一個組織同時只建一筆,號碼才不會撞
+	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-agent-tasks:' || $1))`, org); err != nil {
+		return t, err
+	}
+	var num int
+	if err := tx.QueryRow(c, `select coalesce(max(number),0) from omixor_agent_tasks where org = $1`, org).Scan(&num); err != nil {
+		return t, err
+	}
+	t.ID = fmt.Sprintf("T-%d", num+1)
+	_, err = tx.Exec(c, `insert into omixor_agent_tasks (org, id, number, agent_id, title, instructions, priority, status, result, links, notes,
+		routine_id, created_by, created_at, updated_at, claimed_at, completed_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+		org, t.ID, num+1, t.AgentID, t.Title, t.Instructions, t.Priority, t.Status, t.Result, jb(linksOrEmpty(t.Links)), jb(notesOrEmpty(t.Notes)),
+		t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt))
+	if err != nil {
+		return t, err
+	}
+	return t, tx.Commit(c)
+}
+
+func (p *PG) UpdateAgentTask(org string, t model.AgentTask) error {
+	c, cancel := ctx()
+	defer cancel()
+	tag, err := p.pool.Exec(c, `update omixor_agent_tasks set agent_id = $3, title = $4, instructions = $5, priority = $6, status = $7,
+		result = $8, links = $9, notes = $10, routine_id = $11, created_by = $12, created_at = $13, updated_at = $14, claimed_at = $15,
+		completed_at = $16 where org = $1 and id = $2`,
+		org, t.ID, t.AgentID, t.Title, t.Instructions, t.Priority, t.Status, t.Result, jb(linksOrEmpty(t.Links)), jb(notesOrEmpty(t.Notes)),
+		t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt))
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (p *PG) SaveAgentCredential(cr model.AgentCredential) error {
+	c, cancel := ctx()
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(c)
+	if _, err := tx.Exec(c, `delete from omixor_agent_credentials where org = $1 and task_id = $2`, cr.Org, cr.TaskID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(c, `insert into omixor_agent_credentials (token_hash, org, agent_id, task_id, issued_at, expires_at)
+		values ($1,$2,$3,$4,$5,$6)`, cr.Hash, cr.Org, cr.AgentID, cr.TaskID, secs(cr.IssuedAt.Time), secs(cr.ExpiresAt.Time)); err != nil {
+		return err
+	}
+	return tx.Commit(c)
+}
+
+func (p *PG) AgentCredentialByHash(h []byte) (*model.AgentCredential, error) {
+	c, cancel := ctx()
+	defer cancel()
+	var cr model.AgentCredential
+	var issued, exp time.Time
+	err := p.pool.QueryRow(c, `select token_hash, org, agent_id, task_id, issued_at, expires_at from omixor_agent_credentials
+		where token_hash = $1`, h).Scan(&cr.Hash, &cr.Org, &cr.AgentID, &cr.TaskID, &issued, &exp)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	cr.IssuedAt, cr.ExpiresAt = model.Time{Time: issued.UTC()}, model.Time{Time: exp.UTC()}
+	return &cr, nil
+}
+
+func (p *PG) DeleteAgentCredentials(org, taskID, agentID string) error {
+	c, cancel := ctx()
+	defer cancel()
+	_, err := p.pool.Exec(c, `delete from omixor_agent_credentials where org = $1 and (($2 <> '' and task_id = $2) or ($3 <> '' and agent_id = $3))`,
+		org, taskID, agentID)
+	return err
+}
+
+func (p *PG) PruneAgentCredentials(now time.Time) error {
+	c, cancel := ctx()
+	defer cancel()
+	_, err := p.pool.Exec(c, `delete from omixor_agent_credentials where expires_at <= $1`, now)
+	return err
 }

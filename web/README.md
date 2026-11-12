@@ -76,7 +76,7 @@ docker compose up -d --build
 ## MCP 規格一致
 
 - `spec/tools.json`、`spec/initialize.json` 是從執行中的 Swift 版匯出的(`python3 spec/dump_spec.py`),Go 版的 `tools/list`、`initialize` 直接回傳它們。Swift 版改了工具就重新匯出。
-- 範本(預設角色、文件櫃結構、示範資料、文件轉換器)在 repo 最外層的 `../templates/`,預設不載入;要用就設 `OMIXOR_TEMPLATES=1`(或指定資料夾),執行時才從磁碟讀,不編進執行檔。示範資料載入時時間平移到現在。細節見 `../templates/README.md`。
+- 範本(文件櫃結構、示範資料、文件轉換器)在 repo 最外層的 `../templates/`,預設不載入;要用就設 `OMIXOR_TEMPLATES=1`(或指定資料夾),執行時才從磁碟讀,不編進執行檔。示範資料載入時時間平移到現在。細節見 `../templates/README.md`。
 - 傳輸同 Swift 版:只聽 127.0.0.1、POST /mcp、通知回 202、GET/DELETE 回 405、帶非本機 Origin 回 403、不接受 chunked、body 上限 4 MB、Connection: close。
 - `conformance/`:同一串呼叫送給兩個版本比對回應(見 `docs/PORTING.md`)。
 

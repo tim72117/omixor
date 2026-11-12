@@ -140,7 +140,7 @@ function GitLabMain({ gl }: { gl: GitLabView }) {
             <div className="row gap8" style={{ padding: 10 }}>
               <div className="grow"><Seg value={mode} onChange={setMode} options={[{ value: "pipelines", label: `Pipelines(${snap.pipelines?.length ?? 0})` }, { value: "mrs", label: `Merge Requests(${snap.mrs?.length ?? 0})` }]} /></div>
               {projects.length > 1 && (
-                <select className="select" style={{ width: 140 }} value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+                <select className="select" style={{ minWidth: 140 }} value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
                   <option value="">全部專案</option>{projects.map((k) => <option key={k} value={k}>{nameOf(k)}</option>)}
                 </select>
               )}

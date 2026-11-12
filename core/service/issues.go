@@ -19,6 +19,8 @@ type IssueInput struct {
 	Source   string   `json:"source"`
 	Link     string   `json:"link"`
 	Author   string   `json:"author"` // 伺服器管理員(app、omixor-web)可以指定;其他人一律是自己的 email
+	// Assignee 指派給的角色 id(空 = 不指派);角色必須存在(否則 400),且 active 時會自動替它排一筆任務
+	Assignee string `json:"assignee,omitempty"`
 }
 
 // IssuePatch 修改 Issue:有給的欄位整個取代(同 app 的 ops_issue_update)
@@ -30,6 +32,8 @@ type IssuePatch struct {
 	Labels   *[]string        `json:"labels,omitempty"`
 	Source   *string          `json:"source,omitempty"`
 	Link     *string          `json:"link,omitempty"`
+	// Assignee 改指派:有給才處理("" = 取消指派);角色不存在 400。舊角色還沒領取的任務取消、新角色自動排任務
+	Assignee *string          `json:"assignee,omitempty"`
 	Comments *[]model.Comment `json:"comments,omitempty"`
 	Author   string           `json:"author,omitempty"`
 }
@@ -54,14 +58,14 @@ func author(p *model.Principal, given string) string {
 }
 
 func (s *Service) ListIssues(p *model.Principal, org string) ([]model.Issue, error) {
-	if _, err := s.orgRole(p, org); err != nil {
+	if err := s.viewer(p, org); err != nil {
 		return nil, err
 	}
 	return s.Store.ListIssues(org)
 }
 
 func (s *Service) GetIssue(p *model.Principal, org, id string) (*model.Issue, error) {
-	if _, err := s.orgRole(p, org); err != nil {
+	if err := s.viewer(p, org); err != nil {
 		return nil, err
 	}
 	i, err := s.Store.GetIssue(org, id)
@@ -72,7 +76,7 @@ func (s *Service) GetIssue(p *model.Principal, org, id string) (*model.Issue, er
 }
 
 func (s *Service) CreateIssue(p *model.Principal, org string, in IssueInput) (*model.Issue, error) {
-	if _, err := s.orgRole(p, org); err != nil {
+	if err := s.viewer(p, org); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(in.Title) == "" {
@@ -84,19 +88,26 @@ func (s *Service) CreateIssue(p *model.Principal, org string, in IssueInput) (*m
 	if !model.OneOf(in.Priority, model.IssuePriorities) {
 		return nil, fail(400, "priority 必須是 %s 之一", strings.Join(model.IssuePriorities, "、"))
 	}
+	assignee, err := s.resolveAssignee(org, in.Assignee)
+	if err != nil {
+		return nil, err
+	}
 	now := s.mt()
-	i := model.Issue{Title: in.Title, Body: in.Body, Status: "open", Priority: in.Priority, Labels: model.CleanLabels(in.Labels),
+	i := model.Issue{Assignee: assignee, Title: in.Title, Body: in.Body, Status: "open", Priority: in.Priority, Labels: model.CleanLabels(in.Labels),
 		Source: in.Source, Link: in.Link, CreatedBy: author(p, in.Author), CreatedAt: now, UpdatedAt: now, Comments: []model.Comment{}}
 	saved, err := s.Store.CreateIssue(org, i)
 	if err != nil {
 		return nil, err
 	}
 	s.Audit(p, "issue.create", org, map[string]any{"id": saved.ID})
+	if assignee != "" {
+		s.syncAssignee(p, org, saved, "", author(p, in.Author))
+	}
 	return &saved, nil
 }
 
 func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch) (*model.Issue, error) {
-	if _, err := s.orgRole(p, org); err != nil {
+	if err := s.viewer(p, org); err != nil {
 		return nil, err
 	}
 	if in.Priority != nil && !model.OneOf(*in.Priority, model.IssuePriorities) {
@@ -108,6 +119,14 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 	if in.Title != nil && strings.TrimSpace(*in.Title) == "" {
 		return nil, fail(400, "標題不能是空的")
 	}
+	newAssignee := ""
+	if in.Assignee != nil {
+		a, err := s.resolveAssignee(org, *in.Assignee)
+		if err != nil {
+			return nil, err
+		}
+		newAssignee = a
+	}
 	cur, err := s.Store.GetIssue(org, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, fail(404, "找不到 Issue %s", id)
@@ -116,6 +135,9 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 		return nil, err
 	}
 	n := *cur
+	if in.Assignee != nil {
+		n.Assignee = newAssignee
+	}
 	n.Labels = append([]string{}, cur.Labels...)
 	n.Comments = append([]model.Comment{}, cur.Comments...)
 	set := func(dst *string, v *string) {
@@ -163,20 +185,22 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 			n.ClosedAt = nil
 		}
 	}
-	if same(n, *cur) {
-		return &n, nil
+	if !same(n, *cur) {
+		n.UpdatedAt = s.mt()
+		if err := s.Store.UpdateIssue(org, n); err != nil {
+			return nil, err
+		}
+		s.Audit(p, "issue.update", org, map[string]any{"id": n.ID})
 	}
-	n.UpdatedAt = s.mt()
-	if err := s.Store.UpdateIssue(org, n); err != nil {
-		return nil, err
+	if in.Assignee != nil { // 有給 assignee:取消舊角色未領取的任務、替新角色排任務(已有未結束的不重複排)
+		s.syncAssignee(p, org, n, cur.Assignee, author(p, in.Author))
 	}
-	s.Audit(p, "issue.update", org, map[string]any{"id": n.ID})
 	return &n, nil
 }
 
 func same(a, b model.Issue) bool {
 	if a.Title != b.Title || a.Body != b.Body || a.Status != b.Status || a.Priority != b.Priority || a.Source != b.Source ||
-		a.Link != b.Link || strings.Join(a.Labels, "\x00") != strings.Join(b.Labels, "\x00") || len(a.Comments) != len(b.Comments) {
+		a.Link != b.Link || a.Assignee != b.Assignee || strings.Join(a.Labels, "\x00") != strings.Join(b.Labels, "\x00") || len(a.Comments) != len(b.Comments) {
 		return false
 	}
 	for k := range a.Comments {

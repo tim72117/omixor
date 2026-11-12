@@ -273,7 +273,7 @@ function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
 
 const Spinner = () => <div className="row" style={{ justifyContent: "center" }}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>;
 const SeverityPicker = ({ v, set }: { v: string; set: (s: string) => void }) => (
-  <select className="select" style={{ width: 120 }} value={v} onChange={(e) => set(e.target.value)}>
+  <select className="select" style={{ minWidth: 120 }} value={v} onChange={(e) => set(e.target.value)}>
     <option value="ERROR">錯誤以上</option><option value="WARNING">警告以上</option><option value="DEFAULT">全部</option>
   </select>
 );

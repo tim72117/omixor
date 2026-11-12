@@ -12,7 +12,7 @@ import (
 // ghReady 同 Swift 的 ghStore():要有連線且已登入
 func ghReady(c *Call) error {
 	if !core.GHLoggedIn(c.App) {
-		return ToolError{"omixor 還沒登入 GitHub。請人在 omixor 的 開發進度 › GitHub 設定並登入"}
+		return ToolError{Message: "omixor 還沒登入 GitHub。請人在 omixor 的 開發進度 › GitHub 設定並登入"}
 	}
 	return nil
 }
@@ -21,7 +21,7 @@ func ghRepoArg(c *Call) (string, error) {
 	if r, ok := c.Args.String("repo"); ok {
 		n, ok := core.GHNormalizeRepo(r)
 		if !ok {
-			return "", ToolError{"repo 要寫成 owner/name"}
+			return "", ToolError{Message: "repo 要寫成 owner/name"}
 		}
 		return n, nil
 	}
@@ -30,14 +30,14 @@ func ghRepoArg(c *Call) (string, error) {
 	c.App.Mu.Unlock()
 	if len(repos) != 1 {
 		if len(repos) == 0 {
-			return "", ToolError{"還沒追蹤任何 repo,請給 repo(owner/name)"}
+			return "", ToolError{Message: "還沒追蹤任何 repo,請給 repo(owner/name)"}
 		}
-		return "", ToolError{"請給 repo,目前追蹤:" + strings.Join(repos, "、")}
+		return "", ToolError{Message: "請給 repo,目前追蹤:" + strings.Join(repos, "、")}
 	}
 	return repos[0], nil
 }
 
-func ghError(err error) error { return ToolError{"GitHub 回應錯誤:" + err.Error()} }
+func ghError(err error) error { return ToolError{Message: "GitHub 回應錯誤:" + err.Error()} }
 
 func init() {
 	Register("ops_github", func(c *Call) (any, error) {
@@ -55,13 +55,13 @@ func init() {
 		defer a.Mu.Unlock()
 		snap := core.GHSnapshotNow(a)
 		if snap.Error != nil {
-			return nil, ToolError{*snap.Error}
+			return nil, ToolError{Message: *snap.Error}
 		}
 		var only *string
 		if r, ok := c.Args.String("repo"); ok {
 			n, ok := core.GHNormalizeRepo(r)
 			if !ok {
-				return nil, ToolError{"repo 要寫成 owner/name"}
+				return nil, ToolError{Message: "repo 要寫成 owner/name"}
 			}
 			only = &n
 		}
@@ -173,7 +173,7 @@ func init() {
 		}
 		id, ok := c.Args.Int("id")
 		if !ok {
-			return nil, ToolError{"要給 id"}
+			return nil, ToolError{Message: "要給 id"}
 		}
 		obj, err := core.GHGet(c.App, fmt.Sprintf("/repos/%s/actions/runs/%d", core.EscapePath(repo), id))
 		if err != nil {
@@ -181,7 +181,7 @@ func init() {
 		}
 		d, ok := obj.(map[string]any)
 		if !ok {
-			return nil, ToolError{"執行資料格式不對"}
+			return nil, ToolError{Message: "執行資料格式不對"}
 		}
 		run := core.GHParseRun(d, repo)
 		jobs, err := core.GHJobs(c.App, repo, id)
@@ -251,7 +251,7 @@ func init() {
 		}
 		n, ok := c.Args.Int("number")
 		if !ok {
-			return nil, ToolError{"要給 number"}
+			return nil, ToolError{Message: "要給 number"}
 		}
 		d, err := core.GHPullDetailGet(c.App, repo, n)
 		if err != nil {

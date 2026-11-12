@@ -56,7 +56,7 @@ func docJSON(a *core.App, d core.CabinetDoc, full bool) map[string]any {
 }
 
 func docLoc(c *Call) (*core.CabinetSection, *core.CabinetTab, error) {
-	s, t, err := c.App.ResolveCabinet(c.Args.iaOpt("section"), c.Args.iaOpt("tab"))
+	s, t, err := c.App.ResolveCabinet(c.Args.Opt("section"), c.Args.Opt("tab"))
 	return s, t, userToolErr(err)
 }
 
@@ -149,7 +149,7 @@ func init() {
 		visible := func(d core.CabinetDoc) bool {
 			return g == nil || g.CanRead(d.Section, cabDeref(d.Tab))
 		}
-		if id := c.Args.iaOpt("id"); id != nil {
+		if id := c.Args.Opt("id"); id != nil {
 			d := a.FindDoc(*id)
 			if d == nil {
 				return nil, Errorf("找不到文件 %s", *id)
@@ -165,7 +165,7 @@ func init() {
 				list = append(list, d)
 			}
 		}
-		if c.Args.iaOpt("section") != nil || c.Args.iaOpt("tab") != nil {
+		if c.Args.Opt("section") != nil || c.Args.Opt("tab") != nil {
 			s, t, err := docLoc(c)
 			if err != nil {
 				return nil, err
@@ -226,7 +226,7 @@ func init() {
 			}
 			return Errorf("%s沒有權限寫入「%s」;它可以寫的範圍:%s", g.Name, a.DocLocation(s, t), strings.Join(labels, "、"))
 		}
-		if id := c.Args.iaOpt("id"); id != nil {
+		if id := c.Args.Opt("id"); id != nil {
 			d := a.FindDoc(*id)
 			if d == nil {
 				return nil, Errorf("找不到文件 %s", *id)
@@ -237,7 +237,7 @@ func init() {
 			moved := false
 			var newSec *core.CabinetSection
 			var newTab *core.CabinetTab
-			if c.Args.iaOpt("section") != nil || c.Args.iaOpt("tab") != nil {
+			if c.Args.Opt("section") != nil || c.Args.Opt("tab") != nil {
 				newSec, newTab, err = docLoc(c)
 				if err != nil {
 					return nil, err
@@ -247,31 +247,31 @@ func init() {
 				}
 				moved = true
 			}
-			title := c.Args.iaOpt("title")
+			title := c.Args.Opt("title")
 			if title != nil && *title == "" {
-				return nil, ToolError{"標題不能是空的"}
+				return nil, ToolError{Message: "標題不能是空的"}
 			}
 			newBody := d.Body
-			if b, ok := c.Args.iaRaw("body"); ok {
+			if b, ok := c.Args.RawString("body"); ok {
 				newBody = b
 			}
-			if b, ok := c.Args.iaRaw("append_body"); ok && b != "" {
+			if b, ok := c.Args.RawString("append_body"); ok && b != "" {
 				if newBody != "" {
 					newBody += "\n\n"
 				}
 				newBody += b
 			}
 			if e := core.ValidateDocBody(newBody, a.CabinetDocs()); e != "" {
-				return nil, ToolError{e}
+				return nil, ToolError{Message: e}
 			}
 			updated := a.UpdateDoc(d.ID, func(x *core.CabinetDoc) {
 				if title != nil {
 					x.Title = *title
 				}
-				if b, ok := c.Args.iaRaw("body"); ok {
+				if b, ok := c.Args.RawString("body"); ok {
 					x.Body = b
 				}
-				if b, ok := c.Args.iaRaw("append_body"); ok && b != "" {
+				if b, ok := c.Args.RawString("append_body"); ok && b != "" {
 					if x.Body != "" {
 						x.Body += "\n\n"
 					}
@@ -301,9 +301,9 @@ func init() {
 		if err := checkWrite(s.ID, cabTabPath(t)); err != nil {
 			return nil, err
 		}
-		body, _ := c.Args.iaRaw("body")
+		body, _ := c.Args.RawString("body")
 		if e := core.ValidateDocBody(body, a.CabinetDocs()); e != "" {
-			return nil, ToolError{e}
+			return nil, ToolError{Message: e}
 		}
 		tags, _ := c.Args.Strings("tags")
 		d := a.CreateDoc(title, body, s.ID, cabTabPath(t), tags, author)
@@ -316,4 +316,32 @@ func cabDeref(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// cabinetContext 附加到 ops_agent_context 的欄位:角色能存取的文件櫃區塊,與能讀的文件(依角色的 docAccess)。
+// 呼叫時要拿著 Mu。管理端點與角色端點共用
+func cabinetContext(a *core.App, g core.Agent, includeBodies bool) map[string]any {
+	const bodyLimit = 20
+	docs := []any{}
+	docN := 0
+	for _, d := range a.CabinetDocs() {
+		tab := cabDeref(d.Tab)
+		if !g.CanRead(d.Section, tab) {
+			continue
+		}
+		docN++
+		if len(docs) >= 50 {
+			continue
+		}
+		o := docJSON(a, d, includeBodies && len(docs) < bodyLimit)
+		o["access"] = "read"
+		if g.CanWrite(d.Section, tab) {
+			o["access"] = "write"
+		}
+		docs = append(docs, o)
+	}
+	return map[string]any{
+		"cabinet": cabinetSections(a, &g),
+		"docs":    map[string]any{"total": docN, "docs": docs},
+	}
 }

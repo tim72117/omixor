@@ -1,347 +1,247 @@
 package core
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
-	"unicode"
+
+	"omixor-core/backend"
+	"omixor-core/client"
+	"omixor-core/model"
+	"omixor-core/service"
 )
 
-// 虛擬角色與任務:同 Swift 版 Agents/Agents.swift。存在目前組織資料夾的 agents.json。
-// Ops 不自己跑 AI:任務排在這裡,由 Claude Code 透過 MCP 以角色身分領取、回報。
-// 例行任務到時間時(每 60 秒檢查),替該角色排一筆任務。
+// 虛擬角色與任務:資料與功能都在核心(omixor-core):
+//
+//	本機模式:內建核心(service)+ 本機 PostgreSQL(omixor_agents、omixor_agent_tasks、omixor_agent_credentials)
+//	遠端模式:用 core/client 連線上的 omixor server(角色與任務存在雲端)
+//
+// 這個檔案只是轉接層:
+//   - 讀:畫面與工具讀 App 的快取(agentState,自己有鎖,不依賴 Mu;本機載入時讀、每 5 秒背景重讀,
+//     遠端模式也是背景讀,網路請求不在 Mu 之內)
+//   - 寫:AgentOps(實作 backend.Backend 的角色與任務部分)交給核心,成功後更新快取、寫動態、通知畫面。呼叫時不要拿著 Mu
+//   - 例行任務排程:本機核心每 60 秒呼叫 service.RunDueRoutines(遠端模式由雲端自己排)
+//
+// Ops 不自己跑 AI:任務排在核心,由 Claude Code 透過 MCP 以角色身分領取、回報。
 
-const RoutineAuthor = "routine"
+type (
+	Agent         = model.Agent
+	AgentRoutine  = model.AgentRoutine
+	AgentTask     = model.AgentTask
+	AgentTaskNote = model.AgentTaskNote
+)
+
+const RoutineAuthor = model.RoutineAuthor
 
 var (
-	AgentColors       = []string{"blue", "teal", "green", "orange", "pink", "purple", "indigo", "gray"}
-	RoutineKinds      = []string{"daily", "weekly", "hourly"}
-	AgentTaskStatuses = []string{"queued", "inProgress", "blocked", "done", "canceled"}
-	DocAccessLevels   = []string{"none", "read", "write"}
-	weekdayNames      = []string{"日", "一", "二", "三", "四", "五", "六"}
+	AgentColors       = model.AgentColors
+	RoutineKinds      = model.RoutineKinds
+	AgentTaskStatuses = model.AgentTaskStatuses
+	DocAccessLevels   = model.DocAccessLevels
 )
 
-type AgentRoutine struct {
-	CreatedAt    Time   `json:"createdAt"`
-	Enabled      bool   `json:"enabled"`
-	EveryHours   int    `json:"everyHours"`
-	Hour         int    `json:"hour"`
-	ID           string `json:"id"`
-	Instructions string `json:"instructions"`
-	Kind         string `json:"kind"`
-	LastRunAt    *Time  `json:"lastRunAt,omitempty"`
-	Minute       int    `json:"minute"`
-	Priority     string `json:"priority"`
-	Title        string `json:"title"`
-	Weekday      int    `json:"weekday"`
+func TaskIsOpen(status string) bool { return model.TaskIsOpen(status) }
+
+// ---- 核心的連線 ----
+
+// agentBackend 目前的核心:遠端模式是 omixor server,本機模式是同一個程式裡的核心;本機沒有資料庫回 errNoDB
+func agentBackend() (backend.Backend, error) {
+	switch b := currentIssueBackend().(type) {
+	case *remoteBackend:
+		return &backend.Remote{Client: func() *client.Client { return b.client("") }, OrgID: serverOrgID}, nil
+	case *localBackend:
+		return &backend.Local{Svc: b.svc, P: localPrincipal, EnsureOrg: true}, nil
+	}
+	return nil, errNoDB
 }
 
-func (r *AgentRoutine) UnmarshalJSON(b []byte) error {
-	type raw AgentRoutine
-	x := raw(NewRoutine(""))
-	x.ID = ""
-	if err := json.Unmarshal(b, &x); err != nil {
-		return err
+// AgentEndpointURL 領取任務時告訴呼叫端的角色端點:遠端模式是雲端的 /mcp/agent;本機是本機 MCP 的 /mcp/agent(呼叫時要拿著 Mu)
+func (a *App) AgentEndpointURL() string {
+	if u := IssueRemoteURL(); u != "" {
+		return strings.TrimRight(u, "/") + "/mcp/agent"
 	}
-	if x.ID == "" {
-		x.ID = UUID()
+	return fmt.Sprintf("http://127.0.0.1:%d/mcp/agent", a.MCP.Port)
+}
+
+// AgentService 本機核心的 service(角色端點 /mcp/agent 驗證憑證用);遠端模式或沒有資料庫回 nil
+func AgentService() *service.Service {
+	if IsRemote() {
+		return nil
 	}
-	if !iaOneOf(x.Kind, RoutineKinds) {
-		x.Kind = "daily"
+	if l := localCore(); l != nil {
+		return l.svc
 	}
-	if !iaOneOf(x.Priority, IssuePriorities) {
-		x.Priority = "normal"
-	}
-	*r = AgentRoutine(x)
 	return nil
 }
 
-// ScheduleLabel 同 Swift 的 scheduleLabel
-func (r AgentRoutine) ScheduleLabel() string {
-	t := fmt.Sprintf("%02d:%02d", r.Hour, r.Minute)
-	switch r.Kind {
-	case "weekly":
-		return "每週" + weekdayNames[min(7, max(1, r.Weekday))-1] + " " + t
-	case "hourly":
-		return "每 " + strconv.Itoa(r.EveryHours) + " 小時"
-	}
-	return "每天 " + t
+// RoleCallFinished 角色端點(/mcp/agent)處理完一個請求:核心可能多了 Issue、留言、任務狀態,
+// 重讀 Issue 清單與角色資料並通知畫面。不要拿著 Mu
+func (a *App) RoleCallFinished() {
+	a.Mu.Lock()
+	a.RefreshIssuesIfStale(0)
+	a.changedIssues()
+	a.Mu.Unlock()
+	a.AgentsChanged()
 }
 
-// NextRun 上次排程(沒有就從建立時間)之後的下一個時間點(本地時區,同 Swift 的 Calendar.current)
-func (r AgentRoutine) NextRun() time.Time {
-	base := r.CreatedAt.Time
-	if r.LastRunAt != nil {
-		base = r.LastRunAt.Time
+// ---- 快取 ----
+
+type agentState struct {
+	mu      sync.Mutex
+	org     string
+	loaded  bool
+	agents  []Agent
+	tasks   []AgentTask
+	syncing bool
+	err     string
+}
+
+var agentStates sync.Map // *App → *agentState
+
+func (a *App) agSt() *agentState {
+	if s, ok := agentStates.Load(a); ok {
+		return s.(*agentState)
 	}
-	if r.Kind == "hourly" {
-		return base.Add(time.Duration(max(1, r.EveryHours)) * time.Hour)
+	s, _ := agentStates.LoadOrStore(a, &agentState{})
+	return s.(*agentState)
+}
+
+// agentRefresh 從核心重讀 org 的角色與任務並換進快取(不拿 Mu;網路與資料庫請求都在這裡),回傳內容有沒有變
+func (a *App) agentRefresh(org string) bool {
+	agents, tasks, err := a.agentFetch(org)
+	if agents == nil {
+		agents = []Agent{}
 	}
-	if r.Hour < 0 || r.Hour > 23 || r.Minute < 0 || r.Minute > 59 || (r.Kind == "weekly" && (r.Weekday < 1 || r.Weekday > 7)) {
-		return base // 同 Swift:對不到時間就回傳 base
+	if tasks == nil {
+		tasks = []AgentTask{}
 	}
-	lb := base.In(time.Local)
-	for d := 0; d <= 8; d++ {
-		day := lb.AddDate(0, 0, d)
-		c := time.Date(day.Year(), day.Month(), day.Day(), r.Hour, r.Minute, 0, 0, time.Local)
-		if !c.After(base) {
-			continue
+	st := a.agSt()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if err != nil {
+		msg := err.Error()
+		if st.err != msg {
+			st.err = msg
 		}
-		if r.Kind == "weekly" && int(c.Weekday())+1 != r.Weekday {
-			continue
+		if st.org != org || !st.loaded {
+			st.org, st.agents, st.tasks, st.loaded = org, []Agent{}, []AgentTask{}, true
+			return true
 		}
-		return c
+		return false
 	}
-	return base
+	changed := st.org != org || !st.loaded || string(Marshal(st.agents)) != string(Marshal(agents)) || string(Marshal(st.tasks)) != string(Marshal(tasks))
+	st.org, st.agents, st.tasks, st.loaded, st.err = org, agents, tasks, true, ""
+	return changed
 }
 
-type Agent struct {
-	Active       bool              `json:"active"`
-	Color        string            `json:"color"`
-	CreatedAt    Time              `json:"createdAt"`
-	DocAccess    map[string]string `json:"docAccess"`
-	ID           string            `json:"id"`
-	Instructions string            `json:"instructions"`
-	Name         string            `json:"name"`
-	Role         string            `json:"role"`
-	Routines     []AgentRoutine    `json:"routines"`
-	Symbol       string            `json:"symbol"`
+func (a *App) agentFetch(org string) ([]Agent, []AgentTask, error) {
+	be, err := agentBackend()
+	if err != nil {
+		return nil, nil, err
+	}
+	agents, err := be.ListAgents(org)
+	if err != nil {
+		return nil, nil, err
+	}
+	tasks, err := be.ListAgentTasks(org, service.TaskFilter{})
+	if err != nil {
+		return nil, nil, err
+	}
+	return agents, tasks, nil
 }
 
-// UnmarshalJSON 寬鬆解碼(同 Swift 的手寫解碼):id、name 必須有,其他缺了用預設值
-func (g *Agent) UnmarshalJSON(b []byte) error {
-	type raw Agent
-	x := raw(NewAgent("", ""))
-	if err := json.Unmarshal(b, &x); err != nil {
-		return err
+// agentSync 遠端:在背景重讀 org,有變就通知畫面(同時只跑一個)
+func (a *App) agentSync(org string) {
+	st := a.agSt()
+	st.mu.Lock()
+	if st.syncing {
+		st.mu.Unlock()
+		return
 	}
-	var keys map[string]json.RawMessage
-	_ = json.Unmarshal(b, &keys)
-	if _, ok := keys["id"]; !ok {
-		return fmt.Errorf("角色缺少 id")
+	st.syncing = true
+	st.mu.Unlock()
+	changed := a.agentRefresh(org)
+	st.mu.Lock()
+	st.syncing = false
+	st.mu.Unlock()
+	if changed {
+		a.Changed("agents")
 	}
-	if _, ok := keys["name"]; !ok {
-		return fmt.Errorf("角色缺少 name")
-	}
-	if x.Routines == nil {
-		x.Routines = []AgentRoutine{}
-	}
-	acc := map[string]string{}
-	for k, v := range x.DocAccess {
-		if iaOneOf(v, DocAccessLevels) {
-			acc[k] = v
+}
+
+// agentSnapshot org 的角色與任務(快取;組織還沒載入:本機當場讀,遠端先給空的並在背景讀)。不需要拿 Mu
+func (a *App) agentSnapshot(org string) ([]Agent, []AgentTask) {
+	st := a.agSt()
+	st.mu.Lock()
+	cur := st.loaded && st.org == org
+	st.mu.Unlock()
+	if !cur {
+		if IsRemote() {
+			st.mu.Lock()
+			st.org, st.agents, st.tasks, st.loaded = org, []Agent{}, []AgentTask{}, true
+			st.mu.Unlock()
+			go a.agentSync(org)
+		} else {
+			a.agentRefresh(org)
 		}
 	}
-	x.DocAccess = acc
-	*g = Agent(x)
-	return nil
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.agents, st.tasks
 }
 
-// Access 這個角色對某個位置的權限("" = 不能存取);頁籤的設定優先於區塊
-func (g Agent) Access(section, tab string) string {
-	if tab != "" {
-		if a, ok := g.DocAccess[tab]; ok {
-			if a == "none" {
-				return ""
-			}
-			return a
-		}
-	}
-	if a, ok := g.DocAccess[section]; ok && a != "none" {
-		return a
-	}
-	return ""
+// AgentsError 最近一次讀核心的錯誤(成功後清掉)
+func (a *App) AgentsError() string {
+	st := a.agSt()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.err
 }
 
-func (g Agent) CanRead(section, tab string) bool  { return g.Access(section, tab) != "" }
-func (g Agent) CanWrite(section, tab string) bool { return g.Access(section, tab) == "write" }
+// ---- 讀(目前組織;呼叫時要拿著 Mu,因為要知道目前組織) ----
 
-func cloneAgent(g Agent) Agent {
-	g.Routines = append([]AgentRoutine{}, g.Routines...)
-	acc := map[string]string{}
-	for k, v := range g.DocAccess {
-		acc[k] = v
-	}
-	g.DocAccess = acc
-	return g
-}
+// Agents 目前組織的全部角色
+func (a *App) Agents() []Agent { return a.AgentsOf(a.CurrentOrgID()) }
 
-type AgentTaskNote struct {
-	At     Time   `json:"at"`
-	Author string `json:"author"`
-	ID     string `json:"id"`
-	Text   string `json:"text"`
-}
+// AgentTasks 目前組織的全部任務(最新的在前)
+func (a *App) AgentTasks() []AgentTask { return a.TasksOf(a.CurrentOrgID()) }
 
-func (n *AgentTaskNote) UnmarshalJSON(b []byte) error {
-	type raw AgentTaskNote
-	x := raw{At: nowPrecise()}
-	if err := json.Unmarshal(b, &x); err != nil {
-		return err
-	}
-	if x.ID == "" {
-		x.ID = UUID()
-	}
-	*n = AgentTaskNote(x)
-	return nil
-}
-
-type AgentTask struct {
-	AgentID      string          `json:"agentId"`
-	ClaimedAt    *Time           `json:"claimedAt,omitempty"`
-	CompletedAt  *Time           `json:"completedAt,omitempty"`
-	CreatedAt    Time            `json:"createdAt"`
-	CreatedBy    string          `json:"createdBy"`
-	ID           string          `json:"id"`
-	Instructions string          `json:"instructions"`
-	Links        []string        `json:"links"`
-	Notes        []AgentTaskNote `json:"notes"`
-	Priority     string          `json:"priority"`
-	Result       string          `json:"result"`
-	RoutineID    *string         `json:"routineId,omitempty"`
-	Status       string          `json:"status"`
-	Title        string          `json:"title"`
-	UpdatedAt    Time            `json:"updatedAt"`
-}
-
-func (t *AgentTask) UnmarshalJSON(b []byte) error {
-	type raw AgentTask
-	now := nowPrecise()
-	x := raw{Status: "queued", Priority: "normal", CreatedAt: now, UpdatedAt: now, CreatedBy: MCPAuthor}
-	if err := json.Unmarshal(b, &x); err != nil {
-		return err
-	}
-	if !iaOneOf(x.Status, AgentTaskStatuses) {
-		x.Status = "queued"
-	}
-	if !iaOneOf(x.Priority, IssuePriorities) {
-		x.Priority = "normal"
-	}
-	if x.Links == nil {
-		x.Links = []string{}
-	}
-	if x.Notes == nil {
-		x.Notes = []AgentTaskNote{}
-	}
-	*t = AgentTask(x)
-	return nil
-}
-
-func (t AgentTask) Number() int { return iaIDNumber(t.ID) }
-
-func TaskIsOpen(status string) bool {
-	return status == "queued" || status == "inProgress" || status == "blocked"
-}
-
-// TaskStatusLabel 同 Swift 的 AgentTaskStatus.label
-func TaskStatusLabel(s string) string {
-	switch s {
-	case "queued":
-		return "待領取"
-	case "inProgress":
-		return "進行中"
-	case "blocked":
-		return "需要協助"
-	case "done":
-		return "完成"
-	case "canceled":
-		return "已取消"
-	}
-	return s
-}
-
-func cloneTask(t AgentTask) AgentTask {
-	t.Links = append([]string{}, t.Links...)
-	t.Notes = append([]AgentTaskNote{}, t.Notes...)
+// AgentsOf、TasksOf 指定組織(不需要拿 Mu)
+func (a *App) AgentsOf(org string) []Agent { g, _ := a.agentSnapshot(org); return g }
+func (a *App) TasksOf(org string) []AgentTask {
+	_, t := a.agentSnapshot(org)
 	return t
 }
 
-// AgentData agents.json 的內容
-type AgentData struct {
-	Agents []Agent     `json:"agents"`
-	Tasks  []AgentTask `json:"tasks"`
-}
-
-type agentState struct {
-	Agents []Agent
-	Tasks  []AgentTask
-}
-
-func (a *App) agentSt() *agentState {
-	if s, ok := a.Ext["agents"].(*agentState); ok {
-		return s
-	}
-	s := &agentState{}
-	a.Ext["agents"] = s
-	a.loadAgents()
-	return s
-}
-
-// Agents 全部角色(呼叫時要拿著 Mu)
-func (a *App) Agents() []Agent { return a.agentSt().Agents }
-
-// AgentTasks 全部任務(最新的在前;呼叫時要拿著 Mu)
-func (a *App) AgentTasks() []AgentTask { return a.agentSt().Tasks }
-
-func (a *App) agentsPath() string { return filepath.Join(a.DataDir(), "agents.json") }
-
-// 檔案沒有或讀不出來時用預設角色(同 Swift);讀不出來的檔案先改名保留
-func (a *App) loadAgents() {
-	s := a.agentSt()
-	path := a.agentsPath()
-	b, err := ReadData(path)
-	if err == nil {
-		var d AgentData
-		if jerr := json.Unmarshal(b, &d); jerr == nil {
-			if d.Agents == nil {
-				d.Agents = []Agent{}
-			}
-			if d.Tasks == nil {
-				d.Tasks = []AgentTask{}
-			}
-			s.Agents, s.Tasks = d.Agents, d.Tasks
-			return
-		}
-		keep := strings.TrimSuffix(path, ".json") + fmt.Sprintf(".unreadable-%d.json", time.Now().Unix())
-		_ = RenameData(path, keep)
-	}
-	s.Agents, s.Tasks = defaultAgents(), []AgentTask{}
-	a.saveAgents()
-}
-
-func (a *App) saveAgents() {
-	s := a.agentSt()
-	_ = WriteJSON(a.agentsPath(), AgentData{Agents: s.Agents, Tasks: s.Tasks})
-}
-
-// FindAgent 依 id(不分大小寫)或名稱找角色(同 Swift 的 AgentStore.agent)
-func (a *App) FindAgent(id string) *Agent {
-	s := a.agentSt()
-	for i := range s.Agents {
-		if strings.EqualFold(s.Agents[i].ID, id) {
-			g := cloneAgent(s.Agents[i])
+// FindAgentIn 依 id(不分大小寫)或名稱找角色(不需要拿 Mu)
+func (a *App) FindAgentIn(org, id string) *Agent {
+	list := a.AgentsOf(org)
+	for i := range list {
+		if strings.EqualFold(list[i].ID, id) {
+			g := list[i].Clone()
 			return &g
 		}
 	}
-	for i := range s.Agents {
-		if s.Agents[i].Name == id {
-			g := cloneAgent(s.Agents[i])
+	for i := range list {
+		if list[i].Name == id {
+			g := list[i].Clone()
 			return &g
 		}
 	}
 	return nil
 }
 
+// FindAgent 目前組織依 id(不分大小寫)或名稱找角色(同 Swift 的 AgentStore.agent)
+func (a *App) FindAgent(id string) *Agent { return a.FindAgentIn(a.CurrentOrgID(), id) }
+
 // FindTask 依 id 找任務(不分大小寫)
 func (a *App) FindTask(id string) *AgentTask {
-	for _, t := range a.agentSt().Tasks {
+	for _, t := range a.AgentTasks() {
 		if strings.EqualFold(t.ID, id) {
-			c := cloneTask(t)
+			c := t.Clone()
 			return &c
 		}
 	}
@@ -351,7 +251,7 @@ func (a *App) FindTask(id string) *AgentTask {
 // TasksFor 某個角色的任務
 func (a *App) TasksFor(agentID string) []AgentTask {
 	out := []AgentTask{}
-	for _, t := range a.agentSt().Tasks {
+	for _, t := range a.AgentTasks() {
 		if t.AgentID == agentID {
 			out = append(out, t)
 		}
@@ -376,300 +276,222 @@ func (a *App) TaskAuthorName(author string) string {
 	return a.Name(Person(author))
 }
 
-// UpsertAgent 新增或取代(依 id 完全相同)
-func (a *App) UpsertAgent(g Agent) {
-	s := a.agentSt()
-	g = cloneAgent(g)
-	for i := range s.Agents {
-		if s.Agents[i].ID == g.ID {
-			s.Agents[i] = g
-			a.saveAgents()
-			go a.Changed("agents")
-			return
-		}
-	}
-	s.Agents = append(s.Agents, g)
-	a.saveAgents()
-	go a.Changed("agents")
+// ---- 寫:交給核心,成功後更新快取、寫動態、通知畫面 ----
+
+// AgentOps 角色與任務的寫入(實作 backend.Backend 的角色部分)。呼叫時不要拿著 Mu。
+// 讀取(ListAgents 等)直接問核心,不用快取。
+type AgentOps struct{ a *App }
+
+func (a *App) AgentOps() AgentOps { return AgentOps{a} }
+
+func (o AgentOps) be() (backend.Backend, error) { return agentBackend() }
+
+// done 寫入成功後:快取換成核心最新的、通知畫面
+func (o AgentOps) done(org string) {
+	o.a.agentRefresh(org)
+	o.a.Changed("agents")
 }
 
-// DeleteAgent 刪除角色,未完成的任務一併取消
-func (a *App) DeleteAgent(id string) {
-	s := a.agentSt()
-	for i := range s.Tasks {
-		if s.Tasks[i].AgentID == id && TaskIsOpen(s.Tasks[i].Status) {
-			s.Tasks[i].Status = "canceled"
-			s.Tasks[i].UpdatedAt = nowPrecise()
-		}
-	}
-	kept := []Agent{}
-	for _, g := range s.Agents {
-		if g.ID != id {
-			kept = append(kept, g)
-		}
-	}
-	s.Agents = kept
-	a.saveAgents()
-	go a.Changed("agents")
+func (o AgentOps) logf(actor Actor, icon, text string) {
+	o.a.Mu.Lock()
+	o.a.Log(actor, icon, text, "automation")
+	o.a.Mu.Unlock()
 }
 
-// NewAgentID 由名稱產生 id(同 Swift 的 newId)
-func (a *App) NewAgentID(name string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(name) {
-		if r < 128 && (unicode.IsLetter(r) || unicode.IsDigit(r)) {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('-')
-		}
-	}
-	parts := []string{}
-	for _, p := range strings.Split(b.String(), "-") {
-		if p != "" {
-			parts = append(parts, p)
-		}
-	}
-	root := strings.Join(parts, "-")
-	if root == "" {
-		root = fmt.Sprintf("agent-%d", len(a.agentSt().Agents)+1)
-	}
-	id, n := root, 2
-	for a.hasAgentID(id) {
-		id = fmt.Sprintf("%s-%d", root, n)
-		n++
+func (o AgentOps) agentName(org, id string) string {
+	if g := o.a.FindAgentIn(org, id); g != nil {
+		return g.Name
 	}
 	return id
 }
 
-func (a *App) hasAgentID(id string) bool {
-	for _, g := range a.agentSt().Agents {
-		if g.ID == id {
-			return true
-		}
+func (o AgentOps) ListAgents(org string) ([]model.Agent, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
 	}
-	return false
+	return b.ListAgents(org)
 }
 
-// AssignTask 指派任務(同 Swift 的 assign;找不到角色回傳 nil)
-func (a *App) AssignTask(agentID, title, instructions, priority, author string, routineID *string) *AgentTask {
-	g := a.FindAgent(agentID)
-	if g == nil {
-		return nil
+func (o AgentOps) GetAgent(org, id string) (*model.Agent, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
 	}
-	s := a.agentSt()
-	num := 0
-	for _, t := range s.Tasks {
-		num = max(num, t.Number())
+	return b.GetAgent(org, id)
+}
+
+func (o AgentOps) SaveAgent(org string, in model.Agent) (*model.Agent, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
 	}
-	if priority == "" {
-		priority = "normal"
+	g, err := b.SaveAgent(org, in)
+	if err == nil {
+		o.done(org)
 	}
-	now := nowPrecise()
-	t := AgentTask{ID: "T-" + strconv.Itoa(num+1), Title: title, Instructions: instructions, AgentID: g.ID,
-		Status: "queued", Priority: priority, CreatedBy: author, RoutineID: routineID, CreatedAt: now, UpdatedAt: now,
-		Links: []string{}, Notes: []AgentTaskNote{}}
-	s.Tasks = append([]AgentTask{t}, s.Tasks...)
-	a.saveAgents()
+	return g, err
+}
+
+func (o AgentOps) DeleteAgent(org, id string) error {
+	b, err := o.be()
+	if err != nil {
+		return err
+	}
+	if err = b.DeleteAgent(org, id); err == nil {
+		o.done(org)
+	}
+	return err
+}
+
+func (o AgentOps) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	return b.ListAgentTasks(org, f)
+}
+
+func (o AgentOps) GetAgentTask(org, id string) (*model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	return b.GetAgentTask(org, id)
+}
+
+func (o AgentOps) AssignTask(org string, in service.TaskInput) (*model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	t, err := b.AssignTask(org, in)
+	if err != nil {
+		return nil, err
+	}
+	o.done(org)
+	o.logAssigned(org, *t)
+	return t, nil
+}
+
+func (o AgentOps) logAssigned(org string, t model.AgentTask) {
 	who := SystemActor
-	if author != RoutineAuthor {
-		who = AuthorActor(author)
+	if t.CreatedBy != RoutineAuthor {
+		who = AuthorActor(t.CreatedBy)
 	}
-	a.Log(who, "person.badge.clock", "指派 "+t.ID+"「"+title+"」給"+g.Name, "automation")
-	go a.Changed("agents")
-	return &t
+	o.logf(who, "person.badge.clock", "指派 "+t.ID+"「"+t.Title+"」給"+o.agentName(org, t.AgentID))
 }
 
-// UpdateTask 修改任務;狀態變了會補上領取/完成時間(同 Swift 的 update)
-func (a *App) UpdateTask(id string, change func(*AgentTask)) *AgentTask {
-	s := a.agentSt()
-	idx := -1
-	for i := range s.Tasks {
-		if strings.EqualFold(s.Tasks[i].ID, id) {
-			idx = i
-			break
+func (o AgentOps) ClaimTask(org string, in service.ClaimInput) (*service.ClaimResult, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	was := ""
+	if in.TaskID != "" {
+		if t, err := b.GetAgentTask(org, in.TaskID); err == nil {
+			was = t.Status
 		}
 	}
-	if idx < 0 {
-		return nil
+	res, err := b.ClaimTask(org, in)
+	if err != nil {
+		return nil, err
 	}
-	before := s.Tasks[idx]
-	t := cloneTask(before)
-	change(&t)
-	if string(Marshal(t)) == string(Marshal(before)) {
-		return &t
-	}
-	if t.Status != before.Status {
-		now := nowPrecise()
-		if t.Status == "inProgress" && t.ClaimedAt == nil {
-			t.ClaimedAt = &now
-		}
-		if t.Status == "done" || t.Status == "canceled" {
-			t.CompletedAt = &now
-		} else {
-			t.CompletedAt = nil
+	if res.Task != nil {
+		o.done(org)
+		if was != "inProgress" && res.Agent != nil {
+			o.logf(AI(res.Agent.ID), "figure.walk", res.Agent.Name+"開始處理 "+res.Task.ID+"「"+res.Task.Title+"」")
 		}
 	}
-	t.UpdatedAt = nowPrecise()
-	s.Tasks[idx] = t
-	a.saveAgents()
-	go a.Changed("agents")
-	return &t
+	return res, nil
 }
 
-// NoteTask 加過程紀錄;空白不做事
-func (a *App) NoteTask(id, text, author string) *AgentTask {
-	t := strings.TrimSpace(text)
-	if t == "" {
-		return a.FindTask(id)
+func (o AgentOps) ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
 	}
-	return a.UpdateTask(id, func(x *AgentTask) {
-		x.Notes = append(x.Notes, AgentTaskNote{ID: UUID(), Author: author, Text: t, At: nowPrecise()})
-	})
+	was := ""
+	if t, err := b.GetAgentTask(org, id); err == nil {
+		was = t.Status
+	}
+	t, err := b.ReportTask(org, id, in)
+	if err != nil {
+		return nil, err
+	}
+	o.done(org)
+	if in.Status != nil && *in.Status != was {
+		name := o.agentName(org, t.AgentID)
+		switch *in.Status {
+		case "done":
+			o.logf(AI(t.AgentID), "checkmark.circle", name+"完成 "+t.ID+"「"+t.Title+"」")
+		case "blocked":
+			o.logf(AI(t.AgentID), "hand.raised", name+"在 "+t.ID+"「"+t.Title+"」需要協助")
+		}
+	}
+	return t, nil
 }
 
-// ClaimTask 角色領取任務:給 id 就領那筆,否則領最優先、最早的待領取任務(錯誤是 UserError,訊息同 Swift)
-func (a *App) ClaimTask(agentID string, taskID *string) (*AgentTask, error) {
-	g := a.FindAgent(agentID)
-	if g == nil {
-		return nil, UserError{"找不到角色 " + agentID}
+func (o AgentOps) CancelTask(org, id string) (*model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
 	}
-	var pick *AgentTask
-	if taskID != nil {
-		t := a.FindTask(*taskID)
-		if t == nil {
-			return nil, UserError{"找不到任務 " + *taskID}
-		}
-		if t.AgentID != g.ID {
-			owner := t.AgentID
-			if o := a.FindAgent(t.AgentID); o != nil {
-				owner = o.Name
-			}
-			return nil, UserError{t.ID + " 是指派給 " + owner + " 的,不是 " + g.Name}
-		}
-		if !TaskIsOpen(t.Status) {
-			return nil, UserError{t.ID + " 已經" + TaskStatusLabel(t.Status) + ",不能再領"}
-		}
-		pick = t
-	} else {
-		queued := []AgentTask{}
-		for _, t := range a.TasksFor(g.ID) {
-			if t.Status == "queued" {
-				queued = append(queued, t)
-			}
-		}
-		sort.SliceStable(queued, func(i, j int) bool {
-			pi, pj := PriorityRank(queued[i].Priority), PriorityRank(queued[j].Priority)
-			if pi != pj {
-				return pi < pj
-			}
-			return queued[i].CreatedAt.Before(queued[j].CreatedAt.Time)
-		})
-		if len(queued) > 0 {
-			c := queued[0]
-			pick = &c
-		}
+	t, err := b.CancelTask(org, id)
+	if err == nil {
+		o.done(org)
 	}
-	if pick == nil {
-		return nil, nil
-	}
-	claimed := a.UpdateTask(pick.ID, func(x *AgentTask) { x.Status = "inProgress" })
-	if pick.Status != "inProgress" {
-		a.Log(AI(g.ID), "figure.walk", g.Name+"開始處理 "+pick.ID+"「"+pick.Title+"」", "automation")
-	}
-	return claimed, nil
+	return t, err
 }
 
-// ReportTask 回報任務(同 Swift 的 report)。status、result、note、links 是 nil 表示沒給
-func (a *App) ReportTask(id string, status, result, note *string, links []string) (*AgentTask, error) {
-	t := a.FindTask(id)
-	if t == nil {
-		return nil, UserError{"找不到任務 " + id}
+func (o AgentOps) RequeueTask(org, id string) (*model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
 	}
-	if t.Status == "canceled" {
-		return nil, UserError{t.ID + " 已取消"}
+	t, err := b.RequeueTask(org, id)
+	if err == nil {
+		o.done(org)
 	}
-	author := AgentPrefix + t.AgentID
-	if note != nil {
-		a.NoteTask(t.ID, *note, author)
-	}
-	updated := a.UpdateTask(t.ID, func(x *AgentTask) {
-		if status != nil {
-			x.Status = *status
-		}
-		if result != nil {
-			x.Result = *result
-		}
-		if links != nil {
-			x.Links = CleanLabels(append(append([]string{}, x.Links...), links...))
-		}
-	})
-	if status != nil && *status != t.Status {
-		if g := a.FindAgent(t.AgentID); g != nil {
-			switch *status {
-			case "done":
-				a.Log(AI(g.ID), "checkmark.circle", g.Name+"完成 "+t.ID+"「"+t.Title+"」", "automation")
-			case "blocked":
-				a.Log(AI(g.ID), "hand.raised", g.Name+"在 "+t.ID+"「"+t.Title+"」需要協助", "automation")
-			}
-		}
-	}
-	return updated, nil
+	return t, err
 }
 
-// RunDueRoutines 到時間的例行任務各排一筆;上一筆還沒做完就不重複排(呼叫時要拿著 Mu)
-func (a *App) RunDueRoutines(now time.Time) {
-	s := a.agentSt()
-	changed := false
-	for ai := range s.Agents {
-		if !s.Agents[ai].Active {
-			continue
-		}
-		for ri := range s.Agents[ai].Routines {
-			r := s.Agents[ai].Routines[ri]
-			if !r.Enabled || r.NextRun().After(now) {
-				continue
-			}
-			t := Time{now.UTC()}
-			s.Agents[ai].Routines[ri].LastRunAt = &t
-			changed = true
-			pending := false
-			for _, x := range s.Tasks {
-				if x.RoutineID != nil && *x.RoutineID == r.ID && TaskIsOpen(x.Status) {
-					pending = true
-				}
-			}
-			if !pending {
-				rid := r.ID
-				a.AssignTask(s.Agents[ai].ID, r.Title, r.Instructions, r.Priority, RoutineAuthor, &rid)
-			}
-		}
+func (o AgentOps) RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
 	}
-	if changed {
-		a.saveAgents()
-		go a.Changed("agents")
+	t, err := b.RunRoutine(org, agentID, routineID, author)
+	if err != nil {
+		return nil, err
 	}
+	o.done(org)
+	o.logAssigned(org, *t)
+	return t, nil
 }
 
-// RunRoutineNow 手動立刻排一筆例行任務(畫面的「現在排一筆」)
-func (a *App) RunRoutineNow(agentID, routineID string) {
-	s := a.agentSt()
-	for ai := range s.Agents {
-		if s.Agents[ai].ID != agentID {
-			continue
-		}
-		for ri := range s.Agents[ai].Routines {
-			r := s.Agents[ai].Routines[ri]
-			if r.ID != routineID {
-				continue
-			}
-			t := nowPrecise()
-			s.Agents[ai].Routines[ri].LastRunAt = &t
-			rid := r.ID
-			a.AssignTask(agentID, r.Title, r.Instructions, r.Priority, a.Me, &rid)
-			return
-		}
-		return
+// AgentsChanged 核心的角色資料被別的路徑改過(角色端點、Issue 指派、例行任務排程):重讀目前組織並通知畫面。不要拿著 Mu
+func (a *App) AgentsChanged() {
+	a.Mu.Lock()
+	org := a.CurrentOrgID()
+	a.Mu.Unlock()
+	if org != "" {
+		a.agentRefresh(org)
 	}
+	a.Changed("agents")
+}
+
+// ---- 預設值 ----
+
+// 同 Swift 版的新角色預設值
+func NewAgent(id, name string) Agent {
+	return Agent{ID: id, Name: name, Symbol: "person.crop.circle", Color: "blue", Active: true,
+		Routines: []AgentRoutine{}, CreatedAt: model.Now(), DocAccess: map[string]string{}}
+}
+
+func NewRoutine(title string) AgentRoutine {
+	return AgentRoutine{ID: UUID(), Title: title, Kind: "daily", Hour: 9, Weekday: 2, EveryHours: 6,
+		Priority: "normal", Enabled: true, CreatedAt: model.Now()}
 }
 
 // AgentPrompt 給 Claude Code 的一段話(同 Swift 的 prompt)
@@ -685,26 +507,33 @@ func agentArg(args map[string]any, k string) string {
 	return s
 }
 
+func (a *App) currentOrgNow() string {
+	a.Mu.Lock()
+	defer a.Mu.Unlock()
+	return a.CurrentOrgID()
+}
+
 func init() {
-	OnOrgLoad(func(a *App) {
-		a.agentSt()
-		a.loadAgents()
-	})
 	OnOrgCreate(func(a *App, dir, template string) {
-		data := AgentData{Agents: []Agent{}, Tasks: []AgentTask{}}
-		if template == "copyCurrent" {
-			for _, g := range a.Agents() {
-				g = cloneAgent(g)
-				now := nowPrecise()
-				for i := range g.Routines {
-					g.Routines[i].LastRunAt = nil
-					g.Routines[i].CreatedAt = now
-				}
-				g.CreatedAt = now
-				data.Agents = append(data.Agents, g)
+		// 複製目前組織:角色(不含任務)搬到新組織的核心。本機核心才在這裡做(遠端模式的組織在雲端,不在 Mu 之內打網路)
+		if template != "copyCurrent" || IsRemote() {
+			return
+		}
+		be, err := agentBackend()
+		if err != nil {
+			return
+		}
+		newOrg := filepath.Base(dir)
+		for _, g := range a.Agents() {
+			g = g.Clone()
+			for i := range g.Routines {
+				g.Routines[i].LastRunAt = nil
+				g.Routines[i].CreatedAt = model.Now()
+			}
+			if _, err := be.SaveAgent(newOrg, g); err != nil {
+				break
 			}
 		}
-		_ = WriteJSON(filepath.Join(dir, "agents.json"), data)
 	})
 	OnAIName(func(a *App, id string) (string, bool) {
 		for _, g := range a.Agents() {
@@ -724,17 +553,30 @@ func init() {
 		return map[string]int{"automation": n}
 	})
 	OnStart(func(a *App) {
-		a.Mu.Lock()
-		a.RunDueRoutines(time.Now())
-		a.Mu.Unlock()
 		if os.Getenv("OPS_NO_TIMERS") == "1" {
 			return
 		}
+		// 例行任務排程(本機核心:每 60 秒;遠端模式由雲端自己排)
 		go func() {
-			for range time.Tick(60 * time.Second) {
-				a.Mu.Lock()
-				a.RunDueRoutines(time.Now())
-				a.Mu.Unlock()
+			for {
+				if !IsRemote() {
+					if l := localCore(); l != nil {
+						if created, err := l.svc.RunDueRoutines(time.Now()); err != nil {
+							fmt.Fprintf(os.Stderr, "例行任務排程:%v\n", err)
+						} else if len(created) > 0 {
+							a.AgentsChanged()
+						}
+					}
+				}
+				time.Sleep(60 * time.Second)
+			}
+		}()
+		// 每 5 秒重讀目前組織的角色與任務(別的路徑改了資料、遠端的修改才看得到;網路與資料庫請求都在鎖外)
+		go func() {
+			for range time.Tick(5 * time.Second) {
+				if org := a.currentOrgNow(); org != "" && a.agentRefresh(org) {
+					a.Changed("agents")
+				}
 			}
 		}()
 	})
@@ -743,8 +585,8 @@ func init() {
 		return map[string]any{"agents": a.Agents(), "tasks": a.AgentTasks()}
 	})
 	RegisterAction("agent_upsert", func(a *App, args map[string]any) (any, error) {
-		var g Agent
-		m := map[string]any{"id": "", "name": ""}
+		g := NewAgent("", "")
+		m := map[string]any{}
 		for k, v := range args {
 			m[k] = v
 		}
@@ -757,46 +599,29 @@ func init() {
 		if c := strings.TrimSpace(g.Color); c != "" && !iaOneOf(c, AgentColors) {
 			return nil, UserError{"color 必須是 " + strings.Join(AgentColors, "、") + " 之一"}
 		}
-		a.Mu.Lock()
-		defer a.Mu.Unlock()
-		if g.ID == "" {
-			g.ID = a.NewAgentID(g.Name)
-			g.CreatedAt = nowPrecise()
+		saved, err := a.AgentOps().SaveAgent(a.currentOrgNow(), g)
+		if err != nil {
+			return nil, agentUserErr(err)
 		}
-		kept := []AgentRoutine{}
-		for _, r := range g.Routines {
-			if strings.TrimFunc(r.Title, func(r rune) bool { return r == '\t' || unicode.Is(unicode.Zs, r) }) != "" {
-				kept = append(kept, r)
-			}
-		}
-		g.Routines = kept
-		a.UpsertAgent(g)
-		return g, nil
+		return saved, nil
 	})
 	RegisterAction("agent_delete", func(a *App, args map[string]any) (any, error) {
-		a.Mu.Lock()
-		defer a.Mu.Unlock()
-		a.DeleteAgent(agentArg(args, "id"))
-		return nil, nil
+		return nil, agentUserErr(a.AgentOps().DeleteAgent(a.currentOrgNow(), agentArg(args, "id")))
 	})
-	setStatus := func(status string) ActionFunc {
-		return func(a *App, args map[string]any) (any, error) {
-			a.Mu.Lock()
-			defer a.Mu.Unlock()
-			t := a.UpdateTask(agentArg(args, "id"), func(x *AgentTask) { x.Status = status })
-			if t == nil {
-				return nil, UserError{"找不到任務 " + agentArg(args, "id")}
-			}
-			return t, nil
-		}
-	}
-	RegisterAction("agent_task_cancel", setStatus("canceled"))
-	RegisterAction("agent_task_requeue", setStatus("queued"))
+	RegisterAction("agent_task_cancel", func(a *App, args map[string]any) (any, error) {
+		t, err := a.AgentOps().CancelTask(a.currentOrgNow(), agentArg(args, "id"))
+		return t, agentUserErr(err)
+	})
+	RegisterAction("agent_task_requeue", func(a *App, args map[string]any) (any, error) {
+		t, err := a.AgentOps().RequeueTask(a.currentOrgNow(), agentArg(args, "id"))
+		return t, agentUserErr(err)
+	})
 	RegisterAction("agent_routine_run", func(a *App, args map[string]any) (any, error) {
 		a.Mu.Lock()
-		defer a.Mu.Unlock()
-		a.RunRoutineNow(agentArg(args, "agent"), agentArg(args, "routine"))
-		return nil, nil
+		org, me := a.CurrentOrgID(), a.Me
+		a.Mu.Unlock()
+		_, err := a.AgentOps().RunRoutine(org, agentArg(args, "agent"), agentArg(args, "routine"), me)
+		return nil, agentUserErr(err)
 	})
 	RegisterAction("agent_prompt", func(a *App, args map[string]any) (any, error) {
 		a.Mu.Lock()
@@ -813,4 +638,15 @@ func init() {
 		}
 		return map[string]any{"text": AgentPrompt(*g, t)}, nil
 	})
+}
+
+// agentUserErr 核心的錯誤轉成畫面看得懂的 UserError(nil 原樣回傳)
+func agentUserErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := err.(UserError); ok {
+		return err
+	}
+	return UserError{err.Error()}
 }

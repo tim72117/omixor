@@ -6,15 +6,16 @@ import { arr, type AgentsView, type Approval, type Automation, type AutomationRu
 import { EmptyState, Pill, Segmented } from "../../components/ui";
 import type { SectionProps } from "../index";
 import { AutoAgents } from "./AutoAgents";
+import { AutoDispatch } from "./AutoDispatch";
 import { AutoFlows, FlowDetailSheet } from "./AutoFlows";
 import { AutoInbox } from "./AutoInbox";
 import { AutoInsights } from "./AutoInsights";
 import { AutoRuns } from "./AutoRuns";
 import { AutoCtx, pendingOf, type AutoData } from "./autoShared";
 
-type Tab = "inbox" | "agents" | "flows" | "runs" | "insights";
+type Tab = "inbox" | "agents" | "dispatch" | "flows" | "runs" | "insights";
 const TABS: { id: Tab; label: string }[] = [
-  { id: "inbox", label: "待核准" }, { id: "agents", label: "虛擬角色" }, { id: "flows", label: "自動化流程" }, { id: "runs", label: "執行紀錄" }, { id: "insights", label: "成效" },
+  { id: "inbox", label: "待核准" }, { id: "agents", label: "虛擬角色" }, { id: "dispatch", label: "派發" }, { id: "flows", label: "自動化流程" }, { id: "runs", label: "執行紀錄" }, { id: "insights", label: "成效" },
 ];
 
 export default function AutomationView({ focusId, clearFocus }: SectionProps) {
@@ -58,7 +59,7 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
   const running = data.runs.filter((r) => r.status === "running").length;
   const blocked = data.agents?.tasks.filter((x) => x.status === "blocked").length ?? 0;
   const tabTitle = (t: (typeof TABS)[number]) =>
-    t.id === "agents" && blocked > 0 ? `${t.label}(${blocked})` : t.id === "inbox" && pending.length ? `${t.label}(${pending.length})` : t.label;
+    (t.id === "agents" || t.id === "dispatch") && blocked > 0 ? `${t.label}(${blocked})` : t.id === "inbox" && pending.length ? `${t.label}(${pending.length})` : t.label;
 
   return (
     <AutoCtx.Provider value={data}>
@@ -71,12 +72,13 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
               {pending.length > 0 && <Pill text={`${pending.length} 件待核准`} color="orange" icon="hand.raised.fill" />}
             </div>
           }>
-          <div style={{ maxWidth: 660 }}><Segmented value={tab} onChange={setTab} options={TABS.map((t) => ({ value: t.id, label: tabTitle(t) }))} /></div>
+          <div style={{ maxWidth: 760 }}><Segmented value={tab} onChange={setTab} options={TABS.map((t) => ({ value: t.id, label: tabTitle(t) }))} /></div>
         </PageHeader>
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
           {autosErr ? <EmptyState title="讀不到 AI 自動化" icon="exclamationmark.triangle" message={autosErr} />
             : tab === "inbox" ? <AutoInbox focusId={focusApproval} clearFocus={() => setFocusApproval(undefined)} edited={edited} setEdited={setEdited} openAutomation={setDetail} openRun={(id) => { setSelectedRun(id); setTab("runs"); }} />
             : tab === "agents" ? <AutoAgents selection={selectedAgent} setSelection={setSelectedAgent} />
+            : tab === "dispatch" ? <AutoDispatch openTask={(t) => { setSelectedAgent(t.agentId); setTab("agents"); }} />
             : tab === "flows" ? <AutoFlows openDetail={setDetail} />
             : tab === "runs" ? <AutoRuns selection={selectedRun} setSelection={setSelectedRun} openApproval={(id) => { setFocusApproval(id); setTab("inbox"); }} openAutomation={setDetail} />
             : <AutoInsights openAutomation={setDetail} />}

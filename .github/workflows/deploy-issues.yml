@@ -1,4 +1,4 @@
-# omixor-server(omixor-core 的線上服務,Cloud Run 服務名稱仍是 omixor-issues)部署到 Cloud Run。照 evoleap 的做法:
+# omixor-server(server/,引用 core/ 的 omixor-core;Cloud Run 服務名稱仍是 omixor-issues)部署到 Cloud Run。照 evoleap 的做法:
 #   - Workload Identity Federation:provider github-provider-omixor 只允許 tim72117/omixor
 #   - 資料庫:Cloud SQL onagent-prod:asia-east1:onagent-db 上的 omixor 資料庫(帳號 omixor_app),
 #     連線字串在 Secret Manager 的 OMIXOR_DATABASE_URL
@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'core/**'
+      - 'server/**'
       - '.github/workflows/deploy-issues.yml'
   workflow_dispatch:
 
@@ -29,16 +30,19 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: core/go.mod
+          go-version-file: server/go.mod
       - run: go vet ./...
+        working-directory: core
       - run: go test ./...
+        working-directory: core
+      - run: go vet ./...
+        working-directory: server
+      - run: go test ./...
+        working-directory: server
 
   deploy:
     needs: test
@@ -58,10 +62,13 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Build and push image
-        working-directory: core
         run: |
           gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
-          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+          docker build -f server/Dockerfile \
+            --build-arg VERSION=${{ github.sha }} \
+            --build-arg COMMIT=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
 

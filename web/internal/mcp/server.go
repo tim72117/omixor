@@ -2,104 +2,32 @@ package mcp
 
 import (
 	"errors"
-	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
+	coremcp "omixor-core/mcp"
 	"omixor-web/internal/core"
 )
 
-// 傳輸和 Swift 版的 MCPServer 一樣:Streamable HTTP 的最小實作。
-//   - 只聽 127.0.0.1,POST /mcp 收 JSON-RPC、回 application/json;只有通知時回 202
-//   - 不開 SSE(GET、DELETE 回 405,Allow: POST),不用 session
-//   - 每個請求處理完就關閉連線(Connection: close)
-//   - 帶 Origin 的請求只接受本機來源(防 DNS rebinding)
-//   - body 最大 4 MB;不接受 chunked(411)
+// 傳輸(Streamable HTTP 的最小實作,同 Swift 版 MCPServer)在 omixor-core/mcp/http.go。
 
 const (
-	DefaultPort = 3765
-	MaxBody     = 4 << 20
+	DefaultPort = coremcp.DefaultPort
+	MaxBody     = coremcp.MaxBody
 )
 
 // ConfiguredPort:環境變數 OPS_MCP_PORT,否則 3765
-func ConfiguredPort() int {
-	if p, err := strconv.Atoi(os.Getenv("OPS_MCP_PORT")); err == nil && p > 0 && p < 65536 {
-		return p
-	}
-	return DefaultPort
-}
+func ConfiguredPort() int { return coremcp.ConfiguredPort() }
 
 // HTTPHandler 回傳處理 MCP 的 http.Handler
-func HTTPHandler(h *Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Connection", "close")
-		if origin := r.Header.Get("Origin"); origin != "" && !IsLocalOrigin(origin) {
-			text(w, 403, "Forbidden origin")
-			return
-		}
-		if r.URL.Path != "/mcp" {
-			text(w, 404, "Not found. MCP endpoint is /mcp")
-			return
-		}
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			w.Header().Set("Content-Length", "0")
-			w.WriteHeader(405)
-			return
-		}
-		for _, te := range r.TransferEncoding {
-			if strings.EqualFold(te, "chunked") {
-				text(w, 411, "Chunked bodies are not supported; send Content-Length")
-				return
-			}
-		}
-		if r.ContentLength > MaxBody {
-			text(w, 413, "Body too large")
-			return
-		}
-		body, err := io.ReadAll(io.LimitReader(r.Body, MaxBody+1))
-		if err != nil || len(body) > MaxBody {
-			text(w, 413, "Body too large")
-			return
-		}
-		out := h.Handle(body)
-		if out == nil {
-			w.Header().Set("Content-Length", "0")
-			w.WriteHeader(202)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Content-Length", strconv.Itoa(len(out)))
-		w.WriteHeader(200)
-		_, _ = w.Write(out)
-	})
-}
-
-func text(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Length", strconv.Itoa(len(msg)))
-	w.WriteHeader(status)
-	_, _ = io.WriteString(w, msg)
-}
+func HTTPHandler(h *Handler) http.Handler { return coremcp.HTTPHandler(h.Handle) }
 
 // IsLocalOrigin 同 Swift:host 是 localhost、127.0.0.1、::1
-func IsLocalOrigin(origin string) bool {
-	u, err := url.Parse(origin)
-	if err != nil {
-		return false
-	}
-	switch strings.ToLower(u.Hostname()) {
-	case "localhost", "127.0.0.1", "::1", "[::1]":
-		return true
-	}
-	return false
-}
+func IsLocalOrigin(origin string) bool { return coremcp.IsLocalOrigin(origin) }
 
 // Start 在 127.0.0.1:port 啟動 MCP 伺服器,狀態寫進 app.MCP
 func Start(app *core.App, port int) {
@@ -123,7 +51,11 @@ func Start(app *core.App, port int) {
 		app.Changed("mcp")
 		return
 	}
-	srv := &http.Server{Handler: HTTPHandler(&Handler{App: app}), ReadHeaderTimeout: 10 * time.Second}
+	h := &Handler{App: app}
+	mux := http.NewServeMux()
+	mux.Handle("/mcp/agent", AgentHTTPHandler(h)) // 角色端點(核心的 mcp.AgentEndpoint):Bearer 憑證、白名單工具、文件櫃工具
+	mux.Handle("/", HTTPHandler(h))
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	srv.SetKeepAlivesEnabled(false)
 	app.Mu.Lock()
 	app.MCP.State = "listening"

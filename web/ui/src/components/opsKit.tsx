@@ -70,7 +70,7 @@ export type ApprovalRequest = {
   rollbackPlan: string; createdAt: string; expiresAt: string; state: "pending" | "approved" | "rejected" | "expired";
 };
 export type ActivityItem = { id: string; date: string; actor: Actor; icon: string; text: string; section: SectionId };
-export type Agent = { id: string; name: string; symbol?: string; color?: string };
+export type Agent = { id: string; name: string; symbol?: string; color?: string; active?: boolean };
 
 // MARK: - 列舉
 

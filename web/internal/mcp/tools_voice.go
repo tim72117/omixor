@@ -31,7 +31,7 @@ func init() {
 	Register("ops_voice_submit", func(c *Call) (any, error) {
 		voice := core.VoiceOf(c.App)
 		if voice == nil {
-			return nil, ToolError{"旁白功能還沒啟動"}
+			return nil, ToolError{Message: "旁白功能還沒啟動"}
 		}
 		all, _ := rawBool(c.Args.Raw, "all")
 		scripts, _ := c.Args.Strings("scripts")
@@ -45,7 +45,7 @@ func init() {
 		if dry, ok := rawBool(c.Args.Raw, "dry_run"); ok && dry {
 			out, err := voice.DryRun(scripts, all, limit)
 			if err != nil {
-				return nil, ToolError{err.Error()}
+				return nil, ToolError{Message: err.Error()}
 			}
 			return map[string]any{"dryRun": out}, nil
 		}
@@ -53,7 +53,7 @@ func init() {
 		defer c.App.Mu.Unlock()
 		job, err := voice.Submit(scripts, all, limit, c.Actor)
 		if err != nil {
-			return nil, ToolError{err.Error()}
+			return nil, ToolError{Message: err.Error()}
 		}
 		ahead := 0
 		for _, j := range voice.Jobs {
@@ -82,7 +82,7 @@ func init() {
 					return voiceJSON(j, true), nil
 				}
 			}
-			return nil, ToolError{"找不到旁白批次 " + id}
+			return nil, ToolError{Message: "找不到旁白批次 " + id}
 		}
 		list := []any{}
 		for i, j := range jobs {

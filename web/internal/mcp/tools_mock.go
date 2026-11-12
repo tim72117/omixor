@@ -40,7 +40,7 @@ func items(a *core.App, collection string) ([]any, error) {
 			return core.List(a.C[collection]), nil
 		}
 	}
-	return nil, ToolError{"沒有這個集合:" + collection + "。可用:" + strings.Join(collections, "、")}
+	return nil, ToolError{Message: "沒有這個集合:" + collection + "。可用:" + strings.Join(collections, "、")}
 }
 
 func serviceID(a *core.App, id string) (string, error) {
@@ -51,7 +51,7 @@ func serviceID(a *core.App, id string) (string, error) {
 	for _, s := range a.C["services"] {
 		ids = append(ids, core.Str(s, "id"))
 	}
-	return "", ToolError{"找不到服務 " + id + "。可用:" + strings.Join(ids, "、")}
+	return "", ToolError{Message: "找不到服務 " + id + "。可用:" + strings.Join(ids, "、")}
 }
 
 func picks(list []map[string]any, keys ...string) []any {
@@ -206,7 +206,7 @@ func init() {
 					return r, nil
 				}
 			}
-			return nil, ToolError{collection + " 裡找不到 id「" + id + "」"}
+			return nil, ToolError{Message: collection + " 裡找不到 id「" + id + "」"}
 		})
 	})
 
@@ -253,7 +253,7 @@ func init() {
 			action, hasAction := c.Args.String("action")
 			note, hasNote := c.Args.String("ai_note")
 			if !hasAction && !hasNote {
-				return nil, ToolError{"action 與 ai_note 至少要給一項"}
+				return nil, ToolError{Message: "action 與 ai_note 至少要給一項"}
 			}
 			if hasNote {
 				al["aiNote"] = note
@@ -325,7 +325,7 @@ func init() {
 				return nil, err
 			}
 			if sev < 1 || sev > 4 {
-				return nil, ToolError{"sev 必須是 1–4"}
+				return nil, ToolError{Message: "sev 必須是 1–4"}
 			}
 			services := []any{}
 			if list, ok := c.Args.Strings("services"); ok {
@@ -405,7 +405,7 @@ func init() {
 			summary, hasSummary := c.Args.String("ai_summary")
 			impact, hasImpact := c.Args.String("impact")
 			if status == "" && !hasNote && !hasFinding && !hasSummary && !hasImpact {
-				return nil, ToolError{"status、note、finding、ai_summary、impact 至少要給一項"}
+				return nil, ToolError{Message: "status、note、finding、ai_summary、impact 至少要給一項"}
 			}
 			if status != "" {
 				var n *string
@@ -528,7 +528,7 @@ func init() {
 			action, hasAction := c.Args.String("action")
 			diagnosis, hasDiag := c.Args.String("ai_diagnosis")
 			if !hasAction && !hasDiag {
-				return nil, ToolError{"action 與 ai_diagnosis 至少要給一項"}
+				return nil, ToolError{Message: "action 與 ai_diagnosis 至少要給一項"}
 			}
 			if hasDiag {
 				run["aiDiagnosis"] = diagnosis

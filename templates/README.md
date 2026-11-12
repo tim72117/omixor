@@ -16,7 +16,6 @@ OMIXOR_TEMPLATES=/path/to/templates ./web/bin/omixor-web   # 指定位置
 | 位置 | 內容 |
 |---|---|
 | `org.json` | 第一次啟動建立的預設組織(名稱、圖示、顏色);沒開範本時是 omixor |
-| `agents/` | 預設組織的 AI 角色與排程,一個角色一個檔 |
 | `cabinet/` | 預設組織的文件櫃結構,一個區塊一個檔 |
 | `seed/` | 預設組織的示範畫面資料(總覽、服務、事件、告警…),一個資料集一個檔;`_meta.json` 記匯出時間 |
 | `doc/` | 文件櫃的文件轉換器 `docrender.js` 與範例網頁 `docpage.html`(Swift 版有同內容的副本) |
@@ -24,7 +23,7 @@ OMIXOR_TEMPLATES=/path/to/templates ./web/bin/omixor-web   # 指定位置
 
 目錄裡的檔案照檔名排序讀入,檔名前面的數字就是順序。單檔太大就拆成目錄。
 
-只影響**還沒有資料**的組織:已經存過的 `agents.json`、`cabinet-layout.json` 等不會被範本覆蓋。
+只影響**還沒有資料**的組織:已經存過的 `cabinet-layout.json` 等不會被範本覆蓋。虛擬角色不屬於範本:新組織沒有任何預設角色,角色只能在畫面或 MCP 新增(資料在核心的資料庫)。
 
 ## 更新示範資料
 

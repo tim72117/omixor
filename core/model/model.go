@@ -70,6 +70,8 @@ type Issue struct {
 	Link      string    `json:"link"`
 	Priority  string    `json:"priority"`
 	Source    string    `json:"source"`
+	// Assignee 指派給的虛擬角色 id(空 = 未指派);指派時會自動替該角色排任務(見 service/agents.go)
+	Assignee  string    `json:"assignee,omitempty"`
 	Status    string    `json:"status"`
 	Title     string    `json:"title"`
 	UpdatedAt Time      `json:"updatedAt"`
@@ -182,6 +184,8 @@ type ImportResult struct {
 type Principal struct {
 	User  User
 	Token Token
+	// Agent 不是 nil 表示這是「角色憑證」換來的身分(只能做 service 明確開放給角色的事,見 service/agents.go)
+	Agent *AgentIdentity
 }
 
 func (p Principal) ServerAdmin() bool { return p.User.Role == "admin" && !p.User.Disabled }
