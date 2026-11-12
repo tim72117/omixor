@@ -120,6 +120,7 @@ struct SandboxBlock: View {
     @State private var running = false
     @State private var runId = UUID()
     @State private var height: CGFloat = 160
+    @State private var showSource = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -137,10 +138,23 @@ struct SandboxBlock: View {
                         .help("在隔離的沙盒裡執行:不能連網、拿不到 App 的資料與登入")
                 }
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(source).font(.system(size: 12.5, design: .monospaced)).lineSpacing(3).fixedSize().textSelection(.enabled)
+            if running {
+                // 執行時原始碼收起來(可以展開);展開時限高並裁切,長的原始碼不會溢出蓋到文件其他內容
+                DisclosureGroup(isExpanded: $showSource) {
+                    ScrollView([.horizontal, .vertical]) {
+                        Text(source).font(.system(size: 12.5, design: .monospaced)).lineSpacing(3).fixedSize()
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 180)
+                    .clipped()
+                } label: {
+                    Text("原始碼").font(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(source).font(.system(size: 12.5, design: .monospaced)).lineSpacing(3).fixedSize().textSelection(.enabled)
+                }
             }
-            .frame(maxHeight: running ? 120 : nil)
             if running {
                 SandboxPreviewView(source: source, lang: lang, height: $height)
                     .id(runId)
@@ -153,5 +167,6 @@ struct SandboxBlock: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
