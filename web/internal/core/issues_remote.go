@@ -120,12 +120,12 @@ type remoteBackend struct{ base string }
 
 var issueRemoteExchangeMu sync.Mutex
 
-// issueRemoteToken 固定的 token,或存著的 omixor token(沒有就回 "")
-func issueRemoteToken(scope string) string {
+// issueRemoteToken 固定的 token,或這台伺服器存著的 omixor token(沒有就回 "")
+func issueRemoteToken(base string) string {
 	if t := os.Getenv("OPS_ISSUE_SERVER_TOKEN"); t != "" {
 		return t
 	}
-	if t := vaultTokens(remoteTokenScope, issueRemoteTokenID); t != nil {
+	if t := remoteToken(base); t != nil {
 		return t.AccessToken
 	}
 	return ""
@@ -134,7 +134,7 @@ func issueRemoteToken(scope string) string {
 func (r *remoteBackend) client(scope string) *client.Client {
 	c := client.New(r.base)
 	c.HTTP.Timeout = 8 * time.Second
-	c.Token = func() string { return issueRemoteToken(scope) }
+	c.Token = func() string { return issueRemoteToken(r.base) }
 	if os.Getenv("OPS_ISSUE_SERVER_TOKEN") == "" {
 		c.Refresh = func(stale string) (string, error) { return issueRemoteExchange(r.base, scope, stale) }
 	}
@@ -146,7 +146,7 @@ func (r *remoteBackend) client(scope string) *client.Client {
 func issueRemoteExchange(base, scope, stale string) (string, error) {
 	issueRemoteExchangeMu.Lock()
 	defer issueRemoteExchangeMu.Unlock()
-	if t := vaultTokens(remoteTokenScope, issueRemoteTokenID); t != nil && t.AccessToken != "" && t.AccessToken != stale {
+	if t := remoteToken(base); t != nil && t.AccessToken != "" && t.AccessToken != stale {
 		return t.AccessToken, nil
 	}
 	evo := vaultTokens(scope, issueRemoteEvoleapConn)
@@ -169,7 +169,7 @@ func issueRemoteExchange(base, scope, stale string) (string, error) {
 	if res.ExpiresAt != nil {
 		exp = &Time{res.ExpiresAt.Time}
 	}
-	vaultSetTokens(remoteTokenScope, issueRemoteTokenID, &TokenSet{AccessToken: res.Token, ExpiresAt: exp, TokenType: strPtr("Bearer")})
+	setRemoteToken(base, &TokenSet{AccessToken: res.Token, ExpiresAt: exp, TokenType: strPtr("Bearer")})
 	return res.Token, nil
 }
 

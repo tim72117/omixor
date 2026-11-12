@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -229,8 +230,94 @@ func IssueRemoteURL() string {
 // IsRemoteOrg 這個組織 id 是不是遠端組織
 func IsRemoteOrg(id string) bool { return strings.HasPrefix(id, RemoteOrgPrefix) }
 
-// serverOrgID 內部的組織 id 換成伺服器上的組織 id
-func serverOrgID(id string) string { return strings.TrimPrefix(id, RemoteOrgPrefix) }
+// serverOrgID 內部的組織 id 換成伺服器上的組織 id:"~<伺服器>~<組織>" → "<組織>"(舊格式 "~<組織>" 也接受)
+func serverOrgID(id string) string {
+	rest := strings.TrimPrefix(id, RemoteOrgPrefix)
+	if i := strings.Index(rest, RemoteOrgPrefix); i >= 0 {
+		return rest[i+1:]
+	}
+	return rest
+}
+
+// serverKey 遠端 omixor 在本機的名稱(組織 id 前綴、快取檔名、鑰匙圈範圍都用它,讓不同伺服器的資料分開):
+// 啟動設定裡的 id;不在設定裡就用網址的 host(:port)。只留英數字與 . _ -
+func serverKey(server string) string {
+	k := ""
+	if sc, ok := findServer(server); ok {
+		k = sc.ID
+	} else if u, err := url.Parse(strings.TrimSpace(server)); err == nil && u.Host != "" {
+		k = u.Host
+	} else {
+		k = server
+	}
+	var b strings.Builder
+	for _, r := range k {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "server"
+	}
+	return b.String()
+}
+
+// remoteOrgPrefixFor 這台伺服器的組織在本機的 id 前綴:"~<伺服器>~"
+func remoteOrgPrefixFor(server string) string { return RemoteOrgPrefix + serverKey(server) + RemoteOrgPrefix }
+
+// remoteTokenScopeFor 這台伺服器的 omixor token 在鑰匙圈的範圍(每台伺服器各一把)
+func remoteTokenScopeFor(server string) string { return remoteTokenScope + serverKey(server) + "/" }
+
+// isLegacyServer 舊版只支援一個遠端,舊格式的快取(orgs/~<組織>、鑰匙圈的 remote/)屬於設定裡的第一個遠端
+func isLegacyServer(server string) bool {
+	l := ConfiguredServers()
+	return len(l) > 0 && serverKey(server) == serverKey(l[0].URL)
+}
+
+// remoteToken 這台伺服器存著的 omixor token;第一個遠端沒有時沿用舊格式的(並搬到新的範圍,舊的不刪)
+func remoteToken(server string) *TokenSet {
+	if t := vaultTokens(remoteTokenScopeFor(server), issueRemoteTokenID); t != nil && t.AccessToken != "" {
+		return t
+	}
+	if isLegacyServer(server) {
+		if t := vaultTokens(remoteTokenScope, issueRemoteTokenID); t != nil && t.AccessToken != "" {
+			vaultSetTokens(remoteTokenScopeFor(server), issueRemoteTokenID, t)
+			return t
+		}
+	}
+	return nil
+}
+
+func setRemoteToken(server string, t *TokenSet) { vaultSetTokens(remoteTokenScopeFor(server), issueRemoteTokenID, t) }
+
+// legacyOrgFiles 遠端組織資料夾裡會有的檔案(搬舊格式資料夾用)
+var legacyOrgFiles = []string{"connections.json", "github.json", "gcp.json", "gitlab.json", "facebook.json", "jira.json"}
+
+var legacyOrgCopied sync.Map
+
+// copyLegacyRemoteOrg 第一個遠端的組織:新格式的資料夾還沒有的檔案,從舊格式 orgs/~<組織> 複製過來(舊的不刪;每個組織只做一次)
+func copyLegacyRemoteOrg(server, id string) {
+	if !isLegacyServer(server) {
+		return
+	}
+	if _, done := legacyOrgCopied.LoadOrStore(id, true); done {
+		return
+	}
+	old := filepath.Join(DataRoot(), "orgs", RemoteOrgPrefix+serverOrgID(id))
+	dir := OrgDir(id)
+	for _, f := range legacyOrgFiles {
+		src, dst := filepath.Join(old, f), filepath.Join(dir, f)
+		if Exists(dst) || !Exists(src) {
+			continue
+		}
+		if b, err := ReadData(src); err == nil {
+			_ = WriteData(dst, b)
+		}
+	}
+}
 
 // resolveServer 要連的遠端:只能是啟動設定裡有的(id 或網址);沒指定且只設了一個就用它
 func resolveServer(idOrURL string) (ServerConf, error) {
@@ -321,18 +408,23 @@ func remoteLogin(server, method string) (*model.User, error) {
 	if res.ExpiresAt != nil {
 		exp = &Time{res.ExpiresAt.Time}
 	}
-	vaultSetTokens(remoteTokenScope, issueRemoteTokenID, &TokenSet{AccessToken: res.Token, ExpiresAt: exp, TokenType: strPtr("Bearer")})
+	setRemoteToken(server, &TokenSet{AccessToken: res.Token, ExpiresAt: exp, TokenType: strPtr("Bearer")})
 	return &res.User, nil
 }
 
 // ---- 遠端組織清單 ----
 
-func remoteOrgsPath() string { return filepath.Join(DataRoot(), "orgs-remote.json") }
+// remoteOrgsPath 目前連的伺服器的組織清單快取(每台伺服器各一份)
+func remoteOrgsPath() string {
+	return filepath.Join(DataRoot(), "orgs-remote-"+serverKey(IssueRemoteURL())+".json")
+}
 
-func toRemoteOrganizations(list []model.Org) []Organization {
+func toRemoteOrganizations(server string, list []model.Org) []Organization {
 	out := make([]Organization, 0, len(list))
+	prefix := remoteOrgPrefixFor(server)
 	for _, o := range list {
-		out = append(out, fromCoreOrg(o, RemoteOrgPrefix))
+		copyLegacyRemoteOrg(server, prefix+o.ID)
+		out = append(out, fromCoreOrg(o, prefix))
 	}
 	return out
 }
@@ -343,7 +435,7 @@ func fetchRemoteOrgs(server string) ([]Organization, error) {
 	if err != nil {
 		return nil, err
 	}
-	return toRemoteOrganizations(list), nil
+	return toRemoteOrganizations(server, list), nil
 }
 
 // applyRemoteOrgs 把伺服器的組織清單換進目前的索引(目前的組織還在就不動,不在就選第一個)並存起來(拿著 Mu)
@@ -435,8 +527,11 @@ func (a *App) enterMode(m modeFile, remoteOrgs []Organization) {
 func (a *App) RemoteLogout() error {
 	if srv := IssueRemoteURL(); srv != "" {
 		_ = remoteClient(srv).Logout() // 連不上也照樣清掉本機的
+		setRemoteToken(srv, nil)
+		if isLegacyServer(srv) {
+			vaultSetTokens(remoteTokenScope, issueRemoteTokenID, nil) // 舊格式的也清掉,免得又被沿用
+		}
 	}
-	vaultSetTokens(remoteTokenScope, issueRemoteTokenID, nil)
 	setRemoteMe(nil, nil)
 	return a.SetMode(ModeLocal, "")
 }
@@ -560,7 +655,7 @@ func (a *App) remoteCreateOrg(name, symbol, color string, sw bool) (any, error) 
 	a.applyRemoteOrgs(orgs)
 	var org Organization
 	for _, o := range orgs {
-		if o.ID == RemoteOrgPrefix+id {
+		if o.ID == remoteOrgPrefixFor(srv)+id {
 			org = o
 		}
 	}

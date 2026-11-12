@@ -59,7 +59,8 @@ func TestOpsWebWithCore(t *testing.T) {
 	a.Mu.Lock()
 	cur := a.CurrentOrgID()
 	a.Mu.Unlock()
-	if cur != "~default" {
+	// 遠端組織的內部 id 是 "~<伺服器>~<組織>"(OMIXOR_SERVER 的伺服器 id 是 default)
+	if cur != "~default~default" {
 		t.Fatal(cur)
 	}
 }

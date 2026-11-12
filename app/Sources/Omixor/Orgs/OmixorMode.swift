@@ -5,8 +5,10 @@ import Foundation
 //   本機:組織與 Issue 等都存在這台 Mac 的資料夾(orgs.json、orgs/<id>/issues.json…),不用登入
 //   遠端:用 evoleap 授權登入 omixor server;組織清單(名稱、圖示、顏色、備註)、成員權限、Issue 都來自伺服器
 //
-// 目前的模式存在資料夾的 mode.json。遠端組織的 id 一律加 "~" 前綴(本機組織 id 不會有 "~"),
-// 所以兩邊的資料夾(orgs/~xxx)、鑰匙圈、範例資料都不會撞名;遠端組織清單的快取另存 orgs-remote.json。
+// 目前的模式存在資料夾的 mode.json。遠端組織的 id 一律是 "~<伺服器>~<組織>"(本機組織 id 不會有 "~";
+// <伺服器> 是 serverKey,啟動設定裡的 id),所以本機與各台伺服器的資料夾(orgs/~cloud~xxx)、鑰匙圈、範例資料都不會撞名。
+// 遠端組織清單的快取與 omixor 登入 token 也是每台伺服器各一份(orgs-remote-<伺服器>.json、鑰匙圈的 remote/<伺服器>/)。
+// 舊版只有一個遠端:舊格式的快取(orgs/~<組織>、鑰匙圈的 remote/)當作設定裡第一個遠端的,第一次用到時複製過去(舊的不刪)。
 //
 // 可以連哪些遠端 omixor 由啟動設定決定(畫面上不能新增,也不顯示網址)。來源(合併,id 或網址重複的只留第一個):
 //
@@ -22,8 +24,8 @@ enum OmixorMode {
     static let remote = "remote"
     /// 遠端組織的 id 前綴
     static let remoteOrgPrefix = "~"
-    /// 遠端 omixor token 在鑰匙圈的前綴:不分組織,全部遠端組織共用同一個登入
-    static let tokenScope = "remote/"
+    /// 舊版的遠端 omixor token 範圍(只有一個遠端時;現在每台伺服器各一把,見 tokenScope(for:))
+    static let legacyTokenScope = "remote/"
 
     struct File: Codable, Equatable {
         var mode: String
@@ -121,9 +123,34 @@ enum OmixorMode {
 
     static func isRemoteOrg(_ id: String) -> Bool { id.hasPrefix(remoteOrgPrefix) }
 
-    /// 內部的組織 id 換成伺服器上的組織 id
-    static func serverOrgId(_ id: String) -> String { isRemoteOrg(id) ? String(id.dropFirst(remoteOrgPrefix.count)) : id }
+    /// 內部的組織 id 換成伺服器上的組織 id:"~<伺服器>~<組織>" → "<組織>"(舊格式 "~<組織>" 也接受)
+    static func serverOrgId(_ id: String) -> String {
+        guard isRemoteOrg(id) else { return id }
+        let rest = id.dropFirst(remoteOrgPrefix.count)
+        if let r = rest.range(of: remoteOrgPrefix) { return String(rest[r.upperBound...]) }
+        return String(rest)
+    }
 
-    /// 遠端組織清單的快取
-    static var remoteOrgsURL: URL { OrgFiles.root.appendingPathComponent("orgs-remote.json") }
+    /// 遠端 omixor 在本機的名稱(組織 id 前綴、快取檔名、鑰匙圈範圍都用它):啟動設定裡的 id;不在設定裡就用 host(:port)。
+    /// 只留英數字與 . _ -
+    static func serverKey(_ url: URL) -> String {
+        var s = url.absoluteString
+        while s.hasSuffix("/") { s.removeLast() }
+        let raw = find(s)?.id ?? (url.host.map { h in url.port.map { "\(h):\($0)" } ?? h } ?? s)
+        let ok = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        let k = String(raw.map { ok.contains($0) ? $0 : "_" })
+        return k.isEmpty ? "server" : k
+    }
+
+    /// 這台伺服器的組織在本機的 id 前綴:"~<伺服器>~"
+    static func orgPrefix(for url: URL) -> String { remoteOrgPrefix + serverKey(url) + remoteOrgPrefix }
+
+    /// 這台伺服器的 omixor token 在鑰匙圈的範圍
+    static func tokenScope(for url: URL) -> String { legacyTokenScope + serverKey(url) + "/" }
+
+    /// 舊格式的快取屬於設定裡的第一個遠端
+    static func isLegacyServer(_ url: URL) -> Bool { servers.first.map { serverKey($0.url) == serverKey(url) } ?? false }
+
+    /// 遠端組織清單的快取(每台伺服器各一份)
+    static func remoteOrgsURL(for url: URL) -> URL { OrgFiles.root.appendingPathComponent("orgs-remote-\(serverKey(url)).json") }
 }

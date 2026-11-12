@@ -93,15 +93,31 @@ enum OrgFiles {
         if let data = try? encoder().encode(idx) { try? data.write(to: indexURL, options: .atomic) }
     }
 
-    /// 遠端組織清單的快取(上次從伺服器讀到的);沒有回傳 nil
-    static func loadRemoteIndex() -> OrgIndex? {
-        guard let data = try? Data(contentsOf: OmixorMode.remoteOrgsURL), let idx = try? decoder().decode(OrgIndex.self, from: data),
+    /// 遠端組織清單的快取(上次從這台伺服器讀到的;每台伺服器各一份);沒有回傳 nil。server 沒給就是目前連的
+    static func loadRemoteIndex(server: URL? = nil) -> OrgIndex? {
+        guard let srv = server ?? OmixorMode.remoteServer?.url,
+              let data = try? Data(contentsOf: OmixorMode.remoteOrgsURL(for: srv)), let idx = try? decoder().decode(OrgIndex.self, from: data),
               !idx.orgs.isEmpty else { return nil }
         return idx
     }
 
-    static func saveRemoteIndex(_ idx: OrgIndex) {
-        if let data = try? encoder().encode(idx) { try? data.write(to: OmixorMode.remoteOrgsURL, options: .atomic) }
+    static func saveRemoteIndex(_ idx: OrgIndex, server: URL? = nil) {
+        guard let srv = server ?? OmixorMode.remoteServer?.url else { return }
+        if let data = try? encoder().encode(idx) { try? data.write(to: OmixorMode.remoteOrgsURL(for: srv), options: .atomic) }
+    }
+
+    /// 舊格式的遠端組織資料夾(orgs/~<組織>)屬於第一個遠端:新格式的資料夾還沒有的檔案從舊的複製過來(舊的不刪)
+    static func copyLegacyRemoteOrg(_ id: String, server: URL) {
+        guard OmixorMode.isLegacyServer(server) else { return }
+        let fm = FileManager.default
+        let old = root.appendingPathComponent("orgs", isDirectory: true)
+            .appendingPathComponent(OmixorMode.remoteOrgPrefix + OmixorMode.serverOrgId(id), isDirectory: true)
+        guard fm.fileExists(atPath: old.path) else { return }
+        let new = dir(id)
+        for f in perOrgFiles + ["agents.json"] {
+            let src = old.appendingPathComponent(f), dst = new.appendingPathComponent(f)
+            if fm.fileExists(atPath: src.path), !fm.fileExists(atPath: dst.path) { try? fm.copyItem(at: src, to: dst) }
+        }
     }
 }
 
@@ -131,13 +147,14 @@ extension AppState {
         if OmixorMode.isRemoteOrg(currentOrgId) { OrgFiles.saveRemoteIndex(idx) } else { OrgFiles.saveIndex(idx) }
     }
 
-    /// 遠端模式:組織清單換成伺服器的(目前的組織還在就不動,不在就選第一個)。回傳目前的組織有沒有換
+    /// 遠端模式:組織清單換成這台伺服器的(目前的組織還在就不動,不在就選第一個)。回傳目前的組織有沒有換
     @discardableResult
-    func applyRemoteOrgs(_ list: [ServerOrg]) -> Bool {
-        let remote = list.map(\.organization)
-        let saved = OrgFiles.loadRemoteIndex()?.current ?? currentOrgId
+    func applyRemoteOrgs(_ list: [ServerOrg], server: URL) -> Bool {
+        let remote = list.map { $0.organization(server: server) }
+        for o in remote { OrgFiles.copyLegacyRemoteOrg(o.id, server: server) }
+        let saved = OrgFiles.loadRemoteIndex(server: server)?.current ?? currentOrgId
         let cur = remote.contains { $0.id == saved } ? saved : (remote.first?.id ?? saved)
-        OrgFiles.saveRemoteIndex(OrgIndex(current: cur, orgs: remote))
+        OrgFiles.saveRemoteIndex(OrgIndex(current: cur, orgs: remote), server: server)
         guard OmixorMode.isRemote, orgsLoaded else { return false }
         if orgs != remote { orgs = remote }
         return cur != currentOrgId
@@ -172,11 +189,11 @@ extension AppState {
         guard let srv = OmixorMode.remoteServer else { throw CabinetError("目前不是遠端模式") }
         let root = OmixorMode.serverOrgId(newOrgId(for: name))
         var id = root, n = 2
-        while orgs.contains(where: { $0.id == OmixorMode.remoteOrgPrefix + id }) { id = "\(root)-\(n)"; n += 1 }
+        while orgs.contains(where: { $0.id == OmixorMode.orgPrefix(for: srv.url) + id }) { id = "\(root)-\(n)"; n += 1 }
         let created = try await OmixorAuth.createOrg(server: srv.url, id: id, name: name, symbol: symbol, color: color)
-        let org = created.organization
+        let org = created.organization(server: srv.url)
         writeOrgTemplate(org.id, template)
-        if let list = await OmixorAuth.fetchOrgs(server: srv.url) { applyRemoteOrgs(list) } else if !orgs.contains(org) { orgs.append(org); saveOrgs() }
+        if let list = await OmixorAuth.fetchOrgs(server: srv.url) { applyRemoteOrgs(list, server: srv.url) } else if !orgs.contains(org) { orgs.append(org); saveOrgs() }
         log(.person(me), "building.2", "在 omixor server 建立組織「\(name)」", .settings)
         return org
     }
@@ -184,7 +201,7 @@ extension AppState {
     /// 遠端模式:改伺服器上的組織(要伺服器管理員)
     func updateRemoteOrg(_ org: Organization) async throws {
         guard let srv = OmixorMode.remoteServer else { throw CabinetError("目前不是遠端模式") }
-        let saved = try await OmixorAuth.updateOrg(server: srv.url, org).organization
+        let saved = try await OmixorAuth.updateOrg(server: srv.url, org).organization(server: srv.url)
         if let i = orgs.firstIndex(where: { $0.id == saved.id }) { orgs[i] = saved }
         saveOrgs()
     }

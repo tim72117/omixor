@@ -6,7 +6,7 @@ import Foundation
 //
 //   網址:目前連的遠端 omixor(啟動設定裡的,見 OmixorMode.servers)
 //   token:環境變數 OPS_ISSUE_SERVER_TOKEN(固定的,開發用);沒設時用 omixor 自己的 token(omx_…,
-//          鑰匙圈的 remote/omixor-issues,登入時存的):沒有或被拒絕(401)時,拿 evoleap 連線登入後的 token
+//          鑰匙圈的 remote/<伺服器>/omixor-issues,每台伺服器各一把,登入時存的):沒有或被拒絕(401)時,拿 evoleap 連線登入後的 token
 //          去 /api/auth/evoleap 換一個(evoleap 只證明身分,能不能用由 omixor 的使用者名單決定),再重送一次
 //
 // IssueStore 的介面是同步的(畫面與 MCP 工具直接拿回傳值),所以這裡用同步請求(有逾時)。
@@ -101,10 +101,11 @@ final class IssueRemote {
     nonisolated(unsafe) static var testVault: [String: String]?
 
     /// omixor token 存在不分組織的 remote/;evoleap 連線的 token 照連線的規則存在目前組織底下
-    private func scope(_ id: String) -> String { id == IssueServerConfig.omixorTokenId ? OmixorMode.tokenScope : TokenVault.scope }
+    private func scope(_ id: String) -> String { id == IssueServerConfig.omixorTokenId ? OmixorMode.tokenScope(for: config.url) : TokenVault.scope }
 
     private func vaultGet(_ id: String) -> String? {
         if let v = Self.testVault { return v[id] }
+        if id == IssueServerConfig.omixorTokenId { return OmixorAuth.token(server: config.url)?.accessToken } // 含第一個遠端沿用舊格式
         return TokenVault.tokens(id, scope: scope(id))?.accessToken
     }
 

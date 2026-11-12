@@ -4,7 +4,7 @@ import Foundation
 //   1. 瀏覽器開 evoleap 的核准頁(ApprovalConnector,和 evoleap 連線同一套),拿到一次性的 evoleap CLI token
 //   2. 交給 omixor server 的 POST /api/auth/evoleap,換 omixor 自己的 token(omx_…)
 //   3. 不管換成功或失敗,立刻撤銷那把 evoleap token(只用來證明一次身分)
-//   4. omixor token 存在鑰匙圈的 remote/omixor-issues(不分組織;IssueRemote 讀寫 Issue 時帶它)
+//   4. omixor token 存在鑰匙圈的 remote/<伺服器>/omixor-issues(每台伺服器各一把、不分組織;IssueRemote 讀寫 Issue 時帶它)
 // evoleap 只證明身分;能不能用、是管理員還是成員,由 omixor 的使用者名單決定。
 // 什麼時候登入、登入哪一台,見 OmixorMode.swift 與 AppState.connect(Features/Login/LoginGate.swift)。
 
@@ -26,9 +26,9 @@ struct ServerOrg: Codable, Equatable, Identifiable {
     var createdAt: String?
     var myRole: String?
 
-    /// 換成 app 的組織(id 加遠端前綴;圖示、顏色沒填的用預設)
-    var organization: Organization {
-        Organization(id: OmixorMode.remoteOrgPrefix + id, name: name.isEmpty ? id : name,
+    /// 換成 app 的組織(id 加這台伺服器的前綴 "~<伺服器>~";圖示、顏色沒填的用預設)
+    func organization(server: URL) -> Organization {
+        Organization(id: OmixorMode.orgPrefix(for: server) + id, name: name.isEmpty ? id : name,
                      symbol: (symbol ?? "").isEmpty ? "building.2" : symbol!, color: (color ?? "").isEmpty ? "blue" : color!,
                      note: note ?? "", createdAt: OmixorAuth.date(createdAt) ?? .distantPast)
     }
@@ -51,20 +51,28 @@ enum OmixorLoginState: Equatable {
 enum OmixorAuth {
     static var tokenId: String { IssueServerConfig.omixorTokenId }
 
-    /// 存著的 omixor token(遠端共用,不分組織)
-    static var token: TokenSet? { TokenVault.tokens(tokenId, scope: OmixorMode.tokenScope) }
-    static func setToken(_ t: TokenSet?) { TokenVault.setTokens(t, tokenId, scope: OmixorMode.tokenScope) }
+    /// 這台伺服器存著的 omixor token(每台伺服器各一把,不分組織);第一個遠端沒有時沿用舊格式的(複製過去,舊的不刪)
+    static func token(server: URL) -> TokenSet? {
+        if let t = TokenVault.tokens(tokenId, scope: OmixorMode.tokenScope(for: server)) { return t }
+        if OmixorMode.isLegacyServer(server), let old = TokenVault.tokens(tokenId, scope: OmixorMode.legacyTokenScope) {
+            setToken(old, server: server)
+            return old
+        }
+        return nil
+    }
 
-    /// 舊版把 omixor token 存在預設組織底下:搬到不分組織的位置(只搬一次)
+    static func setToken(_ t: TokenSet?, server: URL) { TokenVault.setTokens(t, tokenId, scope: OmixorMode.tokenScope(for: server)) }
+
+    /// 更舊的版本把 omixor token 存在預設組織底下:搬到舊格式的遠端位置(之後再由 token(server:) 搬給第一個遠端;只搬一次)
     static func migrateLegacyToken() {
-        guard token == nil, let old = TokenVault.tokens(tokenId, scope: "") else { return }
-        setToken(old)
+        guard TokenVault.tokens(tokenId, scope: OmixorMode.legacyTokenScope) == nil, let old = TokenVault.tokens(tokenId, scope: "") else { return }
+        TokenVault.setTokens(old, tokenId, scope: OmixorMode.legacyTokenScope)
         TokenVault.setTokens(nil, tokenId, scope: "")
     }
 
     /// 確認存著的登入
     static func check(server: URL) async -> OmixorLoginState {
-        guard let t = token else { return .needLogin }
+        guard let t = token(server: server) else { return .needLogin }
         do {
             let r = try await ConnHTTP.send("GET", server.appendingPathComponent("api/auth/me"),
                                             headers: ["Authorization": "Bearer \(t.accessToken)"])
@@ -130,7 +138,7 @@ enum OmixorAuth {
             throw ConnectionError("omixor 拒絕登入:\(ConnHTTP.errorMessage(r))", status: r.status)
         }
         let exp = date(obj?["expiresAt"] as? String)
-        setToken(TokenSet(accessToken: tok, expiresAt: exp, tokenType: "Bearer"))
+        setToken(TokenSet(accessToken: tok, expiresAt: exp, tokenType: "Bearer"), server: server)
         let user = obj?["user"] as? [String: Any]
         return OmixorAccount(email: user?["email"] as? String ?? "", name: user?["name"] as? String ?? "", role: user?["role"] as? String ?? "",
                              device: deviceName, expiresAt: exp)
@@ -142,8 +150,8 @@ enum OmixorAuth {
         return nil
     }
 
-    private static func authed(_ method: String, _ url: URL, _ body: [String: Any]? = nil) async throws -> ConnHTTP.Response {
-        guard let t = token else { throw ConnectionError("還沒登入 omixor") }
+    private static func authed(_ server: URL, _ method: String, _ url: URL, _ body: [String: Any]? = nil) async throws -> ConnHTTP.Response {
+        guard let t = token(server: server) else { throw ConnectionError("還沒登入 omixor") }
         let h = ["Authorization": "Bearer \(t.accessToken)"]
         if let body { return try await ConnHTTP.json(method, url, body, headers: h) }
         return try await ConnHTTP.send(method, url, headers: h)
@@ -158,13 +166,13 @@ enum OmixorAuth {
 
     /// 向伺服器取得我能用的組織;失敗回傳 nil(畫面照用快取)
     static func fetchOrgs(server: URL) async -> [ServerOrg]? {
-        guard let r = try? await authed("GET", server.appendingPathComponent("api/orgs")) else { return nil }
+        guard let r = try? await authed(server, "GET", server.appendingPathComponent("api/orgs")) else { return nil }
         return try? result(r, [ServerOrg].self)
     }
 
     /// 在伺服器建立組織(要伺服器管理員)
     static func createOrg(server: URL, id: String, name: String, symbol: String, color: String, note: String = "") async throws -> ServerOrg {
-        let r = try await authed("POST", server.appendingPathComponent("api/orgs"),
+        let r = try await authed(server, "POST", server.appendingPathComponent("api/orgs"),
                                  ["id": id, "name": name, "symbol": symbol, "color": color, "note": note])
         return try result(r, ServerOrg.self)
     }
@@ -172,16 +180,17 @@ enum OmixorAuth {
     /// 修改伺服器上的組織名稱、圖示、顏色、備註(要伺服器管理員)
     static func updateOrg(server: URL, _ org: Organization) async throws -> ServerOrg {
         let id = OmixorMode.serverOrgId(org.id)
-        let r = try await authed("PUT", server.appendingPathComponent("api/orgs").appendingPathComponent(id),
+        let r = try await authed(server, "PUT", server.appendingPathComponent("api/orgs").appendingPathComponent(id),
                                  ["name": org.name, "symbol": org.symbol, "color": org.color, "note": org.note])
         return try result(r, ServerOrg.self)
     }
 
     /// 登出:伺服器上撤銷這個 token,再從鑰匙圈刪掉(伺服器連不上也照樣刪)
     static func logout(server: URL) async {
-        if token != nil {
-            _ = try? await authed("POST", server.appendingPathComponent("api/auth/logout"), [:])
+        if token(server: server) != nil {
+            _ = try? await authed(server, "POST", server.appendingPathComponent("api/auth/logout"), [:])
         }
-        setToken(nil)
+        setToken(nil, server: server)
+        if OmixorMode.isLegacyServer(server) { TokenVault.setTokens(nil, tokenId, scope: OmixorMode.legacyTokenScope) } // 免得又被沿用
     }
 }

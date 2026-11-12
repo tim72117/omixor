@@ -25,7 +25,7 @@ func (a *App) ConnectionInfo() map[string]any {
 		} else if errText != "" {
 			login["error"] = errText
 		}
-		if t := vaultTokens(remoteTokenScope, issueRemoteTokenID); t != nil && t.AccessToken != "" && t.ExpiresAt != nil {
+		if t := remoteToken(IssueRemoteURL()); t != nil && t.AccessToken != "" && t.ExpiresAt != nil {
 			login["tokenExpiresAt"] = ISO(t.ExpiresAt.Time)
 		}
 		conn["login"] = login

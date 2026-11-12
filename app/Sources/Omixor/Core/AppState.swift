@@ -20,6 +20,8 @@ final class AppState: ObservableObject {
     /// 正在連接的對象(等瀏覽器核准時顯示)
     @Published var connecting: String?
     @Published var connectError: String?
+    /// 登入遠端成功、但伺服器上還沒有我能用的組織:先顯示「還沒有組織」(管理員可以建立;成員等被加入),有了組織才進入遠端模式
+    @Published var noOrgsServer: (server: OmixorMode.Server, account: OmixorAccount)?
     var remoteRefreshStarted = false
     @Published var showCommandPalette = false
     /// 跨頁跳轉時要選中的項目(例如從總覽點告警 → 監控頁選中該告警)
