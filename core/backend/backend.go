@@ -86,6 +86,19 @@ type Backend interface {
 	EditDoc(org, id string, in service.DocEdit) (*service.DocEditResult, error)
 	DeleteDoc(org, id string) error
 
+	// 訊息頻道(權限同 service/channel.go:成員建頻道、看自己是成員的頻道,組織管理員看全部;角色身分只能看與發自己是成員的頻道)。
+	// as 只有伺服器管理員給的算數(以角色或別人的身分)。實作在 channel.go
+	ListChannels(org string, f service.ChannelFilter) ([]model.ChannelSummary, error)
+	GetChannel(org, id, as string) (*model.ChannelSummary, error)
+	CreateChannel(org string, in service.ChannelInput) (*model.ChannelSummary, error)
+	UpdateChannel(org, id string, in service.ChannelPatch) (*model.ChannelSummary, error)
+	ChangeChannelMembers(org, id string, in service.ChannelMembersInput) (*model.ChannelSummary, error)
+	ListChannelMessages(org, id string, in service.MessageListInput) (*service.MessagePage, error)
+	PostChannelMessage(org, id string, in service.PostInput) (*model.ChannelMessage, error)
+	MarkChannelRead(org, id string, in service.ReadInput) (*model.ChannelRead, error)
+	// ChannelInbox 提到 who(me、agent:<id>、user:<email>)的未讀訊息(新的在前最多 20 則)與它所在頻道的未讀數
+	ChannelInbox(org, who string) (*service.ChannelInbox, error)
+
 	// 附件(圖片)
 	SaveAttachment(org string, data []byte) (id string, err error)
 	GetAttachment(org, id string) (data []byte, mime string, err error)

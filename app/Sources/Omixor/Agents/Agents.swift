@@ -429,6 +429,7 @@ final class AgentStore {
         app.agents.removeAll { $0.id == id }
         save()
         pruneChain(agent: id)
+        app.startChannels().pruneMember(ChainNode.agent(id))   // 從所有頻道成員拿掉
     }
 
     func newId(for name: String) -> String {

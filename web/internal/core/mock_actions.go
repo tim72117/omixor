@@ -15,7 +15,7 @@ var (
 	WorkStatuses     = []string{"backlog", "todo", "inProgress", "review", "done"}
 	RiskLevels       = []string{"low", "medium", "high"}
 	LogLevels        = []string{"debug", "info", "warn", "error"}
-	AppSections      = []string{"overview", "development", "pipelines", "infrastructure", "monitoring", "incidents", "automation", "cabinet", "settings"}
+	AppSections      = []string{"overview", "development", "pipelines", "infrastructure", "monitoring", "incidents", "automation", "cabinet", "settings", "channels"}
 	DeployEnvs       = []string{"production", "staging", "development"}
 	TimeRanges       = []string{"1h", "6h", "24h", "7d", "30d"}
 	Autonomies       = []string{"suggest", "approve", "auto"}

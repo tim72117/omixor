@@ -145,6 +145,20 @@ export type OrgChainView = {
   members: { email: string; name: string; role: string }[]; error?: string;
 };
 
+/** 訊息頻道(核心 model/channel.go):成員是節點 "agent:<角色 id>" 或 "user:<email 小寫>"。unread 是我的未讀數 */
+export type Channel = {
+  id: string; name: string; topic: string; issueId: string; members: string[]; createdBy: string;
+  createdAt: string; updatedAt: string; unread: number; lastMessageAt: string | null;
+};
+/** 頻道訊息:id 是 M-<n>(每個頻道各自編號),mentions 是被 @ 的成員節點 */
+export type ChannelMessage = { id: string; channelId: string; author: string; text: string; mentions: string[]; at: string };
+export type ChannelPage = { messages: ChannelMessage[]; hasMore: boolean };
+/** 對話視圖(channels):我的頻道、我的節點、組織成員與角色 */
+export type ChannelsView = {
+  org: string; remote: boolean; me: string; channels: Channel[];
+  members: { email: string; name: string; role: string }[]; agents: Agent[]; error?: string;
+};
+
 /** 代理人可存取某位置的權限(nil = 不能) */
 export function agentAccess(a: Agent, section: string, tab?: string | null): DocAccess | undefined {
   const da = a.docAccess ?? {};

@@ -18,4 +18,5 @@ export const SECTION_VIEWS: Record<SectionId, ComponentType<SectionProps>> = {
   automation: lazy(() => import("./automation/AutomationView")),
   cabinet: lazy(() => import("./cabinet/CabinetView")),
   settings: lazy(() => import("./settings/SettingsView")),
+  channels: lazy(() => import("./channels/ChannelsView")),
 };

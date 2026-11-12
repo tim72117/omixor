@@ -284,6 +284,7 @@ extension AppState {
         switchMock()
         issueStore?.load()
         agentStore?.load()
+        channelStore?.load()
         cabinetLoaded = false
         Cabinet.load(self)
         connectionStates = [:]

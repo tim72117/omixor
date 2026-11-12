@@ -61,6 +61,8 @@ type Service struct {
 	agents       agentState
 	// cabinetMu 文件櫃的「讀了再改」(結構檢查、範本檢查)在這把鎖裡(單一程式內)
 	cabinetMu sync.Mutex
+	// channelMu 訊息頻道的「讀了再改」(成員、綁 Issue 不重複、已讀不倒退)在這把鎖裡(單一程式內;PostgreSQL 另有唯一索引擋重複綁 Issue)
+	channelMu sync.Mutex
 
 	// 登入端點的頻率限制(每個來源每分鐘、整個服務每分鐘)
 	LoginPerIP, LoginTotal int
@@ -509,6 +511,7 @@ func (s *Service) RemoveMember(p *model.Principal, org, email string) error {
 	s.agents.mu.Lock()
 	s.pruneChainNode(org, model.UserNode(u.Email))
 	s.agents.mu.Unlock()
+	s.pruneChannelNode(org, model.UserNode(u.Email))
 	s.Audit(p, "member.remove", org, map[string]any{"email": u.Email})
 	return nil
 }

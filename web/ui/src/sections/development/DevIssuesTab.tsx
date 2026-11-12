@@ -8,6 +8,7 @@ import { relative } from "../../fmt";
 import { useDev } from "./devShared";
 import { JiraImport } from "./JiraImport";
 import { MdTextarea } from "../../components/MdTextarea";
+import { go } from "../../components/bits";
 
 export type IssueComment = { id: string; author: string; text: string; at: string };
 export type OpsIssue = {
@@ -161,6 +162,11 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
             { label: "編輯…", onClick: () => { setTitle(issue.title); setBody(issue.body ?? ""); setLabels((issue.labels ?? []).join(", ")); setEditing(true); } },
             { label: "刪除…", danger: true, onClick: () => ask({ title: `刪除 ${issue.id}?`, buttons: [{ label: "刪除(無法復原)", danger: true, onClick: async () => { const r = await run(() => action("issue_delete", { id: issue.id })); if (r !== undefined) dev.setSelectedIssue(undefined); } }] }) },
           ]} />
+          <button className="btn" title="這個 Issue 的對話頻道(已有就跳過去,沒有就建立)" onClick={async () => {
+            // 已有綁這個 Issue 的頻道:核心直接回傳那個;沒有就建立(名稱用 Issue 標題,成員含自己與指派的角色)
+            const c = await run(() => action<{ id: string }>("channel_create", { name: issue.title.slice(0, 80), issueId: issue.id, members: issue.assignee ? [`agent:${issue.assignee}`] : [] }));
+            if (c) go("channels", c.id);
+          }}><SIcon name="bubble.left.and.bubble.right" /> 開對話頻道</button>
           <button className="btn" onClick={() => upd({ status: open ? "closed" : "open" })}>{open ? "關閉" : "重新打開"}</button>
         </div>
         <div className="row gap6 wrap">

@@ -76,6 +76,10 @@ struct AssistResponder {
         case .cabinet: return AssistBriefing(headline: "文件櫃", tone: .secondary, lines: [.init(icon: "archivebox", color: .secondary,
                                                             text: "文件櫃有 \(app.cabinetDocs.count) 份文件")])
         case .settings: return settingsBrief()
+        case .channels:
+            let unread = app.channels.reduce(0) { $0 + $1.unread }
+            return AssistBriefing(headline: "對話", tone: .secondary, lines: [.init(icon: "bubble.left.and.bubble.right", color: .secondary,
+                                                            text: "\(app.channels.count) 個頻道" + (unread > 0 ? ",\(unread) 則未讀" : ""))])
         }
     }
 
@@ -287,6 +291,8 @@ struct AssistResponder {
             return ["總結目前狀況"]
         case .settings:
             return ["哪些整合還沒連接?", "總結目前狀況"]
+        case .channels:
+            return ["總結目前狀況"]
         }
     }
 

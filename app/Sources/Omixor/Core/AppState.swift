@@ -90,6 +90,22 @@ final class AppState: ObservableObject {
         return s
     }
 
+    /// 訊息頻道(Channels/Channels.swift):人與角色一起對話;本機存在 channels.json,遠端在 omixor server
+    @Published var channels: [ChannelSummary] = []
+    /// 頻道或訊息有變動就加一(畫面重新讀訊息)
+    @Published var channelsVersion = 0
+    private(set) var channelStore: ChannelStore?
+
+    @discardableResult
+    func startChannels() -> ChannelStore {
+        if let s = channelStore { return s }
+        let s = ChannelStore(app: self)
+        channelStore = s
+        s.load()
+        s.start()
+        return s
+    }
+
     /// GitHub(GitHub/GitHub.swift):追蹤中 repo 的 PR 與 Actions,只讀
     @Published var github = GHSnapshot()
     @Published var githubSettings = GHSettings()
@@ -251,6 +267,7 @@ final class AppState: ObservableObject {
         case .automation: n = pendingApprovals.count + agentTasks.filter { $0.status == .blocked }.count
         case .pipelines: n = runningPipelines.count + voiceJobs.filter { $0.state == .ready }.count
         case .development: n = issues.filter { $0.status == .open && $0.priority <= .high }.count
+        case .channels: n = channels.reduce(0) { $0 + $1.unread }
         default: n = 0
         }
         return n > 0 ? n : nil

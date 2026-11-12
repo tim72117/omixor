@@ -24,6 +24,7 @@ func init() {
 	coremcp.RegisterAgentTools(srv)
 	coremcp.RegisterCabinetTools(srv)
 	coremcp.RegisterChainTools(srv)
+	coremcp.RegisterChannelTools(srv)
 }
 
 // toolErr 把 core.UserError 轉成工具錯誤
@@ -258,4 +259,34 @@ func (b appBackend) DelegateTask(org string, in service.DelegateInput) (*model.A
 }
 func (b appBackend) WorkerDelegate(org, taskID, code string, in service.DelegateInput) (*model.AgentTask, error) {
 	return b.a.AgentOps().WorkerDelegate(org, taskID, code, in)
+}
+
+// ---- 訊息頻道:交給 App.AgentOps ----
+
+func (b appBackend) ListChannels(org string, f service.ChannelFilter) ([]model.ChannelSummary, error) {
+	return b.a.AgentOps().ListChannels(org, f)
+}
+func (b appBackend) GetChannel(org, id, as string) (*model.ChannelSummary, error) {
+	return b.a.AgentOps().GetChannel(org, id, as)
+}
+func (b appBackend) CreateChannel(org string, in service.ChannelInput) (*model.ChannelSummary, error) {
+	return b.a.AgentOps().CreateChannel(org, in)
+}
+func (b appBackend) UpdateChannel(org, id string, in service.ChannelPatch) (*model.ChannelSummary, error) {
+	return b.a.AgentOps().UpdateChannel(org, id, in)
+}
+func (b appBackend) ChangeChannelMembers(org, id string, in service.ChannelMembersInput) (*model.ChannelSummary, error) {
+	return b.a.AgentOps().ChangeChannelMembers(org, id, in)
+}
+func (b appBackend) ListChannelMessages(org, id string, in service.MessageListInput) (*service.MessagePage, error) {
+	return b.a.AgentOps().ListChannelMessages(org, id, in)
+}
+func (b appBackend) PostChannelMessage(org, id string, in service.PostInput) (*model.ChannelMessage, error) {
+	return b.a.AgentOps().PostChannelMessage(org, id, in)
+}
+func (b appBackend) MarkChannelRead(org, id string, in service.ReadInput) (*model.ChannelRead, error) {
+	return b.a.AgentOps().MarkChannelRead(org, id, in)
+}
+func (b appBackend) ChannelInbox(org, who string) (*service.ChannelInbox, error) {
+	return b.a.AgentOps().ChannelInbox(org, who)
 }

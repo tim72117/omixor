@@ -184,6 +184,9 @@ func RegisterAgentTools(s *Server) {
 		if ch := chainLinks(e, g.ID); ch != nil { // 組織鏈:上游(回報給誰)與下游(可以派給誰,含 label)
 			out["chain"] = ch
 		}
+		if m := channelMentions(e, g.ID); m != nil { // 訊息頻道:提到這個角色的未讀訊息與所在頻道的未讀數
+			out["mentions"] = m
+		}
 		for k, v := range cabinetContext(e, *g, bodies) {
 			out[k] = v
 		}

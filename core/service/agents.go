@@ -323,6 +323,7 @@ func (s *Service) DeleteAgent(p *model.Principal, org, id string) error {
 		return err
 	}
 	s.pruneChainNode(org, model.AgentNode(g.ID))
+	s.pruneChannelNode(org, model.AgentNode(g.ID))
 	issues, err := s.Store.ListIssues(org)
 	if err == nil {
 		for _, i := range issues {

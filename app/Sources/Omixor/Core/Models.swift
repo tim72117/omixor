@@ -684,7 +684,8 @@ struct Integration: Identifiable, Hashable, Encodable {
 // MARK: - 導覽
 
 enum AppSection: String, CaseIterable, Identifiable, Hashable, Encodable {
-    case overview, development, pipelines, infrastructure, monitoring, incidents, automation, cabinet, settings
+    // channels 放最後:⌘1…⌘9 的快速鍵維持原本的頁面
+    case overview, development, pipelines, infrastructure, monitoring, incidents, automation, cabinet, settings, channels
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -697,6 +698,7 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable, Encodable {
         case .automation: return "AI 自動化"
         case .cabinet: return "文件櫃"
         case .settings: return "設定"
+        case .channels: return "對話"
         }
     }
     var icon: String {
@@ -710,6 +712,7 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable, Encodable {
         case .automation: return "sparkles"
         case .cabinet: return "archivebox"
         case .settings: return "gearshape"
+        case .channels: return "bubble.left.and.bubble.right"
         }
     }
 }

@@ -61,7 +61,7 @@ type Store interface {
 	IssueOrgs() ([]string, error)
 
 	// 虛擬角色、任務與憑證(依組織分;DeleteOrg 一併刪除)。id 比對精確(大小寫要一致),不分大小寫的查找在 service。
-	ListAgents(org string) ([]model.Agent, error) // 依建立時間
+	ListAgents(org string) ([]model.Agent, error)  // 依建立時間
 	GetAgent(org, id string) (*model.Agent, error) // 沒有回 ErrNotFound
 	SaveAgent(org string, a model.Agent) error     // 新增或整筆取代
 	DeleteAgent(org, id string) error
@@ -102,4 +102,25 @@ type Store interface {
 	// 組織鏈(依組織分;DeleteOrg 一併刪除)。GetOrgChain 沒存過回 ErrNotFound
 	GetOrgChain(org string) (*model.OrgChain, error)
 	SaveOrgChain(org string, c model.OrgChain) error // 整份取代
+
+	// 訊息頻道(依組織分;DeleteOrg 一併刪除)。id 比對精確,不分大小寫的查找在 service。
+	ListChannels(org string) ([]model.Channel, error) // 依建立順序
+	GetChannel(org, id string) (*model.Channel, error)
+	// CreateChannel 指定新的 id(CH-<最大號碼+1>),回傳存好的
+	CreateChannel(org string, c model.Channel) (model.Channel, error)
+	UpdateChannel(org string, c model.Channel) error // 整筆取代(名稱、主題、成員、更新時間)
+	// CreateChannelMessage 指定新的 id(M-<這個頻道最大號碼+1>),回傳存好的
+	CreateChannelMessage(org string, m model.ChannelMessage) (model.ChannelMessage, error)
+	// ListChannelMessages 依號碼篩選(見 model.MessageQuery),由舊到新;hasMore = 範圍內還有沒回傳的
+	ListChannelMessages(org, channelID string, q model.MessageQuery) (list []model.ChannelMessage, hasMore bool, err error)
+	// LastChannelMessages 每個頻道最後一則訊息(channel id → 訊息;沒有訊息的頻道不在裡面)
+	LastChannelMessages(org string) (map[string]model.ChannelMessage, error)
+	// ChannelReads 這個成員在各頻道的已讀(channel id → 已讀)
+	ChannelReads(org, member string) (map[string]model.ChannelRead, error)
+	// SaveChannelRead 新增或取代(不檢查是否倒退,service 決定)
+	SaveChannelRead(org string, r model.ChannelRead) error
+	// UnreadCounts 這個成員在這些頻道的未讀數:號碼大於已讀而且作者不是他(channel id → 數量;0 的不一定在裡面)
+	UnreadCounts(org, member string, channelIDs []string) (map[string]int, error)
+	// UnreadMentions 這些頻道裡提到這個成員、還沒讀的訊息(作者不是他),新的在前最多 limit 則
+	UnreadMentions(org, member string, channelIDs []string, limit int) ([]model.ChannelMessage, error)
 }

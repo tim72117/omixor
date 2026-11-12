@@ -27,6 +27,10 @@ type Mem struct {
 	layouts map[string][]model.CabinetSection // org → 文件櫃結構
 	docs    map[string][]model.CabinetDoc     // org → 新的在前
 	chains  map[string]model.OrgChain         // org → 組織鏈
+	// 訊息頻道:org → 頻道(依建立順序);org → 頻道 id → 訊息(由舊到新);org → 頻道 id → 成員 → 已讀
+	channels map[string][]model.Channel
+	messages map[string]map[string][]model.ChannelMessage
+	reads    map[string]map[string]map[string]model.ChannelRead
 }
 
 type memToken struct {
@@ -38,7 +42,9 @@ func NewMem() *Mem {
 	return &Mem{users: map[string]model.User{}, tokens: map[string]*memToken{}, orgs: map[string]model.Org{},
 		members: map[string]map[string]model.Member{}, issues: map[string][]model.Issue{}, attach: map[string]map[string][]byte{},
 		agents: map[string][]model.Agent{}, tasks: map[string][]model.AgentTask{},
-		layouts: map[string][]model.CabinetSection{}, docs: map[string][]model.CabinetDoc{}, chains: map[string]model.OrgChain{}}
+		layouts: map[string][]model.CabinetSection{}, docs: map[string][]model.CabinetDoc{}, chains: map[string]model.OrgChain{},
+		channels: map[string][]model.Channel{}, messages: map[string]map[string][]model.ChannelMessage{},
+		reads: map[string]map[string]map[string]model.ChannelRead{}}
 }
 
 func (m *Mem) CountUsers() (int, error) {
@@ -227,6 +233,9 @@ func (m *Mem) DeleteOrg(id string) error {
 	delete(m.layouts, id)
 	delete(m.docs, id)
 	delete(m.chains, id)
+	delete(m.channels, id)
+	delete(m.messages, id)
+	delete(m.reads, id)
 	kept := m.creds[:0:0]
 	for _, c := range m.creds {
 		if c.Org != id {
@@ -732,4 +741,166 @@ func (m *Mem) SaveOrgChain(org string, c model.OrgChain) error {
 	defer m.mu.Unlock()
 	m.chains[org] = c.Clone()
 	return nil
+}
+
+// ---- 訊息頻道 ----
+
+func (m *Mem) ListChannels(org string) ([]model.Channel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []model.Channel{}
+	for _, c := range m.channels[org] {
+		out = append(out, c.Clone())
+	}
+	return out, nil
+}
+
+func (m *Mem) GetChannel(org, id string) (*model.Channel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, c := range m.channels[org] {
+		if c.ID == id {
+			x := c.Clone()
+			return &x, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *Mem) CreateChannel(org string, c model.Channel) (model.Channel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, x := range m.channels[org] {
+		n = max(n, x.Number())
+	}
+	c.ID = fmt.Sprintf("%s%d", model.ChannelPrefix, n+1)
+	m.channels[org] = append(m.channels[org], c.Clone())
+	return c, nil
+}
+
+func (m *Mem) UpdateChannel(org string, c model.Channel) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, x := range m.channels[org] {
+		if x.ID == c.ID {
+			m.channels[org][k] = c.Clone()
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (m *Mem) CreateChannelMessage(org string, msg model.ChannelMessage) (model.ChannelMessage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.messages[org] == nil {
+		m.messages[org] = map[string][]model.ChannelMessage{}
+	}
+	list := m.messages[org][msg.ChannelID]
+	n := 0
+	if len(list) > 0 {
+		n = list[len(list)-1].Number()
+	}
+	msg.ID = fmt.Sprintf("%s%d", model.MessagePrefix, n+1)
+	m.messages[org][msg.ChannelID] = append(list, msg.Clone())
+	return msg, nil
+}
+
+func (m *Mem) ListChannelMessages(org, channelID string, q model.MessageQuery) ([]model.ChannelMessage, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	in := []model.ChannelMessage{}
+	for _, x := range m.messages[org][channelID] {
+		n := x.Number()
+		if (q.After > 0 && n <= q.After) || (q.Before > 0 && n >= q.Before) {
+			continue
+		}
+		in = append(in, x)
+	}
+	more := false
+	if q.Limit > 0 && len(in) > q.Limit {
+		more = true
+		if q.Latest {
+			in = in[len(in)-q.Limit:]
+		} else {
+			in = in[:q.Limit]
+		}
+	}
+	out := []model.ChannelMessage{}
+	for _, x := range in {
+		out = append(out, x.Clone())
+	}
+	return out, more, nil
+}
+
+func (m *Mem) LastChannelMessages(org string) (map[string]model.ChannelMessage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]model.ChannelMessage{}
+	for id, list := range m.messages[org] {
+		if len(list) > 0 {
+			out[id] = list[len(list)-1].Clone()
+		}
+	}
+	return out, nil
+}
+
+func (m *Mem) ChannelReads(org, member string) (map[string]model.ChannelRead, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]model.ChannelRead{}
+	for ch, byMember := range m.reads[org] {
+		if r, ok := byMember[member]; ok {
+			out[ch] = r
+		}
+	}
+	return out, nil
+}
+
+func (m *Mem) SaveChannelRead(org string, r model.ChannelRead) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.reads[org] == nil {
+		m.reads[org] = map[string]map[string]model.ChannelRead{}
+	}
+	if m.reads[org][r.ChannelID] == nil {
+		m.reads[org][r.ChannelID] = map[string]model.ChannelRead{}
+	}
+	m.reads[org][r.ChannelID][r.Member] = r
+	return nil
+}
+
+func (m *Mem) UnreadCounts(org, member string, channelIDs []string) (map[string]int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]int{}
+	for _, ch := range channelIDs {
+		last := m.reads[org][ch][member].LastRead
+		for _, x := range m.messages[org][ch] {
+			if x.Number() > last && x.Author != member {
+				out[ch]++
+			}
+		}
+	}
+	return out, nil
+}
+
+func (m *Mem) UnreadMentions(org, member string, channelIDs []string, limit int) ([]model.ChannelMessage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	all := []model.ChannelMessage{}
+	for _, ch := range channelIDs {
+		last := m.reads[org][ch][member].LastRead
+		for _, x := range m.messages[org][ch] {
+			if x.Number() > last && x.Author != member && x.Mentioned(member) {
+				all = append(all, x.Clone())
+			}
+		}
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].At.After(all[j].At.Time) })
+	if limit > 0 && len(all) > limit {
+		all = all[:limit]
+	}
+	return all, nil
 }

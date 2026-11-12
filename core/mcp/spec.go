@@ -81,7 +81,7 @@ func CoreToolDefs() []any {
 			"列出組織的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。以角色身分工作前先讀它的 instructions。", true,
 			obj(map[string]any{"id": pStr("只看這個角色")})),
 		ToolDef("ops_agent_context", "角色能讀取的資訊",
-			"用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與頁籤(read / write),以及能讀的文件清單。include_bodies 為 true 時附上文件全文(最多 20 份,其餘只列清單)。文件權限依角色的 docAccess。", true,
+			"用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與頁籤(read / write),能讀的文件清單,以及頻道裡提到它的未讀訊息與它所在頻道的未讀數(mentions)。include_bodies 為 true 時附上文件全文(最多 20 份,其餘只列清單)。文件權限依角色的 docAccess。", true,
 			obj(map[string]any{
 				"agent":          pStr("角色 id 或名稱"),
 				"include_bodies": pBool("附上文件全文,預設 false"),
@@ -174,7 +174,8 @@ func CoreToolDefs() []any {
 				"title":          pStr("標題(新增時必填)"),
 			})),
 	}
-	return append(defs, ChainToolDefs()...)
+	defs = append(defs, ChainToolDefs()...)
+	return append(defs, ChannelToolDefs()...)
 }
 
 // CoreInitialize initialize 的回應內容(protocolVersion 由協定層決定)
@@ -199,6 +200,7 @@ func NewCoreServer(instructions string) *Server {
 	RegisterAgentTools(s)
 	RegisterCabinetTools(s)
 	RegisterChainTools(s)
+	RegisterChannelTools(s)
 	return s
 }
 

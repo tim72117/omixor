@@ -47,16 +47,18 @@ type AssistReply struct {
 	Text    string         `json:"text"`
 }
 
-var assistSections = []string{"overview", "development", "pipelines", "infrastructure", "monitoring", "incidents", "automation", "cabinet", "settings"}
+var assistSections = []string{"overview", "development", "pipelines", "infrastructure", "monitoring", "incidents", "automation", "cabinet", "settings", "channels"}
 
 var assistSectionTitle = map[string]string{
 	"overview": "總覽", "development": "開發進度", "pipelines": "CI/CD", "infrastructure": "伺服器與服務",
 	"monitoring": "監控與告警", "incidents": "事件", "automation": "AI 自動化", "cabinet": "文件櫃", "settings": "設定",
+	"channels": "對話",
 }
 
 var assistSectionIcon = map[string]string{
 	"overview": "square.grid.2x2", "development": "hammer", "pipelines": "arrow.triangle.branch", "infrastructure": "server.rack",
 	"monitoring": "waveform.path.ecg", "incidents": "flame", "automation": "sparkles", "cabinet": "archivebox", "settings": "gearshape",
+	"channels": "bubble.left.and.bubble.right",
 }
 
 // MARK: - 動作
@@ -504,8 +506,33 @@ func (r AssistResponder) Briefing() AssistBriefing {
 			Lines: []AssistBriefLine{assistLineOf("archivebox", "secondary", fmt.Sprintf("文件櫃有 %d 份文件", r.cabinetDocCount()))}}
 	case "settings":
 		return r.settingsBrief()
+	case "channels":
+		n, unread := r.channelCounts()
+		text := fmt.Sprintf("%d 個頻道", n)
+		if unread > 0 {
+			text += fmt.Sprintf(",%d 則未讀", unread)
+		}
+		return AssistBriefing{Headline: "對話", Tone: "secondary",
+			Lines: []AssistBriefLine{assistLineOf("bubble.left.and.bubble.right", "secondary", text)}}
 	}
 	return r.overviewBrief()
+}
+
+// channelCounts 頻道數與未讀總數:讀訊息頻道功能登記的 View(channels → {"channels":[{unread}]})
+func (r AssistResponder) channelCounts() (n, unread int) {
+	f, ok := views["channels"]
+	if !ok {
+		return 0, 0
+	}
+	m, _ := Object(f(r.a)).(map[string]any)
+	list, _ := m["channels"].([]any)
+	for _, x := range list {
+		if c, ok := x.(map[string]any); ok {
+			u, _ := c["unread"].(float64)
+			unread += int(u)
+		}
+	}
+	return len(list), unread
 }
 
 // cabinetDocCount 文件櫃的文件數:讀文件櫃功能登記的 View(cabinet → {"docs":[…]}),避免直接依賴它的資料結構
@@ -801,6 +828,8 @@ func (r AssistResponder) Suggestions() []string {
 		return []string{"總結目前狀況"}
 	case "settings":
 		return []string{"哪些整合還沒連接?", "總結目前狀況"}
+	case "channels":
+		return []string{"總結目前狀況"}
 	}
 	return []string{"總結目前狀況", "今天有哪些部署?", "有什麼需要我決定?", "誰在值班?"}
 }

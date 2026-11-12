@@ -25,6 +25,10 @@ import (
 //	ops_issues.assignee                           指派給的角色 id(空字串 = 未指派)
 //	omixor_cabinet_layouts                        文件櫃結構(主鍵 org;layout 是 jsonb,區塊與頁籤)
 //	omixor_docs                                   文件櫃的文件(主鍵 (org, id) = DOC-<n>;pos 大的在前;tags 是 jsonb;tab 可以是 null)
+//	omixor_org_chains                             組織鏈(主鍵 org;edges 是 jsonb)
+//	omixor_channels                               訊息頻道(主鍵 (org, id) = CH-<n>;members 是 jsonb 節點;同組織的 issue_id 不重複)
+//	omixor_channel_messages                       頻道訊息(主鍵 (org, channel_id, id) = M-<n>,每個頻道各自編號;mentions 是 jsonb)
+//	omixor_channel_reads                          已讀(主鍵 (org, channel_id, member);last_read 是讀到的訊息號碼)
 const pgSchema = `
 create table if not exists omixor_users (
   id text primary key,
@@ -180,6 +184,40 @@ create table if not exists omixor_org_chains (
   org text primary key,
   edges jsonb not null default '[]',
   updated_at timestamptz not null default now()
+);
+create table if not exists omixor_channels (
+  org text not null,
+  id text not null,
+  number integer not null,
+  name text not null,
+  topic text not null default '',
+  issue_id text not null default '',
+  members jsonb not null default '[]',
+  created_by text not null default '',
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  primary key (org, id)
+);
+create unique index if not exists omixor_channels_issue on omixor_channels (org, issue_id) where issue_id <> '';
+create table if not exists omixor_channel_messages (
+  org text not null,
+  channel_id text not null,
+  id text not null,
+  number integer not null,
+  author text not null,
+  text text not null,
+  mentions jsonb not null default '[]',
+  at timestamptz not null,
+  primary key (org, channel_id, id)
+);
+create index if not exists omixor_channel_messages_num on omixor_channel_messages (org, channel_id, number);
+create table if not exists omixor_channel_reads (
+  org text not null,
+  channel_id text not null,
+  member text not null,
+  last_read integer not null default 0,
+  at timestamptz not null,
+  primary key (org, channel_id, member)
 );
 `
 
@@ -495,6 +533,9 @@ func (p *PG) DeleteOrg(id string) error {
 		`delete from omixor_docs where org = $1`,
 		`delete from omixor_cabinet_layouts where org = $1`,
 		`delete from omixor_org_chains where org = $1`,
+		`delete from omixor_channel_reads where org = $1`,
+		`delete from omixor_channel_messages where org = $1`,
+		`delete from omixor_channels where org = $1`,
 		`delete from omixor_org_members where org = $1`,
 	} {
 		if _, err := tx.Exec(c, q, id); err != nil {
@@ -1354,4 +1395,281 @@ func (p *PG) SaveOrgChain(org string, ch model.OrgChain) error {
 	_, err := p.pool.Exec(c, `insert into omixor_org_chains (org, edges, updated_at) values ($1, $2, $3)
 		on conflict (org) do update set edges = $2, updated_at = $3`, org, jb(edges), secs(at))
 	return err
+}
+
+// ---- 訊息頻道 ----
+
+const channelCols = `id, name, topic, issue_id, members, created_by, created_at, updated_at`
+
+func scanChannel(row pgx.Row) (*model.Channel, error) {
+	var ch model.Channel
+	var members []byte
+	var created, updated time.Time
+	if err := row.Scan(&ch.ID, &ch.Name, &ch.Topic, &ch.IssueID, &members, &ch.CreatedBy, &created, &updated); err != nil {
+		return nil, err
+	}
+	ch.Members = []string{}
+	if err := json.Unmarshal(members, &ch.Members); err != nil {
+		return nil, err
+	}
+	ch.CreatedAt, ch.UpdatedAt = model.Time{Time: secs(created)}, model.Time{Time: secs(updated)}
+	return &ch, nil
+}
+
+func membersOrEmpty(l []string) []string {
+	if l == nil {
+		return []string{}
+	}
+	return l
+}
+
+func (p *PG) ListChannels(org string) ([]model.Channel, error) {
+	c, cancel := ctx()
+	defer cancel()
+	rows, err := p.pool.Query(c, `select `+channelCols+` from omixor_channels where org = $1 order by number`, org)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Channel{}
+	for rows.Next() {
+		ch, err := scanChannel(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *ch)
+	}
+	return out, rows.Err()
+}
+
+func (p *PG) GetChannel(org, id string) (*model.Channel, error) {
+	c, cancel := ctx()
+	defer cancel()
+	ch, err := scanChannel(p.pool.QueryRow(c, `select `+channelCols+` from omixor_channels where org = $1 and id = $2`, org, id))
+	return ch, notFound(err)
+}
+
+func (p *PG) CreateChannel(org string, ch model.Channel) (model.Channel, error) {
+	c, cancel := ctx()
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return ch, err
+	}
+	defer tx.Rollback(c)
+	// 同一個組織同時只建一個,號碼才不會撞
+	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-channels:' || $1))`, org); err != nil {
+		return ch, err
+	}
+	var num int
+	if err := tx.QueryRow(c, `select coalesce(max(number),0) from omixor_channels where org = $1`, org).Scan(&num); err != nil {
+		return ch, err
+	}
+	ch.ID = fmt.Sprintf("%s%d", model.ChannelPrefix, num+1)
+	if _, err := tx.Exec(c, `insert into omixor_channels (org, id, number, name, topic, issue_id, members, created_by, created_at, updated_at)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, org, ch.ID, num+1, ch.Name, ch.Topic, ch.IssueID, jb(membersOrEmpty(ch.Members)),
+		ch.CreatedBy, secs(ch.CreatedAt.Time), secs(ch.UpdatedAt.Time)); err != nil {
+		return ch, err
+	}
+	return ch, tx.Commit(c)
+}
+
+func (p *PG) UpdateChannel(org string, ch model.Channel) error {
+	c, cancel := ctx()
+	defer cancel()
+	tag, err := p.pool.Exec(c, `update omixor_channels set name = $3, topic = $4, issue_id = $5, members = $6, updated_at = $7
+		where org = $1 and id = $2`, org, ch.ID, ch.Name, ch.Topic, ch.IssueID, jb(membersOrEmpty(ch.Members)), secs(ch.UpdatedAt.Time))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+const messageCols = `channel_id, id, author, text, mentions, at`
+
+func scanMessage(row pgx.Row) (*model.ChannelMessage, error) {
+	var m model.ChannelMessage
+	var mentions []byte
+	var at time.Time
+	if err := row.Scan(&m.ChannelID, &m.ID, &m.Author, &m.Text, &mentions, &at); err != nil {
+		return nil, err
+	}
+	m.Mentions = []string{}
+	if err := json.Unmarshal(mentions, &m.Mentions); err != nil {
+		return nil, err
+	}
+	m.At = model.Time{Time: secs(at)}
+	return &m, nil
+}
+
+func (p *PG) CreateChannelMessage(org string, m model.ChannelMessage) (model.ChannelMessage, error) {
+	c, cancel := ctx()
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return m, err
+	}
+	defer tx.Rollback(c)
+	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-channel-messages:' || $1 || ':' || $2))`, org, m.ChannelID); err != nil {
+		return m, err
+	}
+	var num int
+	if err := tx.QueryRow(c, `select coalesce(max(number),0) from omixor_channel_messages where org = $1 and channel_id = $2`, org, m.ChannelID).Scan(&num); err != nil {
+		return m, err
+	}
+	m.ID = fmt.Sprintf("%s%d", model.MessagePrefix, num+1)
+	if _, err := tx.Exec(c, `insert into omixor_channel_messages (org, channel_id, id, number, author, text, mentions, at)
+		values ($1,$2,$3,$4,$5,$6,$7,$8)`, org, m.ChannelID, m.ID, num+1, m.Author, m.Text, jb(membersOrEmpty(m.Mentions)), secs(m.At.Time)); err != nil {
+		return m, err
+	}
+	return m, tx.Commit(c)
+}
+
+func (p *PG) ListChannelMessages(org, channelID string, q model.MessageQuery) ([]model.ChannelMessage, bool, error) {
+	c, cancel := ctx()
+	defer cancel()
+	order := "asc"
+	if q.Latest {
+		order = "desc"
+	}
+	sql := `select ` + messageCols + ` from omixor_channel_messages where org = $1 and channel_id = $2
+		and ($3 <= 0 or number > $3) and ($4 <= 0 or number < $4) order by number ` + order
+	args := []any{org, channelID, q.After, q.Before}
+	if q.Limit > 0 {
+		sql += ` limit $5`
+		args = append(args, q.Limit+1)
+	}
+	rows, err := p.pool.Query(c, sql, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	out := []model.ChannelMessage{}
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, false, err
+		}
+		out = append(out, *m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	more := false
+	if q.Limit > 0 && len(out) > q.Limit {
+		more, out = true, out[:q.Limit]
+	}
+	if q.Latest { // 換回由舊到新
+		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+			out[i], out[j] = out[j], out[i]
+		}
+	}
+	return out, more, nil
+}
+
+func (p *PG) LastChannelMessages(org string) (map[string]model.ChannelMessage, error) {
+	c, cancel := ctx()
+	defer cancel()
+	rows, err := p.pool.Query(c, `select distinct on (channel_id) `+messageCols+` from omixor_channel_messages
+		where org = $1 order by channel_id, number desc`, org)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]model.ChannelMessage{}
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[m.ChannelID] = *m
+	}
+	return out, rows.Err()
+}
+
+func (p *PG) ChannelReads(org, member string) (map[string]model.ChannelRead, error) {
+	c, cancel := ctx()
+	defer cancel()
+	rows, err := p.pool.Query(c, `select channel_id, last_read, at from omixor_channel_reads where org = $1 and member = $2`, org, member)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]model.ChannelRead{}
+	for rows.Next() {
+		r := model.ChannelRead{Member: member}
+		var at time.Time
+		if err := rows.Scan(&r.ChannelID, &r.LastRead, &at); err != nil {
+			return nil, err
+		}
+		r.At = model.Time{Time: secs(at)}
+		out[r.ChannelID] = r
+	}
+	return out, rows.Err()
+}
+
+func (p *PG) SaveChannelRead(org string, r model.ChannelRead) error {
+	c, cancel := ctx()
+	defer cancel()
+	_, err := p.pool.Exec(c, `insert into omixor_channel_reads (org, channel_id, member, last_read, at) values ($1,$2,$3,$4,$5)
+		on conflict (org, channel_id, member) do update set last_read = $4, at = $5`, org, r.ChannelID, r.Member, r.LastRead, secs(r.At.Time))
+	return err
+}
+
+func (p *PG) UnreadCounts(org, member string, channelIDs []string) (map[string]int, error) {
+	out := map[string]int{}
+	if len(channelIDs) == 0 {
+		return out, nil
+	}
+	c, cancel := ctx()
+	defer cancel()
+	rows, err := p.pool.Query(c, `select m.channel_id, count(*) from omixor_channel_messages m
+		left join omixor_channel_reads r on r.org = m.org and r.channel_id = m.channel_id and r.member = $2
+		where m.org = $1 and m.channel_id = any($3) and m.author <> $2 and m.number > coalesce(r.last_read, 0)
+		group by m.channel_id`, org, member, channelIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
+func (p *PG) UnreadMentions(org, member string, channelIDs []string, limit int) ([]model.ChannelMessage, error) {
+	out := []model.ChannelMessage{}
+	if len(channelIDs) == 0 {
+		return out, nil
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	c, cancel := ctx()
+	defer cancel()
+	rows, err := p.pool.Query(c, `select m.channel_id, m.id, m.author, m.text, m.mentions, m.at from omixor_channel_messages m
+		left join omixor_channel_reads r on r.org = m.org and r.channel_id = m.channel_id and r.member = $2
+		where m.org = $1 and m.channel_id = any($3) and m.author <> $2 and m.number > coalesce(r.last_read, 0)
+		and m.mentions ? $2
+		order by m.at desc, m.number desc limit $4`, org, member, channelIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *m)
+	}
+	return out, rows.Err()
 }

@@ -23,6 +23,7 @@ struct OpsApp: App {
                     app.startVoice()
                     app.startIssues()
                     app.startAgents()
+                    app.startChannels()
                     app.agentRunner.start()
                     app.startCabinet()
                     app.startGitHub()
@@ -36,9 +37,13 @@ struct OpsApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             CommandGroup(after: .sidebar) {
-                ForEach(Array(AppSection.allCases.enumerated()), id: \.element) { i, s in
+                // 快速鍵只有 ⌘1…⌘9:第 10 個以後的頁面沒有快速鍵
+                ForEach(Array(AppSection.allCases.prefix(9).enumerated()), id: \.element) { i, s in
                     Button(s.title) { app.go(s) }
                         .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+                }
+                ForEach(Array(AppSection.allCases.dropFirst(9)), id: \.self) { s in
+                    Button(s.title) { app.go(s) }
                 }
                 Divider()
                 Button(app.showAssistant ? "隱藏 AI 助理" : "顯示 AI 助理") { app.showAssistant.toggle() }

@@ -43,6 +43,10 @@ var AgentToolAllow = map[string]bool{
 	"ops_doc_save":          true,
 	// 依組織鏈委派給下游角色(service 依憑證身分強制)
 	"ops_agent_task_delegate": true,
+	// 訊息頻道:只看與發自己是成員的頻道(service 依憑證身分強制;不能建頻道、不能改成員)
+	"ops_channels":         true,
+	"ops_channel_messages": true,
+	"ops_channel_post":     true,
 }
 
 // AgentEndpointConfig 角色端點的設定
@@ -69,7 +73,8 @@ const agentInstructions = "這是 omixor 的角色端點:你正以虛擬角色�
 	"先用 ops_agent_context 取得角色設定與任務,照任務說明完成,過程與結果用 ops_agent_task_report 回報(做完 done、卡住 blocked,回報後憑證立刻失效)。" +
 	"組織鏈上有下游角色時,可以用 ops_agent_task_delegate 把工作委派出去(可以派給誰見 ops_agent_context 的 chain.downstream),對方做完會自動回報給你。" +
 	"可以讀 Issue(ops_issues)、建立 Issue(ops_issue_create)、對 Issue 留言與改狀態(ops_issue_update);" +
-	"文件櫃(ops_cabinet、ops_docs、ops_doc_save)只能讀寫角色 docAccess 範圍內的位置。署名一律是你的角色。"
+	"文件櫃(ops_cabinet、ops_docs、ops_doc_save)只能讀寫角色 docAccess 範圍內的位置。" +
+	"訊息頻道:ops_agent_context 的 mentions 是提到你的未讀訊息(只是通知,不是任務,自己決定要不要回);ops_channels 看你所在的頻道,ops_channel_messages 讀(讀了算已讀),ops_channel_post 回覆。署名一律是你的角色。"
 
 // AgentEndpoint 角色端點的 http.Handler(掛在 /mcp/agent):
 //
@@ -192,6 +197,11 @@ var AdminToolAllow = map[string]bool{
 	// 組織鏈:讀(成員)、改(組織管理員)
 	"ops_chain":      true,
 	"ops_chain_save": true,
+	// 訊息頻道
+	"ops_channels":         true,
+	"ops_channel_create":   true,
+	"ops_channel_messages": true,
+	"ops_channel_post":     true,
 }
 
 // AdminEndpointConfig 管理端點的設定
@@ -209,7 +219,8 @@ type AdminEndpointConfig struct {
 const adminInstructions = "這是 omixor 的 MCP 端點,操作目前組織的 Issue、虛擬角色與任務,權限同你登入的 omixor 帳號。" +
 	"虛擬角色:ops_agents 看角色,ops_agent_task_claim 領任務(回傳一組綁定該任務的角色憑證,用它連角色端點以該角色身分工作)," +
 	"ops_agent_task_report 回報。ops_issue_create / ops_issue_update 的 assignee 指派 Issue 給角色,會自動替它排任務。" +
-	"文件櫃:ops_cabinet 看結構、ops_docs 查文件、ops_doc_save 新增或修改(以角色身分工作時帶 agent,只能讀寫該角色 docAccess 範圍內的文件)。"
+	"文件櫃:ops_cabinet 看結構、ops_docs 查文件、ops_doc_save 新增或修改(以角色身分工作時帶 agent,只能讀寫該角色 docAccess 範圍內的文件)。" +
+	"訊息頻道:ops_channels 列我的頻道(含未讀數)、ops_channel_create 建立、ops_channel_messages 讀(讀了算已讀)、ops_channel_post 發訊息;@ 角色只通知、不排任務。"
 
 // AdminEndpoint 管理用 MCP 的 http.Handler(雲端掛在 /mcp/org/{org},用 omixor token 認證)
 func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {

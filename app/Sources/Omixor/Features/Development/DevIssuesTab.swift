@@ -147,8 +147,18 @@ private struct IssueDetail: View {
     @State private var draftLabels = ""
     @State private var comment = ""
     @State private var confirmDelete = false
+    @State private var channelError: String?
 
     private var store: IssueStore { app.startIssues() }
+
+    /// 綁這個 Issue 的對話頻道:已有就跳過去,沒有就建立(名稱用 Issue 標題,成員含自己與指派的角色)再跳過去
+    private func openChannel() {
+        do {
+            let c = try app.startChannels().openForIssue(issue)
+            channelError = nil
+            app.go(.channels, focus: c.id)
+        } catch { channelError = "開不了對話頻道:\(error.localizedDescription)" }
+    }
 
     /// 指派給角色(遠端模式:伺服器自動替角色排任務;列出啟用中的角色,已指派的停用角色也列出來)
     @ViewBuilder private var assigneeMenu: some View {
@@ -201,6 +211,8 @@ private struct IssueDetail: View {
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                Button { openChannel() } label: { Label("開對話頻道", systemImage: "bubble.left.and.bubble.right") }
+                    .help(app.channels.contains { $0.channel.issueId == issue.id } ? "打開綁這個 Issue 的對話頻道" : "建立綁這個 Issue 的對話頻道(成員含你與指派的角色)")
                 Button(issue.status == .open ? "關閉" : "重新打開") {
                     store.update(issue.id, by: app.me) { $0.status = issue.status == .open ? .closed : .open }
                 }
@@ -214,6 +226,7 @@ private struct IssueDetail: View {
                 }
                 ForEach(issue.labels, id: \.self) { Pill(text: $0, icon: "tag") }
                 if let e = store.remoteError { Text(e).font(.caption).foregroundStyle(.orange).lineLimit(2) }
+                if let e = channelError { Text(e).font(.caption).foregroundStyle(.red).lineLimit(2) }
             }
             if store.isRemote, let a = issue.assignedAgent {
                 let ts = app.agentTasks.filter { $0.agentId == a && $0.links.contains { $0.caseInsensitiveCompare(issue.id) == .orderedSame } }

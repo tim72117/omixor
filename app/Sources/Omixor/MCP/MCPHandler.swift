@@ -104,6 +104,7 @@ final class MCPHandler {
     文件櫃(ops_cabinet、ops_docs、ops_doc_save)依 evoleap 研發基地的區塊分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。
     發現值得追蹤的問題(例如從 ops_site_visitors 的數字看到異常)時,用 ops_issue_create 存成 Issue;先用 ops_issues 搜尋避免重複,已有就用 ops_issue_update 加留言。
     旁白語音(shuttle 專案的 npm run voice)可以用 ops_voice_submit 分派成批次:omixor 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。
+    訊息頻道(ops_channels、ops_channel_messages、ops_channel_post、ops_channel_create)把人與角色拉進同一個對話;@ 角色只通知、不排任務。以角色身分工作時,ops_agent_context 的 mentions 列出提到它的未讀訊息,讀(ops_channel_messages)與回覆(ops_channel_post)都帶 agent。
     Facebook 粉絲專頁(ops_fb_pages、ops_fb_posts、ops_fb_insights、ops_fb_drafts)只讀;ops_fb_draft_save 只能新增或修改草稿(以角色身分寫時帶 agent),發佈與排程只能由人在 app 的 AI 自動化 › 粉絲專頁 按。
     """
 
@@ -321,7 +322,7 @@ final class MCPHandler {
              description: "列出 omixor 的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。以角色身分工作前先讀它的 instructions。",
              properties: ["id": prop("string", "只看這個角色")], required: [], readOnly: true),
         Tool(name: "ops_agent_context", title: "角色能讀取的資訊",
-             description: "用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與頁籤(read / write),以及能讀的文件清單。include_bodies 為 true 時附上文件全文(最多 20 份,其餘只列清單)。文件權限依角色的 docAccess;Issue、範例資料等其他工具不分角色。",
+             description: "用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與頁籤(read / write),能讀的文件清單,以及頻道裡提到它的未讀訊息與它所在頻道的未讀數(mentions)。include_bodies 為 true 時附上文件全文(最多 20 份,其餘只列清單)。文件權限依角色的 docAccess;Issue、範例資料等其他工具不分角色。",
              properties: [
                  "agent": prop("string", "角色 id 或名稱"),
                  "include_bodies": prop("boolean", "附上文件全文,預設 false"),
@@ -513,7 +514,7 @@ final class MCPHandler {
                  "source": prop("string", "草稿從哪裡來,例如 doc:DOC-3、task:T-5"),
                  "agent": prop("string", "以虛擬角色身分工作時填角色 id 或名稱,草稿會署名該角色"),
              ], required: []),
-    ]
+    ] + channelTools   // 訊息頻道(MCPChannels.swift)
 
     // MARK: - 工具實作
 
@@ -549,6 +550,10 @@ final class MCPHandler {
         case "ops_chain": return chainList()
         case "ops_chain_save": return try chainSave(a)
         case "ops_agent_task_delegate": return try agentDelegate(a)
+        case "ops_channels": return try channelsList(a)
+        case "ops_channel_create": return try channelCreate(a)
+        case "ops_channel_messages": return try channelMessages(a)
+        case "ops_channel_post": return try channelPost(a)
         case "ops_orgs": return orgsInfo()
         case "ops_server": return serverInfo()
         case "ops_cabinet": return try cabinet(a)
@@ -1207,6 +1212,7 @@ final class MCPHandler {
                  "updatedAt": ISO8601DateFormatter().string(from: t.updatedAt)]
             }],
             "chain": chainContext(g),
+            "mentions": channelMentions(g),
             "cabinet": cabinetSections(g),
             "docs": ["total": docs.count, "docs": docs.prefix(50).enumerated().map { i, d -> [String: Any] in
                 var o = docJSON(d, full: bodies && i < bodyLimit)

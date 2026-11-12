@@ -4,9 +4,9 @@ omixor 的核心後端模組(Go)。目前有:
 
 | 套件 | 內容 |
 |---|---|
-| `model` | 共用的資料型別(Issue、組織、成員、使用者、token、操作紀錄、虛擬角色、文件櫃),JSON 格式和 app、omixor-web 相同 |
+| `model` | 共用的資料型別(Issue、組織、成員、使用者、token、操作紀錄、虛擬角色、文件櫃、組織鏈、訊息頻道),JSON 格式和 app、omixor-web 相同 |
 | `store` | 存放介面,實作有 PostgreSQL(`store.NewPG`)與記憶體(`store.NewMem`,測試用) |
-| `service` | 商業邏輯與權限:授權(用 evoleap 證明身分,發 omixor 自己的 token)、組織與成員、Issue、虛擬角色與任務、文件櫃 |
+| `service` | 商業邏輯與權限:授權(用 evoleap 證明身分,發 omixor 自己的 token)、組織與成員、Issue、虛擬角色與任務、文件櫃、組織鏈、訊息頻道 |
 | `api` | HTTP 路由(`api.New(svc).Handler()`) |
 | `client` | 連線上 omixor server 的用戶端,提供和 `service` 一樣的 Issue/組織操作 |
 | (已移到 `../server`) | 線上服務 omixor-server(Cloud Run),引用本模組 |
@@ -27,6 +27,7 @@ omixor 的核心後端模組(Go)。目前有:
 - 組織成員:讀寫自己組織的 Issue 與文件櫃的文件;作者一律是自己(不能冒名)
 - 文件櫃的結構(區塊與頁籤):組織管理員
 - 角色身分(角色憑證):文件櫃只能讀寫角色 `docAccess` 範圍內的位置,署名是角色;不能刪文件、不能改結構
+- 訊息頻道:組織成員建頻道、看自己是成員的頻道,組織管理員看全部;角色身分只能看與發自己是成員的頻道(見下方「訊息頻道」)
 
 ## 組織
 
@@ -94,6 +95,44 @@ MCP:
 - 角色端點:`ops_agent_task_delegate`(`to`、`title`、`instructions?`、`priority?`;來源任務一律是憑證綁定的那筆);`ops_agent_context` 多 `chain: {upstream, downstream}`(每筆 `{node, name, label}`:上游 = 回報給誰,下游 = 可以派給誰)
 - 執行者端點:`dispatch_delegate`;`dispatch_claim` 的 `nextSteps` 會列出這個角色依鏈可以委派給誰
 
+## 訊息頻道
+
+把需要合作的人(組織成員)與虛擬角色拉進同一個頻道對話。頻道可以自由建立,也可以綁一個 Issue。**@ 一個角色只通知、不排任務**:角色下次執行時,`ops_agent_context` 的 `mentions` 看得到提到它的未讀訊息,自己決定要不要回。資料模型在 `model/channel.go`,規則在 `service/channel.go`。
+
+- 頻道 `{id: "CH-<n>", name, topic, issueId(沒綁是 ""), members: [節點], createdBy, createdAt, updatedAt}`;列表多 `unread`(我的未讀數)、`lastMessageAt`。成員是節點(同組織鏈):`agent:<角色 id>`、`user:<email 小寫>`
+- 訊息 `{id: "M-<n>"(每個頻道各自編號), channelId, author: 節點, text(Markdown), mentions: [節點], at}`
+- 已讀:每個成員每個頻道一筆 `{channelId, member, lastRead(訊息號碼), at}`,只會往前;發訊息時作者的已讀跟著標到那一則。未讀 = 號碼大於 lastRead 而且作者不是自己
+- 存放:`omixor_channels`(主鍵 (org, id);`(org, issue_id)` 唯一索引擋同一個 Issue 兩個頻道)、`omixor_channel_messages`(主鍵 (org, channel_id, id))、`omixor_channel_reads`(主鍵 (org, channel_id, member));刪除組織一併刪
+
+規則:
+
+- 建立:組織成員(建立者自動是成員);角色身分不能建。名稱必填、最多 80 字;主題最多 500 字
+- 成員輸入:`agent:<id 或名稱>`、`user:<email>`、純 email、純角色 id 或名稱 → 換成節點;角色要存在、人要是組織成員(建立者自己例外,例如不在成員名單的伺服器管理員),否則 400
+- 看:頻道成員;組織管理員看得到全部(可讀訊息、改名稱主題、加減成員),但**發訊息要是成員**(管理員要先把自己加進去)。看不到的頻道一律 404(不洩漏存在)
+- 頻道成員:讀、發、加減成員、改名稱主題。角色身分(角色憑證):只看與發自己是成員的頻道,不能建、不能改成員或名稱主題
+- 綁 Issue:`issueId` 要存在(404);同一個 Issue 只能有一個頻道 —— 已有而且呼叫者看得到就**回傳那個頻道**(200,不新建),看不到 409(訊息帶既有頻道 id,請成員把你加進去)
+- 訊息:去頭尾空白後不能空白(400),最多 8000 字
+- @ 解析(`model.ParseMentions`):`@` 前面是開頭或非英數時,後面依序比對頻道成員的角色名稱、角色 id、email、完整節點(不分大小寫,取最長的);角色 id、email、節點比對到之後下一個字元是英數或 `-_`(或後面接英數的句點)就不算。**只算頻道成員,不是成員的 @ 直接忽略(不報錯)**,作者自己不算、去重
+- 以別人身分(`as`;發訊息也接受 `author`、標已讀也接受 `member`):只有伺服器管理員給的算數(同 Issue 的 `author`,例如 omixor-web 內建核心、本機 MCP 帶 agent);以角色身分時套用角色的規則。其他人給的忽略
+- 刪角色、從組織移除成員:從所有頻道成員拿掉(訊息與作者保留)
+
+API(都在 `/api/orgs/{org}` 底下;角色憑證 `Bearer <agentId>:<secret>` 也可以):
+
+- `GET /channels?issue=`:我看得到的頻道,最近有動靜的在前
+- `POST /channels`:`{name, topic?, issueId?, members?}`
+- `GET /channels/inbox?for=me|agent:<id>|user:<email>`:`{node, mentions: [{channelId, channelName, id, author, text, at}](未讀、新的在前最多 20 則), channels: [{id, name, unread}]}`;角色身分只能查自己,人只看得到自己也看得到的頻道
+- `GET /channels/{id}`、`POST /channels/{id}`(`{name?, topic?}`)
+- `POST /channels/{id}/members`:`{add?, remove?}`
+- `GET /channels/{id}/messages?since=&before=&limit=`:`{messages, hasMore}`,由舊到新;`since` 是訊息 id(之後最早的 limit 則)或 RFC 3339 時間,沒給是最新的 limit 則;`before` 往前翻頁;limit 預設 50、最多 200。讀訊息不會自動標已讀
+- `POST /channels/{id}/messages`:`{text}` → 訊息
+- `POST /channels/{id}/read`:`{upTo?}` 標已讀(沒給 = 最新;要是成員)
+
+MCP:
+
+- 管理端點:`ops_channels`(`agent?`、`issue?`;含未讀數)、`ops_channel_create`(`name`、`topic?`、`issue?`、`members?`;回傳多 `created`)、`ops_channel_messages`(`channel`(id 或名稱)、`since?`、`limit?`(預設 50)、`agent?`;讀了算已讀,標到回傳的最後一則)、`ops_channel_post`(`channel`、`text`、`agent?`)。`agent` 的規則同 Issue:伺服器管理員(本機 web)以該角色署名,一般帳號照樣是自己
+- 角色端點:`ops_channels`、`ops_channel_messages`、`ops_channel_post`(一律以憑證的角色);`ops_agent_context` 多 `mentions: {messages: [{channelId, channelName, id, author, authorName, text, at}](最多 20 則), channels: [{id, name, unread}], hint}`
+- 執行者端點:沒有頻道工具
+
 ## MCP 端點
 
 核心(`mcp` 套件)提供三種 MCP 端點,工具白名單與認證都不同;雲端 server 與本機 web 只負責掛路由與認證。
@@ -103,7 +142,7 @@ MCP:
 | 給誰 | 人或管理用的 LLM | 領了任務、以虛擬角色工作的 LLM | 領取任務的 LLM(找任務、領取) |
 | 認證 | 雲端 `/mcp/org/{org}`:omixor token;本機 `/mcp`:綁 127.0.0.1 | `Authorization: Bearer <agentId>:<secret>`(領取任務發的憑證,綁一筆任務) | 同管理端點:雲端 `/mcp/worker/{org}` 用 omixor token;本機 `/mcp/worker` 綁 127.0.0.1 |
 | 身分 | 呼叫者本人 | 憑證的角色(署名一律是角色) | 呼叫者本人(組織成員) |
-| 工具 | 組織、Issue、角色(含新增修改)、派任務、領取、回報、文件櫃(`ops_cabinet`、`ops_docs`、`ops_doc_save`;帶 `agent` 時依該角色的 docAccess)、組織鏈(`ops_chain`、`ops_chain_save`) | `ops_agent_context`(含能存取的文件櫃區塊與文件、組織鏈的上下游)、`ops_agent_tasks`、`ops_agent_task_report`、`ops_agent_task_delegate`、Issue 讀/建/留言、文件櫃(依憑證角色的 docAccess) | `dispatch_queue`、`dispatch_claim`、`dispatch_status`、`dispatch_report`、`dispatch_comment`、`dispatch_delegate`、`dispatch_release` |
+| 工具 | 組織、Issue、角色(含新增修改)、派任務、領取、回報、文件櫃(`ops_cabinet`、`ops_docs`、`ops_doc_save`;帶 `agent` 時依該角色的 docAccess)、組織鏈(`ops_chain`、`ops_chain_save`)、訊息頻道(`ops_channels`、`ops_channel_create`、`ops_channel_messages`、`ops_channel_post`) | `ops_agent_context`(含能存取的文件櫃區塊與文件、組織鏈的上下游、頻道裡提到它的未讀訊息)、`ops_agent_tasks`、`ops_agent_task_report`、`ops_agent_task_delegate`、Issue 讀/建/留言、文件櫃(依憑證角色的 docAccess)、訊息頻道(`ops_channels`、`ops_channel_messages`、`ops_channel_post`) | `dispatch_queue`、`dispatch_claim`、`dispatch_status`、`dispatch_report`、`dispatch_comment`、`dispatch_delegate`、`dispatch_release` |
 | 遠端模式(web) | 轉給雲端 | 一律 401(憑證在雲端,要連雲端的 `/mcp/agent`) | 轉給雲端(`credential.endpoint` 指向雲端 `/mcp/agent`) |
 
 執行者的標準流程:

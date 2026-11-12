@@ -53,6 +53,17 @@
 //	POST /api/orgs/{org}/docs/{id}             {title?, body?, appendBody?, section?, tab?, tags?} 修改;給 section 就是搬移
 //	POST /api/orgs/{org}/docs/{id}/delete      刪除(成員;角色憑證不行)
 //
+//	GET  /api/orgs/{org}/channels?issue=       訊息頻道:我看得到的(成員;組織管理員是全部;角色憑證只看到自己是成員的),附 unread、lastMessageAt
+//	POST /api/orgs/{org}/channels              {name, topic?, issueId?, members?} 建立(組織成員;建立者自動是成員;Issue 已有頻道 → 回傳那個或 409)
+//	GET  /api/orgs/{org}/channels/inbox?for=   提到 me|agent:<id>|user:<email> 的未讀訊息(最多 20 則)與所在頻道的未讀數
+//	GET  /api/orgs/{org}/channels/{id}
+//	POST /api/orgs/{org}/channels/{id}         {name?, topic?} 修改(頻道成員或組織管理員)
+//	POST /api/orgs/{org}/channels/{id}/members {add?, remove?} 加減成員(頻道成員或組織管理員;角色憑證不行)
+//	GET  /api/orgs/{org}/channels/{id}/messages?since=&before=&limit=   {messages, hasMore}(由舊到新)
+//	POST /api/orgs/{org}/channels/{id}/messages {text} 發訊息(頻道成員;@ 只算成員)
+//	POST /api/orgs/{org}/channels/{id}/read    {upTo?} 標已讀(沒給 = 最新)
+//	  伺服器管理員可以用 as(或 messages 的 author、read 的 member)以角色或別人的身分操作
+//
 //	GET  /api/admin/users | POST {email, role?, disabled?}   (伺服器管理員,以下同)
 //	GET  /api/admin/tokens | POST /api/admin/tokens/{id}/revoke
 //	GET  /api/admin/audit?limit=
@@ -276,6 +287,7 @@ func (a *API) Handler() http.Handler {
 	a.agentRoutes(mux)
 	a.cabinetRoutes(mux)
 	a.chainRoutes(mux)
+	a.channelRoutes(mux)
 
 	// 伺服器管理
 	mux.HandleFunc("GET /api/admin/users", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {

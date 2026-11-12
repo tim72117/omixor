@@ -89,6 +89,7 @@ func (a *App) RoleCallFinished() {
 	if org != "" && a.cabinetRefresh(org) {
 		a.Changed("cabinet")
 	}
+	a.Changed("channels", "badges") // 角色可能發了頻道訊息、標了已讀
 }
 
 // ---- 快取 ----

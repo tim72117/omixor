@@ -36,6 +36,7 @@ struct RootView: View {
         case .automation: AutomationView()
         case .cabinet: CabinetView()
         case .settings: SettingsView()
+        case .channels: ChannelsView()
         }
     }
 }
@@ -48,7 +49,7 @@ struct SidebarView: View {
             Section("維運") {
                 ForEach([AppSection.overview, .development, .pipelines, .infrastructure, .monitoring, .incidents], id: \.self) { row($0) }
             }
-            Section("自動化") { row(.automation); row(.cabinet) }
+            Section("自動化") { row(.automation); row(.channels); row(.cabinet) }
             Section { row(.settings) }
         }
         .listStyle(.sidebar)
