@@ -17,8 +17,11 @@
 //	omixor issues delete <id>… | --all [--org default] [--yes]   沒加 --yes 只列出
 //	omixor agents import [--org default] <agents.json>   第一次搬資料用:角色與任務(格式同 app 的 agents.json);伺服器上已經有角色或任務就會拒絕
 //
-// 登入資料存在 ~/.config/omixor/credentials.json(權限 600;OMIXOR_CREDENTIALS 可改)。
-// 登入時的伺服器:--server > OMIXOR_SERVER > 上次登入的 > 正式站;之後的指令只送回發 token 的那台。
+// 登入資料依伺服器分檔:~/.config/omixor/credentials/<伺服器>.json(權限 600;<伺服器> 是網址的 host(:port)),
+// 可以同時登入好幾台(例如正式站與本機測試)。OMIXOR_CREDENTIALS 指定單一檔案時只用那個檔(舊的用法)。
+// 舊版的 ~/.config/omixor/credentials.json(只記一台)照樣讀得到:用到那台時複製成新的檔案(舊的不刪)。
+// 每個指令連哪一台:--server > OMIXOR_SERVER > 上次登入的(~/.config/omixor/current-server)> 舊版登入資料的 > 正式站;
+// token 只送回發它的那台。
 package cli
 
 import (
@@ -27,6 +30,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,27 +52,76 @@ type credentials struct {
 	ExpiresAt *model.Time `json:"expiresAt,omitempty"`
 }
 
-func credPath() string {
-	if p := os.Getenv("OMIXOR_CREDENTIALS"); p != "" {
-		return p
+// configDir 設定資料夾(OMIXOR_CONFIG_DIR 可改,測試用)
+func configDir() string {
+	if d := os.Getenv("OMIXOR_CONFIG_DIR"); d != "" {
+		return d
 	}
 	dir, _ := os.UserConfigDir()
 	if home, err := os.UserHomeDir(); err == nil {
 		dir = filepath.Join(home, ".config")
 	}
-	return filepath.Join(dir, "omixor", "credentials.json")
+	return filepath.Join(dir, "omixor")
 }
 
-func loadCred() credentials {
+func legacyCredPath() string { return filepath.Join(configDir(), "credentials.json") }
+func currentSrvPath() string { return filepath.Join(configDir(), "current-server") }
+
+// serverKey 登入資料的檔名:網址的 host(:port),只留英數字與 . _ -
+func serverKey(srv string) string {
+	k := srv
+	if u, err := url.Parse(srv); err == nil && u.Host != "" {
+		k = u.Host
+	}
+	var b strings.Builder
+	for _, r := range k {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "server"
+	}
+	return b.String()
+}
+
+// credPath 這台伺服器的登入資料
+func credPath(srv string) string {
+	if p := os.Getenv("OMIXOR_CREDENTIALS"); p != "" {
+		return p
+	}
+	return filepath.Join(configDir(), "credentials", serverKey(trim(srv))+".json")
+}
+
+func readCred(p string) credentials {
 	var c credentials
-	if b, err := os.ReadFile(credPath()); err == nil {
+	if b, err := os.ReadFile(p); err == nil {
 		_ = json.Unmarshal(b, &c)
 	}
 	return c
 }
 
+// loadCred 這台伺服器的登入資料;新的檔案沒有時,舊版 credentials.json 是這台的就沿用(複製成新的檔案,舊的不刪)
+func loadCred(srv string) credentials {
+	srv = trim(srv)
+	if c := readCred(credPath(srv)); c.Token != "" && (c.Server == "" || trim(c.Server) == srv) {
+		return c
+	}
+	if os.Getenv("OMIXOR_CREDENTIALS") != "" {
+		return credentials{}
+	}
+	if c := readCred(legacyCredPath()); c.Token != "" && trim(c.Server) == srv {
+		_ = saveCred(c)
+		return c
+	}
+	return credentials{}
+}
+
 func saveCred(c credentials) error {
-	p := credPath()
+	p := credPath(c.Server)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
@@ -76,20 +129,45 @@ func saveCred(c credentials) error {
 	return os.WriteFile(p, b, 0o600)
 }
 
-func trim(s string) string { return strings.TrimRight(s, "/") }
+// pickServer 這個指令連哪一台:--server > OMIXOR_SERVER > 上次登入的 > 舊版登入資料的 > 正式站
+func pickServer(flagSrv string) string {
+	for _, s := range []string{flagSrv, os.Getenv("OMIXOR_SERVER")} {
+		if s = trim(s); s != "" {
+			return s
+		}
+	}
+	if os.Getenv("OMIXOR_CREDENTIALS") == "" {
+		if b, err := os.ReadFile(currentSrvPath()); err == nil {
+			if s := trim(string(b)); s != "" {
+				return s
+			}
+		}
+	}
+	p := legacyCredPath()
+	if e := os.Getenv("OMIXOR_CREDENTIALS"); e != "" {
+		p = e
+	}
+	if c := readCred(p); c.Server != "" {
+		return trim(c.Server)
+	}
+	return DefaultServer
+}
 
-// authed 用存著的 token 連回發它的伺服器;OMIXOR_SERVER 指到別台時拒絕,避免把 token 送給別人
-func authed() (*client.Client, error) {
-	c := loadCred()
+func setCurrentServer(srv string) error {
+	if err := os.MkdirAll(configDir(), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(currentSrvPath(), []byte(trim(srv)+"\n"), 0o600)
+}
+
+func trim(s string) string { return strings.TrimRight(strings.TrimSpace(s), "/") }
+
+// authed 用這台伺服器存著的 token 連它(token 只送回發它的那台)
+func authed(srv string) (*client.Client, error) {
+	srv = trim(srv)
+	c := loadCred(srv)
 	if c.Token == "" {
-		return nil, errors.New("還沒登入:先執行 omixor login")
-	}
-	srv := trim(c.Server)
-	if srv == "" {
-		srv = DefaultServer
-	}
-	if env := trim(os.Getenv("OMIXOR_SERVER")); env != "" && env != srv {
-		return nil, fmt.Errorf("登入資料是 %s 發的,但 OMIXOR_SERVER 指到 %s;請先 omixor login --server %s", srv, env, env)
+		return nil, fmt.Errorf("還沒登入 %s:先執行 omixor login --server %s", srv, srv)
 	}
 	cl := client.New(srv)
 	tok := c.Token
@@ -168,6 +246,7 @@ func Run(args []string, out io.Writer) error {
 		return err
 	}
 	pos := fs.Args()
+	srvSel := pickServer(*srvFlag)
 	sub := ""
 	if len(pos) > 0 {
 		sub = pos[0]
@@ -175,13 +254,7 @@ func Run(args []string, out io.Writer) error {
 
 	switch cmd {
 	case "login":
-		srv := DefaultServer
-		for _, s := range []string{*srvFlag, os.Getenv("OMIXOR_SERVER"), loadCred().Server} {
-			if s != "" {
-				srv = trim(s)
-				break
-			}
-		}
+		srv := srvSel
 		dev := *device
 		if dev == "" {
 			h, _ := os.Hostname()
@@ -211,6 +284,9 @@ func Run(args []string, out io.Writer) error {
 		if err := saveCred(credentials{Server: srv, Token: res.Token, TokenID: res.TokenID, Email: res.User.Email, ExpiresAt: res.ExpiresAt}); err != nil {
 			return err
 		}
+		if os.Getenv("OMIXOR_CREDENTIALS") == "" {
+			_ = setCurrentServer(srv) // 之後的指令沒指定 --server 就連這台
+		}
 		exp := "不到期"
 		if res.ExpiresAt != nil {
 			exp = res.ExpiresAt.Local().Format("2006-01-02") + " 到期"
@@ -218,12 +294,12 @@ func Run(args []string, out io.Writer) error {
 		fmt.Fprintf(out, "已登入 %s(%s,%s;%s)\n", srv, res.User.Email, res.User.Role, exp)
 		return nil
 	case "logout":
-		c := loadCred()
+		c := loadCred(srvSel)
 		if c.Token == "" {
-			fmt.Fprintln(out, "本來就沒有登入")
+			fmt.Fprintf(out, "本來就沒有登入 %s\n", srvSel)
 			return nil
 		}
-		if cl, err := authed(); err == nil {
+		if cl, err := authed(srvSel); err == nil {
 			if err := cl.Logout(); err != nil {
 				fmt.Fprintln(out, "伺服器上撤銷失敗(本機的登入照樣刪掉):", err)
 			}
@@ -236,7 +312,7 @@ func Run(args []string, out io.Writer) error {
 		return nil
 	}
 
-	cl, err := authed()
+	cl, err := authed(srvSel)
 	if err != nil {
 		return err
 	}
