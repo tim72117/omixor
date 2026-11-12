@@ -1,9 +1,0 @@
-bin/
-web/node_modules/
-web/dist/
-.git/
-conformance/
-**/*.tmp
-*.log
-omixor-issues
-omixor

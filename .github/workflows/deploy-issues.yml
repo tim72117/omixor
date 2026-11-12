@@ -11,7 +11,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'omixor-core/**'
+      - 'core/**'
       - '.github/workflows/deploy-issues.yml'
   workflow_dispatch:
 
@@ -31,12 +31,12 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: omixor-core
+        working-directory: core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: omixor-core/go.mod
+          go-version-file: core/go.mod
       - run: go vet ./...
       - run: go test ./...
 
@@ -58,7 +58,7 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Build and push image
-        working-directory: omixor-core
+        working-directory: core
         run: |
           gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
           docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .

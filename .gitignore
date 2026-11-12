@@ -22,21 +22,21 @@ DerivedData/
 
 # ===== Go =====
 bin/
-# go build ./cmd/omixor-issues 在 ops-web/ 底下產生的執行檔
-ops-web/omixor-issues
-ops-web/omixor
+# go build ./cmd/omixor-issues 在 web/ 底下產生的執行檔
+web/omixor-issues
+web/omixor
 *.test
 *.out
 coverage.*
 
-# ===== Node / Vite(ops-web/web)=====
+# ===== Node / Vite(web/ui)=====
 node_modules/
 *.tsbuildinfo
 npm-debug.log*
 .vite/
 # 建置出來的畫面:不進版控,只留空檔讓 go:embed 編得過(make build 會先 npm run build)
-ops-web/web/dist/*
-!ops-web/web/dist/.keep
+web/ui/dist/*
+!web/ui/dist/.keep
 
 # ===== 機密與本機設定 =====
 .env
@@ -48,8 +48,8 @@ ops-web/web/dist/*
 *.mobileprovision
 *.keychain*
 # 匯入用的掛載點(docker compose),只留空資料夾
-ops-web/.import-empty/*
-!ops-web/.import-empty/.keep
+web/.import-empty/*
+!web/.import-empty/.keep
 
 # ===== 執行時的暫存與紀錄(資料本身在 ~/Library/Application Support,不在專案裡)=====
 *.log
@@ -60,5 +60,5 @@ ops-web/.import-empty/*
 .claude/launch.json
 
 # omixor-core 編譯產生的執行檔
-omixor-core/omixor
-omixor-core/omixor-server
+core/omixor
+core/omixor-server

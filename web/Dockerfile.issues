@@ -1,0 +1,14 @@
+# 已改由 core/Dockerfile 建置 omixor-server(核心的線上服務)。
+# 這個檔案保留給舊的建置指令用:要在 repo 根目錄執行(需要旁邊的 omixor-core)
+#   docker build -f web/Dockerfile.issues .
+FROM golang:1.26 AS build
+WORKDIR /src
+COPY core ./core
+WORKDIR /src/core
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /omixor-server ./cmd/omixor-server
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /omixor-server /omixor-server
+ENV PORT=8080
+EXPOSE 8080
+ENTRYPOINT ["/omixor-server"]
