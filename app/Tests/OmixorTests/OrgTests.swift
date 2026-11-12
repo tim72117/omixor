@@ -49,7 +49,7 @@ final class OrgTests: XCTestCase {
         let app = AppState()
         app.startIssues(); app.startTestAgents(); app.startCabinet(); app.startConnections()
         app.startIssues().create(title: "evoleap 的 Issue", by: "tim")
-        Cabinet.create(app, title: "evoleap 文件", body: "", section: "levels", tab: "/studio/tools", tags: [], by: "tim")
+        try! Cabinet.create(app, title: "evoleap 文件", body: "", section: "levels", tab: "/studio/tools", tags: [], by: "tim")
         TokenVault.setTokens(TokenSet(accessToken: "default-token", tokenType: "Bearer"), "evoleap")
         defer { TokenVault.scope = ""; TokenVault.removeAll("evoleap") }
         XCTAssertEqual(app.agents.count, 5)
@@ -72,8 +72,8 @@ final class OrgTests: XCTestCase {
         var layout = CabinetLayout.sections
         layout.append(CabinetSection(id: "s3", label: "研究", tabs: [CabinetTab(path: "/s3/1", label: "競品")]))
         XCTAssertNil(Cabinet.validate(app, layout))
-        Cabinet.saveLayout(app, layout)
-        Cabinet.create(app, title: "競品比較", body: "", section: "s3", tab: "/s3/1", tags: [], by: "tim")
+        try! Cabinet.saveLayout(app, layout)
+        try! Cabinet.create(app, title: "競品比較", body: "", section: "s3", tab: "/s3/1", tags: [], by: "tim")
         XCTAssertNotNil(Cabinet.validate(app, CabinetLayout.blank), "有文件的區塊不能拿掉")
 
         // 切回 evoleap:資料都還在、各自獨立

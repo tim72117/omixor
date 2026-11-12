@@ -8,6 +8,8 @@ final class FakeOmixorServer: URLProtocol {
     nonisolated(unsafe) static var tasks: [[String: Any]] = []
     nonisolated(unsafe) static var issues: [[String: Any]] = []
     nonisolated(unsafe) static var requests: [(method: String, path: String, body: [String: Any])] = []
+    nonisolated(unsafe) static var layout: [[String: Any]] = []
+    nonisolated(unsafe) static var docs: [[String: Any]] = []
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -23,6 +25,10 @@ final class FakeOmixorServer: URLProtocol {
         tasks = []
         issues = []
         requests = []
+        layout = [["id": "overview", "label": "總覽", "path": "", "tabs": []],
+                  ["id": "docs", "label": "文件", "path": "", "tabs": [["label": "研究", "path": "/docs/research"]]]]
+        docs = [["id": "DOC-1", "title": "伺服器上的文件", "body": "內容", "section": "docs", "tags": ["a"], "author": "tim@example.com",
+                 "createdAt": now, "updatedAt": now]]
     }
 
     private func reply(_ code: Int, _ obj: Any) {
@@ -78,6 +84,29 @@ final class FakeOmixorServer: URLProtocol {
         guard p.count >= 4, p[0] == "api", p[1] == "orgs" else { return fail(404, "?") }
         let rest = Array(p.dropFirst(4))
         switch (p[3], method, rest.count) {
+        case ("cabinet", "GET", 0):
+            ok(["layout": Self.layout, "docs": Self.docs, "layoutSaved": true])
+        case ("cabinet", "POST", 1) where rest[0] == "layout":
+            guard let l = body["layout"] as? [[String: Any]] else { return fail(400, "要給 layout") }
+            Self.layout = l
+            ok(l)
+        case ("docs", "POST", 0):
+            guard let title = body["title"] as? String, !title.isEmpty else { return fail(400, "要給 title") }
+            if (body["body"] as? String ?? "").contains("kind: spec") { return fail(400, "缺少必填欄位:owner") }
+            let n = (Self.docs.compactMap { Int(($0["id"] as? String ?? "").dropFirst(4)) }.max() ?? 0) + 1
+            var d: [String: Any] = ["id": "DOC-\(n)", "title": title, "body": body["body"] ?? "", "section": body["section"] ?? "",
+                                    "tags": body["tags"] ?? [], "author": "tim@example.com", "createdAt": Self.now, "updatedAt": Self.now]
+            if let t = body["tab"] { d["tab"] = t }
+            Self.docs.insert(d, at: 0)
+            ok(d)
+        case ("docs", "POST", 1):
+            guard let i = Self.docs.firstIndex(where: { $0["id"] as? String == rest[0] }) else { return fail(404, "找不到文件 \(rest[0])") }
+            for k in ["title", "body", "section", "tags"] where body[k] != nil { Self.docs[i][k] = body[k] }
+            if let t = body["tab"] as? String { Self.docs[i]["tab"] = t.isEmpty ? NSNull() : t }
+            ok(Self.docs[i])
+        case ("docs", "POST", 2) where rest[1] == "delete":
+            Self.docs.removeAll { $0["id"] as? String == rest[0] }
+            ok(true)
         case ("agents", "GET", 0):
             ok(Self.agents)
         case ("agents", "POST", 0):

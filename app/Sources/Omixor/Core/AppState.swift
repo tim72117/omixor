@@ -154,11 +154,13 @@ final class AppState: ObservableObject {
     var mockOrg = OrgFiles.defaultId
     var mockStash: [String: MockSnapshot] = [:]
 
-    /// 文件櫃(Cabinet/Cabinet.swift):存在 cabinet.json
+    /// 文件櫃(Cabinet/Cabinet.swift):本機存在 cabinet.json,遠端在 omixor server
     @Published var cabinetDocs: [CabinetDoc] = []
     var cabinetLoaded = false
     /// 文件櫃結構改了就加一,讓畫面重畫
     @Published var cabinetLayoutVersion = 0
+    /// 遠端模式讀文件櫃的錯誤(nil = 正常)
+    @Published var cabinetRemoteError: String?
     func startCabinet() { Cabinet.load(self) }
 
     /// Issue(Issues/Issues.swift):真實資料,存在 issues.json

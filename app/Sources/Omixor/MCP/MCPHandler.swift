@@ -1147,6 +1147,11 @@ final class MCPHandler {
         catch let e as CabinetError { throw MCPToolError(e.message) }
     }
 
+    /// 文件櫃寫入的錯誤(例如遠端伺服器拒絕)轉成工具錯誤,原文給呼叫端
+    private func cabinetCall<T>(_ f: () throws -> T) throws -> T {
+        do { return try f() } catch let e as MCPToolError { throw e } catch { throw MCPToolError(error.localizedDescription) }
+    }
+
     private func docSave(_ a: MCPArgs) throws -> Any {
         app.startCabinet()
         let g = try docAgent(a)
@@ -1169,13 +1174,13 @@ final class MCPHandler {
             var newBody = a.raw["body"] as? String ?? d.body
             if let b = a.raw["append_body"] as? String, !b.isEmpty { newBody += (newBody.isEmpty ? "" : "\n\n") + b }
             if let e = DocTemplates.validate(newBody, in: app.cabinetDocs) { throw MCPToolError(e) }
-            let updated = Cabinet.update(app, d.id) { x in
+            let updated = try cabinetCall { try Cabinet.update(app, d.id) { x in
                 if let t = a.string("title") { x.title = t }
                 if let b = a.raw["body"] as? String { x.body = b }
                 if let b = a.raw["append_body"] as? String, !b.isEmpty { x.body += (x.body.isEmpty ? "" : "\n\n") + b }
                 if let l = newLoc { x.section = l.0.id; x.tab = l.1?.path }
                 if let tags = a.strings("tags") { x.tags = tags }
-            }
+            } }
             return updated.map { docJSON($0, full: false) } ?? [:]
         }
         let title = try a.require("title")
@@ -1183,8 +1188,8 @@ final class MCPHandler {
         try checkWrite(s.id, t?.path)
         let body = a.raw["body"] as? String ?? ""
         if let e = DocTemplates.validate(body, in: app.cabinetDocs) { throw MCPToolError(e) }
-        let d = Cabinet.create(app, title: title, body: body, section: s.id, tab: t?.path,
-                               tags: a.strings("tags") ?? [], by: author)
+        let d = try cabinetCall { try Cabinet.create(app, title: title, body: body, section: s.id, tab: t?.path,
+                                                     tags: a.strings("tags") ?? [], by: author) }
         return docJSON(d, full: false)
     }
 

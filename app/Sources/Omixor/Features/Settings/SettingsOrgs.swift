@@ -379,8 +379,7 @@ struct CabinetLayoutEditor: View {
                 Button("取消") { dismiss() }
                 Button("儲存") {
                     if let e = Cabinet.validate(app, draft) { error = e; return }
-                    Cabinet.saveLayout(app, draft)
-                    dismiss()
+                    do { try Cabinet.saveLayout(app, draft); dismiss() } catch { self.error = error.localizedDescription }
                 }
                 .buttonStyle(.borderedProminent)
             }

@@ -27,6 +27,18 @@ struct CabinetView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let e = app.cabinetRemoteError {
+                Label("讀不到 omixor server 的文件櫃(畫面是上次讀到的):\(e)", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange).lineLimit(2).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 6)
+                Divider()
+            }
+            content
+        }
+    }
+
+    private var content: some View {
         HStack(spacing: 0) {
             tree.frame(width: 250)
             Divider()
@@ -226,14 +238,18 @@ private struct CabinetDocDetail: View {
                     Button("取消") { editing = false; error = nil }
                     Button("儲存") {
                         if let e = DocTemplates.validate(draftBody, in: app.cabinetDocs) { error = e; return }
-                        Cabinet.update(app, doc.id) { $0.title = draftTitle; $0.body = draftBody }
-                        editing = false; error = nil
+                        do {
+                            try Cabinet.update(app, doc.id) { $0.title = draftTitle; $0.body = draftBody }
+                            editing = false; error = nil
+                        } catch { self.error = error.localizedDescription }
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(draftTitle.trimmingCharacters(in: .whitespaces).isEmpty)
                 } else {
                     Button("編輯") { draftTitle = doc.title; draftBody = doc.body; editing = true }
-                    Button("刪除", role: .destructive) { Cabinet.delete(app, doc.id); onDelete() }
+                    Button("刪除", role: .destructive) {
+                        do { try Cabinet.delete(app, doc.id); onDelete() } catch { self.error = error.localizedDescription }
+                    }
                 }
             }
             HStack(spacing: 8) {
@@ -256,6 +272,7 @@ private struct NewDocSheet: View {
     let onCreate: (CabinetDoc) -> Void
     @State private var title = ""
     @State private var bodyText = ""
+    @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -266,13 +283,19 @@ private struct NewDocSheet: View {
                 .frame(minHeight: 260)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
             HStack {
-                Text("純文字,支援 Markdown").font(.caption).foregroundStyle(.secondary)
+                if let error {
+                    Text(error).font(.caption).foregroundStyle(.orange).lineLimit(3).textSelection(.enabled)
+                } else {
+                    Text("純文字,支援 Markdown").font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("取消") { dismiss() }
                 Button("建立") {
-                    onCreate(Cabinet.create(app, title: title.trimmingCharacters(in: .whitespaces), body: bodyText,
-                                            section: section.id, tab: tab?.path, tags: [], by: app.me))
-                    dismiss()
+                    do {
+                        onCreate(try Cabinet.create(app, title: title.trimmingCharacters(in: .whitespaces), body: bodyText,
+                                                    section: section.id, tab: tab?.path, tags: [], by: app.me))
+                        dismiss()
+                    } catch { self.error = error.localizedDescription }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)

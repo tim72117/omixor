@@ -73,9 +73,9 @@ final class CabinetTests: XCTestCase {
     func testDocsPersistAcrossRestart() throws {
         let app = AppState()
         app.startCabinet()
-        let d = Cabinet.create(app, title: "規劃", body: "內文", section: "overview", tab: nil, tags: ["a"], by: "agent:product-manager")
-        Cabinet.update(app, d.id) { $0.body += "\n補充" }
-        Cabinet.create(app, title: "第二份", body: "", section: "levels", tab: "/studio/tools", tags: [], by: "tim")
+        let d = try! Cabinet.create(app, title: "規劃", body: "內文", section: "overview", tab: nil, tags: ["a"], by: "agent:product-manager")
+        try! Cabinet.update(app, d.id) { $0.body += "\n補充" }
+        try! Cabinet.create(app, title: "第二份", body: "", section: "levels", tab: "/studio/tools", tags: [], by: "tim")
 
         let app2 = AppState()
         app2.startCabinet()
@@ -84,12 +84,12 @@ final class CabinetTests: XCTestCase {
         XCTAssertEqual(r.body, "內文\n補充")
         XCTAssertEqual(r.author, "agent:product-manager")
         XCTAssertEqual(Cabinet.doc(app2, "DOC-2")?.tab, "/studio/tools")
-        Cabinet.delete(app2, "DOC-2")
+        try! Cabinet.delete(app2, "DOC-2")
         let app3 = AppState()
         app3.startCabinet()
         XCTAssertEqual(app3.cabinetDocs.map(\.id), ["DOC-1"])
         // 下一份編號接著最大的
-        XCTAssertEqual(Cabinet.create(app3, title: "x", body: "", section: "todo", tab: nil, tags: [], by: "tim").id, "DOC-2")
+        XCTAssertEqual(try! Cabinet.create(app3, title: "x", body: "", section: "todo", tab: nil, tags: [], by: "tim").id, "DOC-2")
     }
 
     func testUnreadableCabinetIsKeptNotOverwritten() throws {
