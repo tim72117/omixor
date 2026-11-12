@@ -18632,7 +18632,7 @@
       {
         "category" : "專案管理",
         "connected" : false,
-        "detail" : "尚未連線:目前工作項目存在 Ops 內建看板",
+        "detail" : "尚未連線:目前工作項目存在 omixor 內建看板",
         "icon" : "checklist",
         "id" : "linear",
         "name" : "Linear"

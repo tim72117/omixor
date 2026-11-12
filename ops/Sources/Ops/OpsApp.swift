@@ -12,7 +12,7 @@ struct OpsApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Ops") {
+        WindowGroup("omixor") {
             RootView()
                 .environmentObject(app)
                 .frame(minWidth: 1180, minHeight: 720)

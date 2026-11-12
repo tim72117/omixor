@@ -32,7 +32,7 @@ struct SettingsConnectionsPane: View {
                     ConnectionEditor(original: c).id(c.id)
                 } else {
                     EmptyStateView(title: "選一個連線", icon: "key.horizontal",
-                                   message: "每個連線是一個外部服務的網址加上認證方式。登入後,Ops 的其他功能(例如旁白發佈)就能用這個身分呼叫它的 API。")
+                                   message: "每個連線是一個外部服務的網址加上認證方式。登入後,omixor 的其他功能(例如旁白發佈)就能用這個身分呼叫它的 API。")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

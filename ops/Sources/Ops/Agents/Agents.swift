@@ -383,9 +383,9 @@ final class AgentStore {
     /// 給 Claude Code 的一段話:貼到對話裡就會以角色身分領任務
     func prompt(agent: Agent, task: AgentTask? = nil) -> String {
         if let task {
-            return "請以 Ops 的虛擬角色「\(agent.name)」(id: \(agent.id))處理任務 \(task.id):用 ops_agent_task_claim 領取,照角色設定與任務說明完成,過程用 ops_agent_task_report 回報,做完把結果回報成 done;開 Issue 或留言時帶 agent: \(agent.id)。"
+            return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))處理任務 \(task.id):用 ops_agent_task_claim 領取,照角色設定與任務說明完成,過程用 ops_agent_task_report 回報,做完把結果回報成 done;開 Issue 或留言時帶 agent: \(agent.id)。"
         }
-        return "請以 Ops 的虛擬角色「\(agent.name)」(id: \(agent.id))工作:用 ops_agent_task_claim 依序領取它的待領取任務,照角色設定與任務說明完成並用 ops_agent_task_report 回報,直到沒有任務為止;開 Issue 或留言時帶 agent: \(agent.id)。"
+        return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))工作:用 ops_agent_task_claim 依序領取它的待領取任務,照角色設定與任務說明完成並用 ops_agent_task_report 回報,直到沒有任務為止;開 Issue 或留言時帶 agent: \(agent.id)。"
     }
 
     // MARK: - 預設角色
@@ -429,7 +429,7 @@ final class AgentStore {
                   你負責 shuttle 課程的旁白語音。
                   - 先用 ops_voice_submit 加 dry_run 試算有哪些段落缺語音,再決定要不要送批次;一次只會有一個批次在跑。
                   - 用 ops_voice_jobs 追蹤進度。
-                  - 你不能發佈:批次完成後回報,請人在 Ops 的 CI/CD › 旁白發佈 試聽後按發佈。
+                  - 你不能發佈:批次完成後回報,請人在 omixor 的 CI/CD › 旁白發佈 試聽後按發佈。
                   """,
                   routines: [AgentRoutine(title: "檢查缺少語音的旁白",
                                           instructions: "用 ops_voice_submit 的 dry_run 試算,回報有幾段缺語音、預估費用;不要直接送出。",
@@ -437,7 +437,7 @@ final class AgentStore {
             Agent(id: "triager", name: "Issue 整理員", role: "整理未解決的 Issue",
                   symbol: "tray.full", color: "orange",
                   instructions: """
-                  你負責整理 Ops 的 Issue。
+                  你負責整理 omixor 的 Issue。
                   - 用 ops_issues 列出未解決的 Issue。
                   - 重複的在較新的那筆留言指向舊的並關閉;優先度不合理的調整並留言說明理由。
                   - 不要關閉你不確定已解決的 Issue,改成留言詢問。

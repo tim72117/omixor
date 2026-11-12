@@ -14,6 +14,9 @@ enum ConnHTTP {
     struct Response {
         let status: Int
         let data: Data
+        var headers: [String: String] = [:]
+        /// 回應標頭(不分大小寫)
+        func header(_ name: String) -> String? { headers.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value }
         var json: Any { (try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)) ?? NSNull() }
         var ok: Bool { (200..<300).contains(status) }
     }
@@ -25,7 +28,10 @@ enum ConnHTTP {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         let (data, resp) = try await session.data(for: req, delegate: RedirectGuard.shared)
-        return Response(status: (resp as? HTTPURLResponse)?.statusCode ?? 0, data: data)
+        let http = resp as? HTTPURLResponse
+        var h: [String: String] = [:]
+        for (k, v) in http?.allHeaderFields ?? [:] { if let k = k as? String, let v = v as? String { h[k] = v } }
+        return Response(status: http?.statusCode ?? 0, data: data, headers: h)
     }
 
     static func json(_ method: String, _ url: URL, _ obj: Any, headers: [String: String] = [:]) async throws -> Response {

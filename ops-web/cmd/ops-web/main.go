@@ -6,11 +6,15 @@
 //	      設了 OPS_DATABASE_URL(與 OPS_SECRET_KEY)就改存 PostgreSQL
 //
 //	ops-web import <資料夾>   把資料夾裡的 JSON 檔(例如 Swift 版的 ~/Library/Application Support/Ops)匯入資料庫
+//	ops-web import-issues [-org <組織>] [-overwrite] <資料夾或 issues.json>
+//	                         只匯入 Issue 到資料庫的 ops_issues 表(只要 OPS_DATABASE_URL)。資料夾是匯入 orgs/<組織>/issues.json;
+//	                         可以重跑:已經有的 id 略過(-overwrite 改成用檔案覆蓋)
 //
 // Swift 版的 Ops 開著時 3765 會被占用;兩個都要開時,給其中一個設 OPS_MCP_PORT。
 package main
 
 import (
+	"flag"
 	"log"
 	"net"
 	"net/http"
@@ -27,6 +31,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "import-issues" {
+		runImportIssues(os.Args[2:])
+		return
+	}
 	if url := os.Getenv("OPS_DATABASE_URL"); url != "" {
 		if err := core.OpenDB(url, os.Getenv("OPS_SECRET_KEY")); err != nil {
 			log.Fatalf("PostgreSQL:%v", err)
@@ -99,4 +107,25 @@ func runImport() {
 		log.Fatal(err)
 	}
 	log.Printf("完成,共 %d 個檔案。鑰匙圈裡的登入沒辦法搬,連線要在畫面上重新登入", len(done))
+}
+
+func runImportIssues(args []string) {
+	fs := flag.NewFlagSet("import-issues", flag.ExitOnError)
+	org := fs.String("org", "", "組織 id(給檔案時預設 default;給資料夾時只匯入這個組織)")
+	overwrite := fs.Bool("overwrite", false, "資料庫已經有的 id 用檔案內容覆蓋(預設略過)")
+	_ = fs.Parse(args)
+	url := os.Getenv("OPS_DATABASE_URL")
+	if url == "" || fs.NArg() != 1 {
+		log.Fatal("用法:OPS_DATABASE_URL=… ops-web import-issues [-org <組織>] [-overwrite] <資料夾或 issues.json>")
+	}
+	if err := core.OpenIssueDB(url); err != nil {
+		log.Fatalf("PostgreSQL:%v", err)
+	}
+	res, err := core.ImportIssuesPath(fs.Arg(0), *org, *overwrite)
+	for _, r := range res {
+		log.Printf("組織 %s:新增 %d、覆蓋 %d、略過 %d", r.Org, r.Inserted, r.Updated, r.Skipped)
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
 }

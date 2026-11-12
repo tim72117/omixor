@@ -17,7 +17,7 @@ enum AuthKind: String, Codable, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .oauth: return "標準 OAuth 授權碼流程 + PKCE,從網址自動探索端點;伺服器支援時自動註冊用戶端。Google、Auth0、Keycloak、Okta、MCP 伺服器等都適用"
-        case .approval: return "Ops 在本機開回呼網址,瀏覽器裡由管理員按核准後換 token(evoleap CLI 的登入方式)"
+        case .approval: return "omixor 在本機開回呼網址,瀏覽器裡由管理員按核准後換 token(evoleap CLI 的登入方式)"
         case .bearer: return "貼上 API key 或個人存取權杖,每次請求帶 Authorization: Bearer"
         case .none: return "公開的 API,不帶任何認證"
         }

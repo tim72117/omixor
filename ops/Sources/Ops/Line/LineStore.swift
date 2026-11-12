@@ -13,7 +13,7 @@ final class LineStore {
 
     static let tokenAccount = "line:accessToken"
     static let secretAccount = "line:channelSecret"
-    static let noPermission = "沒有權限。請 Ops 的管理員把你的 LINE userId 加進白名單。"
+    static let noPermission = "沒有權限。請 omixor 的管理員把你的 LINE userId 加進白名單。"
 
     private var fileURL: URL { app.dataDir.appendingPathComponent("line.json") }
     private var stateURL: URL { app.dataDir.appendingPathComponent("line-state.json") }
@@ -267,7 +267,7 @@ final class LineStore {
             let label = r.label.isEmpty ? r.id : r.label
             do {
                 try await LineAPI.push(token: token, to: r.id,
-                                       messages: [LineAPI.text("這是 Ops 的測試訊息(組織:\(app.currentOrg?.name ?? app.currentOrgId))。收到這則表示推播設定正確。")],
+                                       messages: [LineAPI.text("這是 omixor 的測試訊息(組織:\(app.currentOrg?.name ?? app.currentOrgId))。收到這則表示推播設定正確。")],
                                        retryKey: UUID().uuidString.lowercased())
                 app.line.pushed += 1
                 app.line.note(true, "測試訊息已送給 \(label)")
@@ -325,7 +325,7 @@ final class LineStore {
 
     func voiceNotice(_ j: VoiceJob) -> LineNotice {
         LineNotice(key: "voice:\(j.id):ready", kind: "旁白批次待發佈", title: "\(j.id) \(j.title)",
-                   summary: "批次已收完,\(j.changes.count) 個檔案有變動。請在 Ops 試聽後按發佈(LINE 不能發佈)。",
+                   summary: "批次已收完,\(j.changes.count) 個檔案有變動。請在 omixor 試聽後按發佈(LINE 不能發佈)。",
                    fields: j.failedClips.isEmpty ? [] : [("失敗段落", "\(j.failedClips.count) 段")],
                    openIn: "CI/CD › 旁白發佈 › \(j.id)", color: "#0969DA")
     }
@@ -407,7 +407,7 @@ final class LineStore {
         guard d["ops"] == "approval", let id = d["id"], let n = d["n"], let decision = d["d"], ["approve", "reject"].contains(decision) else {
             return "看不懂這個按鈕。"
         }
-        guard var rec = state.nonces[n], rec.approvalId == id else { return "這個按鈕已失效,請到 Ops 裡決定。" }
+        guard var rec = state.nonces[n], rec.approvalId == id else { return "這個按鈕已失效,請到 omixor 裡決定。" }
         guard rec.usedAt == nil else { return "這個按鈕已經用過了。" }
         guard let r = app.approvals.first(where: { $0.id == id }) else { return "找不到這個請求。" }
         rec.usedAt = .now
@@ -417,12 +417,12 @@ final class LineStore {
             let who = r.decidedBy.map { app.person($0)?.name ?? $0 }
             return "「\(r.title)」已經是\(stateLabel(r.state))\(who.map { "(\($0))" } ?? ""),不用再決定。"
         }
-        if r.expiresAt < .now { return "「\(r.title)」已過期,請到 Ops 裡處理。" }
+        if r.expiresAt < .now { return "「\(r.title)」已過期,請到 omixor 裡處理。" }
         let approve = decision == "approve"
         let person = user.person.isEmpty ? nil : user.person
         app.decide(approvalId: id, approve: approve, by: person, via: "LINE" + (user.name.isEmpty ? "" : ",\(user.name)"))
         app.line.note(true, "\(user.name.isEmpty ? user.userId : user.name) 在 LINE \(approve ? "核准" : "拒絕")「\(r.title)」")
-        return "已\(approve ? "核准" : "拒絕")「\(r.title)」,已記錄到 Ops 動態牆。"
+        return "已\(approve ? "核准" : "拒絕")「\(r.title)」,已記錄到 omixor 動態牆。"
     }
 
     private func stateLabel(_ s: ApprovalState) -> String {

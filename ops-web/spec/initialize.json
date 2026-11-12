@@ -4,11 +4,11 @@
       "listChanged": false
     }
   },
-  "instructions": "Ops 是維運線上服務的 macOS app。這些工具直接讀寫 app 裡的即時資料,變更會立刻出現在畫面上,並以「MCP 用戶端」記在動態牆。\n先用 ops_overview 掌握整體狀況,再用 ops_list / ops_get 查細節。\n核准 AI 請求、核准部署、回滾、調整自動化自主程度只能由人在 app 裡決定;需要這類變更時,用 ops_request_approval 建立待核准請求,附上理由、依據與回滾方式。\nGCP(ops_gcp、ops_gcp_logs、ops_gcp_metrics)只讀:看 Cloud Run 狀態、錯誤日誌、請求量與延遲;Ops 不會部署、改流量或執行 Job。\nGitHub(ops_github、ops_github_runs、ops_github_run、ops_github_pull)只讀:看 PR、檢查與 Actions 失敗原因;Ops 不會開 PR、留言或重跑 workflow。\nIssue、虛擬角色與任務、文件櫃、連線都屬於目前的組織(ops_orgs 看是哪一個);切換組織只能由人在 app 裡做。\nOps 有虛擬角色(ops_agents)。使用者請你以某角色身分工作時:用 ops_agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 ops_agent_task_report 回報;需要人決定時回報 blocked。以角色身分開 Issue 或留言時,ops_issue_create / ops_issue_update 帶上 agent(角色 id),才會署名該角色。\n文件櫃(ops_cabinet、ops_docs、ops_doc_save)依 evoleap 研發基地的區塊分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。\n發現值得追蹤的問題(例如從 ops_site_visitors 的數字看到異常)時,用 ops_issue_create 存成 Issue;先用 ops_issues 搜尋避免重複,已有就用 ops_issue_update 加留言。\n旁白語音(shuttle 專案的 npm run voice)可以用 ops_voice_submit 分派成批次:Ops 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。\nFacebook 粉絲專頁(ops_fb_pages、ops_fb_posts、ops_fb_insights、ops_fb_drafts)只讀;ops_fb_draft_save 只能新增或修改草稿(以角色身分寫時帶 agent),發佈與排程只能由人在 app 的 AI 自動化 › 粉絲專頁 按。",
+  "instructions": "omixor 是維運線上服務的 macOS app。這些工具直接讀寫 app 裡的即時資料,變更會立刻出現在畫面上,並以「MCP 用戶端」記在動態牆。\n先用 ops_overview 掌握整體狀況,再用 ops_list / ops_get 查細節。\n核准 AI 請求、核准部署、回滾、調整自動化自主程度只能由人在 app 裡決定;需要這類變更時,用 ops_request_approval 建立待核准請求,附上理由、依據與回滾方式。\nGCP(ops_gcp、ops_gcp_logs、ops_gcp_metrics)只讀:看 Cloud Run 狀態、錯誤日誌、請求量與延遲;omixor 不會部署、改流量或執行 Job。\nGitHub(ops_github、ops_github_runs、ops_github_run、ops_github_pull)只讀:看 PR、檢查與 Actions 失敗原因;omixor 不會開 PR、留言或重跑 workflow。\nIssue、虛擬角色與任務、文件櫃、連線都屬於目前的組織(ops_orgs 看是哪一個);切換組織只能由人在 app 裡做。\nomixor 有虛擬角色(ops_agents)。使用者請你以某角色身分工作時:可先用 ops_agent_context 取得該角色能讀取的資訊,再用 ops_agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 ops_agent_task_report 回報;需要人決定時回報 blocked。以角色身分開 Issue 或留言時,ops_issue_create / ops_issue_update 帶上 agent(角色 id),才會署名該角色。\n文件櫃(ops_cabinet、ops_docs、ops_doc_save)依 evoleap 研發基地的區塊分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。\n發現值得追蹤的問題(例如從 ops_site_visitors 的數字看到異常)時,用 ops_issue_create 存成 Issue;先用 ops_issues 搜尋避免重複,已有就用 ops_issue_update 加留言。\n旁白語音(shuttle 專案的 npm run voice)可以用 ops_voice_submit 分派成批次:omixor 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。\nFacebook 粉絲專頁(ops_fb_pages、ops_fb_posts、ops_fb_insights、ops_fb_drafts)只讀;ops_fb_draft_save 只能新增或修改草稿(以角色身分寫時帶 agent),發佈與排程只能由人在 app 的 AI 自動化 › 粉絲專頁 按。",
   "protocolVersion": "2025-06-18",
   "serverInfo": {
     "name": "ops",
-    "title": "Ops",
+    "title": "omixor",
     "version": "0.1.0"
   }
 }

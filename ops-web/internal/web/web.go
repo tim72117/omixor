@@ -6,9 +6,10 @@
 //	POST /api/tool/<工具名稱>   以目前使用者身分執行 MCP 工具(body 是工具參數)
 //	POST /api/action/<名稱>    只有畫面能做的動作(見 core.RegisterAction)
 //	/api/auth/…               登入(LDAP)、登出、認證設定(見 auth.go)
+//	/api/issues/<組織>…        Issue 資料(給 Swift 版 Ops 遠端存放用,見 issues_api.go)
 //	其他路徑                   React 畫面(web/dist)
 //
-// 啟用 LDAP 時,/api 除了 /api/auth/status、/api/auth/login 都要登入;畫面的動作以登入者署名。
+// 啟用 LDAP 時,/api 除了 /api/auth/status、/api/auth/login 都要登入(/api/issues/ 也可以用 OPS_API_TOKEN);畫面的動作以登入者署名。
 package web
 
 import (
@@ -61,6 +62,7 @@ func IsLoopbackAddr(addr string) bool {
 func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 	mux := http.NewServeMux()
 	registerAuth(mux, app, au)
+	registerIssueAPI(mux, app)
 	mux.HandleFunc("GET /api/views", func(w http.ResponseWriter, r *http.Request) {
 		names := core.ViewNames()
 		sort.Strings(names)
@@ -218,6 +220,11 @@ func guard(next http.Handler, au *auth.Service) http.Handler {
 			public := r.URL.Path == "/api/auth/status" || r.URL.Path == "/api/auth/login"
 			if au != nil && au.Enabled() && !public {
 				u, ok := sessionUser(r, au)
+				if !ok && strings.HasPrefix(r.URL.Path, "/api/issues/") && apiToken(r) {
+					// Issue 資料 API 可以用 OPS_API_TOKEN(給 Swift 版 Ops 連)
+					next.ServeHTTP(w, r)
+					return
+				}
 				if !ok {
 					writeJSON(w, 401, map[string]any{"error": "請先登入", "login": true})
 					return

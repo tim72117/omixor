@@ -148,6 +148,61 @@ func init() {
 		return map[string]any{"agents": list}, nil
 	})
 
+	// 角色能讀取的資訊:角色設定、未完成的任務、文件櫃權限與能讀的文件(同 Swift 版 agentContext)
+	Register("ops_agent_context", func(c *Call) (any, error) {
+		a := c.App
+		a.Mu.Lock()
+		defer a.Mu.Unlock()
+		name, err := c.Args.Require("agent")
+		if err != nil {
+			return nil, err
+		}
+		g := a.FindAgent(name)
+		if g == nil {
+			return nil, Errorf("找不到角色 %s", name)
+		}
+		tasks := []any{}
+		openN := 0
+		for _, t := range a.AgentTasks() {
+			if t.AgentID != g.ID || !core.TaskIsOpen(t.Status) {
+				continue
+			}
+			openN++
+			if len(tasks) < 50 {
+				tasks = append(tasks, map[string]any{"id": t.ID, "title": t.Title, "status": t.Status,
+					"priority": t.Priority, "updatedAt": core.ISO(t.UpdatedAt.Time)})
+			}
+		}
+		// 只收真正的布林(和 Swift 版一樣,"true" 字串不算)
+		bodies, _ := c.Args.Raw["include_bodies"].(bool)
+		const bodyLimit = 20
+		docs := []any{}
+		docN := 0
+		for _, d := range a.CabinetDocs() {
+			tab := cabDeref(d.Tab)
+			if !g.CanRead(d.Section, tab) {
+				continue
+			}
+			docN++
+			if len(docs) >= 50 {
+				continue
+			}
+			o := docJSON(a, d, bodies && len(docs) < bodyLimit)
+			o["access"] = "read"
+			if g.CanWrite(d.Section, tab) {
+				o["access"] = "write"
+			}
+			docs = append(docs, o)
+		}
+		return map[string]any{
+			"organization": cabOrgName(a),
+			"agent":        agentJSON(a, *g),
+			"tasks":        map[string]any{"total": openN, "tasks": tasks},
+			"cabinet":      cabinetSections(a, g),
+			"docs":         map[string]any{"total": docN, "docs": docs},
+		}, nil
+	})
+
 	Register("ops_agent_tasks", func(c *Call) (any, error) {
 		a := c.App
 		a.Mu.Lock()

@@ -1,0 +1,88 @@
+{
+ "steps": [
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "section": "tools",
+    "title": "壞範本",
+    "body": "---\nkind: template\n---\n"
+   },
+   "note": "範本缺 for"
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "section": "tools",
+    "title": "壞範本",
+    "body": "---\nkind: template\nfor: lesson\n---\n"
+   },
+   "note": "範本缺 html"
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "section": "levels",
+    "title": "早到的",
+    "body": "---\nkind: lesson\n---\n# x"
+   },
+   "note": "還沒有範本,不檢查"
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "section": "tools",
+    "title": "課程範本",
+    "body": "---\nkind: template\nfor: lesson\nrequired: course, lesson\n---\n# 課程範本\n\n```html\n<h1>{{title}}</h1>\n```\n\n```css\nh1 { color: #b5742a }\n```"
+   }
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "section": "levels",
+    "title": "缺欄位",
+    "body": "---\nkind: lesson\ncourse: L0\n---\n# x"
+   },
+   "note": "缺 lesson"
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "section": "levels",
+    "title": "序章",
+    "body": "---\nkind: lesson\ncourse: L0\nlesson: 0.intro\n---\n# 序章\n\n## 目標\n\n看懂差別"
+   }
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "id": "DOC-1",
+    "body": "---\nkind: lesson\n---\n"
+   },
+   "note": "修改時也檢查"
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "id": "DOC-1",
+    "append_body": "補充"
+   },
+   "note": "append 不動欄位"
+  },
+  {
+   "tool": "ops_docs",
+   "args": {
+    "section": "levels"
+   }
+  },
+  {
+   "tool": "ops_docs",
+   "args": {
+    "id": "DOC-3"
+   }
+  },
+  {
+   "tool": "ops_cabinet",
+   "args": {}
+  }
+ ]
+}

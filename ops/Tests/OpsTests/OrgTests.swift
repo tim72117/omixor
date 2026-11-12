@@ -111,4 +111,67 @@ final class OrgTests: XCTestCase {
         XCTAssertEqual(app2.currentOrgId, copy.id)
         XCTAssertEqual(app2.orgs.count, 2)
     }
+
+    /// 新組織不帶範例資料;切回預設組織時範例資料與變更都還在(同 Go 版 TestOrgMockDataPerOrg)
+    func testMockDataPerOrg() throws {
+        let app = AppState()
+        app.ensureOrgs()
+        let seedServices = app.services.count
+        let seedActivity = app.activity.count
+        XCTAssertGreaterThan(seedServices, 0)
+        XCTAssertFalse(app.alerts.isEmpty)
+        app.alerts.removeFirst()
+        let alerts = app.alerts.count
+
+        for tpl in OrgTemplate.allCases {
+            let org = app.createOrg(name: "新組織 \(tpl.rawValue)", template: tpl)
+            app.switchOrg(org.id)
+            XCTAssertEqual(app.currentOrgId, org.id)
+            XCTAssertTrue(app.services.isEmpty && app.alerts.isEmpty && app.people.isEmpty && app.workItems.isEmpty
+                          && app.approvals.isEmpty && app.integrations.isEmpty, "\(tpl) 的新組織應該是空的")
+            XCTAssertTrue(app.sprint.isEmpty)
+            // 動態牆只有「切換到組織」這一筆,而且帶 org
+            XCTAssertEqual(app.activity.count, 1)
+            XCTAssertEqual(app.activity.first?.org, org.id)
+            // 新組織的變更切走再回來還在
+            app.automations = []
+            app.alerts = Array(MockData.make().alerts.prefix(1))
+            app.switchOrg(OrgFiles.defaultId)
+            XCTAssertEqual(app.services.count, seedServices)
+            XCTAssertEqual(app.alerts.count, alerts)
+            XCTAssertGreaterThan(app.activity.count, seedActivity)
+            XCTAssertNil(app.activity.first?.org, "預設組織的動態不帶 org")
+            app.switchOrg(org.id)
+            XCTAssertEqual(app.alerts.count, 1)
+            app.switchOrg(OrgFiles.defaultId)
+        }
+    }
+
+    /// MCP:新組織的 sprint 是空物件,動態帶 org;預設組織的動態 JSON 沒有 org 欄位
+    func testMockDataPerOrgOverMCP() async throws {
+        let app = AppState()
+        app.ensureOrgs()
+        let h = MCPHandler(app: app)
+        func list(_ c: String) async throws -> [[String: Any]] {
+            let req = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": ["name": "ops_list", "arguments": ["collection": c, "limit": 200]]])
+            let out = try JSONSerialization.jsonObject(with: await h.handle(req)!) as! [String: Any]
+            let text = (((out["result"] as! [String: Any])["content"] as! [[String: Any]])[0]["text"] as! String)
+            let obj = try JSONSerialization.jsonObject(with: Data(text.utf8))
+            if let a = obj as? [[String: Any]] { return a }
+            return ((obj as? [String: Any])?["items"] as? [[String: Any]]) ?? []
+        }
+        app.log(.person(app.me), "x", "預設組織的動態", .settings)
+        let a0 = try await list("activity")
+        XCTAssertNil(a0.first?["org"])
+        let org = app.createOrg(name: "Lab", template: .blank)
+        app.switchOrg(org.id)
+        let svcs = try await list("services")
+        XCTAssertEqual(svcs.count, 0)
+        let sprint = try await list("sprint")
+        XCTAssertEqual(sprint.count, 1)
+        XCTAssertTrue(sprint[0].isEmpty)
+        let a1 = try await list("activity")
+        XCTAssertEqual(a1.first?["org"] as? String, org.id)
+    }
 }

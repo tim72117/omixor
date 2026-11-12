@@ -140,7 +140,7 @@ private struct AgentDetail: View {
     }
 
     private var routines: some View {
-        Card("例行任務", subtitle: "到時間 Ops 會替角色排一筆任務;上一筆沒做完不會重複排") {
+        Card("例行任務", subtitle: "到時間 omixor 會替角色排一筆任務;上一筆沒做完不會重複排") {
             if agent.routines.isEmpty {
                 Text("沒有例行任務,按「編輯…」新增").foregroundStyle(.secondary)
             }

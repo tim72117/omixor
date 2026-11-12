@@ -10,6 +10,9 @@ struct SettingsOrgsPane: View {
     @State private var deleting: Organization?
     @State private var editingLayout = false
     @State private var error: String?
+    @AppStorage(IssueServerConfig.defaultsKey) private var issueServer = ""
+    @State private var issueServerDraft = ""
+    @State private var issueServerStatus: String?
 
     var body: some View {
         Form {
@@ -61,6 +64,7 @@ struct SettingsOrgsPane: View {
             } header: {
                 Text("「\(app.currentOrg?.name ?? "")」的工作空間")
             }
+            issueServerSection
         }
         .formStyle(.grouped)
         .onAppear {
@@ -80,6 +84,45 @@ struct SettingsOrgsPane: View {
             }
         } message: { _ in
             Text("這個組織的 Issue、角色、任務、文件與連線設定會一起移到垃圾桶,鑰匙圈裡的登入會刪除。")
+        }
+    }
+
+    /// Issue 伺服器:填了就改透過 Go 版 ops-web 讀寫 Issue(IssueRemote.swift);空的 = 存在這台 Mac 的 issues.json
+    @ViewBuilder private var issueServerSection: some View {
+        let env = ProcessInfo.processInfo.environment["OPS_ISSUE_SERVER"]
+        Section {
+            HStack {
+                TextField("Issue 伺服器網址", text: $issueServerDraft, prompt: Text("http://127.0.0.1:5191"))
+                    .disabled(env != nil)
+                    .onSubmit(applyIssueServer)
+                Button(issueServerDraft.isEmpty ? "關閉" : "套用", action: applyIssueServer)
+                    .disabled(env != nil || issueServerDraft.trimmingCharacters(in: .whitespaces) == issueServer)
+            }
+            if let env { Text("由環境變數 OPS_ISSUE_SERVER 設定:\(env)").font(.caption).foregroundStyle(.secondary) }
+            if let st = issueServerStatus { Text(st).font(.caption).foregroundStyle(.secondary) }
+        } header: {
+            Text("Issue 伺服器")
+        } footer: {
+            Text("留空:Issue 存在這台 Mac(issues.json)。填 Go 版 ops-web 的網址:Issue 改存在那台伺服器(可以接 PostgreSQL),各組織分開;畫面與 MCP 工具用法不變。伺服器啟用 LDAP 時要設環境變數 OPS_ISSUE_SERVER_TOKEN。")
+        }
+        .onAppear { issueServerDraft = issueServer }
+    }
+
+    private func applyIssueServer() {
+        let v = issueServerDraft.trimmingCharacters(in: .whitespaces)
+        if !v.isEmpty, URL(string: v)?.host == nil || !(v.hasPrefix("http://") || v.hasPrefix("https://")) {
+            issueServerStatus = "網址要是 http:// 或 https:// 開頭"
+            return
+        }
+        issueServer = v
+        let store = app.startIssues()
+        store.load()
+        if v.isEmpty {
+            issueServerStatus = "已改回本機 issues.json"
+        } else if let e = store.remoteError {
+            issueServerStatus = "連線失敗:\(e)"
+        } else {
+            issueServerStatus = "已連上,讀到 \(app.issues.count) 筆 Issue"
         }
     }
 

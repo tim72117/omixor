@@ -106,7 +106,7 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
         ))}
       </div>
       <div className="split-detail">
-        {sel ? <DocDetail key={sel.id} doc={sel} layout={layout} onDeleted={() => setSelectedDoc(undefined)} />
+        {sel ? <DocDetail key={sel.id} doc={sel} layout={layout} version={docs.map((d) => d.updatedAt).sort().at(-1) ?? ""} onDeleted={() => setSelectedDoc(undefined)} />
           : <EmptyState title="選一份文件" icon="doc.text" message="文件櫃依區塊與頁籤分類(左下「編輯結構」可調整)。每個角色可以在「AI 自動化 › 虛擬角色 › 編輯」設定能讀寫哪些區塊。" />}
       </div>
       {creating && section && <NewDocSheet section={section} tab={tab} onClose={() => setCreating(false)} onCreated={setSelectedDoc} />}
@@ -122,7 +122,38 @@ export function docLocation(d: CabinetDoc, layout: CabinetSection[]): string {
   return t ? `${sl} › ${tabTitle(t)}` : sl;
 }
 
-function DocDetail({ doc, layout, onDeleted }: { doc: CabinetDoc; layout: CabinetSection[]; onDeleted: () => void }) {
+/** 有範本的文件:伺服器產生整頁 HTML(core.DocHTML),放進 sandbox 的 iframe(不能碰外層、不能連外),高度由頁面回報 */
+function DocFrame({ html }: { html: string }) {
+  const [height, setHeight] = useState(400);
+  const [frame, setFrame] = useState<HTMLIFrameElement | null>(null);
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      if (frame && e.source === frame.contentWindow && typeof e.data?.docHeight === "number") setHeight(Math.max(120, e.data.docHeight));
+    };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, [frame]);
+  return <iframe ref={setFrame} title="文件" sandbox="allow-scripts" srcDoc={html} style={{ width: "100%", height, border: 0, borderRadius: 10 }} />;
+}
+
+/** 文件開頭的欄位(--- 之間的 key: value);沒有範本時顯示成一行小字,內文照舊用 Markdown */
+function frontMatter(body: string): { meta: [string, string][]; rest: string } {
+  const lines = body.replace(/\r/g, "").split("\n");
+  const end = lines[0] === "---" ? lines.indexOf("---", 1) : -1;
+  if (end < 0) return { meta: [], rest: body };
+  const meta = lines.slice(1, end).map((l) => [l.slice(0, l.indexOf(":")).trim(), l.slice(l.indexOf(":") + 1).trim()] as [string, string])
+    .filter(([k], i) => k && lines[i + 1].includes(":")).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  return { meta, rest: lines.slice(end + 1).join("\n") };
+}
+
+function DocDetail({ doc, layout, version, onDeleted }: { doc: CabinetDoc; layout: CabinetSection[]; version: string; onDeleted: () => void }) {
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    action<{ html: string | null }>("cabinet_doc_html", { id: doc.id }).then((r) => live && setHtml(r?.html ?? null), () => live && setHtml(null));
+    return () => { live = false; };
+  }, [doc.id, doc.body, version]);
+  const fm = frontMatter(doc.body);
   const dir = useDirectory();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
@@ -158,7 +189,13 @@ function DocDetail({ doc, layout, onDeleted }: { doc: CabinetDoc; layout: Cabine
       <ErrorText>{error}</ErrorText>
       <div className="divider" />
       {editing ? <textarea className="textarea" style={{ minHeight: 360 }} value={body} onChange={(e) => setBody(e.target.value)} />
-        : doc.body ? <Markdown text={doc.body} /> : <span className="muted">沒有內文</span>}
+        : html ? <DocFrame html={html} />
+        : doc.body ? (
+          <>
+            {fm.meta.length > 0 && <span className="caption muted mono" style={{ userSelect: "text" }}>{fm.meta.map(([k, v]) => `${k}: ${v}`).join(" · ")}</span>}
+            <Markdown text={fm.rest} />
+          </>
+        ) : <span className="muted">沒有內文</span>}
       <Modal open={confirmDel} onClose={() => setConfirmDel(false)} width={380} title={`刪除「${doc.title}」?`}>
         <div className="row gap8" style={{ justifyContent: "flex-end" }}>
           <button className="btn" onClick={() => setConfirmDel(false)}>取消</button>

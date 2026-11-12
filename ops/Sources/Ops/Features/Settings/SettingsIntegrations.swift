@@ -32,7 +32,7 @@ struct SettingsIntegrationsPane: View {
                         .foregroundStyle(.tint)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("已連線 \(connectedCount) / \(app.integrations.count) 個整合").font(.headline)
-                        Text("Ops 透過這些整合讀取原始碼、CI/CD、雲端資源與監控資料,並送出通知。")
+                        Text("omixor 透過這些整合讀取原始碼、CI/CD、雲端資源與監控資料,並送出通知。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -78,7 +78,7 @@ struct SettingsIntegrationsPane: View {
             }
             Button("取消", role: .cancel) {}
         } message: { item in
-            Text("Ops 將停止從 \(item.name) 讀取資料,相關的自動化與通知也會暫停。")
+            Text("omixor 將停止從 \(item.name) 讀取資料,相關的自動化與通知也會暫停。")
         }
     }
 

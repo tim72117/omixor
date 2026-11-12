@@ -216,7 +216,7 @@ struct FBError: LocalizedError, Equatable {
     var isInvalidMetric: Bool { code == 100 && (message.localizedCaseInsensitiveContains("metric") || subcode == 0) }
 
     var errorDescription: String? {
-        if isTokenExpired { return "Facebook 權杖已過期或被撤銷(code \(code)),請到 Ops 的 AI 自動化 › 粉絲專頁 重新連線。\(message)" }
+        if isTokenExpired { return "Facebook 權杖已過期或被撤銷(code \(code)),請到 omixor 的 AI 自動化 › 粉絲專頁 重新連線。\(message)" }
         return code > 0 ? "Facebook:\(message)(code \(code))" : message
     }
 }

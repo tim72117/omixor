@@ -91,7 +91,7 @@ private struct FBConnectGuide: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            PageHeader("連線 Facebook 粉絲專頁", subtitle: "Ops 用 Meta Graph API(\(app.fbSettings.apiVersion))讀貼文與成效、由人發佈與排程。權杖存在這台 Mac 的鑰匙圈,依組織分開。")
+            PageHeader("連線 Facebook 粉絲專頁", subtitle: "omixor 用 Meta Graph API(\(app.fbSettings.apiVersion))讀貼文與成效、由人發佈與排程。權杖存在這台 Mac 的鑰匙圈,依組織分開。")
             if let error { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).textSelection(.enabled) }
             Card("方法一:用 Meta 帳號登入(建議)", subtitle: "取得長期使用者權杖,再自動取得每個專頁的 Page access token") {
                 VStack(alignment: .leading, spacing: 8) {
@@ -119,7 +119,7 @@ private struct FBConnectGuide: View {
                 }
                 .font(.callout)
             }
-            Card("方法二:直接貼 Page access token", subtitle: "也可以貼使用者權杖,Ops 會讀出它管理的專頁") {
+            Card("方法二:直接貼 Page access token", subtitle: "也可以貼使用者權杖,omixor 會讀出它管理的專頁") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("在 Graph API Explorer 選你的應用程式,勾選上面的權限,「取得權杖」選你的粉絲專頁;再到存取權杖偵錯工具按「延長存取權杖」,用長期權杖產生的 Page token 不會過期。")
                     HStack {

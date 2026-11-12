@@ -307,7 +307,7 @@ extension MockDataBuilder {
             Integration(id: "cloudflare", name: "Cloudflare", category: "網路", icon: "network", connected: true,
                         detail: "DNS、CDN、WAF;coursely.tw 與 media.coursely.tw"),
             Integration(id: "linear", name: "Linear", category: "專案管理", icon: "checklist", connected: false,
-                        detail: "尚未連線:目前工作項目存在 Ops 內建看板"),
+                        detail: "尚未連線:目前工作項目存在 omixor 內建看板"),
         ]
     }
 }

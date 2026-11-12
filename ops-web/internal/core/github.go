@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -379,6 +380,7 @@ func ghLoad(a *App) {
 		}
 	}
 	s.GHSnap = emptyGHSnapshot()
+	s.GHETags = nil
 }
 
 func ghSave(a *App) { _ = WriteJSON(a.ghFile(), a.conns().GH) }
@@ -492,16 +494,56 @@ func filterStrings(in []string, keep func(string) bool) []string {
 
 // MARK: 讀 API(不能拿著鎖)
 
-// GHGet GET 一個 GitHub API 路徑
+// ghCached 上次 200 回應的 ETag 與內容
+type ghCached struct {
+	ETag string
+	Data []byte
+}
+
+// ghETagLimit 快取最多幾筆;超過就整個清掉重來(每個 repo 每輪約 3 + PR 數筆)
+const ghETagLimit = 500
+
+// GHGet GET 一個 GitHub API 路徑。
+// 帶 If-None-Match 做條件請求:GitHub 回 304 表示沒變,直接用上次的內容(304 不扣 API 額度)。
 func GHGet(a *App, path string) (any, error) {
 	a.Mu.Lock()
 	_, ok := GHConnection(a)
-	id := a.conns().GH.Connection
+	s := a.conns()
+	id := s.GH.Connection
+	key := id + " " + path
+	cached, hit := s.GHETags[key]
+	gen := s.Gen
 	a.Mu.Unlock()
 	if !ok {
 		return nil, connErr("還沒設定 GitHub 連線(開發進度 › GitHub)")
 	}
-	return ConnRequest(a, id, "GET", path, nil)
+	var extra map[string]string
+	if hit {
+		extra = map[string]string{"If-None-Match": cached.ETag}
+	}
+	r, err := ConnRequestWith(a, id, "GET", path, nil, extra)
+	if err != nil {
+		return nil, err
+	}
+	if r.Status == http.StatusNotModified && hit {
+		return (&ConnResponse{Status: 200, Data: cached.Data}).JSON(), nil
+	}
+	if r, err = connCheck(r, nil); err != nil {
+		return nil, err
+	}
+	a.Mu.Lock()
+	if s.Gen != gen {
+		// 讀的時候換了組織:不留快取
+	} else if etag := r.Header.Get("ETag"); etag != "" {
+		if s.GHETags == nil || len(s.GHETags) >= ghETagLimit {
+			s.GHETags = map[string]ghCached{}
+		}
+		s.GHETags[key] = ghCached{ETag: etag, Data: r.Data}
+	} else {
+		delete(s.GHETags, key)
+	}
+	a.Mu.Unlock()
+	return r.JSON(), nil
 }
 
 func ghGetText(a *App, path string) (string, error) {

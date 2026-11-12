@@ -24,8 +24,9 @@ type connState struct {
 	Scope  string // 鑰匙圈的組織前綴
 	Gen    int    // 每次重新讀組織資料加一,背景工作用來判斷是不是過期了
 
-	GH     GHSettings
-	GHSnap GHSnapshot
+	GH      GHSettings
+	GHSnap  GHSnapshot
+	GHETags map[string]ghCached // GitHub 條件請求的快取(ETag → 上次的內容),只在記憶體
 
 	GCP     GCPSettings
 	GCPSnap GCPSnapshot

@@ -203,10 +203,7 @@ private struct IssueDetail: View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("標題", text: $draftTitle).textFieldStyle(.roundedBorder).font(.title3)
             TextField("標籤(逗號分隔)", text: $draftLabels).textFieldStyle(.roundedBorder)
-            TextEditor(text: $draftBody)
-                .font(.system(size: 13, design: .monospaced))
-                .frame(minHeight: 220)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+            MarkdownEditor(text: $draftBody, minHeight: 220)
             HStack {
                 Text("內文支援 Markdown").font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -242,9 +239,7 @@ private struct IssueDetail: View {
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
             }
             HStack(alignment: .bottom) {
-                TextField("寫留言…", text: $comment, axis: .vertical)
-                    .lineLimit(1...6)
-                    .textFieldStyle(.roundedBorder)
+                MarkdownEditor(text: $comment, placeholder: "寫留言…", minHeight: 44, monospaced: false)
                 Button("送出") {
                     _ = store.comment(issue.id, comment, by: app.me)
                     comment = ""
@@ -262,20 +257,47 @@ private struct IssueDetail: View {
     }
 }
 
-/// 簡單的 Markdown 顯示:標題、清單、程式碼區塊逐行處理,行內語法(粗體、連結、`程式碼`)交給 AttributedString
+/// 簡單的 Markdown 顯示:標題、清單、程式碼區塊逐行處理,行內語法(粗體、連結、`程式碼`)交給 AttributedString;
+/// 段落裡的圖片 ![alt](網址) 拆成圖片區塊(本機附件或 https 圖片)
 struct MarkdownText: View {
     let source: String
     init(_ source: String) { self.source = source }
 
     private enum Block: Hashable {
-        case heading(Int, String), bullet(String, String), code(String), text(String)
+        case heading(Int, String), bullet(String, String), code(String), text(String), image(String, String)
+    }
+
+    /// ![alt](網址):網址不含空白(同 Go 版)
+    private static let imageRe = try! NSRegularExpression(pattern: #"!\[([^\]]*)\]\(([^)\s]+)\)"#)
+
+    /// 段落裡的圖片拆成獨立區塊(SwiftUI 的 Text 不能內嵌圖片)
+    private static func splitImages(_ s: String) -> [Block] {
+        let ns = s as NSString
+        var out: [Block] = []
+        var last = 0
+        for m in imageRe.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+            let before = ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            if !before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                out.append(.text(before.trimmingCharacters(in: .newlines)))
+            }
+            out.append(.image(ns.substring(with: m.range(at: 1)), ns.substring(with: m.range(at: 2))))
+            last = m.range.location + m.range.length
+        }
+        let rest = ns.substring(from: last)
+        if !rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(.text(last == 0 ? rest : rest.trimmingCharacters(in: .newlines))) }
+        return out
+    }
+
+    /// 標題、清單裡的圖片只顯示替代文字
+    private static func imagesAsText(_ s: String) -> String {
+        imageRe.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "🖼 $1")
     }
 
     private var blocks: [Block] {
         var out: [Block] = []
         var code: [String]?
         var para: [String] = []
-        func flush() { if !para.isEmpty { out.append(.text(para.joined(separator: "\n"))); para = [] } }
+        func flush() { if !para.isEmpty { out += Self.splitImages(para.joined(separator: "\n")); para = [] } }
         for raw in source.components(separatedBy: "\n") {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("```") {
@@ -286,14 +308,14 @@ struct MarkdownText: View {
             if line.isEmpty { flush(); continue }
             let hashes = line.prefix { $0 == "#" }.count
             if (1...4).contains(hashes), line.dropFirst(hashes).first == " " {
-                flush(); out.append(.heading(hashes, line.dropFirst(hashes + 1).trimmingCharacters(in: .whitespaces))); continue
+                flush(); out.append(.heading(hashes, Self.imagesAsText(line.dropFirst(hashes + 1).trimmingCharacters(in: .whitespaces)))); continue
             }
             if let first = line.first, "-*+".contains(first), line.dropFirst().first == " " {
-                flush(); out.append(.bullet("•", String(line.dropFirst(2)))); continue
+                flush(); out.append(.bullet("•", Self.imagesAsText(String(line.dropFirst(2))))); continue
             }
             let digits = line.prefix { $0.isNumber }
             if !digits.isEmpty, line.dropFirst(digits.count).hasPrefix(". ") {
-                flush(); out.append(.bullet(digits + ".", String(line.dropFirst(digits.count + 2)))); continue
+                flush(); out.append(.bullet(digits + ".", Self.imagesAsText(String(line.dropFirst(digits.count + 2))))); continue
             }
             para.append(raw)
         }
@@ -321,6 +343,8 @@ struct MarkdownText: View {
                         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
                 case .text(let t):
                     inline(t)
+                case .image(let alt, let src):
+                    MarkdownImage(alt: alt, src: src)
                 }
             }
         }
@@ -356,10 +380,7 @@ private struct NewIssueSheet: View {
                 .frame(width: 180)
                 TextField("標籤(逗號分隔)", text: $labels).textFieldStyle(.roundedBorder)
             }
-            TextEditor(text: $bodyText)
-                .font(.system(size: 13, design: .monospaced))
-                .frame(minHeight: 180)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+            MarkdownEditor(text: $bodyText, minHeight: 180)
             HStack {
                 Text("內文支援 Markdown").font(.caption).foregroundStyle(.secondary)
                 Spacer()

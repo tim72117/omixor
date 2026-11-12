@@ -186,7 +186,7 @@ final class VoicePipeline {
         job.clipCount = (saved["items"] as? [Any])?.count
         job.baseline = snapshot()
         job.nextCheckAt = .now
-        job.note("接手 Ops 以外送出的批次 \(name)(送出時的清單沒有記錄,改用現在的狀態比對)")
+        job.note("接手 omixor 以外送出的批次 \(name)(送出時的清單沒有記錄,改用現在的狀態比對)")
         app.voiceJobs.insert(job, at: 0)
         save()
     }

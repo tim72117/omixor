@@ -172,7 +172,7 @@ enum GitHub {
     /// 開 GitHub 的「新增 OAuth App」頁,先填好名稱與網址
     static var registerURL: URL {
         var comps = URLComponents(string: "https://github.com/settings/applications/new")!
-        comps.queryItems = [URLQueryItem(name: "oauth_application[name]", value: "Ops"),
+        comps.queryItems = [URLQueryItem(name: "oauth_application[name]", value: "omixor"),
                             URLQueryItem(name: "oauth_application[url]", value: homepage),
                             URLQueryItem(name: "oauth_application[callback_url]", value: callback)]
         return comps.url!
@@ -276,6 +276,9 @@ enum GitHub {
 final class GitHubStore {
     let app: AppState
     private var timer: Timer?
+    /// 條件請求的快取(連線 + 路徑 → 上次的 ETag 與內容),只在記憶體;換組織時清掉
+    private var etags: [String: (etag: String, data: Data)] = [:]
+    private static let etagLimit = 500
 
     init(app: AppState) { self.app = app }
 
@@ -288,6 +291,7 @@ final class GitHubStore {
     func load() {
         app.githubSettings = (try? OrgFiles.decoder().decode(GHSettings.self, from: Data(contentsOf: fileURL))) ?? GHSettings()
         app.github = GHSnapshot()
+        etags = [:]
     }
 
     func save() {
@@ -337,7 +341,21 @@ final class GitHubStore {
         app.startConnections()
         guard let store = app.connStore else { throw ConnectionError("連線功能還沒啟動") }
         guard connection != nil else { throw ConnectionError("還沒設定 GitHub 連線(開發進度 › GitHub)") }
-        return try await store.request(connectionId, "GET", path)
+        // 條件請求:帶上次的 ETag,GitHub 回 304 表示沒變,直接用上次的內容(304 不扣 API 額度)
+        let key = connectionId + " " + path
+        let cached = etags[key]
+        let r = try await store.requestRaw(connectionId, "GET", path, extra: cached.map { ["If-None-Match": $0.etag] } ?? [:])
+        if r.status == 304, let cached {
+            return ConnHTTP.Response(status: 200, data: cached.data).json
+        }
+        let ok = try ConnHTTP.check(r)
+        if let etag = ok.header("ETag"), !etag.isEmpty {
+            if etags.count >= Self.etagLimit { etags = [:] }
+            etags[key] = (etag, ok.data)
+        } else {
+            etags[key] = nil
+        }
+        return ok.json
     }
 
     func getText(_ path: String) async throws -> String {

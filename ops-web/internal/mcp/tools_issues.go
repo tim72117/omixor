@@ -75,6 +75,9 @@ func init() {
 		}
 		labels, _ := c.Args.Strings("labels")
 		issue := a.CreateIssue(title, body, priority, labels, c.Args.Str("source"), c.Args.Str("link"), author)
+		if issue.ID == "" { // Issue 伺服器連不上(同 Swift)
+			return nil, Errorf("Issue 沒有存起來:%s", a.IssueRemoteError())
+		}
 		return issueJSON(a, issue), nil
 	})
 
@@ -86,6 +89,7 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
+		a.RefreshIssuesIfStale(0)
 		if a.Issue(id) == nil {
 			return nil, Errorf("找不到 Issue %s", id)
 		}
@@ -135,6 +139,9 @@ func init() {
 			updated = a.CommentIssue(id, *cm, author)
 		}
 		if updated == nil {
+			if e := a.IssueRemoteError(); e != "" {
+				return nil, Errorf("Issue 沒有改成:%s", e)
+			}
 			return map[string]any{}, nil
 		}
 		return issueJSON(a, *updated), nil
@@ -144,6 +151,7 @@ func init() {
 		a := c.App
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
+		a.RefreshIssuesIfStale(0) // Issue 伺服器模式:用最新的
 		if id := c.Args.iaOpt("id"); id != nil {
 			i := a.Issue(*id)
 			if i == nil {

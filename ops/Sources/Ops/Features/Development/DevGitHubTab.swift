@@ -424,7 +424,7 @@ struct GitHubSetupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("連上 GitHub", systemImage: "chevron.left.forwardslash.chevron.right").font(.title2.weight(.semibold))
-            Text("連上後,這裡會列出追蹤中 repo 的 Actions 執行(含失敗的步驟與紀錄)和開著的 PR(含檢查結果);虛擬角色也能透過 MCP 讀。Ops 只讀,不會開 PR、留言或重跑。")
+            Text("連上後,這裡會列出追蹤中 repo 的 Actions 執行(含失敗的步驟與紀錄)和開著的 PR(含檢查結果);虛擬角色也能透過 MCP 讀。omixor 只讀,不會開 PR、留言或重跑。")
                 .foregroundStyle(.secondary)
 
             if conn == nil {
@@ -452,7 +452,7 @@ struct GitHubSetupView: View {
                 Text("1. 在 GitHub 註冊一個 OAuth App(只要做一次)").font(.headline)
                 Text("按下面的按鈕會打開 GitHub 的「New OAuth App」頁。名稱和網址會自動帶入;如果沒帶到,照下面填:")
                     .font(.callout).foregroundStyle(.secondary)
-                copyRow("Application name", "Ops")
+                copyRow("Application name", "omixor")
                 copyRow("Homepage URL", GitHub.homepage)
                 copyRow("Authorization callback URL", GitHub.callback)
                 Text("「Enable Device Flow」不用勾。按 Register application 後,在 App 頁按「Generate a new client secret」。")
@@ -480,7 +480,7 @@ struct GitHubSetupView: View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
                 Text("用瀏覽器登入 GitHub").font(.headline)
-                Text("會打開 GitHub 的授權頁,按 Authorize 後回到 Ops 就完成了。權限只要 read:user;公開 repo 的 PR 與 Actions 不用額外權限。")
+                Text("會打開 GitHub 的授權頁,按 Authorize 後回到 omixor 就完成了。權限只要 read:user;公開 repo 的 PR 與 Actions 不用額外權限。")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Button("用瀏覽器登入") { Task { await app.connStore?.login(c.id) } }

@@ -4,7 +4,8 @@ import AppKit
 // 組織:每個組織有自己的工作空間(Issue、虛擬角色與任務、文件櫃與其結構、連線、追蹤的 GitHub repo、GCP 專案)。
 // 資料放在 <資料夾>/orgs/<組織 id>/;<資料夾> 是 ~/Library/Application Support/Ops(OPS_DATA_DIR 可改)。
 // 第一次啟動時,舊版直接放在 <資料夾> 的 issues.json 等檔案會複製到預設組織(原檔保留不動)。
-// 旁白批次(voice-jobs.json)與畫面上的範例資料是全部組織共用的。
+// 旁白批次(voice-jobs.json)是全部組織共用的。
+// 畫面上的範例資料與動態牆分組織(OrgMock.swift):預設組織用範例資料,其他組織從空的開始。
 
 struct Organization: Codable, Hashable, Identifiable {
     var id: String
@@ -107,6 +108,7 @@ extension AppState {
         orgs = idx.orgs
         currentOrgId = idx.orgs.contains { $0.id == idx.current } ? idx.current : idx.orgs[0].id
         TokenVault.scope = currentOrgId == OrgFiles.defaultId ? "" : "\(currentOrgId)/"
+        switchMock()
     }
 
     private func saveOrgs() { OrgFiles.saveIndex(OrgIndex(current: currentOrgId, orgs: orgs)) }
@@ -179,6 +181,7 @@ extension AppState {
         // 這個組織在鑰匙圈裡的登入一併清掉
         let prefix = id == OrgFiles.defaultId ? "" : "\(id)/"
         let saved = TokenVault.scope
+        dropMock(id)
         TokenVault.scope = prefix
         for c in conns { TokenVault.removeAll(c.id) }
         LineStore.removeSecrets()
@@ -197,6 +200,7 @@ extension AppState {
         currentOrgId = id
         saveOrgs()
         TokenVault.scope = id == OrgFiles.defaultId ? "" : "\(id)/"
+        switchMock()
         issueStore?.load()
         agentStore?.load()
         cabinetLoaded = false

@@ -172,7 +172,7 @@ final class LineTests: XCTestCase {
         let bubble = try XCTUnwrap(msg["contents"] as? [String: Any])
         XCTAssertEqual(bubble["type"] as? String, "bubble")
         let json = String(decoding: try JSONSerialization.data(withJSONObject: bubble), as: UTF8.self)
-        XCTAssertTrue(json.contains("在 Ops 開啟"))
+        XCTAssertTrue(json.contains("在 omixor 開啟"))
         XCTAssertTrue(json.contains("Critical"))
         XCTAssertEqual(app.line.pushed, 1)
 

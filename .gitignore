@@ -22,6 +22,9 @@ DerivedData/
 
 # ===== Go =====
 bin/
+# go build ./cmd/omixor-issues 在 ops-web/ 底下產生的執行檔
+ops-web/omixor-issues
+ops-web/omixor
 *.test
 *.out
 coverage.*

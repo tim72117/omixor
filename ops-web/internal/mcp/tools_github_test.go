@@ -1,12 +1,14 @@
 package mcp
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"opsweb/internal/core"
@@ -401,5 +403,59 @@ func TestGHOrgsKeepSeparateRepos(t *testing.T) {
 	a.Mu.Unlock()
 	if repos() != ghTestRepo {
 		t.Fatal(repos())
+	}
+}
+
+// 條件請求:第二輪帶 If-None-Match,GitHub 回 304 就沿用上次的內容(不扣額度),結果和第一輪一樣
+func TestGHRefreshUsesETags(t *testing.T) {
+	a := extTestApp(t)
+	var mu sync.Mutex
+	sent, notModified := 0, 0
+	f := core.NewFakeNet(func(r *http.Request, body []byte) (int, any) {
+		if r.Host != "api.github.com" || r.URL.Path == "/user" {
+			return fakeGitHub(r, body)
+		}
+		etag := fmt.Sprintf(`W/"%x"`, sha1.Sum([]byte(r.URL.RequestURI())))
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Header.Get("If-None-Match") != "" {
+			sent++
+		}
+		if r.Header.Get("If-None-Match") == etag {
+			notModified++
+			return 304, core.WithHeaders{Header: map[string]string{"ETag": etag}, Body: core.RawBody("")}
+		}
+		status, obj := fakeGitHub(r, body)
+		return status, core.WithHeaders{Header: map[string]string{"ETag": etag}, Body: obj}
+	})
+	defer f.Close()
+	ghLogin(t, a)
+	core.GHRefresh(a)
+	a.Mu.Lock()
+	first := core.GHSnapshotNow(a)
+	a.Mu.Unlock()
+	if sent != 0 || len(first.Pulls) != 1 || len(first.Runs) != 2 {
+		t.Fatalf("第一輪不該帶 If-None-Match:%d %+v", sent, first)
+	}
+	n := len(f.Requests())
+	core.GHRefresh(a)
+	a.Mu.Lock()
+	second := core.GHSnapshotNow(a)
+	a.Mu.Unlock()
+	if notModified == 0 || notModified != sent || notModified != len(f.Requests())-n {
+		t.Fatalf("第二輪每個請求都要是 304:sent %d, 304 %d, 請求 %d", sent, notModified, len(f.Requests())-n)
+	}
+	if second.Error != nil || len(second.Errors) != 0 || len(second.Pulls) != 1 || len(second.Runs) != 2 ||
+		*second.Pulls[0].Checks != *first.Pulls[0].Checks || second.Repos[0].DefaultBranch != "main" {
+		t.Fatalf("304 要沿用上次的內容:%+v", second)
+	}
+	// 換組織後快取清掉:回到原組織第一次不帶 If-None-Match
+	a.Mu.Lock()
+	a.LoadOrgData()
+	a.Mu.Unlock()
+	sent = 0
+	core.GHRefresh(a)
+	if sent != 0 {
+		t.Fatalf("重新讀組織資料後不該沿用快取:%d", sent)
 	}
 }

@@ -311,6 +311,11 @@ struct Sprint: Hashable, Encodable {
     let goal: String
     var burndown: [MetricPoint]  // 剩餘點數
     var idealBurndown: [MetricPoint]
+
+    /// 新組織沒有 sprint:名稱空白、起訖相同(MCP 的 ops_list sprint 回傳空物件)
+    static let empty = Sprint(name: "", start: Date(timeIntervalSince1970: 0), end: Date(timeIntervalSince1970: 0),
+                              goal: "", burndown: [], idealBurndown: [])
+    var isEmpty: Bool { name.isEmpty && burndown.isEmpty && idealBurndown.isEmpty }
 }
 
 // MARK: - CI/CD
@@ -661,6 +666,8 @@ struct ActivityItem: Identifiable, Hashable, Encodable {
     let icon: String
     let text: String
     let section: AppSection
+    /// 屬於哪個組織;預設組織不帶(nil 時 JSON 不輸出這個欄位,和 Go 版一樣)
+    var org: String? = nil
 }
 
 // MARK: - 設定

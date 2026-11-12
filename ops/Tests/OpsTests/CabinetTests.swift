@@ -110,4 +110,36 @@ final class CabinetTests: XCTestCase {
         XCTAssertEqual(app.agents.map(\.name), ["舊角色"])
         XCTAssertEqual(app.agents.first?.docAccess, [:])
     }
+
+    /// ops_agent_context:只回傳角色能讀的文件、標出讀寫權限,任務只列這個角色未完成的
+    func testAgentContext() async throws {
+        let app = AppState()
+        app.startAgents(timer: false)
+        let mcp = MCPHandler(app: app)
+        _ = try await call(mcp, "ops_doc_save", ["title": "L0", "tab": "L0", "body": "你好"])
+        _ = try await call(mcp, "ops_doc_save", ["title": "待辦", "section": "todo", "body": "x"])
+        _ = try await call(mcp, "ops_agent_task_create", ["assign_to": "narrator", "title": "補語音"])
+        _ = try await call(mcp, "ops_agent_task_create", ["assign_to": "triager", "title": "整理"])
+        var (_, text, err) = try await call(mcp, "ops_agent_context", ["agent": "nobody"])
+        XCTAssertTrue(err)
+        XCTAssertEqual(text, "找不到角色 nobody")
+
+        var c: [String: Any]
+        (c, _, err) = try await call(mcp, "ops_agent_context", ["agent": "旁白製作"])
+        XCTAssertFalse(err)
+        XCTAssertEqual((c["agent"] as? [String: Any])?["id"] as? String, "narrator")
+        var docs = try XCTUnwrap((c["docs"] as? [String: Any])?["docs"] as? [[String: Any]])
+        XCTAssertEqual(docs.map { $0["title"] as? String }, ["L0"])
+        XCTAssertEqual(docs[0]["access"] as? String, "read")
+        XCTAssertNil(docs[0]["body"], "預設不附全文")
+        let tasks = try XCTUnwrap((c["tasks"] as? [String: Any])?["tasks"] as? [[String: Any]])
+        XCTAssertEqual(tasks.map { $0["title"] as? String }, ["補語音"])
+
+        (c, _, err) = try await call(mcp, "ops_agent_context", ["agent": "triager", "include_bodies": true])
+        docs = try XCTUnwrap((c["docs"] as? [String: Any])?["docs"] as? [[String: Any]])
+        XCTAssertEqual(docs.map { $0["title"] as? String }, ["待辦"])
+        XCTAssertEqual(docs[0]["access"] as? String, "write")
+        XCTAssertEqual(docs[0]["body"] as? String, "x")
+        XCTAssertEqual((c["cabinet"] as? [Any])?.count, 1)
+    }
 }

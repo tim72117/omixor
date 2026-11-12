@@ -1,0 +1,181 @@
+{
+ "steps": [
+  {
+   "tool": "ops_agent_context",
+   "args": {},
+   "note": "缺 agent"
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "nobody"
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "narrator"
+   },
+   "note": "還沒有文件"
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "title": "會員分析",
+    "body": "會員數字",
+    "section": "members"
+   }
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "title": "總覽筆記",
+    "body": "總覽",
+    "section": "overview"
+   }
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "title": "L0 課程大綱",
+    "body": "# L0\n大綱",
+    "section": "levels"
+   }
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "title": "TTS 調查",
+    "body": "TTS 現況",
+    "tab": "/docs/research/tts-landscape"
+   }
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "title": "費用",
+    "body": "成本",
+    "tab": "/docs/research/voice-cost"
+   }
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "title": "行銷手法",
+    "body": "手法",
+    "tab": "/docs/research/marketing"
+   }
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "title": "待辦清單",
+    "body": "- a\n- b",
+    "section": "todo"
+   }
+  },
+  {
+   "tool": "ops_doc_save",
+   "args": {
+    "title": "開發筆記",
+    "body": "dev",
+    "section": "dev"
+   }
+  },
+  {
+   "tool": "ops_agent_task_create",
+   "args": {
+    "assign_to": "narrator",
+    "title": "補語音",
+    "instructions": "補齊缺少的旁白"
+   }
+  },
+  {
+   "tool": "ops_agent_task_create",
+   "args": {
+    "assign_to": "narrator",
+    "title": "檢查費用",
+    "priority": "high"
+   }
+  },
+  {
+   "tool": "ops_agent_task_create",
+   "args": {
+    "assign_to": "triager",
+    "title": "整理 Issue"
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "narrator"
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "triager"
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "course-dev"
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "marketing"
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "visitor-analyst"
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "旁白製作"
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "marketing",
+    "include_bodies": true
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "narrator",
+    "include_bodies": "true"
+   },
+   "note": "字串不算布林"
+  },
+  {
+   "tool": "ops_agent_task_claim",
+   "args": {
+    "agent": "narrator"
+   }
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "narrator"
+   },
+   "note": "進行中的任務也算未完成"
+  },
+  {
+   "tool": "ops_agent_context",
+   "args": {
+    "agent": "narrator",
+    "extra": 1
+   },
+   "note": "多的參數"
+  }
+ ]
+}

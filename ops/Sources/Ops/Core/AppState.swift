@@ -138,6 +138,9 @@ final class AppState: ObservableObject {
     @Published var orgs: [Organization] = []
     @Published var currentOrgId = OrgFiles.defaultId
     var orgsLoaded = false
+    /// 畫面上的範例資料目前屬於哪個組織,以及其他組織收起來的範例資料(Orgs/OrgMock.swift)
+    var mockOrg = OrgFiles.defaultId
+    var mockStash: [String: MockSnapshot] = [:]
 
     /// 文件櫃(Cabinet/Cabinet.swift):存在 cabinet.json
     @Published var cabinetDocs: [CabinetDoc] = []
@@ -357,7 +360,9 @@ final class AppState: ObservableObject {
     }
 
     func log(_ actor: Actor, _ icon: String, _ text: String, _ section: AppSection) {
-        activity.insert(ActivityItem(id: UUID(), date: .now, actor: actor, icon: icon, text: text, section: section), at: 0)
+        // 動態屬於目前組織(預設組織不加 org,和 Go 版格式一樣)
+        let org = mockOrg == OrgFiles.defaultId ? nil : mockOrg
+        activity.insert(ActivityItem(id: UUID(), date: .now, actor: actor, icon: icon, text: text, section: section, org: org), at: 0)
     }
 
     // MARK: - 模擬即時資料

@@ -468,3 +468,23 @@ func approvalLogout(c Connection, t *TokenSet) {
 	}
 	_, _ = connSend(&c, "POST", u, map[string]string{"Authorization": "Bearer " + t.AccessToken}, nil)
 }
+
+// EvoleapLogin 用 evoleap 的瀏覽器核准登入拿一個 evoleap CLI token(給 omixor CLI 換 omixor 自己的 token 用)。
+// base 是 evoleap 網址;consoleURL 是核准頁的網址(本機開發時前端和 API 不同埠,其他時候給 "")
+func EvoleapLogin(base, consoleURL string) (string, error) {
+	c := DefaultConnections()[0]
+	c.BaseURL = strings.TrimRight(base, "/")
+	c.Approval.ConsoleURL = consoleURL
+	t, err := approvalLogin(c)
+	if err != nil {
+		return "", err
+	}
+	return t.AccessToken, nil
+}
+
+// EvoleapLogout 撤銷 evoleap CLI token(換完 omixor token 就不留著)
+func EvoleapLogout(base, token string) {
+	c := DefaultConnections()[0]
+	c.BaseURL = strings.TrimRight(base, "/")
+	approvalLogout(c, &TokenSet{AccessToken: token})
+}

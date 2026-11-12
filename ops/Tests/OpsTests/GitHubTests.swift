@@ -247,4 +247,40 @@ final class GitHubTests: XCTestCase {
         app.switchOrg(copy.id)
         XCTAssertEqual(app.githubSettings.repos, ["tim72117/evoleap"])
     }
+
+    /// 條件請求:第二輪帶 If-None-Match,GitHub 回 304 就沿用上次的內容(不扣額度),結果和第一輪一樣
+    func testRefreshUsesETags() async throws {
+        await login()
+        nonisolated(unsafe) var conditional = 0, notModified = 0
+        StubProtocol.handler = { req, body in
+            guard req.url?.host == "api.github.com", req.url?.path != "/user" else { return Self.fakeGitHub(req, body) }
+            let etag = "W/\"\(req.url!.absoluteString.hashValue)\""
+            if let sent = req.value(forHTTPHeaderField: "If-None-Match") {
+                conditional += 1
+                if sent == etag { notModified += 1; return (304, StubReply(headers: ["ETag": etag], body: NSNull())) }
+            }
+            let (status, obj) = Self.fakeGitHub(req, body)
+            return (status, StubReply(headers: ["ETag": etag], body: obj))
+        }
+        let g = try XCTUnwrap(app.ghStore)
+        await g.refresh()
+        XCTAssertEqual(conditional, 0, "第一輪不該帶 If-None-Match")
+        let first = app.github
+        let n = StubProtocol.log.count
+        await g.refresh()
+        XCTAssertGreaterThan(notModified, 0)
+        XCTAssertEqual(notModified, conditional)
+        XCTAssertEqual(notModified, StubProtocol.log.count - n, "第二輪每個請求都要是 304")
+        XCTAssertNil(app.github.error)
+        XCTAssertEqual(app.github.errors, [:])
+        XCTAssertEqual(app.github.pulls.map(\.number), first.pulls.map(\.number))
+        XCTAssertEqual(app.github.pulls.first?.checks, first.pulls.first?.checks)
+        XCTAssertEqual(app.github.runs.map(\.id), first.runs.map(\.id))
+        XCTAssertEqual(app.github.repos.first?.defaultBranch, "main")
+        // 重新讀組織資料後快取清掉
+        g.load()
+        conditional = 0
+        await g.refresh()
+        XCTAssertEqual(conditional, 0, "重新讀組織資料後不該沿用快取")
+    }
 }

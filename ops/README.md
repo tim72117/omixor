@@ -74,6 +74,7 @@ swift build -c release --product ops-mcp   # 產生 .build/release/ops-mcp
 | `ops_issue_create` / `ops_issue_update` / `ops_issues` | 存入、更新、查詢 Issue |
 | `ops_agents` / `ops_agent_upsert` | 列出虛擬角色;新增或修改角色與例行任務 |
 | `ops_agent_task_create` / `ops_agent_tasks` | 指派任務給角色、查任務 |
+| `ops_agent_context` | 用角色 id 或名稱取得它能讀取的資訊:角色設定、未完成的任務、文件櫃權限與能讀的文件(`include_bodies` 附全文) |
 | `ops_agent_task_claim` / `ops_agent_task_report` | 以角色身分領取任務、回報進度與結果 |
 | `ops_orgs` | 列出組織與目前使用中的組織 |
 | `ops_gcp` / `ops_gcp_logs` / `ops_gcp_metrics` | Cloud Run 服務與 Job 狀態、版本、執行;Cloud Logging 日誌;Cloud Monitoring 請求量、5xx、p95 延遲(只讀) |

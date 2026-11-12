@@ -123,7 +123,7 @@ final class ConnectionStore {
                 break
             }
             await refreshAccount(id)
-            app.log(.person(app.me), "person.badge.key", "Ops 登入「\(c.name)」" + (app.connectionStates[id]?.account.map { "(\($0))" } ?? ""), .settings)
+            app.log(.person(app.me), "person.badge.key", "omixor 登入「\(c.name)」" + (app.connectionStates[id]?.account.map { "(\($0))" } ?? ""), .settings)
         } catch {
             setState(id) { $0.error = error.localizedDescription }
         }
@@ -181,14 +181,16 @@ final class ConnectionStore {
         try ConnHTTP.check(try await requestRaw(id, method, path, body: body)).json
     }
 
-    /// 同 request,但回傳原始回應(不是 JSON 的內容,例如 GitHub Actions 的紀錄文字)
-    func requestRaw(_ id: String, _ method: String, _ path: String, body: Data? = nil) async throws -> ConnHTTP.Response {
+    /// 同 request,但回傳原始回應(不是 JSON 的內容,例如 GitHub Actions 的紀錄文字)。
+    /// extra 是額外的標頭(例如 If-None-Match);Authorization 不能蓋
+    func requestRaw(_ id: String, _ method: String, _ path: String, body: Data? = nil,
+                    extra: [String: String] = [:]) async throws -> ConnHTTP.Response {
         guard let c = connection(id) else { throw ConnectionError("找不到連線 \(id)") }
         // 完整網址:只允許和連線網址同一個網域(例如 www.googleapis.com 的 token 打 run.googleapis.com),token 不會送到別處
         let full = path.hasPrefix("https://") ? path : c.trimmedBase + path
         guard let url = URL(string: full) else { throw ConnectionError("網址格式錯誤:\(path)") }
         guard path.hasPrefix("/") || c.allowsHost(url.host) else { throw ConnectionError("這個連線不能呼叫 \(url.host ?? path)") }
-        var headers: [String: String] = [:]
+        var headers = extra.filter { $0.key.caseInsensitiveCompare("Authorization") != .orderedSame }
         if let token = try await bearer(c) { headers["Authorization"] = "Bearer \(token)" }
         if body != nil { headers["Content-Type"] = "application/json" }
         var r = try await ConnHTTP.send(method, url, headers: headers, body: body)

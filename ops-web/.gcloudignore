@@ -1,0 +1,10 @@
+# gcloud builds submit 上傳時略過(同 .dockerignore)
+.git/
+bin/
+web/node_modules/
+web/dist/
+conformance/
+**/*.tmp
+*.log
+/omixor-issues
+/omixor

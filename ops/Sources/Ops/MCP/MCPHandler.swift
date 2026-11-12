@@ -52,7 +52,7 @@ final class MCPHandler {
             return result(id: id, [
                 "protocolVersion": version,
                 "capabilities": ["tools": ["listChanged": false]],
-                "serverInfo": ["name": Self.serverName, "title": "Ops", "version": Self.serverVersion],
+                "serverInfo": ["name": Self.serverName, "title": "omixor", "version": Self.serverVersion],
                 "instructions": Self.instructions,
             ])
         case "ping":
@@ -94,16 +94,16 @@ final class MCPHandler {
     }
 
     static let instructions = """
-    Ops 是維運線上服務的 macOS app。這些工具直接讀寫 app 裡的即時資料,變更會立刻出現在畫面上,並以「MCP 用戶端」記在動態牆。
+    omixor 是維運線上服務的 macOS app。這些工具直接讀寫 app 裡的即時資料,變更會立刻出現在畫面上,並以「MCP 用戶端」記在動態牆。
     先用 ops_overview 掌握整體狀況,再用 ops_list / ops_get 查細節。
     核准 AI 請求、核准部署、回滾、調整自動化自主程度只能由人在 app 裡決定;需要這類變更時,用 ops_request_approval 建立待核准請求,附上理由、依據與回滾方式。
-    GCP(ops_gcp、ops_gcp_logs、ops_gcp_metrics)只讀:看 Cloud Run 狀態、錯誤日誌、請求量與延遲;Ops 不會部署、改流量或執行 Job。
-    GitHub(ops_github、ops_github_runs、ops_github_run、ops_github_pull)只讀:看 PR、檢查與 Actions 失敗原因;Ops 不會開 PR、留言或重跑 workflow。
+    GCP(ops_gcp、ops_gcp_logs、ops_gcp_metrics)只讀:看 Cloud Run 狀態、錯誤日誌、請求量與延遲;omixor 不會部署、改流量或執行 Job。
+    GitHub(ops_github、ops_github_runs、ops_github_run、ops_github_pull)只讀:看 PR、檢查與 Actions 失敗原因;omixor 不會開 PR、留言或重跑 workflow。
     Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織(ops_orgs 看是哪一個);切換組織只能由人在 app 裡做。
-    Ops 有虛擬角色(ops_agents)。使用者請你以某角色身分工作時:用 ops_agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 ops_agent_task_report 回報;需要人決定時回報 blocked。以角色身分開 Issue 或留言時,ops_issue_create / ops_issue_update 帶上 agent(角色 id),才會署名該角色。
+    omixor 有虛擬角色(ops_agents)。使用者請你以某角色身分工作時:可先用 ops_agent_context 取得該角色能讀取的資訊,再用 ops_agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 ops_agent_task_report 回報;需要人決定時回報 blocked。以角色身分開 Issue 或留言時,ops_issue_create / ops_issue_update 帶上 agent(角色 id),才會署名該角色。
     文件櫃(ops_cabinet、ops_docs、ops_doc_save)依 evoleap 研發基地的區塊分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。
     發現值得追蹤的問題(例如從 ops_site_visitors 的數字看到異常)時,用 ops_issue_create 存成 Issue;先用 ops_issues 搜尋避免重複,已有就用 ops_issue_update 加留言。
-    旁白語音(shuttle 專案的 npm run voice)可以用 ops_voice_submit 分派成批次:Ops 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。
+    旁白語音(shuttle 專案的 npm run voice)可以用 ops_voice_submit 分派成批次:omixor 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。
     Facebook 粉絲專頁(ops_fb_pages、ops_fb_posts、ops_fb_insights、ops_fb_drafts)只讀;ops_fb_draft_save 只能新增或修改草稿(以角色身分寫時帶 agent),發佈與排程只能由人在 app 的 AI 自動化 › 粉絲專頁 按。
     """
 
@@ -265,7 +265,7 @@ final class MCPHandler {
                  "icon": prop("string", "SF Symbol 名稱,預設 sparkles"),
              ], required: ["text"]),
         Tool(name: "ops_voice_submit", title: "分派旁白語音批次",
-             description: "把 shuttle 專案的旁白語音產生分派給 Ops:執行 npm run voice -- <腳本> --batch(Gemini Batch API,約一半價格,最長 24 小時)。立刻回傳工作 id,不用等;Ops 每隔幾分鐘查一次,完成後自動收結果(下載、轉 mp3、上傳 GCS、改寫本機 .voice.json),再由人在 Ops 試聽、按發佈上線。一次只能有一批,其餘排隊。dry_run 只列出會送哪些段落,不呼叫 API、不花錢。",
+             description: "把 shuttle 專案的旁白語音產生分派給 omixor:執行 npm run voice -- <腳本> --batch(Gemini Batch API,約一半價格,最長 24 小時)。立刻回傳工作 id,不用等;omixor 每隔幾分鐘查一次,完成後自動收結果(下載、轉 mp3、上傳 GCS、改寫本機 .voice.json),再由人在 omixor 試聽、按發佈上線。一次只能有一批,其餘排隊。dry_run 只列出會送哪些段落,不呼叫 API、不花錢。",
              properties: [
                  "scripts": strings("web/src/content/live/ 底下的腳本路徑,例如 launch/2.1.json"),
                  "all": prop("boolean", "所有腳本"),
@@ -276,13 +276,13 @@ final class MCPHandler {
              description: "查旁白語音批次的狀態(排隊中、產生中、待發佈、已發佈、失敗…)、變動的旁白清單與紀錄。不給 id 時列出最近的批次。",
              properties: ["id": prop("string", "工作 id,例如 VJ-3")], required: [], readOnly: true),
         Tool(name: "ops_site_visitors", title: "網站訪客統計",
-             description: "讀 evoleap 網站的會員與訪客統計(後台「會員」頁同一份資料,GET /api/admin/overview):會員數、訪客數、訪客漏斗(打開 → 載入完成 → 有播放,和後台一樣不含登入門檻與一般頁面)、各課概況、登入門檻、裝置/來源/載入錯誤、從首頁進來的路徑、首頁停留、登入頁、最近沒播放的造訪足跡。需要 Ops 已登入該連線。",
+             description: "讀 evoleap 網站的會員與訪客統計(後台「會員」頁同一份資料,GET /api/admin/overview):會員數、訪客數、訪客漏斗(打開 → 載入完成 → 有播放,和後台一樣不含登入門檻與一般頁面)、各課概況、登入門檻、裝置/來源/載入錯誤、從首頁進來的路徑、首頁停留、登入頁、最近沒播放的造訪足跡。需要 omixor 已登入該連線。",
              properties: [
                  "range": prop("string", "時間範圍,預設 1d", enum: ["all", "30m", "12h", "1d", "7d"]),
-                 "connection": prop("string", "連線 id,預設 Ops 網站訪客頁選的那個(evoleap)"),
+                 "connection": prop("string", "連線 id,預設 omixor 網站訪客頁選的那個(evoleap)"),
              ], required: [], readOnly: true),
         Tool(name: "ops_issue_create", title: "建立 Issue",
-             description: "把發現的問題或待辦存成 Issue(Ops 的真實資料,存在本機,重開 app 也還在;出現在 開發 › Issue)。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 ops_issues 搜尋,避免重複。",
+             description: "把發現的問題或待辦存成 Issue(omixor 的真實資料,存在本機,重開 app 也還在;出現在 開發 › Issue)。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 ops_issues 搜尋,避免重複。",
              properties: [
                  "title": prop("string", "標題,一句話說明問題"),
                  "body": prop("string", "內文(Markdown)"),
@@ -316,8 +316,14 @@ final class MCPHandler {
                  "limit": prop("integer", "最多幾筆,預設 30"),
              ], required: [], readOnly: true),
         Tool(name: "ops_agents", title: "列出虛擬角色",
-             description: "列出 Ops 的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。以角色身分工作前先讀它的 instructions。",
+             description: "列出 omixor 的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。以角色身分工作前先讀它的 instructions。",
              properties: ["id": prop("string", "只看這個角色")], required: [], readOnly: true),
+        Tool(name: "ops_agent_context", title: "角色能讀取的資訊",
+             description: "用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與頁籤(read / write),以及能讀的文件清單。include_bodies 為 true 時附上文件全文(最多 20 份,其餘只列清單)。文件權限依角色的 docAccess;Issue、範例資料等其他工具不分角色。",
+             properties: [
+                 "agent": prop("string", "角色 id 或名稱"),
+                 "include_bodies": prop("boolean", "附上文件全文,預設 false"),
+             ], required: ["agent"], readOnly: true),
         Tool(name: "ops_agent_tasks", title: "查角色任務",
              description: "給 id 回傳任務完整內容;否則列出任務(預設未完成的:待領取、進行中、需要協助)。",
              properties: [
@@ -357,7 +363,7 @@ final class MCPHandler {
                                 "description": "文件櫃存取範圍,會合併進現有設定:key 是區塊 id(levels、dev、ideas、docs、overview、todo、members、tools)或頁籤網址(例如 /studio/tools、/docs/course-goals),值是 read、write 或 none(移除)。頁籤的設定優先於區塊。"],
              ], required: []),
         Tool(name: "ops_orgs", title: "組織",
-             description: "列出 Ops 的組織與目前使用中的組織。Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織;切換組織只能由人在 app 裡做。",
+             description: "列出 omixor 的組織與目前使用中的組織。Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織;切換組織只能由人在 app 裡做。",
              properties: [:], required: [], readOnly: true),
         Tool(name: "ops_cabinet", title: "文件櫃結構",
              description: "列出文件櫃的區塊與頁籤(對應 evoleap 研發基地 /studio 的區塊),以及各處有幾份文件。給 agent 時只列該角色能存取的位置並標出權限(read / write)。",
@@ -372,7 +378,7 @@ final class MCPHandler {
                  "agent": prop("string", "以角色身分查看時填角色 id 或名稱"),
              ], required: [], readOnly: true),
         Tool(name: "ops_doc_save", title: "存文件到文件櫃",
-             description: "新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在研發基地對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置。文件存在本機,重開 Ops 也還在。",
+             description: "新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在研發基地對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置。文件存在本機,重開 omixor 也還在。內文開頭可以有欄位(--- 之間一行一個 key: value),kind 是文件類型:有對應範本(kind: template、for: <類型> 的文件,內含 ```html 版面與 ```css 樣式)時,畫面依範本顯示,存檔前也會檢查範本的 required 欄位。要新增一種類型,存一份範本文件就好。",
              properties: [
                  "id": prop("string", "要修改的文件 id;新增時不給"),
                  "title": prop("string", "標題(新增時必填)"),
@@ -393,7 +399,7 @@ final class MCPHandler {
                  "priority": prop("string", "優先度,預設 normal", enum: cases(IssuePriority.self)),
              ], required: ["assign_to", "title"]),
         Tool(name: "ops_github", title: "GitHub 概況",
-             description: "列出 Ops 追蹤的 GitHub repo(目前組織的)、開著的 PR(含檢查結果)與最近的 Actions 執行。資料是 Ops 最近一次讀到的(約 5 分鐘更新一次);refresh=true 先重新讀。只讀。需要人先在 Ops 的 開發進度 › GitHub 登入。",
+             description: "列出 omixor 追蹤的 GitHub repo(目前組織的)、開著的 PR(含檢查結果)與最近的 Actions 執行。資料是 omixor 最近一次讀到的(約 5 分鐘更新一次);refresh=true 先重新讀。只讀。需要人先在 omixor 的 開發進度 › GitHub 登入。",
              properties: [
                  "refresh": prop("boolean", "先向 GitHub 重新讀一次"),
                  "repo": prop("string", "只看這個 repo(owner/name)"),
@@ -422,7 +428,7 @@ final class MCPHandler {
                  "repo": prop("string", "owner/name;只追蹤一個 repo 時可省略"),
              ], required: ["number"], readOnly: true),
         Tool(name: "ops_gcp", title: "GCP 概況",
-             description: "列出 Ops 設定的 GCP 專案(目前組織的)裡 Cloud Run 服務的狀態、目前版本、流量、網址,以及 Cloud Run Job 最近一次執行。給 service 時另外回傳最近的版本;給 job 時回傳最近的執行。只讀。需要人先在 Ops 的 伺服器與服務 › GCP 登入。",
+             description: "列出 omixor 設定的 GCP 專案(目前組織的)裡 Cloud Run 服務的狀態、目前版本、流量、網址,以及 Cloud Run Job 最近一次執行。給 service 時另外回傳最近的版本;給 job 時回傳最近的執行。只讀。需要人先在 omixor 的 伺服器與服務 › GCP 登入。",
              properties: [
                  "refresh": prop("boolean", "先重新讀一次"),
                  "service": prop("string", "Cloud Run 服務名稱,例如 shuttle-server"),
@@ -445,7 +451,7 @@ final class MCPHandler {
                  "hours": prop("integer", "往前幾小時,預設 24,最多 720"),
              ], required: [], readOnly: true),
         Tool(name: "ops_fb_pages", title: "Facebook 粉絲專頁",
-             description: "列出 Ops 連上的 Facebook 粉絲專頁:id、名稱、分類、網址、按讚數、追蹤數、是否在 Ops 管理中、有沒有權杖。只讀。需要人先在 Ops 的 AI 自動化 › 粉絲專頁 設定連線。",
+             description: "列出 omixor 連上的 Facebook 粉絲專頁:id、名稱、分類、網址、按讚數、追蹤數、是否在 omixor 管理中、有沒有權杖。只讀。需要人先在 omixor 的 AI 自動化 › 粉絲專頁 設定連線。",
              properties: ["refresh": prop("boolean", "先向 Facebook 重新讀一次專頁資料")], required: [], readOnly: true),
         Tool(name: "ops_fb_posts", title: "Facebook 貼文與成效",
              description: "管理中粉絲專頁的最近貼文(新的在前)與已排程貼文。每篇含心情、留言、分享數與互動合計;insights=true 時附上前 10 篇的觸及、點擊與心情分類(Meta 已淘汰或取不到的指標 status 是 deprecated / unavailable)。只讀。",
@@ -471,7 +477,7 @@ final class MCPHandler {
                  "limit": prop("integer", "最多幾筆,預設 30"),
              ], required: [], readOnly: true),
         Tool(name: "ops_fb_draft_save", title: "存 Facebook 草稿",
-             description: "新增或修改 Facebook 貼文草稿(不給 id 是新增)。只存草稿,不會發佈:發佈與排程只能由人在 Ops 的 AI 自動化 › 粉絲專頁 按。已排程或已發佈的草稿不能修改。以角色身分工作時帶 agent,草稿會署名該角色。",
+             description: "新增或修改 Facebook 貼文草稿(不給 id 是新增)。只存草稿,不會發佈:發佈與排程只能由人在 omixor 的 AI 自動化 › 粉絲專頁 按。已排程或已發佈的草稿不能修改。以角色身分工作時帶 agent,草稿會署名該角色。",
              properties: [
                  "id": prop("string", "要修改的草稿 id;不給就是新增"),
                  "page": prop("string", "要發到哪個專頁(id 或名稱);新增時不給就用第一個管理中的專頁"),
@@ -509,6 +515,7 @@ final class MCPHandler {
         case "ops_issue_update": return try issueUpdate(a)
         case "ops_issues": return try issuesQuery(a)
         case "ops_agents": return try agentsList(a)
+        case "ops_agent_context": return try agentContext(a)
         case "ops_agent_tasks": return try agentTasks(a)
         case "ops_agent_task_claim": return try agentClaim(a)
         case "ops_agent_task_report": return try agentReport(a)
@@ -543,7 +550,7 @@ final class MCPHandler {
         case "repos": o = MCPJSON.object(app.repos)
         case "pull_requests": o = MCPJSON.object(app.pullRequests)
         case "work_items": o = MCPJSON.object(app.workItems)
-        case "sprint": o = [MCPJSON.object(app.sprint)]
+        case "sprint": o = app.sprint.isEmpty ? [[String: Any]()] as [Any] : [MCPJSON.object(app.sprint)] as [Any]
         case "pipeline_runs": o = MCPJSON.object(app.pipelineRuns)
         case "deployments": o = MCPJSON.object(app.deployments)
         case "alerts": o = MCPJSON.object(app.alerts)
@@ -813,7 +820,7 @@ final class MCPHandler {
             let ahead = app.voiceJobs.filter { $0.state == .queued && $0.id != job.id }.count
                 + app.voiceJobs.filter(\.state.holdsBatch).count
             return ["job": voiceJSON(job, full: false),
-                    "note": ahead > 0 ? "前面還有 \(ahead) 批,輪到時自動送出" : "馬上送出。完成後由人在 Ops › CI/CD › 旁白發佈 試聽並發佈;可用 ops_voice_jobs 查進度"]
+                    "note": ahead > 0 ? "前面還有 \(ahead) 批,輪到時自動送出" : "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 ops_voice_jobs 查進度"]
         } catch {
             throw MCPToolError(error.localizedDescription)
         }
@@ -1031,6 +1038,11 @@ final class MCPHandler {
     private func cabinet(_ a: MCPArgs) throws -> Any {
         app.startCabinet()
         let g = try docAgent(a)
+        return ["organization": app.currentOrg?.name ?? app.currentOrgId, "sections": cabinetSections(g)]
+    }
+
+    /// 文件櫃的區塊與頁籤;給角色時只列它能存取的位置並標出權限
+    private func cabinetSections(_ g: Agent?) -> [[String: Any]] {
         func count(_ s: String, _ t: String?) -> Int { app.cabinetDocs.filter { $0.section == s && $0.tab == t }.count }
         var out: [[String: Any]] = []
         for s in CabinetLayout.sections {
@@ -1046,7 +1058,32 @@ final class MCPHandler {
             o["access"] = secAcc as? String ?? "none"
             out.append(o)
         }
-        return ["organization": app.currentOrg?.name ?? app.currentOrgId, "sections": out]
+        return out
+    }
+
+    /// 角色能讀取的資訊:角色設定、未完成的任務、文件櫃權限與能讀的文件
+    private func agentContext(_ a: MCPArgs) throws -> Any {
+        let name = try a.require("agent")
+        guard let g = agentStore.agent(name) else { throw MCPToolError("找不到角色 \(name)") }
+        app.startCabinet()
+        let tasks = app.agentTasks.filter { $0.agentId == g.id && $0.status.isOpen }
+        let docs = app.cabinetDocs.filter { g.canRead(section: $0.section, tab: $0.tab) }
+        let bodies = a.raw["include_bodies"] as? Bool ?? false
+        let bodyLimit = 20
+        return [
+            "organization": app.currentOrg?.name ?? app.currentOrgId,
+            "agent": agentJSON(g),
+            "tasks": ["total": tasks.count, "tasks": tasks.prefix(50).map { t -> [String: Any] in
+                ["id": t.id, "title": t.title, "status": t.status.rawValue, "priority": t.priority.rawValue,
+                 "updatedAt": ISO8601DateFormatter().string(from: t.updatedAt)]
+            }],
+            "cabinet": cabinetSections(g),
+            "docs": ["total": docs.count, "docs": docs.prefix(50).enumerated().map { i, d -> [String: Any] in
+                var o = docJSON(d, full: bodies && i < bodyLimit)
+                o["access"] = g.canWrite(section: d.section, tab: d.tab) ? "write" : "read"
+                return o
+            }],
+        ]
     }
 
     private func docs(_ a: MCPArgs) throws -> Any {
@@ -1093,6 +1130,9 @@ final class MCPHandler {
                 try checkWrite(newLoc!.0.id, newLoc!.1?.path)
             }
             if let t = a.string("title"), t.isEmpty { throw MCPToolError("標題不能是空的") }
+            var newBody = a.raw["body"] as? String ?? d.body
+            if let b = a.raw["append_body"] as? String, !b.isEmpty { newBody += (newBody.isEmpty ? "" : "\n\n") + b }
+            if let e = DocTemplates.validate(newBody, in: app.cabinetDocs) { throw MCPToolError(e) }
             let updated = Cabinet.update(app, d.id) { x in
                 if let t = a.string("title") { x.title = t }
                 if let b = a.raw["body"] as? String { x.body = b }
@@ -1105,7 +1145,9 @@ final class MCPHandler {
         let title = try a.require("title")
         let (s, t) = try loc(a)
         try checkWrite(s.id, t?.path)
-        let d = Cabinet.create(app, title: title, body: a.raw["body"] as? String ?? "", section: s.id, tab: t?.path,
+        let body = a.raw["body"] as? String ?? ""
+        if let e = DocTemplates.validate(body, in: app.cabinetDocs) { throw MCPToolError(e) }
+        let d = Cabinet.create(app, title: title, body: body, section: s.id, tab: t?.path,
                                tags: a.strings("tags") ?? [], by: author)
         return docJSON(d, full: false)
     }
@@ -1126,6 +1168,8 @@ final class MCPHandler {
                                  priority: try a.optionalEnum("priority", IssuePriority.self) ?? .normal,
                                  labels: a.strings("labels") ?? [], source: a.string("source") ?? "",
                                  link: a.string("link") ?? "", by: author)
+        // Issue 伺服器模式連不上時,create 回傳沒存起來的草稿(id 是空的)
+        if issue.id.isEmpty { throw MCPToolError("Issue 沒有存起來:\(store.remoteError ?? "Issue 伺服器沒有回應")") }
         return issueJSON(issue)
     }
 
@@ -1147,6 +1191,7 @@ final class MCPHandler {
             if let s = status { i.status = s }
         }
         if let c = a.string("comment") { updated = store.comment(id, c, by: author) }
+        if updated == nil, let e = store.remoteError { throw MCPToolError("Issue 沒有改成:\(e)") }
         return updated.map(issueJSON) ?? [:]
     }
 
@@ -1156,6 +1201,7 @@ final class MCPHandler {
             guard let i = store.issue(id) else { throw MCPToolError("找不到 Issue \(id)") }
             return issueJSON(i)
         }
+        store.refreshIfStale(0)   // Issue 伺服器模式:清單也用最新的
         let status = a.string("status") ?? "open"
         guard ["open", "closed", "all"].contains(status) else { throw MCPToolError("status 必須是 open、closed、all 之一") }
         let label = a.string("label")?.lowercased()
@@ -1196,7 +1242,7 @@ final class MCPHandler {
         do {
             d = try await SiteVisitors.fetch(app, connection: a.string("connection"), range: range)
         } catch {
-            throw MCPToolError("讀不到訪客統計:\(error.localizedDescription)(請在 Ops 登入對應的連線)")
+            throw MCPToolError("讀不到訪客統計:\(error.localizedDescription)(請在 omixor 登入對應的連線)")
         }
         let f = d.funnel
         let g = d.guestStats
@@ -1223,7 +1269,7 @@ final class MCPHandler {
     private func ghStore() throws -> GitHubStore {
         let g = app.startGitHub(timer: false)
         guard g.connection != nil, g.isLoggedIn else {
-            throw MCPToolError("Ops 還沒登入 GitHub。請人在 Ops 的 開發進度 › GitHub 設定並登入")
+            throw MCPToolError("omixor 還沒登入 GitHub。請人在 omixor 的 開發進度 › GitHub 設定並登入")
         }
         return g
     }
@@ -1334,9 +1380,9 @@ final class MCPHandler {
     private func gcpStore() throws -> GCPStore {
         let g = app.startGCP(timer: false)
         guard g.connection != nil, g.isLoggedIn else {
-            throw MCPToolError("Ops 還沒登入 Google Cloud。請人在 Ops 的 伺服器與服務 › GCP 設定並登入")
+            throw MCPToolError("omixor 還沒登入 Google Cloud。請人在 omixor 的 伺服器與服務 › GCP 設定並登入")
         }
-        guard g.isConfigured else { throw MCPToolError("還沒設定 GCP 專案,請人在 Ops 的 伺服器與服務 › GCP 設定") }
+        guard g.isConfigured else { throw MCPToolError("還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定") }
         return g
     }
 
@@ -1585,7 +1631,7 @@ final class MCPHandler {
         let saved = f.saveDraft(d, by: author)
         app.log(f.actor(author), "square.and.pencil", "\(isNew ? "新增" : "修改") Facebook 草稿 \(saved.id)「\(saved.titleLine)」", .automation)
         var o = fbDraftJSON(saved)
-        o["note"] = "只存成草稿。發佈或排程要由人在 Ops 的 AI 自動化 › 粉絲專頁 按。"
+        o["note"] = "只存成草稿。發佈或排程要由人在 omixor 的 AI 自動化 › 粉絲專頁 按。"
         return o
     }
 

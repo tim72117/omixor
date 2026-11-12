@@ -3,7 +3,8 @@ import Security
 
 /// 連線的密碼類資料存在鑰匙圈:token 與 client secret。只在這台 Mac、解鎖時可用,不會隨備份搬到別台。
 enum TokenVault {
-    nonisolated(unsafe) static var service = "com.tim72117.ops.connection"
+    /// OPS_KEYCHAIN_SERVICE 可以換成別的名稱(比對或測試用的實例不要碰到正式 Ops 的登入)
+    nonisolated(unsafe) static var service = ProcessInfo.processInfo.environment["OPS_KEYCHAIN_SERVICE"] ?? "com.tim72117.ops.connection"
     /// 組織的前綴:預設組織是空字串(沿用舊的帳號名稱,登入不會掉),其他組織是 "<組織 id>/"
     nonisolated(unsafe) static var scope = ""
 

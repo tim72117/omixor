@@ -29,6 +29,7 @@ import (
 //	ops_sessions   網頁登入的 session(只存 token 的 SHA-256)
 //	ops_activity   動態牆(全部歷史)
 //	ops_state      範例資料的變更(告警、事件、工作項目…;Swift 版是重開就重置)
+//	ops_issues     Issue(與 ops_issue_comments;見 store_pg_issues.go,不放在 ops_documents)
 //
 // 這個版本只支援一台 ops-web 連同一個資料庫(畫面即時通知與記憶體裡的狀態不跨主機)。
 
@@ -79,6 +80,9 @@ create table if not exists ops_files (
 );
 `
 
+// pgExtraSchema 其他檔案登記的表(例如 store_pg_issues.go 的 ops_issues)
+var pgExtraSchema []string
+
 // OpenDB 連上資料庫、建表,並把存放處與密鑰都改到資料庫。key 是 base64 的 32 bytes(OPS_SECRET_KEY)。
 func OpenDB(url, key string) error {
 	k, err := base64.StdEncoding.DecodeString(strings.TrimSpace(key))
@@ -95,9 +99,11 @@ func OpenDB(url, key string) error {
 		pool.Close()
 		return fmt.Errorf("連不到資料庫:%w", err)
 	}
-	if _, err := pool.Exec(ctx, pgSchema); err != nil {
-		pool.Close()
-		return fmt.Errorf("建表失敗:%w", err)
+	for _, sc := range append([]string{pgSchema}, pgExtraSchema...) {
+		if _, err := pool.Exec(ctx, sc); err != nil {
+			pool.Close()
+			return fmt.Errorf("建表失敗:%w", err)
+		}
 	}
 	pgPool, pgKey = pool, k
 	Store = pgBackend{}
@@ -191,6 +197,19 @@ func ImportDir(dir string) ([]string, error) {
 	err := walkJSON(dir, func(rel string, data []byte) error {
 		if !json.Valid(data) {
 			log.Printf("略過 %s:不是有效的 JSON", rel)
+			return nil
+		}
+		// 組織的 Issue 匯入 ops_issues 表(已存在的同樣覆蓋)
+		if parts := strings.Split(rel, "/"); len(parts) == 3 && parts[0] == "orgs" && parts[2] == "issues.json" {
+			var list []OpsIssue
+			if err := json.Unmarshal(data, &list); err != nil {
+				log.Printf("略過 %s:不是 Issue 清單", rel)
+				return nil
+			}
+			if _, err := PGImportIssues(parts[1], list, true); err != nil {
+				return fmt.Errorf("%s:%w", rel, err)
+			}
+			done = append(done, rel)
 			return nil
 		}
 		if err := (pgBackend{}).Write(rel, data); err != nil {

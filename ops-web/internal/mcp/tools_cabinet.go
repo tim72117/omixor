@@ -85,6 +85,47 @@ func cabOrgName(a *core.App) string {
 	return idx.Current
 }
 
+// cabinetSections 文件櫃的區塊與頁籤;給角色時只列它能存取的位置並標出權限(呼叫時要拿著 Mu)
+func cabinetSections(a *core.App, g *core.Agent) []any {
+	count := func(s string, t *string) int {
+		n := 0
+		for _, d := range a.CabinetDocs() {
+			if d.Section == s && cabSameTab(d.Tab, t) {
+				n++
+			}
+		}
+		return n
+	}
+	out := []any{}
+	for _, s := range a.CabinetLayout() {
+		tabs := []any{}
+		for _, t := range s.Tabs {
+			acc := "write"
+			if g != nil {
+				acc = g.Access(s.ID, t.Path)
+				if acc == "" {
+					continue
+				}
+			}
+			p := t.Path
+			tabs = append(tabs, map[string]any{"tab": t.Path, "label": t.Title(), "docs": count(s.ID, &p), "access": acc})
+		}
+		secAcc := "write"
+		if g != nil {
+			secAcc = g.Access(s.ID, "")
+			if secAcc == "" && len(tabs) == 0 {
+				continue
+			}
+			if secAcc == "" {
+				secAcc = "none"
+			}
+		}
+		out = append(out, map[string]any{"section": s.ID, "label": s.Label, "studioPath": s.Path,
+			"docs": count(s.ID, nil), "tabs": tabs, "access": secAcc})
+	}
+	return out
+}
+
 func init() {
 	Register("ops_cabinet", func(c *Call) (any, error) {
 		a := c.App
@@ -94,43 +135,7 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		count := func(s string, t *string) int {
-			n := 0
-			for _, d := range a.CabinetDocs() {
-				if d.Section == s && cabSameTab(d.Tab, t) {
-					n++
-				}
-			}
-			return n
-		}
-		out := []any{}
-		for _, s := range a.CabinetLayout() {
-			tabs := []any{}
-			for _, t := range s.Tabs {
-				acc := "write"
-				if g != nil {
-					acc = g.Access(s.ID, t.Path)
-					if acc == "" {
-						continue
-					}
-				}
-				p := t.Path
-				tabs = append(tabs, map[string]any{"tab": t.Path, "label": t.Title(), "docs": count(s.ID, &p), "access": acc})
-			}
-			secAcc := "write"
-			if g != nil {
-				secAcc = g.Access(s.ID, "")
-				if secAcc == "" && len(tabs) == 0 {
-					continue
-				}
-				if secAcc == "" {
-					secAcc = "none"
-				}
-			}
-			out = append(out, map[string]any{"section": s.ID, "label": s.Label, "studioPath": s.Path,
-				"docs": count(s.ID, nil), "tabs": tabs, "access": secAcc})
-		}
-		return map[string]any{"organization": cabOrgName(a), "sections": out}, nil
+		return map[string]any{"organization": cabOrgName(a), "sections": cabinetSections(a, g)}, nil
 	})
 
 	Register("ops_docs", func(c *Call) (any, error) {
@@ -246,6 +251,19 @@ func init() {
 			if title != nil && *title == "" {
 				return nil, ToolError{"標題不能是空的"}
 			}
+			newBody := d.Body
+			if b, ok := c.Args.iaRaw("body"); ok {
+				newBody = b
+			}
+			if b, ok := c.Args.iaRaw("append_body"); ok && b != "" {
+				if newBody != "" {
+					newBody += "\n\n"
+				}
+				newBody += b
+			}
+			if e := core.ValidateDocBody(newBody, a.CabinetDocs()); e != "" {
+				return nil, ToolError{e}
+			}
 			updated := a.UpdateDoc(d.ID, func(x *core.CabinetDoc) {
 				if title != nil {
 					x.Title = *title
@@ -284,6 +302,9 @@ func init() {
 			return nil, err
 		}
 		body, _ := c.Args.iaRaw("body")
+		if e := core.ValidateDocBody(body, a.CabinetDocs()); e != "" {
+			return nil, ToolError{e}
+		}
 		tags, _ := c.Args.Strings("tags")
 		d := a.CreateDoc(title, body, s.ID, cabTabPath(t), tags, author)
 		return docJSON(a, d, false), nil

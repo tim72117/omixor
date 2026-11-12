@@ -1,0 +1,83 @@
+# omixor-issues(只有 Issue API 的服務)部署到 Cloud Run。照 evoleap 的做法:
+#   - Workload Identity Federation:provider github-provider-omixor 只允許 tim72117/omixor
+#   - 資料庫:Cloud SQL onagent-prod:asia-east1:onagent-db 上的 omixor 資料庫(帳號 omixor_app),
+#     連線字串在 Secret Manager 的 OMIXOR_DATABASE_URL
+#   - 授權:omixor 自己管(internal/omixor):evoleap 登入只用來證明身分,換 omixor 自己的 token;
+#     使用者名單、token、操作紀錄存在 omixor 資料庫;第一位管理員的 email 是 repo variable OMIXOR_ADMIN_BOOTSTRAP_EMAIL
+#     (不是機密;只在使用者表是空的時候用,沒設就不會自動建立管理員)
+name: Deploy omixor-issues
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ops-web/**'
+      - '.github/workflows/deploy-issues.yml'
+  workflow_dispatch:
+
+env:
+  GCP_PROJECT_ID: shuttle-045094509
+  REGION: asia-east1
+  SERVICE: omixor-issues
+  IMAGE: asia-east1-docker.pkg.dev/shuttle-045094509/cloud-run-source-deploy/omixor-issues
+  CLOUDSQL_INSTANCE: onagent-prod:asia-east1:onagent-db
+
+concurrency:
+  group: omixor-issues
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ops-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ops-web/go.mod
+      - run: go vet ./internal/core ./internal/web ./internal/omixor ./cmd/omixor-issues ./cmd/omixor
+      - run: go test ./internal/core ./internal/web ./internal/omixor ./cmd/omixor-issues ./cmd/omixor
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        working-directory: ops-web
+        run: |
+          gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
+          docker build -f Dockerfile.issues -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $SERVICE \
+            --image=$IMAGE:${{ github.sha }} \
+            --region=$REGION \
+            --project=$GCP_PROJECT_ID \
+            --allow-unauthenticated \
+            --max-instances=1 \
+            --add-cloudsql-instances=$CLOUDSQL_INSTANCE \
+            --set-secrets=OPS_DATABASE_URL=OMIXOR_DATABASE_URL:latest \
+            --set-env-vars="EVOLEAP_URL=https://evoleap.io,OMIXOR_ADMIN_BOOTSTRAP_EMAIL=${{ vars.OMIXOR_ADMIN_BOOTSTRAP_EMAIL }}"
+
+      - name: Health check
+        run: |
+          URL=$(gcloud run services describe $SERVICE --region=$REGION --project=$GCP_PROJECT_ID --format='value(status.url)')
+          curl -fsS "$URL/health"

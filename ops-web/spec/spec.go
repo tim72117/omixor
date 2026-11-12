@@ -12,3 +12,8 @@ var InitializeJSON []byte
 
 //go:embed seed.json
 var SeedJSON []byte
+
+// DocRenderJS 文件櫃的通用轉換器(兩版共用;Swift 版的 DocRenderJS.swift 是它的副本)
+//
+//go:embed docrender.js
+var DocRenderJS string

@@ -221,7 +221,7 @@ struct SettingsLinePane: View {
                 commandRow("ngrok http 127.0.0.1:\(s.port)")
                 Text("2. 把工具給的網址貼到上面「公開網址」,複製 Webhook URL(結尾是 \(LineWebhookServer.path))。")
                 Text("3. LINE Developers › 你的 channel › Messaging API › Webhook settings:貼上 Webhook URL、打開 Use webhook,按 Verify 應該成功。")
-                Text("4. LINE Official Account Manager › 回應設定:關閉「自動回應訊息」,避免和 Ops 的回覆重複。")
+                Text("4. LINE Official Account Manager › 回應設定:關閉「自動回應訊息」,避免和 omixor 的回覆重複。")
                 Text("每個請求都會用 channel secret 驗證 X-Line-Signature,不符就回 401 不處理。伺服器只聽 127.0.0.1;臨時網址(trycloudflare、ngrok 免費版)每次重開會變,要回 LINE Developers 更新。")
                     .foregroundStyle(.secondary)
             }

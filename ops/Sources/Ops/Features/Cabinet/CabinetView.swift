@@ -172,53 +172,79 @@ private struct CabinetDocDetail: View {
     @State private var editing = false
     @State private var draftTitle = ""
     @State private var draftBody = ""
+    @State private var error: String?
+
+    private var html: String? { editing ? nil : DocTemplates.html(for: doc, in: app.cabinetDocs) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    if editing {
-                        TextField("標題", text: $draftTitle).textFieldStyle(.roundedBorder).font(.title3)
-                    } else {
-                        Text(doc.title).font(.title2.weight(.semibold)).textSelection(.enabled)
-                    }
-                    Spacer()
-                    if editing {
-                        Button("取消") { editing = false }
-                        Button("儲存") {
-                            Cabinet.update(app, doc.id) { $0.title = draftTitle; $0.body = draftBody }
-                            editing = false
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(draftTitle.trimmingCharacters(in: .whitespaces).isEmpty)
-                    } else {
-                        Button("編輯") { draftTitle = doc.title; draftBody = doc.body; editing = true }
-                        Button("刪除", role: .destructive) { Cabinet.delete(app, doc.id); onDelete() }
-                    }
-                }
-                HStack(spacing: 8) {
-                    Pill(text: doc.location, icon: "folder")
-                    ForEach(doc.tags, id: \.self) { Pill(text: $0, icon: "tag") }
-                    AuthorIcon(author: doc.author, size: 16)
-                    Text(Cabinet.authorName(app, doc.author)).font(.caption).foregroundStyle(.secondary)
-                    Text(doc.updatedAt, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)
-                }
+        if let html {
+            // 有範本:標題列固定,內文用網頁顯示(網頁自己捲動)
+            VStack(alignment: .leading, spacing: 0) {
+                header.padding(20)
                 Divider()
+                DocHTMLView(html: html).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    header
+                    Divider()
+                    if editing {
+                        TextEditor(text: $draftBody)
+                            .font(.system(size: 13, design: .monospaced))
+                            .frame(minHeight: 360)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                        if let error { Text(error).font(.caption).foregroundStyle(.orange) }
+                    } else if doc.body.isEmpty {
+                        Text("沒有內文").foregroundStyle(.secondary)
+                    } else {
+                        let fm = DocTemplates.frontMatter(doc.body)
+                        if !fm.meta.isEmpty {
+                            Text(fm.meta.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: " · "))
+                                .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                        MarkdownText(fm.rest)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: 820, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
                 if editing {
-                    TextEditor(text: $draftBody)
-                        .font(.system(size: 13, design: .monospaced))
-                        .frame(minHeight: 360)
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
-                } else if doc.body.isEmpty {
-                    Text("沒有內文").foregroundStyle(.secondary)
+                    TextField("標題", text: $draftTitle).textFieldStyle(.roundedBorder).font(.title3)
                 } else {
-                    MarkdownText(doc.body)
+                    Text(doc.title).font(.title2.weight(.semibold)).textSelection(.enabled)
+                }
+                Spacer()
+                if editing {
+                    Button("取消") { editing = false; error = nil }
+                    Button("儲存") {
+                        if let e = DocTemplates.validate(draftBody, in: app.cabinetDocs) { error = e; return }
+                        Cabinet.update(app, doc.id) { $0.title = draftTitle; $0.body = draftBody }
+                        editing = false; error = nil
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(draftTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+                } else {
+                    Button("編輯") { draftTitle = doc.title; draftBody = doc.body; editing = true }
+                    Button("刪除", role: .destructive) { Cabinet.delete(app, doc.id); onDelete() }
                 }
             }
-            .padding(20)
-            .frame(maxWidth: 820, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Pill(text: doc.location, icon: "folder")
+                ForEach(doc.tags, id: \.self) { Pill(text: $0, icon: "tag") }
+                AuthorIcon(author: doc.author, size: 16)
+                Text(Cabinet.authorName(app, doc.author)).font(.caption).foregroundStyle(.secondary)
+                Text(doc.updatedAt, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

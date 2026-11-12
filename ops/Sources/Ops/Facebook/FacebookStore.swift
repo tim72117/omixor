@@ -16,7 +16,7 @@ final class FacebookStore {
         return (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
     }
 
-    static let notConnected = "Ops 還沒連上 Facebook 粉絲專頁。請人在 Ops 的 AI 自動化 › 粉絲專頁 設定連線(Meta 登入或貼上 Page access token),並勾選要管理的專頁。"
+    static let notConnected = "omixor 還沒連上 Facebook 粉絲專頁。請人在 omixor 的 AI 自動化 › 粉絲專頁 設定連線(Meta 登入或貼上 Page access token),並勾選要管理的專頁。"
 
     private var fileURL: URL { app.dataDir.appendingPathComponent("facebook.json") }
     private var version: String { app.fbSettings.apiVersion }

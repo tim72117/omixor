@@ -18,15 +18,23 @@ final class StubProtocol: URLProtocol {
             s.close()
         }
         Self.log.append((request.httpMethod ?? "GET", request.url?.absoluteString ?? "", body))
-        let (status, obj) = Self.handler?(request, body) ?? (404, ["error": "no handler"])
-        let data = (try? JSONSerialization.data(withJSONObject: obj, options: .fragmentsAllowed)) ?? Data()
-        let resp = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        var (status, obj) = Self.handler?(request, body) ?? (404, ["error": "no handler"])
+        var fields = ["Content-Type": "application/json"]
+        if let r = obj as? StubReply { fields.merge(r.headers) { $1 }; obj = r.body }
+        let data = obj is NSNull ? Data() : (try? JSONSerialization.data(withJSONObject: obj, options: .fragmentsAllowed)) ?? Data()
+        let resp = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: fields)!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
 
     override func stopLoading() {}
+}
+
+/// handler 回傳這個型別時加上回應標頭(例如 ETag);body 是 NSNull 時不送內容
+struct StubReply {
+    var headers: [String: String]
+    var body: Any
 }
 
 @MainActor

@@ -481,7 +481,7 @@ struct GCPSetupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("連上 Google Cloud", systemImage: "cloud").font(.title2.weight(.semibold))
-            Text("連上後,這裡會顯示 Cloud Run 服務的狀態、版本與流量、Job 的執行結果、錯誤日誌,以及請求量、5xx 與延遲;虛擬角色也能透過 MCP 讀。Ops 只讀(cloud-platform.read-only),不會部署、改流量或執行 Job。")
+            Text("連上後,這裡會顯示 Cloud Run 服務的狀態、版本與流量、Job 的執行結果、錯誤日誌,以及請求量、5xx 與延遲;虛擬角色也能透過 MCP 讀。omixor 只讀(cloud-platform.read-only),不會部署、改流量或執行 Job。")
                 .foregroundStyle(.secondary)
 
             if !store.isConfigured {
@@ -522,7 +522,7 @@ struct GCPSetupView: View {
                 Text("1. 在 Google Cloud 建一個 OAuth 用戶端(只要做一次)").font(.headline)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("• 按下面的按鈕打開 Google Auth Platform › 用戶端 › 建立用戶端。")
-                    Text("• 應用程式類型選「電腦版應用程式」(Desktop app),名稱填 Ops,按建立。")
+                    Text("• 應用程式類型選「電腦版應用程式」(Desktop app),名稱填 omixor,按建立。")
                     Text("• 第一次用的話會先要你設定 OAuth 同意畫面:使用者類型選「外部」,把你自己的 Google 帳號加進「測試使用者」。")
                     Text("• 同意畫面在「測試」狀態時,登入大約 7 天會過期要重登;改成「正式版」(不用送審,自己用會看到未驗證警告)就不會。")
                 }
@@ -550,7 +550,7 @@ struct GCPSetupView: View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
                 Text("用瀏覽器登入 Google").font(.headline)
-                Text("會打開 Google 的授權頁,選帳號、按允許後回到 Ops 就完成了。只要求唯讀權限(cloud-platform.read-only)。帳號需要這個專案的檢視權限。")
+                Text("會打開 Google 的授權頁,選帳號、按允許後回到 omixor 就完成了。只要求唯讀權限(cloud-platform.read-only)。帳號需要這個專案的檢視權限。")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Button("用瀏覽器登入") { Task { await app.connStore?.login(c.id) } }

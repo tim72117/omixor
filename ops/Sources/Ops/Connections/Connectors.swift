@@ -155,7 +155,7 @@ enum OAuthConnector {
                 throw ConnectionError("這個伺服器不支援自動註冊,請在連線設定填 client_id(在服務的開發者主控台建立「桌面/原生」類型的 OAuth 用戶端)")
             }
             let r = try ConnHTTP.check(try await ConnHTTP.json("POST", reg, [
-                "client_name": "Ops(\(Host.current().localizedName ?? "Mac"))",
+                "client_name": "omixor(\(Host.current().localizedName ?? "Mac"))",
                 "redirect_uris": [callback.redirectURI],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
@@ -210,7 +210,7 @@ enum ApprovalConnector {
         defer { callback.stop() }
         guard let start = URL(string: c.trimmedBase + a.startPath) else { throw ConnectionError("網址格式錯誤") }
         let r = try ConnHTTP.check(try await ConnHTTP.json("POST", start, [
-            "redirect_uri": callback.redirectURI, "name": "Ops(\(Host.current().localizedName ?? "Mac"))"]))
+            "redirect_uri": callback.redirectURI, "name": "omixor(\(Host.current().localizedName ?? "Mac"))"]))
         guard let id = (r.json as? [String: Any])?["id"] as? String else { throw ConnectionError("伺服器沒有回傳登入 id") }
         callback.expect = ("id", id)
         let console = a.consoleURL.isEmpty ? c.trimmedBase : (a.consoleURL.hasSuffix("/") ? String(a.consoleURL.dropLast()) : a.consoleURL)

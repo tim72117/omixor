@@ -227,9 +227,11 @@ func TestPGOrgsAndImport(t *testing.T) {
 	c.Start()
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
-	var issues []map[string]any
-	_ = ReadJSON(filepath.Join(c.DataDir(), "issues.json"), &issues)
-	if len(issues) != 1 || issues[0]["id"] != "ISS-9" {
+	// Issue 匯入到 ops_issues 表(不放 ops_documents)
+	if issues := c.Issues(); len(issues) != 1 || issues[0].ID != "ISS-9" || issues[0].Priority != "high" {
 		t.Fatalf("匯入的 Issue 讀不到:%v", issues)
+	}
+	if Exists(filepath.Join(c.DataDir(), "issues.json")) {
+		t.Fatal("Issue 不該再存成文件")
 	}
 }

@@ -9,7 +9,8 @@ import (
 	"unicode"
 )
 
-// Issue:同 Swift 版 Issues/Issues.swift。真實資料,存在目前組織資料夾的 issues.json。
+// Issue:同 Swift 版 Issues/Issues.swift。真實資料,存在目前組織資料夾的 issues.json;
+// 設了 OPS_DATABASE_URL 時改存資料庫的 ops_issues / ops_issue_comments 表(store_pg_issues.go)。
 // 作者字串:person id、"mcp" 或 "agent:<角色 id>"。
 
 const (
@@ -123,6 +124,17 @@ func nowPrecise() Time { return Time{time.Now().UTC()} }
 
 type issueState struct {
 	Issues []OpsIssue
+	// Org 這份清單屬於哪個組織
+	Org string
+	// quiet 不是目前組織(透過 /api/issues/<組織> 操作別的組織):不記動態牆、不通知畫面
+	quiet bool
+	// saved 資料庫存放時,上次存進去的內容(id → JSON|順序),只寫有變的列
+	saved map[string]string
+	// Issue 伺服器模式(issues_remote.go):最近一次讀取的時間與錯誤
+	fetched   time.Time
+	remoteErr string
+	// gen 清單每變一次加一:背景讀取期間清單變過(新增、修改、同步讀取),讀回來的舊結果就丟掉
+	gen int
 }
 
 func (a *App) issueSt() *issueState {
@@ -138,17 +150,88 @@ func (a *App) issueSt() *issueState {
 // Issues 全部 Issue(最新的在前;呼叫時要拿著 Mu)
 func (a *App) Issues() []OpsIssue { return a.issueSt().Issues }
 
+// ReloadIssues 從存放處重讀目前組織的 Issue(呼叫時要拿著 Mu)
+func (a *App) ReloadIssues() { a.loadIssues() }
+
 func (a *App) loadIssues() {
 	s := a.issueSt()
+	s.Org = a.CurrentOrgID()
+	if issueRemoteOn() {
+		// 伺服器模式:不在拿著鎖時連網(伺服器連不上會卡住畫面),先清空,在背景讀回來再通知畫面
+		s.Issues, s.fetched = []OpsIssue{}, time.Time{}
+		s.gen++
+		go a.issueRemoteSync(s.Org, a.conns().Scope, s.gen)
+		return
+	}
+	loadIssuesInto(s)
+}
+
+// loadIssuesInto 讀 s.Org 的 Issue:有資料庫時從 ops_issues 表(store_pg_issues.go),否則讀組織資料夾的 issues.json
+func loadIssuesInto(s *issueState) {
+	if pgPool != nil {
+		pgLoadIssues(s)
+		return
+	}
 	var list []OpsIssue
-	if err := ReadJSON(filepath.Join(a.DataDir(), "issues.json"), &list); err != nil || list == nil {
+	if err := ReadJSON(filepath.Join(OrgDir(s.Org), "issues.json"), &list); err != nil || list == nil {
 		list = []OpsIssue{}
 	}
 	s.Issues = list
 }
 
 func (a *App) saveIssues() {
-	_ = WriteJSON(filepath.Join(a.DataDir(), "issues.json"), a.issueSt().Issues)
+	s := a.issueSt()
+	if issueRemoteOn() {
+		return // 伺服器模式每個動作各自送出
+	}
+	if pgPool != nil {
+		pgSaveIssues(s)
+		return
+	}
+	_ = WriteJSON(filepath.Join(OrgDir(s.Org), "issues.json"), s.Issues)
+}
+
+// changedIssues 通知畫面(別的組織不用)
+func (a *App) changedIssues() {
+	if !a.issueSt().quiet {
+		go a.Changed("issues")
+	}
+}
+
+// logIssue 記到動態牆(別的組織不記:動態牆屬於目前組織)
+func (a *App) logIssue(actor Actor, icon, text string) {
+	if !a.issueSt().quiet {
+		a.Log(actor, icon, text, "development")
+	}
+}
+
+// ValidOrgID 組織 id 只能是英數字與 -(同 NewOrgID 產生的格式)
+func ValidOrgID(id string) bool {
+	if id == "" || len(id) > 100 {
+		return false
+	}
+	for _, r := range id {
+		if !(r < 128 && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_')) {
+			return false
+		}
+	}
+	return true
+}
+
+// WithOrgIssues 在指定組織的 Issue 清單上執行 f(呼叫時要拿著 Mu)。org 是空的或目前組織時就是平常的清單;
+// 其他組織從存放處讀一份來改、改完存回去,不記動態牆也不通知畫面。給 /api/issues/<組織>(Swift 版遠端存放)用。
+func (a *App) WithOrgIssues(org string, f func()) {
+	if org == "" || org == a.CurrentOrgID() {
+		a.issueSt()
+		f()
+		return
+	}
+	cur := a.Ext["issues"]
+	s := &issueState{Org: org, quiet: true}
+	loadIssuesInto(s)
+	a.Ext["issues"] = s
+	defer func() { a.Ext["issues"] = cur }()
+	f()
 }
 
 // Issue 依 id 找(不分大小寫)
@@ -205,6 +288,26 @@ func CleanLabels(labels []string) []string {
 // CreateIssue 同 Swift 的 IssueStore.create(呼叫時要拿著 Mu)
 func (a *App) CreateIssue(title, body, priority string, labels []string, source, link, author string) OpsIssue {
 	s := a.issueSt()
+	if issueRemoteOn() {
+		issue, err := a.issueRemoteCreate(title, body, priority, CleanLabels(labels), source, link, author)
+		if err != nil {
+			// 伺服器連不上:回傳沒有存起來的草稿(id 是空的),同 Swift
+			a.issueRemoteFailed(err)
+			return OpsIssue{Title: title, Body: body, Priority: priority, Labels: CleanLabels(labels), Status: "open", CreatedBy: author, Comments: []IssueComment{}}
+		}
+		s.remoteErr = ""
+		s.gen++
+		kept := []OpsIssue{issue}
+		for _, i := range s.Issues {
+			if i.ID != issue.ID {
+				kept = append(kept, i)
+			}
+		}
+		s.Issues = kept
+		a.logIssue(AuthorActor(author), "exclamationmark.bubble", "建立 "+issue.ID+"「"+title+"」")
+		a.changedIssues()
+		return issue
+	}
 	num := 0
 	for _, i := range s.Issues {
 		num = max(num, i.Number())
@@ -220,8 +323,8 @@ func (a *App) CreateIssue(title, body, priority string, labels []string, source,
 	}
 	s.Issues = append([]OpsIssue{issue}, s.Issues...)
 	a.saveIssues()
-	a.Log(AuthorActor(author), "exclamationmark.bubble", "建立 "+issue.ID+"「"+title+"」", "development")
-	go a.Changed("issues")
+	a.logIssue(AuthorActor(author), "exclamationmark.bubble", "建立 "+issue.ID+"「"+title+"」")
+	a.changedIssues()
 	return issue
 }
 
@@ -234,6 +337,9 @@ func cloneIssue(i OpsIssue) OpsIssue {
 // UpdateIssue 修改一筆,回傳修改後的內容;狀態變了記到動態牆(同 Swift 的 IssueStore.update;呼叫時要拿著 Mu)
 func (a *App) UpdateIssue(id, author string, change func(*OpsIssue)) *OpsIssue {
 	s := a.issueSt()
+	if issueRemoteOn() && !s.quiet {
+		a.issueRemoteLoad(s) // 用伺服器上最新的內容來改
+	}
 	idx := -1
 	for i := range s.Issues {
 		if strings.EqualFold(s.Issues[i].ID, id) {
@@ -248,23 +354,47 @@ func (a *App) UpdateIssue(id, author string, change func(*OpsIssue)) *OpsIssue {
 	n := cloneIssue(before)
 	change(&n)
 	n.Labels = CleanLabels(n.Labels)
-	if n.Status != before.Status {
+	statusChanged := n.Status != before.Status
+	if statusChanged {
 		if n.Status == "closed" {
 			t := nowPrecise()
 			n.ClosedAt = &t
-			a.Log(AuthorActor(author), "checkmark.circle", "關閉 "+n.ID+"「"+n.Title+"」", "development")
 		} else {
 			n.ClosedAt = nil
-			a.Log(AuthorActor(author), "arrow.uturn.backward.circle", "重新打開 "+n.ID+"「"+n.Title+"」", "development")
+		}
+	}
+	// 狀態變了記到動態牆:存成功之後才記(伺服器模式存失敗時不能留下「關閉了」的紀錄)
+	logStatus := func(i OpsIssue) {
+		if !statusChanged {
+			return
+		}
+		if i.Status == "closed" {
+			a.logIssue(AuthorActor(author), "checkmark.circle", "關閉 "+i.ID+"「"+i.Title+"」")
+		} else {
+			a.logIssue(AuthorActor(author), "arrow.uturn.backward.circle", "重新打開 "+i.ID+"「"+i.Title+"」")
 		}
 	}
 	if string(Marshal(n)) == string(Marshal(before)) {
 		return &n
 	}
+	if issueRemoteOn() && !s.quiet {
+		saved, err := a.issueRemoteUpdate(n, author)
+		if err != nil {
+			a.issueRemoteFailed(err)
+			return nil
+		}
+		s.remoteErr = ""
+		s.gen++
+		s.Issues[idx] = saved
+		logStatus(saved)
+		a.changedIssues()
+		return &saved
+	}
 	n.UpdatedAt = nowPrecise()
 	s.Issues[idx] = n
 	a.saveIssues()
-	go a.Changed("issues")
+	logStatus(n)
+	a.changedIssues()
 	return &n
 }
 
@@ -282,6 +412,14 @@ func (a *App) CommentIssue(id, text, author string) *OpsIssue {
 // DeleteIssue 刪除(id 完全相同才刪,同 Swift)
 func (a *App) DeleteIssue(id string) {
 	s := a.issueSt()
+	if issueRemoteOn() && !s.quiet {
+		if _, err := a.issueRemoteCall("POST", s.Org, []string{id, "delete"}, map[string]any{}); err != nil {
+			a.issueRemoteFailed(err)
+			return
+		}
+		s.remoteErr = ""
+		s.gen++
+	}
 	kept := []OpsIssue{}
 	for _, i := range s.Issues {
 		if i.ID != id {
@@ -290,7 +428,7 @@ func (a *App) DeleteIssue(id string) {
 	}
 	s.Issues = kept
 	a.saveIssues()
-	go a.Changed("issues")
+	a.changedIssues()
 }
 
 func init() {

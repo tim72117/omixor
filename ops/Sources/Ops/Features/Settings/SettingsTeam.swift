@@ -82,7 +82,7 @@ struct SettingsTeamPane: View {
             } header: {
                 Text("成員(\(app.people.count))")
             } footer: {
-                Text("權限決定成員能在 Ops 裡執行哪些動作;AI 自動化的權限另在「AI 治理」設定。")
+                Text("權限決定成員能在 omixor 裡執行哪些動作;AI 自動化的權限另在「AI 治理」設定。")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

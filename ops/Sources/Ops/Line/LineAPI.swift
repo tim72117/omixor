@@ -155,7 +155,7 @@ struct LineNotice {
                             "data": LineAPI.approvalData(id: a.id, approve: false, nonce: a.nonce)]],
             ]])
         }
-        footer.append(t("在 Ops 開啟:\(openIn)", size: "xxs", color: "#8B949E"))
+        footer.append(t("在 omixor 開啟:\(openIn)", size: "xxs", color: "#8B949E"))
         let bubble: [String: Any] = [
             "type": "bubble",
             "header": ["type": "box", "layout": "vertical", "spacing": "xs", "contents": [

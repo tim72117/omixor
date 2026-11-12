@@ -95,7 +95,7 @@ final class LoopbackCallback: @unchecked Sendable {
         let q = Dictionary((comps?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
         guard req.path == "/callback" else { respond(conn, 404, "找不到", "這不是登入回呼網址。"); return }
         guard q[expect.name] == expect.value else {
-            respond(conn, 400, "登入失敗", "回呼的驗證參數不符,請回到 Ops 重新登入。")
+            respond(conn, 400, "登入失敗", "回呼的驗證參數不符,請回到 omixor 重新登入。")
             return
         }
         if let error = q["error"] {
@@ -105,7 +105,7 @@ final class LoopbackCallback: @unchecked Sendable {
             return
         }
         guard let code = q["code"], !code.isEmpty else { respond(conn, 400, "登入失敗", "回呼沒有帶授權碼。"); return }
-        respond(conn, 200, successTitle, "Ops 已完成登入,可以關掉這個分頁。")
+        respond(conn, 200, successTitle, "omixor 已完成登入,可以關掉這個分頁。")
         finish(.success(code))
     }
 
