@@ -4,7 +4,7 @@ import SwiftUI
 // AI 自動化畫面內共用的小元件與輔助型別(只在 Features/Automation 內使用)。
 
 enum AutoTab: String, CaseIterable, Identifiable {
-    case inbox, agents, dispatch, chain, facebook, flows, runs, insights
+    case inbox, agents, dispatch, chain, runner, facebook, flows, runs, insights
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -12,6 +12,7 @@ enum AutoTab: String, CaseIterable, Identifiable {
         case .agents: return "虛擬角色"
         case .dispatch: return "派發"
         case .chain: return "組織鏈"
+        case .runner: return "自動執行"
         case .facebook: return "粉絲專頁"
         case .flows: return "自動化流程"
         case .runs: return "執行紀錄"
@@ -24,6 +25,7 @@ enum AutoTab: String, CaseIterable, Identifiable {
         case .agents: return "person.2"
         case .dispatch: return "arrow.triangle.branch"
         case .chain: return "point.3.filled.connected.trianglepath.dotted"
+        case .runner: return "bolt.horizontal.circle"
         case .facebook: return "megaphone"
         case .flows: return "point.3.connected.trianglepath.dotted"
         case .runs: return "list.bullet.rectangle"

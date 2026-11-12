@@ -5,6 +5,7 @@ import { Icon } from "../../components/Icon";
 import { PRIORITY_COLOR, PRIORITY_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, leaseLabel, taskOpen, type AgentTask, type AgentTaskStatus } from "../../components/models";
 import { Card, EmptyState, Pill, color } from "../../components/ui";
 import { relative } from "../../fmt";
+import { AgentRunnerCard } from "./AutoRunner";
 import { useAuto } from "./autoShared";
 
 type Scope = "open" | "all";
@@ -27,6 +28,7 @@ export function AutoDispatch({ openTask }: { openTask: (task: AgentTask) => void
 
   return (
     <div className="col gap12" style={{ padding: 16, overflowY: "auto", flex: 1, minHeight: 0 }}>
+      <AgentRunnerCard openTask={(id) => { const t = tasks.find((x) => x.id === id); if (t) openTask(t); }} />
       <Card title="各角色目前的派發" subtitle="點角色可只看他被派的任務">
         {agents.length === 0 && <span className="muted">還沒有角色</span>}
         <div className="col">

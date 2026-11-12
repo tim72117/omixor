@@ -77,6 +77,8 @@ final class AppState: ObservableObject {
     /// 讀組織鏈的錯誤(遠端;nil = 正常)
     @Published var orgChainError: String?
     private(set) var agentStore: AgentStore?
+    /// 角色自動執行(AgentRunner/AgentRunner.swift):開了「自動執行」的角色,派給它的任務由這台 Mac 的 Claude Code 處理
+    lazy var agentRunner = AgentRunner(app: self)
 
     @discardableResult
     func startAgents(timer: Bool = true) -> AgentStore {

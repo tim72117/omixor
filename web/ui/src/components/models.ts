@@ -122,6 +122,20 @@ export function leaseLabel(t: AgentTask): string | null {
 }
 export type AgentsView = { agents: Agent[]; tasks: AgentTask[] };
 
+/** 角色自動執行(這台 Mac 上的 Claude Code;設定存在組織資料夾的 agent-runner.json,不進核心) */
+export type AgentRunConfig = { autoRun: boolean; model: string; effort: string; workdir: string; allowBash: boolean; timeoutMinutes: number };
+export type RunnerCurrent = { taskId: string; agentId: string; agentName: string; title: string; org: string; startedAt: string; lastOutput: string };
+export type RunnerOutcome = "done" | "blocked" | "error";
+export type RunnerRecord = {
+  taskId: string; agentId: string; agentName: string; title: string; outcome: RunnerOutcome | string; error?: string;
+  startedAt: string; finishedAt: string; durationSeconds: number; costUsd: number;
+};
+export type AgentRunnerView = {
+  org: string; loop: boolean; claudeFound: boolean; claudeBin: string; efforts: string[];
+  agents: { id: string; name: string; active: boolean; config: AgentRunConfig }[];
+  current: RunnerCurrent | null; history: RunnerRecord[]; lastError?: string; error?: string;
+};
+
 /** 組織鏈的一條邊:from 可以派工作給 to(label 空白 = 任務),to 做完回報給 from。節點是 "agent:<角色 id>" 或 "user:<email 小寫>" */
 export type ChainEdge = { from: string; to: string; label: string };
 export type OrgChain = { edges: ChainEdge[]; updatedAt?: string };

@@ -23,6 +23,7 @@ struct OpsApp: App {
                     app.startVoice()
                     app.startIssues()
                     app.startAgents()
+                    app.agentRunner.start()
                     app.startCabinet()
                     app.startGitHub()
                     if app.ghStore?.isLoggedIn == true { Task { await app.ghStore?.refresh() } }

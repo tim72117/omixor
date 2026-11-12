@@ -86,6 +86,8 @@ struct AutomationView: View {
             AutoDispatchView(openTask: { t in selectedAgent = t.agentId; tab = .agents })
         case .chain:
             AutoChainView()
+        case .runner:
+            AutoRunnerView(runner: app.agentRunner)
         case .facebook:
             AutoFacebookView()
         case .flows:
