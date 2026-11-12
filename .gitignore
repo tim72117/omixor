@@ -11,7 +11,7 @@
 .vscode/
 *.code-workspace
 
-# ===== Swift(ops、mac)=====
+# ===== Swift(app)=====
 .build/
 build/
 .swiftpm/
@@ -22,8 +22,7 @@ DerivedData/
 
 # ===== Go =====
 bin/
-# go build ./cmd/omixor-issues 在 web/ 底下產生的執行檔
-web/omixor-issues
+# go build ./cmd/omixor 在 web/ 底下產生的執行檔
 web/omixor
 *.test
 *.out
@@ -59,6 +58,6 @@ web/.import-empty/*
 # ===== Claude Code 預覽設定(含本機路徑)=====
 .claude/launch.json
 
-# omixor-core 編譯產生的執行檔
+# core、server 編譯產生的執行檔
 core/omixor
-core/omixor-server
+server/omixor-server
