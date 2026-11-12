@@ -215,11 +215,11 @@ private struct CabinetDocDetail: View {
                             Text(fm.meta.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: " · "))
                                 .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                         }
-                        MarkdownText(fm.rest)
+                        ReadingMarkdown(fm.rest).padding(.top, 6)
                     }
                 }
-                .padding(20)
-                .frame(maxWidth: 820, alignment: .leading)
+                .padding(.horizontal, 28).padding(.vertical, 22)
+                .frame(maxWidth: ReadingMarkdown.maxWidth + 56, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
