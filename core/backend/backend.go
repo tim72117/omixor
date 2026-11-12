@@ -51,6 +51,12 @@ type Backend interface {
 	ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error)
 	CancelTask(org, id string) (*model.AgentTask, error)
 	RequeueTask(org, id string) (*model.AgentTask, error)
+	// ClaimNext 從全部啟用中角色的待領取任務挑優先度最高(同優先度最舊)的一筆領走;agentID 非空就限定該角色。沒有可領的任務時回傳的 Task 是 nil
+	ClaimNext(org, agentID string) (*service.ClaimResult, error)
+	// ReleaseTask 放棄領取(進行中 → 待領取,作廢憑證、解鎖、留備註);只有領取者本人或組織管理員可以
+	ReleaseTask(org, id, reason string) (*model.AgentTask, error)
+	// Whoami 呼叫者的署名,和領取任務時寫進 ClaimedBy 的值一致(email 優先,否則名稱);不知道回空字串
+	Whoami() string
 	// RunRoutine 立刻替角色排一筆例行任務(組織管理員);author 是署名(只有伺服器管理員的有效)
 	RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error)
 

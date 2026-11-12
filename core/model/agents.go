@@ -17,6 +17,9 @@ const AgentPrefix = "agent:"
 // RoutineAuthor 例行任務排的任務,createdBy 是這個
 const RoutineAuthor = "routine"
 
+// SystemAuthor 系統自動留的任務備註(例如領取逾時退回)的署名
+const SystemAuthor = "omixor"
+
 var (
 	AgentColors       = []string{"blue", "teal", "green", "orange", "pink", "purple", "indigo", "gray"}
 	RoutineKinds      = []string{"daily", "weekly", "hourly"}
@@ -140,13 +143,15 @@ type AgentTaskNote struct {
 // AgentTask 角色的任務(id 是 T-<n>,一個組織內流水號)
 type AgentTask struct {
 	AgentID      string          `json:"agentId"`
-	ClaimedAt    *Time           `json:"claimedAt,omitempty"`
+	ClaimedAt    *Time           `json:"claimedAt,omitempty"` // 最近一次領取(租約開始)的時間
+	ClaimedBy    string          `json:"claimedBy,omitempty"` // 領取者(email 或名稱,只供畫面顯示)
 	CompletedAt  *Time           `json:"completedAt,omitempty"`
 	CreatedAt    Time            `json:"createdAt"`
 	CreatedBy    string          `json:"createdBy"`
 	ID           string          `json:"id"`
 	Instructions string          `json:"instructions"`
 	Links        []string        `json:"links"`
+	LockedUntil  *Time           `json:"lockedUntil,omitempty"` // 領取租約的到期時間(進行中才有);鎖定期間不能被別人領取
 	Notes        []AgentTaskNote `json:"notes"`
 	Priority     string          `json:"priority"`
 	Result       string          `json:"result"`
@@ -176,7 +181,21 @@ func (t AgentTask) Number() int {
 func (t AgentTask) Clone() AgentTask {
 	t.Links = append([]string{}, t.Links...)
 	t.Notes = append([]AgentTaskNote{}, t.Notes...)
+	if t.LockedUntil != nil {
+		l := *t.LockedUntil
+		t.LockedUntil = &l
+	}
 	return t
+}
+
+// Locked 任務現在被領取鎖住:進行中且 LockedUntil 還沒到
+func (t AgentTask) Locked(now time.Time) bool {
+	return t.Status == "inProgress" && t.LockedUntil != nil && now.Before(t.LockedUntil.Time)
+}
+
+// LeaseExpired 進行中,但領取租約已逾時(原領取者沒有回報也沒有續約)
+func (t AgentTask) LeaseExpired(now time.Time) bool {
+	return t.Status == "inProgress" && t.LockedUntil != nil && !now.Before(t.LockedUntil.Time)
 }
 
 // TaskIsOpen 還沒結束(待領取、進行中、需要協助)

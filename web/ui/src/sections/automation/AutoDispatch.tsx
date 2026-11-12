@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { AgentAvatar, go, useDirectory } from "../../components/bits";
 import { Icon } from "../../components/Icon";
-import { PRIORITY_COLOR, PRIORITY_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, taskOpen, type AgentTask, type AgentTaskStatus } from "../../components/models";
+import { PRIORITY_COLOR, PRIORITY_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, leaseLabel, taskOpen, type AgentTask, type AgentTaskStatus } from "../../components/models";
 import { Card, EmptyState, Pill, color } from "../../components/ui";
 import { relative } from "../../fmt";
 import { useAuto } from "./autoShared";
@@ -70,6 +70,7 @@ export function AutoDispatch({ openTask }: { openTask: (task: AgentTask) => void
                 <Icon name={TASK_ICON[t.status]} size={13} color={color(TASK_COLOR[t.status])} />
                 <span className="mono caption muted">{t.id}</span>
                 <span className="ellipsis grow" style={{ textAlign: "left", color: taskOpen(t.status) ? undefined : "var(--fg2)" }}>{t.title}</span>
+                {leaseLabel(t) && <span className="caption muted ellipsis" title="領取租約:鎖定期間不能被其他人領取">{leaseLabel(t)}</span>}
               </button>
               {iss && <button className="btn link" onClick={() => go("development", iss)}>{iss}</button>}
               {(t.priority === "urgent" || t.priority === "high") && <Pill text={PRIORITY_LABEL[t.priority]} color={PRIORITY_COLOR[t.priority]} />}

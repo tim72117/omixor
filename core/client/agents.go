@@ -63,6 +63,18 @@ func (c *Client) ClaimTask(org string, in service.ClaimInput) (*service.ClaimRes
 	return &r, c.Do("POST", c.agentTasks(org)+"/claim", in, &r)
 }
 
+// ClaimNext 從全部啟用中角色的待領取任務挑最優先的一筆領走(agentID 非空就限定該角色);沒有可領的任務時 Task 是 nil
+func (c *Client) ClaimNext(org, agentID string) (*service.ClaimResult, error) {
+	var r service.ClaimResult
+	return &r, c.Do("POST", c.agentTasks(org)+"/claim-next", map[string]any{"agentId": agentID}, &r)
+}
+
+// ReleaseTask 放棄領取(領取者本人或組織管理員),任務退回待領取
+func (c *Client) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
+	var t model.AgentTask
+	return &t, c.Do("POST", c.agentTasks(org)+"/"+esc(id)+"/release", map[string]any{"reason": reason}, &t)
+}
+
 func (c *Client) ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error) {
 	var t model.AgentTask
 	return &t, c.Do("POST", c.agentTasks(org)+"/"+esc(id)+"/report", in, &t)

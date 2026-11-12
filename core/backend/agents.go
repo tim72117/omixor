@@ -1,6 +1,8 @@
 package backend
 
 import (
+	"strings"
+
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -31,6 +33,13 @@ func (Unsupported) ReportTask(string, string, service.TaskReport) (*model.AgentT
 }
 func (Unsupported) CancelTask(string, string) (*model.AgentTask, error)  { return nil, errUnsupported }
 func (Unsupported) RequeueTask(string, string) (*model.AgentTask, error) { return nil, errUnsupported }
+func (Unsupported) ClaimNext(string, string) (*service.ClaimResult, error) {
+	return nil, errUnsupported
+}
+func (Unsupported) ReleaseTask(string, string, string) (*model.AgentTask, error) {
+	return nil, errUnsupported
+}
+func (Unsupported) Whoami() string { return "" }
 func (Unsupported) RunRoutine(string, string, string, string) (*model.AgentTask, error) {
 	return nil, errUnsupported
 }
@@ -91,6 +100,18 @@ func (l *Local) RequeueTask(org, id string) (*model.AgentTask, error) {
 	l.ensureOrg(org)
 	return l.Svc.RequeueTask(l.P, org, id)
 }
+
+func (l *Local) ClaimNext(org, agentID string) (*service.ClaimResult, error) {
+	l.ensureOrg(org)
+	return l.Svc.ClaimNext(l.P, org, agentID)
+}
+
+func (l *Local) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
+	l.ensureOrg(org)
+	return l.Svc.ReleaseTask(l.P, org, id, reason)
+}
+
+func (l *Local) Whoami() string { return service.ClaimerName(l.P) }
 
 func (l *Local) RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error) {
 	l.ensureOrg(org)
@@ -175,6 +196,34 @@ func (r *Remote) RequeueTask(org, id string) (*model.AgentTask, error) {
 		return nil, wrap(err)
 	}
 	return t, nil
+}
+
+func (r *Remote) ClaimNext(org, agentID string) (*service.ClaimResult, error) {
+	res, err := r.Client().ClaimNext(r.org(org), agentID)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return res, nil
+}
+
+func (r *Remote) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
+	t, err := r.Client().ReleaseTask(r.org(org), id, reason)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return t, nil
+}
+
+// Whoami 問伺服器「我是誰」(GET /api/auth/me),規則同伺服器寫進 ClaimedBy 的值:email 優先,否則名稱;失敗回空字串
+func (r *Remote) Whoami() string {
+	m, err := r.Client().Me()
+	if err != nil {
+		return ""
+	}
+	if e := strings.TrimSpace(m.User.Email); e != "" {
+		return e
+	}
+	return strings.TrimSpace(m.User.Name)
 }
 
 func (r *Remote) RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error) {

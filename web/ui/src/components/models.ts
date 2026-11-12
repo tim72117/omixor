@@ -108,8 +108,18 @@ export const taskOpen = (s: AgentTaskStatus) => s === "queued" || s === "inProgr
 export type AgentTask = {
   id: string; title: string; instructions: string; agentId: string; status: AgentTaskStatus; priority: Priority; createdBy: string;
   routineId?: string | null; createdAt: string; updatedAt: string; result: string; links: string[];
+  /** 領取租約:進行中才有;鎖定期間別人不能領取,逾時會被排程自動退回待領取 */
+  lockedUntil?: string | null; claimedBy?: string;
   notes: { id: string; author: string; text: string; at: string }[];
 };
+/** 進行中任務的鎖定提示(非進行中、沒有租約回 null) */
+export function leaseLabel(t: AgentTask): string | null {
+  if (t.status !== "inProgress" || !t.lockedUntil) return null;
+  const u = new Date(t.lockedUntil);
+  if (u.getTime() <= Date.now()) return "鎖定已逾時";
+  const hm = `${String(u.getHours()).padStart(2, "0")}:${String(u.getMinutes()).padStart(2, "0")}`;
+  return `處理中 · 鎖定到 ${hm}${t.claimedBy ? `(${t.claimedBy})` : ""}`;
+}
 export type AgentsView = { agents: Agent[]; tasks: AgentTask[] };
 
 /** 代理人可存取某位置的權限(nil = 不能) */

@@ -157,3 +157,52 @@ func NewCoreServer(instructions string) *Server {
 	RegisterAgentTools(s)
 	return s
 }
+
+// WorkerToolDefs 執行者端點(WorkerEndpoint)的工具規格:只有派發需要的四個,前綴 dispatch_
+func WorkerToolDefs() []any {
+	return []any{
+		ToolDef("dispatch_queue", "列出可領的任務",
+			"列出我可以領的任務:全部啟用中角色的待領取(queued)任務、需要協助(blocked)可續做的任務,以及我自己領取中(inProgress)的任務。"+
+				"依優先度與建立時間排序。每筆有 id、標題、角色、優先度、狀態、links(相關 Issue id);被鎖定的會標 claimable=false 與 lockedUntil、claimedBy。", true,
+			obj(map[string]any{
+				"agent": pStr("只列這個角色(id 或名稱)的任務"),
+				"limit": pInt("最多幾筆,預設 30,最多 100"),
+			})),
+		ToolDef("dispatch_claim", "領取任務",
+			"領取任務並取得角色資訊與憑證:給 id 就領那一筆;不給 id 就從全部啟用中角色的待領取任務挑優先度最高(同優先度最舊)的一筆領走(給 agent 則限定該角色)。"+
+				"回傳 task、agent(id、名稱、職責、instructions)、credential(agentId、secret、endpoint、expiresAt;密鑰只這一次看得到)、lockedUntil 與 nextSteps(接下來怎麼做)。"+
+				"領取即鎖定,鎖定期間別人不能領(被鎖時回錯誤並說明鎖到幾點);沒有可領的任務時 task 為 null。", false,
+			obj(map[string]any{
+				"agent": pStr("角色 id 或名稱(選填;限定角色)"),
+				"id":    pStr("任務 id,例如 T-3(選填;不給就自動挑最優先的)"),
+			})),
+		ToolDef("dispatch_status", "我領取中的任務",
+			"列出我領取中(inProgress)的任務:鎖定到期時間、剩餘分鐘、是否已逾時。逾時的任務會被自動退回待領取;要續約請用憑證連角色端點呼叫 ops_agent_task_report(status: inProgress)。", true,
+			obj(map[string]any{})),
+		ToolDef("dispatch_release", "放棄領取",
+			"放棄一筆我領取中的任務:退回待領取、解鎖、憑證作廢,並在任務留一則備註(署名放棄者,含原因)。只有領取者本人或組織管理員可以。", false,
+			obj(map[string]any{
+				"id":     pStr("任務 id"),
+				"reason": pStr("放棄的原因(選填,會寫進備註)"),
+			}, "id")),
+	}
+}
+
+// WorkerInitialize 執行者端點 initialize 的回應內容
+func WorkerInitialize(instructions string) map[string]any {
+	m := CoreInitialize(instructions)
+	m["serverInfo"] = map[string]any{"name": "omixor-worker", "title": "omixor 派發", "version": "0.1.0"}
+	return m
+}
+
+// NewWorkerServer 執行者端點的協定處理器:只有 dispatch_ 工具
+func NewWorkerServer(instructions string) *Server {
+	tj, _ := json.Marshal(WorkerToolDefs())
+	ij, _ := json.Marshal(WorkerInitialize(instructions))
+	s, err := NewServer(tj, ij)
+	if err != nil {
+		panic(err)
+	}
+	RegisterDispatchTools(s)
+	return s
+}

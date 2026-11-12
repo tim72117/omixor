@@ -16,6 +16,7 @@
 //	/health                        健康檢查
 //	/api/…                         核心 HTTP API(core/api)
 //	/mcp/agent                     角色端點:Authorization: Bearer <agentId>:<secret>(領取任務時發的憑證),白名單工具
+//	/mcp/worker/{org}              執行者專用 MCP(只有 dispatch_queue/claim/status/release):認證同 /mcp/org/{org}
 //	/mcp/org/{org}                 管理用 MCP(組織 {org} 的 Issue、角色、任務):Authorization: Bearer omx_…(omixor token),權限同該使用者
 package server
 
@@ -64,6 +65,18 @@ func Handler(svc *service.Service) http.Handler {
 	}
 	mux.Handle("/mcp/agent", mcp.AgentEndpoint(mcp.AgentEndpointConfig{Svc: svc}))
 	mux.Handle("/mcp/org/{org}", mcp.AdminEndpoint(mcp.AdminEndpointConfig{
+		AgentEndpoint: agentURL,
+		Resolve: func(r *http.Request) (backend.Backend, string, error) {
+			tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			p, err := svc.Authenticate(tok)
+			if err != nil {
+				return nil, "", err
+			}
+			return &backend.Local{Svc: svc, P: p}, r.PathValue("org"), nil
+		},
+	}))
+	// 執行者端點:給領取任務的 LLM 用,只有 dispatch_ 四個工具;認證同管理端點
+	mux.Handle("/mcp/worker/{org}", mcp.WorkerEndpoint(mcp.WorkerEndpointConfig{
 		AgentEndpoint: agentURL,
 		Resolve: func(r *http.Request) (backend.Backend, string, error) {
 			tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")

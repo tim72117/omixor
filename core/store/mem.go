@@ -509,6 +509,32 @@ func (m *Mem) UpdateAgentTask(org string, t model.AgentTask) error {
 	return ErrNotFound
 }
 
+func (m *Mem) ClaimAgentTask(org string, t model.AgentTask, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, x := range m.tasks[org] {
+		if x.ID == t.ID {
+			if x.Locked(now) {
+				return ErrLocked
+			}
+			m.tasks[org][k] = t.Clone()
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (m *Mem) ExtendAgentCredential(org, taskID string, expires time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, c := range m.creds {
+		if c.Org == org && c.TaskID == taskID {
+			m.creds[k].ExpiresAt = model.Time{Time: expires}
+		}
+	}
+	return nil
+}
+
 func (m *Mem) SaveAgentCredential(c model.AgentCredential) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

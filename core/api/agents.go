@@ -72,6 +72,30 @@ func (a *API) agentRoutes(mux *http.ServeMux) {
 		res, err := a.Svc.ClaimTask(p, r.PathValue("org"), in)
 		reply(w, res, err)
 	}))
+	// 領最優先的一筆(全部啟用中角色;body {"agentId": "..."} 可限定角色)
+	mux.HandleFunc("POST "+tk+"/claim-next", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in struct {
+			AgentID string `json:"agentId"`
+		}
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		res, err := a.Svc.ClaimNext(p, r.PathValue("org"), in.AgentID)
+		reply(w, res, err)
+	}))
+	// 放棄領取:body {"reason": "..."}
+	mux.HandleFunc("POST "+tk+"/{id}/release", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in struct {
+			Reason string `json:"reason"`
+		}
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		t, err := a.Svc.ReleaseTask(p, r.PathValue("org"), r.PathValue("id"), in.Reason)
+		reply(w, t, err)
+	}))
 	mux.HandleFunc("POST "+tk+"/{id}/claim", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		var in service.ClaimInput
 		if err := read(r, &in); err != nil {

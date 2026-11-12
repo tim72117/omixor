@@ -54,6 +54,7 @@ func Start(app *core.App, port int) {
 	h := &Handler{App: app}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp/agent", AgentHTTPHandler(h)) // 角色端點(核心的 mcp.AgentEndpoint):Bearer 憑證、白名單工具、文件櫃工具
+	mux.Handle("/mcp/worker", WorkerHTTPHandler(h)) // 執行者端點(核心的 mcp.WorkerEndpoint):只有 dispatch_ 四個工具
 	mux.Handle("/", HTTPHandler(h))
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	srv.SetKeepAlivesEnabled(false)

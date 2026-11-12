@@ -4,7 +4,7 @@ import { action, tool, useRun, useView } from "../../api";
 import { AgentAvatar, Markdown, go, useCopied, useDirectory } from "../../components/bits";
 import { Icon } from "../../components/Icon";
 import {
-  DOC_ACCESS_LABEL, PRIORITIES, PRIORITY_COLOR, PRIORITY_LABEL, ROUTINE_KIND_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, tabTitle, taskOpen,
+  DOC_ACCESS_LABEL, PRIORITIES, PRIORITY_COLOR, PRIORITY_LABEL, ROUTINE_KIND_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, leaseLabel, tabTitle, taskOpen,
   type Agent, type AgentRoutine, type AgentTask, type CabinetSection, type CabinetView, type DocAccess, type Priority, type RoutineKind,
 } from "../../components/models";
 import { Card, EmptyState, ErrorText, Modal, Pill, color } from "../../components/ui";
@@ -163,6 +163,7 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
               <Icon name={TASK_ICON[tk.status]} size={13} color={color(TASK_COLOR[tk.status])} />
               <span className="mono caption muted">{tk.id}</span>
               <span className="ellipsis grow" style={{ color: taskOpen(tk.status) ? undefined : "var(--fg2)" }}>{tk.title}</span>
+              {leaseLabel(tk) && <span className="caption muted" title="領取租約:鎖定期間不能被其他人領取">{leaseLabel(tk)}</span>}
               {tk.routineId && <Icon name="clock.arrow.circlepath" size={11} className="muted" />}
               {(tk.priority === "urgent" || tk.priority === "high") && <Pill text={PRIORITY_LABEL[tk.priority]} color={PRIORITY_COLOR[tk.priority]} />}
               <Pill text={TASK_LABEL[tk.status]} color={TASK_COLOR[tk.status]} />

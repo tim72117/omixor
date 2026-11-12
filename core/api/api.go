@@ -29,6 +29,8 @@
 //	GET  /api/orgs/{org}/agent-tasks/{id}
 //	POST /api/orgs/{org}/agent-tasks/claim     {agentId, taskId?} 領取 → {agent, task, credential};沒任務時 task 是 null(組織成員)
 //	POST /api/orgs/{org}/agent-tasks/{id}/claim   {agentId} 領取指定任務
+//	POST /api/orgs/{org}/agent-tasks/claim-next   {agentId?} 從全部啟用角色的待領取任務挑最優先的一筆領走(可限定角色)→ 同 claim
+//	POST /api/orgs/{org}/agent-tasks/{id}/release {reason?} 放棄領取,退回待領取(領取者本人或組織管理員)
 //	POST /api/orgs/{org}/agent-tasks/{id}/report  {status?, result?, note?, links?} 回報(成員;角色憑證只能回報綁定的任務)
 //	POST /api/orgs/{org}/agent-tasks/{id}/cancel | /requeue   取消、重新排隊(組織管理員)
 //	  credential = {agentId, taskId, secret, expiresAt}:密鑰只在領取時給一次,伺服器只存雜湊;

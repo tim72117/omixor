@@ -239,6 +239,13 @@ func (b appBackend) AssignTask(org string, in service.TaskInput) (*model.AgentTa
 func (b appBackend) ClaimTask(org string, in service.ClaimInput) (*service.ClaimResult, error) {
 	return b.a.AgentOps().ClaimTask(org, in)
 }
+func (b appBackend) ClaimNext(org, agentID string) (*service.ClaimResult, error) {
+	return b.a.AgentOps().ClaimNext(org, agentID)
+}
+func (b appBackend) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
+	return b.a.AgentOps().ReleaseTask(org, id, reason)
+}
+func (b appBackend) Whoami() string { return b.a.AgentOps().Whoami() }
 func (b appBackend) ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error) {
 	return b.a.AgentOps().ReportTask(org, id, in)
 }

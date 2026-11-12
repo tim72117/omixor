@@ -141,6 +141,8 @@ create table if not exists omixor_agent_tasks (
   completed_at timestamptz,
   primary key (org, id)
 );
+alter table omixor_agent_tasks add column if not exists locked_until timestamptz;
+alter table omixor_agent_tasks add column if not exists claimed_by text not null default '';
 create index if not exists omixor_agent_tasks_agent on omixor_agent_tasks (org, agent_id, status);
 create table if not exists omixor_agent_credentials (
   token_hash bytea primary key,
@@ -864,19 +866,19 @@ func (p *PG) DeleteAgent(org, id string) error {
 }
 
 const taskCols = `id, agent_id, title, instructions, priority, status, result, links, notes, routine_id, created_by,
-	created_at, updated_at, claimed_at, completed_at`
+	created_at, updated_at, claimed_at, completed_at, locked_until, claimed_by`
 
 func scanTask(row pgx.Row) (*model.AgentTask, error) {
 	var t model.AgentTask
 	var links, notes []byte
 	var created, updated time.Time
-	var claimed, completed *time.Time
+	var claimed, completed, locked *time.Time
 	if err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.Instructions, &t.Priority, &t.Status, &t.Result, &links, &notes,
-		&t.RoutineID, &t.CreatedBy, &created, &updated, &claimed, &completed); err != nil {
+		&t.RoutineID, &t.CreatedBy, &created, &updated, &claimed, &completed, &locked, &t.ClaimedBy); err != nil {
 		return nil, err
 	}
 	t.CreatedAt, t.UpdatedAt = model.Time{Time: created.UTC()}, model.Time{Time: updated.UTC()}
-	t.ClaimedAt, t.CompletedAt = tp(claimed), tp(completed)
+	t.ClaimedAt, t.CompletedAt, t.LockedUntil = tp(claimed), tp(completed), tp(locked)
 	_ = json.Unmarshal(links, &t.Links)
 	_ = json.Unmarshal(notes, &t.Notes)
 	if t.Links == nil {
@@ -957,26 +959,62 @@ func (p *PG) CreateAgentTask(org string, t model.AgentTask) (model.AgentTask, er
 	}
 	t.ID = fmt.Sprintf("T-%d", num+1)
 	_, err = tx.Exec(c, `insert into omixor_agent_tasks (org, id, number, agent_id, title, instructions, priority, status, result, links, notes,
-		routine_id, created_by, created_at, updated_at, claimed_at, completed_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+		routine_id, created_by, created_at, updated_at, claimed_at, completed_at, locked_until, claimed_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
 		org, t.ID, num+1, t.AgentID, t.Title, t.Instructions, t.Priority, t.Status, t.Result, jb(linksOrEmpty(t.Links)), jb(notesOrEmpty(t.Notes)),
-		t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt))
+		t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt), optSecs(t.LockedUntil), t.ClaimedBy)
 	if err != nil {
 		return t, err
 	}
 	return t, tx.Commit(c)
 }
 
+const updateTaskSQL = `update omixor_agent_tasks set agent_id = $3, title = $4, instructions = $5, priority = $6, status = $7,
+		result = $8, links = $9, notes = $10, routine_id = $11, created_by = $12, created_at = $13, updated_at = $14, claimed_at = $15,
+		completed_at = $16, locked_until = $17, claimed_by = $18 where org = $1 and id = $2`
+
+func taskArgs(org string, t model.AgentTask) []any {
+	return []any{org, t.ID, t.AgentID, t.Title, t.Instructions, t.Priority, t.Status, t.Result, jb(linksOrEmpty(t.Links)), jb(notesOrEmpty(t.Notes)),
+		t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt), optSecs(t.LockedUntil), t.ClaimedBy}
+}
+
 func (p *PG) UpdateAgentTask(org string, t model.AgentTask) error {
 	c, cancel := ctx()
 	defer cancel()
-	tag, err := p.pool.Exec(c, `update omixor_agent_tasks set agent_id = $3, title = $4, instructions = $5, priority = $6, status = $7,
-		result = $8, links = $9, notes = $10, routine_id = $11, created_by = $12, created_at = $13, updated_at = $14, claimed_at = $15,
-		completed_at = $16 where org = $1 and id = $2`,
-		org, t.ID, t.AgentID, t.Title, t.Instructions, t.Priority, t.Status, t.Result, jb(linksOrEmpty(t.Links)), jb(notesOrEmpty(t.Notes)),
-		t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt))
+	tag, err := p.pool.Exec(c, updateTaskSQL, taskArgs(org, t)...)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
+	return err
+}
+
+// ClaimAgentTask 條件式更新:只有任務「不是進行中、或沒有鎖、或鎖已到期」才寫入;
+// 影響 0 列時再查一次,任務還在就是被別的程式搶先領取(ErrLocked),不在就是 ErrNotFound
+func (p *PG) ClaimAgentTask(org string, t model.AgentTask, now time.Time) error {
+	c, cancel := ctx()
+	defer cancel()
+	args := append(taskArgs(org, t), now)
+	tag, err := p.pool.Exec(c, updateTaskSQL+` and (status <> 'inProgress' or locked_until is null or locked_until <= $19)`, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		var one int
+		err := p.pool.QueryRow(c, `select 1 from omixor_agent_tasks where org = $1 and id = $2`, org, t.ID).Scan(&one)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		return ErrLocked
+	}
+	return nil
+}
+
+func (p *PG) ExtendAgentCredential(org, taskID string, expires time.Time) error {
+	c, cancel := ctx()
+	defer cancel()
+	_, err := p.pool.Exec(c, `update omixor_agent_credentials set expires_at = $3 where org = $1 and task_id = $2`, org, taskID, secs(expires))
 	return err
 }
 

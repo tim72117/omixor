@@ -11,6 +11,9 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// ErrLocked 領取任務時,任務已被別人鎖住(進行中且 lockedUntil 還沒到)
+var ErrLocked = errors.New("locked")
+
 type Store interface {
 	// 使用者、token、操作紀錄
 	CountUsers() (int, error)
@@ -67,6 +70,10 @@ type Store interface {
 	// CreateAgentTask 指定新的 id(T-<最大號碼+1>),回傳存好的
 	CreateAgentTask(org string, t model.AgentTask) (model.AgentTask, error)
 	UpdateAgentTask(org string, t model.AgentTask) error // 整筆取代
+	// ClaimAgentTask 領取用的條件式整筆取代:任務目前是進行中且 lockedUntil 在 now 之後(被鎖住)就不改,回傳 ErrLocked
+	ClaimAgentTask(org string, t model.AgentTask, now time.Time) error
+	// ExtendAgentCredential 把任務憑證的到期時間延到 expires(沒有憑證就什麼都不做)
+	ExtendAgentCredential(org, taskID string, expires time.Time) error
 	// SaveAgentCredential 存憑證;同一個 (org, taskId) 舊的先刪(同任務只有一組有效憑證)
 	SaveAgentCredential(c model.AgentCredential) error
 	AgentCredentialByHash(h []byte) (*model.AgentCredential, error)

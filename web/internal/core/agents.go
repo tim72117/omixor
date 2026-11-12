@@ -406,6 +406,49 @@ func (o AgentOps) ClaimTask(org string, in service.ClaimInput) (*service.ClaimRe
 	return res, nil
 }
 
+// ClaimNext 從全部啟用中角色的待領取任務挑最優先的一筆領走(agentID 非空限定角色)
+func (o AgentOps) ClaimNext(org, agentID string) (*service.ClaimResult, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	res, err := b.ClaimNext(org, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if res.Task != nil {
+		o.done(org)
+		if res.Agent != nil {
+			o.logf(AI(res.Agent.ID), "figure.walk", res.Agent.Name+"開始處理 "+res.Task.ID+"「"+res.Task.Title+"」")
+		}
+	}
+	return res, nil
+}
+
+// ReleaseTask 放棄領取:退回待領取
+func (o AgentOps) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	t, err := b.ReleaseTask(org, id, reason)
+	if err != nil {
+		return nil, err
+	}
+	o.done(org)
+	o.logf(AI(t.AgentID), "arrow.uturn.backward", "放棄領取 "+t.ID+"「"+t.Title+"」,退回待領取")
+	return t, nil
+}
+
+// Whoami 呼叫者的署名(同領取任務寫進 ClaimedBy 的值);本機是 ops-web,遠端是雲端帳號的 email
+func (o AgentOps) Whoami() string {
+	b, err := o.be()
+	if err != nil {
+		return ""
+	}
+	return b.Whoami()
+}
+
 func (o AgentOps) ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error) {
 	b, err := o.be()
 	if err != nil {

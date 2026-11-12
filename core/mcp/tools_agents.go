@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"omixor-core/backend"
 	"omixor-core/model"
@@ -208,8 +209,15 @@ func RegisterAgentTools(s *Server) {
 			if k >= 50 {
 				break
 			}
-			out = append(out, map[string]any{"id": t.ID, "title": t.Title, "agent": t.AgentID, "status": t.Status,
-				"priority": t.Priority, "updatedAt": iso(t.UpdatedAt.Time)})
+			row := map[string]any{"id": t.ID, "title": t.Title, "agent": t.AgentID, "status": t.Status,
+				"priority": t.Priority, "updatedAt": iso(t.UpdatedAt.Time)}
+			if t.LockedUntil != nil {
+				row["lockedUntil"] = iso(t.LockedUntil.Time)
+			}
+			if t.ClaimedBy != "" {
+				row["claimedBy"] = t.ClaimedBy
+			}
+			out = append(out, row)
 		}
 		return map[string]any{"total": len(list), "tasks": out}, nil
 	})
@@ -226,6 +234,9 @@ func RegisterAgentTools(s *Server) {
 		}
 		res, err := e.Backend().ClaimTask(e.Org(), in)
 		if err != nil {
+			if service.Code(err) == 409 { // 含「已被領取、處理中,鎖定到 hh:mm」:原文轉給呼叫端
+				return nil, ToolError{Message: "領取失敗:" + err.Error()}
+			}
 			return nil, terr(err)
 		}
 		out := map[string]any{"agent": map[string]any{}, "task": nil}
@@ -247,7 +258,11 @@ func RegisterAgentTools(s *Server) {
 			}
 			out["credential"] = m
 		}
-		out["message"] = "已領取,做完用 ops_agent_task_report 回報。開 Issue 或留言時帶 agent: \"" + gid + "\",才會署名這個角色;或改用 credential 連角色端點,署名由憑證決定"
+		lockNote := ""
+		if res.Task.LockedUntil != nil {
+			lockNote = "已鎖定到 " + res.Task.LockedUntil.Time.In(time.Local).Format("15:04") + "(其他人不能再領);長任務請定期用 ops_agent_task_report(status: inProgress)回報進度以續約,逾時未回報會被自動退回待領取。"
+		}
+		out["message"] = "已領取。" + lockNote + "做完用 ops_agent_task_report 回報。開 Issue 或留言時帶 agent: \"" + gid + "\",才會署名這個角色;或改用 credential 連角色端點,署名由憑證決定"
 		return out, nil
 	})
 
