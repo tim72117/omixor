@@ -72,7 +72,8 @@ final class IssueRemote {
     }
 
     private func url(_ org: String, _ rest: [String]) -> URL {
-        var u = config.url.appendingPathComponent("api").appendingPathComponent("issues").appendingPathComponent(org)
+        // 核心的路徑:/api/orgs/<組織>/issues[/<id>[/delete]](伺服器也還接受舊的 /api/issues/<組織>)
+        var u = config.url.appendingPathComponent("api").appendingPathComponent("orgs").appendingPathComponent(org).appendingPathComponent("issues")
         for r in rest { u = u.appendingPathComponent(r) }
         return u
     }
@@ -111,7 +112,7 @@ final class IssueRemote {
     /// 用 evoleap 連線的登入,向 omixor-issues 換一個 omixor 自己的 token(存進鑰匙圈)
     private func exchangeToken() throws -> String {
         guard let evo = vaultGet(IssueServerConfig.evoleapConnection), !evo.isEmpty else {
-            throw IssueRemoteError(message: "還沒登入 evoleap 連線:請在 設定 › 連線 登入「evoleap 正式站」,omixor 會用它證明身分")
+            throw IssueRemoteError(message: "還沒登入 omixor:請在 設定 › 組織 › Issue 伺服器 按「用瀏覽器登入」(或先登入 evoleap 連線,omixor 會用它證明身分)")
         }
         var req = URLRequest(url: config.url.appendingPathComponent("api/auth/evoleap"), timeoutInterval: timeout)
         req.httpMethod = "POST"

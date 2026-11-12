@@ -23,7 +23,17 @@ func (f *fakeIssueServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.tokens = append(f.tokens, r.Header.Get("Authorization"))
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/issues/"), "/")
+	// 新路徑 /api/orgs/{org}/issues[/…] 與舊路徑 /api/issues/{org}[/…]
+	path := r.URL.Path
+	if rest, ok := strings.CutPrefix(path, "/api/orgs/"); ok {
+		org, tail, _ := strings.Cut(rest, "/")
+		tail = strings.TrimPrefix(strings.TrimPrefix(tail, "issues"), "/")
+		path = "/api/issues/" + org
+		if tail != "" {
+			path += "/" + tail
+		}
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/api/issues/"), "/")
 	org := parts[0]
 	var in map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&in)
@@ -95,8 +105,8 @@ func TestIssueServerMode(t *testing.T) {
 	f.mu.Unlock()
 	// 伺服器關掉:建立與修改要回錯誤,不能假裝成功
 	srv.Close()
-	iaErrPrefix(t, a, "ops_issue_create", map[string]any{"title": "x"}, "Issue 沒有存起來:連不到 Issue 伺服器")
-	iaErrPrefix(t, a, "ops_issue_update", map[string]any{"id": "ISS-1", "title": "y"}, "Issue 沒有改成:連不到 Issue 伺服器")
+	iaErrPrefix(t, a, "ops_issue_create", map[string]any{"title": "x"}, "Issue 沒有存起來:連不到 omixor server")
+	iaErrPrefix(t, a, "ops_issue_update", map[string]any{"id": "ISS-1", "title": "y"}, "Issue 沒有改成:連不到 omixor server")
 }
 
 func iaErrPrefix(t *testing.T, a *core.App, name string, args map[string]any, want string) {

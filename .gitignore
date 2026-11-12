@@ -58,3 +58,7 @@ ops-web/.import-empty/*
 
 # ===== Claude Code 預覽設定(含本機路徑)=====
 .claude/launch.json
+
+# omixor-core 編譯產生的執行檔
+omixor-core/omixor
+omixor-core/omixor-server

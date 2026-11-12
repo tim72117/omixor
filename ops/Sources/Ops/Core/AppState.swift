@@ -11,6 +11,10 @@ final class AppState: ObservableObject {
     @Published var timeRange: TimeRange = .hours24
     @Published var search = ""
     @Published var showAssistant = true
+    /// 登入 omixor 的狀態(app 剛開啟時先檢查;沒登入顯示登入畫面,見 Features/Login/LoginGate.swift)
+    @Published var omixorLogin: OmixorLoginState = .checking
+    /// omixor server 上我能用的組織(快取;登入確認後更新,見 OmixorAuth.fetchOrgs)
+    @Published var serverOrgs: [ServerOrg] = OmixorAuth.cachedOrgs()
     @Published var showCommandPalette = false
     /// 跨頁跳轉時要選中的項目(例如從總覽點告警 → 監控頁選中該告警)
     @Published var focusId: String?

@@ -53,7 +53,7 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top) { OrgSwitcher() }
-        .safeAreaInset(edge: .bottom) { OnCallFooter() }
+        .safeAreaInset(edge: .bottom) { AccountFooter() }
     }
 
     private func row(_ s: AppSection) -> some View {
@@ -63,24 +63,57 @@ struct SidebarView: View {
     }
 }
 
-/// 側邊欄底部:目前值班
-private struct OnCallFooter: View {
+/// 側邊欄底部:登入的 omixor 帳號(資料來自 omixor 伺服器的 /api/auth/me);點一下到設定看詳細與登出
+private struct AccountFooter: View {
     @EnvironmentObject var app: AppState
+
     var body: some View {
-        if let shift = app.currentOnCall {
+        Button { app.go(.settings) } label: {
             HStack(spacing: 8) {
-                ActorAvatar(actor: .person(shift.person), size: 24)
+                avatar
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("值班中").font(.caption2).foregroundStyle(.secondary)
-                    Text(app.person(shift.person)?.name ?? shift.person).font(.caption.weight(.medium))
+                    Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Text(title).font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
                 }
-                Spacer()
-                Text("到 \(Fmt.time(shift.end))").font(.caption2).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if let a = app.omixorLogin.account {
+                    Text(a.role == "admin" ? "管理員" : "成員")
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background((a.role == "admin" ? Color.purple : Color.blue).opacity(0.15), in: Capsule())
+                        .foregroundStyle(a.role == "admin" ? Color.purple : Color.blue)
+                }
             }
             .padding(10)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
-            .padding(10)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .padding(10)
+        .help(app.omixorLogin.account.map { "\($0.email)(\($0.device))· 點一下到設定" } ?? "點一下到設定")
+    }
+
+    private var title: String {
+        guard let a = app.omixorLogin.account else { return "沒有登入" }
+        return a.name.isEmpty ? a.email : a.name
+    }
+
+    private var subtitle: String {
+        switch app.omixorLogin {
+        case .loggedIn(let a): return a.name.isEmpty ? "已登入 omixor" : a.email
+        case .skipped: return "離線使用"
+        case .unreachable: return "連不到 omixor"
+        case .checking: return "確認登入中…"
+        case .needLogin: return "還沒登入"
+        }
+    }
+
+    private var avatar: some View {
+        let initial = String(title.first.map { String($0) } ?? "?").uppercased()
+        return Text(initial)
+            .font(.caption.weight(.bold)).foregroundStyle(.white)
+            .frame(width: 24, height: 24)
+            .background(app.omixorLogin.account == nil ? Color.gray : Color.accentColor, in: Circle())
     }
 }
 

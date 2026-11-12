@@ -168,10 +168,6 @@ func (a *App) loadIssues() {
 
 // loadIssuesInto 讀 s.Org 的 Issue:有資料庫時從 ops_issues 表(store_pg_issues.go),否則讀組織資料夾的 issues.json
 func loadIssuesInto(s *issueState) {
-	if pgPool != nil {
-		pgLoadIssues(s)
-		return
-	}
 	var list []OpsIssue
 	if err := ReadJSON(filepath.Join(OrgDir(s.Org), "issues.json"), &list); err != nil || list == nil {
 		list = []OpsIssue{}
@@ -182,11 +178,7 @@ func loadIssuesInto(s *issueState) {
 func (a *App) saveIssues() {
 	s := a.issueSt()
 	if issueRemoteOn() {
-		return // 伺服器模式每個動作各自送出
-	}
-	if pgPool != nil {
-		pgSaveIssues(s)
-		return
+		return // 交給核心時每個動作各自送出
 	}
 	_ = WriteJSON(filepath.Join(OrgDir(s.Org), "issues.json"), s.Issues)
 }
@@ -228,8 +220,12 @@ func (a *App) WithOrgIssues(org string, f func()) {
 	}
 	cur := a.Ext["issues"]
 	s := &issueState{Org: org, quiet: true}
-	loadIssuesInto(s)
 	a.Ext["issues"] = s
+	if issueRemoteOn() {
+		a.issueRemoteLoad(s)
+	} else {
+		loadIssuesInto(s)
+	}
 	defer func() { a.Ext["issues"] = cur }()
 	f()
 }
@@ -337,7 +333,7 @@ func cloneIssue(i OpsIssue) OpsIssue {
 // UpdateIssue 修改一筆,回傳修改後的內容;狀態變了記到動態牆(同 Swift 的 IssueStore.update;呼叫時要拿著 Mu)
 func (a *App) UpdateIssue(id, author string, change func(*OpsIssue)) *OpsIssue {
 	s := a.issueSt()
-	if issueRemoteOn() && !s.quiet {
+	if issueRemoteOn() {
 		a.issueRemoteLoad(s) // 用伺服器上最新的內容來改
 	}
 	idx := -1
@@ -377,7 +373,7 @@ func (a *App) UpdateIssue(id, author string, change func(*OpsIssue)) *OpsIssue {
 	if string(Marshal(n)) == string(Marshal(before)) {
 		return &n
 	}
-	if issueRemoteOn() && !s.quiet {
+	if issueRemoteOn() {
 		saved, err := a.issueRemoteUpdate(n, author)
 		if err != nil {
 			a.issueRemoteFailed(err)
@@ -412,8 +408,8 @@ func (a *App) CommentIssue(id, text, author string) *OpsIssue {
 // DeleteIssue 刪除(id 完全相同才刪,同 Swift)
 func (a *App) DeleteIssue(id string) {
 	s := a.issueSt()
-	if issueRemoteOn() && !s.quiet {
-		if _, err := a.issueRemoteCall("POST", s.Org, []string{id, "delete"}, map[string]any{}); err != nil {
+	if issueRemoteOn() {
+		if err := a.issueRemoteDelete(id); err != nil {
 			a.issueRemoteFailed(err)
 			return
 		}
