@@ -176,6 +176,11 @@ create table if not exists omixor_docs (
   primary key (org, id)
 );
 create index if not exists omixor_docs_org_pos on omixor_docs (org, pos desc);
+create table if not exists omixor_org_chains (
+  org text primary key,
+  edges jsonb not null default '[]',
+  updated_at timestamptz not null default now()
+);
 `
 
 type PG struct{ pool *pgxpool.Pool }
@@ -489,6 +494,7 @@ func (p *PG) DeleteOrg(id string) error {
 		`delete from omixor_agents where org = $1`,
 		`delete from omixor_docs where org = $1`,
 		`delete from omixor_cabinet_layouts where org = $1`,
+		`delete from omixor_org_chains where org = $1`,
 		`delete from omixor_org_members where org = $1`,
 	} {
 		if _, err := tx.Exec(c, q, id); err != nil {
@@ -1314,4 +1320,38 @@ func (p *PG) ImportDocs(org string, list []model.CabinetDoc) (int, error) {
 		}
 	}
 	return len(list), tx.Commit(c)
+}
+
+// ---- 組織鏈 ----
+
+func (p *PG) GetOrgChain(org string) (*model.OrgChain, error) {
+	c, cancel := ctx()
+	defer cancel()
+	var b []byte
+	var at time.Time
+	if err := p.pool.QueryRow(c, `select edges, updated_at from omixor_org_chains where org = $1`, org).Scan(&b, &at); err != nil {
+		return nil, notFound(err)
+	}
+	out := model.OrgChain{Edges: []model.ChainEdge{}}
+	if err := json.Unmarshal(b, &out.Edges); err != nil {
+		return nil, err
+	}
+	out.UpdatedAt = &model.Time{Time: secs(at)}
+	return &out, nil
+}
+
+func (p *PG) SaveOrgChain(org string, ch model.OrgChain) error {
+	c, cancel := ctx()
+	defer cancel()
+	edges := ch.Edges
+	if edges == nil {
+		edges = []model.ChainEdge{}
+	}
+	at := time.Now()
+	if ch.UpdatedAt != nil {
+		at = ch.UpdatedAt.Time
+	}
+	_, err := p.pool.Exec(c, `insert into omixor_org_chains (org, edges, updated_at) values ($1, $2, $3)
+		on conflict (org) do update set edges = $2, updated_at = $3`, org, jb(edges), secs(at))
+	return err
 }

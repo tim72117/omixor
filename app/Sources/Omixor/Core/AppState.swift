@@ -72,6 +72,10 @@ final class AppState: ObservableObject {
     /// 虛擬角色與任務(Agents/Agents.swift):存在 agents.json,AI 透過 MCP 以角色身分領取
     @Published var agents: [Agent] = []
     @Published var agentTasks: [AgentTask] = []
+    /// 組織鏈(Agents/OrgChain.swift):誰可以派工作給誰、做完回報給誰
+    @Published var orgChain = OrgChain()
+    /// 讀組織鏈的錯誤(遠端;nil = 正常)
+    @Published var orgChainError: String?
     private(set) var agentStore: AgentStore?
 
     @discardableResult

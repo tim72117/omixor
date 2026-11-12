@@ -315,6 +315,7 @@ final class AgentStore {
             remoteError = nil
             if agents != app.agents { app.agents = agents }
             if tasks != app.agentTasks { app.agentTasks = tasks }
+            loadChain()   // 組織鏈另外讀;讀不到(例如伺服器還沒有這個功能)不影響角色與任務
             return true
         } catch {
             remoteFailed(error)
@@ -323,7 +324,7 @@ final class AgentStore {
     }
 
     /// 把伺服器回傳的任務放進清單(新的放最前面)
-    private func merge(_ t: AgentTask) {
+    func merge(_ t: AgentTask) {
         if let i = app.agentTasks.firstIndex(where: { $0.id == t.id }) { app.agentTasks[i] = t } else { app.agentTasks.insert(t, at: 0) }
     }
 
@@ -332,6 +333,7 @@ final class AgentStore {
             // 換組織或剛連上:先清掉,讀不到也不會顯示別的組織的角色
             app.agents = []
             app.agentTasks = []
+            app.orgChain = OrgChain()
             refresh()
             startPolling()
             return
@@ -346,6 +348,7 @@ final class AgentStore {
             app.agents = []
             app.agentTasks = []
         }
+        loadChain()
     }
 
     func save() {
@@ -383,6 +386,7 @@ final class AgentStore {
 
     func authorName(_ author: String) -> String {
         if author == Self.routineAuthor { return "例行排程" }
+        if author == ChainNode.author { return "組織鏈" }
         if author.hasPrefix("agent:") { return agent(String(author.dropFirst(6)))?.name ?? author }
         return app.name(of: author == IssueStore.mcpAuthor ? .mcp : .person(author))
     }
@@ -424,6 +428,7 @@ final class AgentStore {
         }
         app.agents.removeAll { $0.id == id }
         save()
+        pruneChain(agent: id)
     }
 
     func newId(for name: String) -> String {
@@ -580,6 +585,8 @@ final class AgentStore {
                     default: break
                     }
                 }
+                // 伺服器可能依組織鏈替建立者排了「檢視回報」任務:重讀一次
+                if let status, status == .done || status == .blocked, status != before?.status { refresh() }
                 return t
             } catch {
                 remoteFailed(error)
@@ -595,6 +602,7 @@ final class AgentStore {
             if let result { $0.result = result }
             if let links { $0.links = IssueStore.clean($0.links + links) }
         }
+        if let updated { chainReport(before: t, after: updated, note: note) }
         if let status, status != t.status, let a = agent(t.agentId) {
             switch status {
             case .done: app.log(.ai(a.id), "checkmark.circle", "\(a.name)完成 \(t.id)「\(t.title)」", .automation)

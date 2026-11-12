@@ -33,6 +33,13 @@
 //	POST /api/orgs/{org}/agent-tasks/{id}/release {reason?} 放棄領取,退回待領取(領取者本人或組織管理員)
 //	POST /api/orgs/{org}/agent-tasks/{id}/report  {status?, result?, note?, links?} 回報(成員;角色憑證只能回報綁定的任務)
 //	POST /api/orgs/{org}/agent-tasks/{id}/cancel | /requeue   取消、重新排隊(組織管理員)
+//	GET  /api/orgs/{org}/agent-tasks?reportTo=me|user:<email>|agent:<id>   依組織鏈回報給這個節點的任務
+//
+//	GET  /api/orgs/{org}/chain                 組織鏈 {edges: [{from, to, label}], updatedAt}(成員;角色憑證也可以)
+//	POST /api/orgs/{org}/chain                 {edges} 整份取代(組織管理員;節點不存在、自環、重複、循環回 400)
+//	POST /api/orgs/{org}/agent-tasks/delegate  {to, title, instructions?, priority?} 依組織鏈委派(角色憑證;伺服器管理員可帶 from、taskId)
+//	POST /api/orgs/{org}/agent-tasks/{id}/worker/delegate {code, to, title, instructions?, priority?} 執行者以任務角色委派
+//	POST /api/orgs/{org}/agent-tasks 的一般成員:鏈上要有 user:<自己> → agent:<目標>(管理員不受限)
 //	  credential = {agentId, taskId, secret, expiresAt}:密鑰只在領取時給一次,伺服器只存雜湊;
 //	  連角色端點 /mcp/agent 用 Authorization: Bearer <agentId>:<secret>(見 core/mcp、server)
 //	Issue 的 POST(建立、修改)多一個 assignee(角色 id):指向存在的角色(不存在 400)且啟用時自動替它排任務
@@ -268,6 +275,7 @@ func (a *API) Handler() http.Handler {
 	// 虛擬角色與任務(agents.go)
 	a.agentRoutes(mux)
 	a.cabinetRoutes(mux)
+	a.chainRoutes(mux)
 
 	// 伺服器管理
 	mux.HandleFunc("GET /api/admin/users", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {

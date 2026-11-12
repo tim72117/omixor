@@ -10,6 +10,7 @@ final class FakeOmixorServer: URLProtocol {
     nonisolated(unsafe) static var requests: [(method: String, path: String, body: [String: Any])] = []
     nonisolated(unsafe) static var layout: [[String: Any]] = []
     nonisolated(unsafe) static var docs: [[String: Any]] = []
+    nonisolated(unsafe) static var chain: [[String: Any]] = []
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -25,6 +26,7 @@ final class FakeOmixorServer: URLProtocol {
         tasks = []
         issues = []
         requests = []
+        chain = []
         layout = [["id": "overview", "label": "總覽", "path": "", "tabs": []],
                   ["id": "docs", "label": "文件", "path": "", "tabs": [["label": "研究", "path": "/docs/research"]]]]
         docs = [["id": "DOC-1", "title": "伺服器上的文件", "body": "內容", "section": "docs", "tags": ["a"], "author": "tim@example.com",
@@ -107,6 +109,23 @@ final class FakeOmixorServer: URLProtocol {
         case ("docs", "POST", 2) where rest[1] == "delete":
             Self.docs.removeAll { $0["id"] as? String == rest[0] }
             ok(true)
+        case ("chain", "GET", 0):
+            ok(["edges": Self.chain, "updatedAt": Self.now])
+        case ("chain", "POST", 0):
+            let edges = body["edges"] as? [[String: Any]] ?? []
+            if edges.contains(where: { $0["from"] as? String == $0["to"] as? String }) { return fail(400, "邊不能指向自己") }
+            Self.chain = edges
+            ok(["edges": edges, "updatedAt": Self.now])
+        case ("members", "GET", 0):
+            ok([["org": "omixor", "userId": "u1", "email": "tim@example.com", "name": "Tim", "role": "admin", "addedAt": Self.now]])
+        case ("agent-tasks", "POST", 1) where rest[0] == "delegate":
+            guard Self.chain.contains(where: { $0["from"] as? String == "agent:\(body["from"] as? String ?? "")" && $0["to"] as? String == "agent:\(body["to"] as? String ?? "")" }) else {
+                return fail(403, "組織鏈上不能派給 \(body["to"] as? String ?? "")")
+            }
+            var t = Self.newTask(agent: body["to"] as! String, title: body["title"] as? String ?? "", links: [], by: "agent:\(body["from"] as? String ?? "")")
+            t["instructions"] = "【任務】\n\n" + (body["instructions"] as? String ?? "")
+            Self.tasks[Self.tasks.count - 1] = t
+            ok(t)
         case ("agents", "GET", 0):
             ok(Self.agents)
         case ("agents", "POST", 0):
@@ -188,6 +207,7 @@ final class AgentRemoteTests: XCTestCase {
     let org = "~omixor"
 
     override func setUp() async throws {
+        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-agents-remote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         setenv("OPS_DATA_DIR", dataDir.path, 1)

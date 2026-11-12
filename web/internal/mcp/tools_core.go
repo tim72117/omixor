@@ -23,6 +23,7 @@ func init() {
 	coremcp.RegisterIssueTools(srv)
 	coremcp.RegisterAgentTools(srv)
 	coremcp.RegisterCabinetTools(srv)
+	coremcp.RegisterChainTools(srv)
 }
 
 // toolErr 把 core.UserError 轉成工具錯誤
@@ -242,4 +243,19 @@ func (b appBackend) RequeueTask(org, id string) (*model.AgentTask, error) {
 }
 func (b appBackend) RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error) {
 	return b.a.AgentOps().RunRoutine(org, agentID, routineID, author)
+}
+
+// ---- 組織鏈:交給 App.AgentOps ----
+
+func (b appBackend) GetChain(org string) (*model.OrgChain, error) {
+	return b.a.AgentOps().GetChain(org)
+}
+func (b appBackend) SaveChain(org string, edges []model.ChainEdge) (*model.OrgChain, error) {
+	return b.a.AgentOps().SaveChain(org, edges)
+}
+func (b appBackend) DelegateTask(org string, in service.DelegateInput) (*model.AgentTask, error) {
+	return b.a.AgentOps().DelegateTask(org, in)
+}
+func (b appBackend) WorkerDelegate(org, taskID, code string, in service.DelegateInput) (*model.AgentTask, error) {
+	return b.a.AgentOps().WorkerDelegate(org, taskID, code, in)
 }

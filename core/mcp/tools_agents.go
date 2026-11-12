@@ -181,6 +181,9 @@ func RegisterAgentTools(s *Server) {
 			"agent":        agentJSON(e, cabLayout(e), *g, open),
 			"tasks":        map[string]any{"total": len(open), "tasks": tasks},
 		}
+		if ch := chainLinks(e, g.ID); ch != nil { // 組織鏈:上游(回報給誰)與下游(可以派給誰,含 label)
+			out["chain"] = ch
+		}
 		for k, v := range cabinetContext(e, *g, bodies) {
 			out[k] = v
 		}

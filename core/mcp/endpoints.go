@@ -41,6 +41,8 @@ var AgentToolAllow = map[string]bool{
 	"ops_cabinet":           true,
 	"ops_docs":              true,
 	"ops_doc_save":          true,
+	// 依組織鏈委派給下游角色(service 依憑證身分強制)
+	"ops_agent_task_delegate": true,
 }
 
 // AgentEndpointConfig 角色端點的設定
@@ -65,6 +67,7 @@ type AgentEndpointConfig struct {
 
 const agentInstructions = "這是 omixor 的角色端點:你正以虛擬角色的身分工作,身分由憑證決定。" +
 	"先用 ops_agent_context 取得角色設定與任務,照任務說明完成,過程與結果用 ops_agent_task_report 回報(做完 done、卡住 blocked,回報後憑證立刻失效)。" +
+	"組織鏈上有下游角色時,可以用 ops_agent_task_delegate 把工作委派出去(可以派給誰見 ops_agent_context 的 chain.downstream),對方做完會自動回報給你。" +
 	"可以讀 Issue(ops_issues)、建立 Issue(ops_issue_create)、對 Issue 留言與改狀態(ops_issue_update);" +
 	"文件櫃(ops_cabinet、ops_docs、ops_doc_save)只能讀寫角色 docAccess 範圍內的位置。署名一律是你的角色。"
 
@@ -147,6 +150,9 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 					}
 				}
 				args["agent"] = role.AgentID
+				if name == "ops_agent_task_delegate" { // 來源任務一律是憑證綁定的那一筆(service 也會強制)
+					delete(args, "task")
+				}
 				if name == "ops_agent_task_report" {
 					id, _ := args["id"].(string)
 					if strings.TrimSpace(id) == "" {
@@ -183,6 +189,9 @@ var AdminToolAllow = map[string]bool{
 	"ops_cabinet":           true,
 	"ops_docs":              true,
 	"ops_doc_save":          true,
+	// 組織鏈:讀(成員)、改(組織管理員)
+	"ops_chain":      true,
+	"ops_chain_save": true,
 }
 
 // AdminEndpointConfig 管理端點的設定

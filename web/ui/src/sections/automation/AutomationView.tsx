@@ -1,4 +1,4 @@
-// AI 自動化:人監督 AI 自動完成維運步驟。分頁:待核准/虛擬角色/自動化流程/執行紀錄/成效(Swift 的 AutomationView)
+// AI 自動化:人監督 AI 自動完成維運步驟。分頁:待核准/虛擬角色/派發/組織鏈/自動化流程/執行紀錄/成效(Swift 的 AutomationView)
 import { useEffect, useMemo, useState } from "react";
 import { useView } from "../../api";
 import { AIBadge, PageHeader } from "../../components/bits";
@@ -6,6 +6,7 @@ import { arr, type AgentsView, type Approval, type Automation, type AutomationRu
 import { EmptyState, Pill, Segmented } from "../../components/ui";
 import type { SectionProps } from "../index";
 import { AutoAgents } from "./AutoAgents";
+import { AutoChain } from "./AutoChain";
 import { AutoDispatch } from "./AutoDispatch";
 import { AutoFlows, FlowDetailSheet } from "./AutoFlows";
 import { AutoInbox } from "./AutoInbox";
@@ -13,9 +14,9 @@ import { AutoInsights } from "./AutoInsights";
 import { AutoRuns } from "./AutoRuns";
 import { AutoCtx, pendingOf, type AutoData } from "./autoShared";
 
-type Tab = "inbox" | "agents" | "dispatch" | "flows" | "runs" | "insights";
+type Tab = "inbox" | "agents" | "dispatch" | "chain" | "flows" | "runs" | "insights";
 const TABS: { id: Tab; label: string }[] = [
-  { id: "inbox", label: "待核准" }, { id: "agents", label: "虛擬角色" }, { id: "dispatch", label: "派發" }, { id: "flows", label: "自動化流程" }, { id: "runs", label: "執行紀錄" }, { id: "insights", label: "成效" },
+  { id: "inbox", label: "待核准" }, { id: "agents", label: "虛擬角色" }, { id: "dispatch", label: "派發" }, { id: "chain", label: "組織鏈" }, { id: "flows", label: "自動化流程" }, { id: "runs", label: "執行紀錄" }, { id: "insights", label: "成效" },
 ];
 
 export default function AutomationView({ focusId, clearFocus }: SectionProps) {
@@ -79,6 +80,7 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
             : tab === "inbox" ? <AutoInbox focusId={focusApproval} clearFocus={() => setFocusApproval(undefined)} edited={edited} setEdited={setEdited} openAutomation={setDetail} openRun={(id) => { setSelectedRun(id); setTab("runs"); }} />
             : tab === "agents" ? <AutoAgents selection={selectedAgent} setSelection={setSelectedAgent} />
             : tab === "dispatch" ? <AutoDispatch openTask={(t) => { setSelectedAgent(t.agentId); setTab("agents"); }} />
+            : tab === "chain" ? <AutoChain />
             : tab === "flows" ? <AutoFlows openDetail={setDetail} />
             : tab === "runs" ? <AutoRuns selection={selectedRun} setSelection={setSelectedRun} openApproval={(id) => { setFocusApproval(id); setTab("inbox"); }} openAutomation={setDetail} />
             : <AutoInsights openAutomation={setDetail} />}

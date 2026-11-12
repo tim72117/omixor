@@ -39,6 +39,9 @@ func (c *Client) ListAgentTasks(org string, f service.TaskFilter) ([]model.Agent
 	if f.Status != "" {
 		q.Set("status", f.Status)
 	}
+	if f.ReportTo != "" {
+		q.Set("reportTo", f.ReportTo)
+	}
 	path := c.agentTasks(org)
 	if len(q) > 0 {
 		path += "?" + q.Encode()

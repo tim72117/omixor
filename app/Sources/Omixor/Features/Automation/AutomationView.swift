@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// AI 自動化:人監督 AI 自動完成維運步驟。
-/// 分頁:待核准(收件匣)/虛擬角色/粉絲專頁/自動化流程/執行紀錄/成效。
+/// 分頁:待核准(收件匣)/虛擬角色/派發/組織鏈/粉絲專頁/自動化流程/執行紀錄/成效。
 struct AutomationView: View {
     @EnvironmentObject var app: AppState
     @State private var tab: AutoTab = .inbox
@@ -84,6 +84,8 @@ struct AutomationView: View {
             AutoAgentsView(selection: $selectedAgent)
         case .dispatch:
             AutoDispatchView(openTask: { t in selectedAgent = t.agentId; tab = .agents })
+        case .chain:
+            AutoChainView()
         case .facebook:
             AutoFacebookView()
         case .flows:
@@ -107,6 +109,7 @@ struct AutomationView: View {
     private func open(_ id: String) -> Bool {
         if id == "agents" { tab = .agents; return true }
         if id == "dispatch" { tab = .dispatch; return true }
+        if id == "chain" { tab = .chain; return true }
         if id == "facebook" || app.fbSettings.drafts.contains(where: { $0.id == id }) { tab = .facebook; return true }
         if let a = app.agents.first(where: { $0.id == id }) { selectedAgent = a.id; tab = .agents; return true }
         if let t = app.agentTasks.first(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) {

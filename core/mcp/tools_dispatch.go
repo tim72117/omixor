@@ -155,7 +155,7 @@ func RegisterDispatchTools(s *Server) {
 			out["lockedUntil"] = iso(t.LockedUntil.Time)
 			lock = t.LockedUntil.Time.In(time.Local).Format("15:04")
 		}
-		out["nextSteps"] = nextSteps(res, name, endpoint, lock)
+		out["nextSteps"] = nextSteps(res, name, endpoint, lock) + delegateStep(e, res)
 		return out, nil
 	})
 
@@ -252,6 +252,37 @@ func RegisterDispatchTools(s *Server) {
 		return map[string]any{"issue": i.ID, "comments": len(i.Comments), "comment": last}, nil
 	})
 
+	s.Register("dispatch_delegate", func(c *Call) (any, error) {
+		e := agentEnv(c)
+		id, err := c.Args.Require("id")
+		if err != nil {
+			return nil, err
+		}
+		code, err := c.Args.Require("code")
+		if err != nil {
+			return nil, err
+		}
+		to, err := c.Args.Require("to")
+		if err != nil {
+			return nil, err
+		}
+		title, err := c.Args.Require("title")
+		if err != nil {
+			return nil, err
+		}
+		instructions, _ := c.Args.RawString("instructions")
+		priority, err := c.Args.OptionalEnum("priority", IssuePriorities)
+		if err != nil {
+			return nil, err
+		}
+		t, err := e.Backend().WorkerDelegate(e.Org(), id, code, service.DelegateInput{To: to, Title: title, Instructions: instructions, Priority: priority})
+		if err != nil {
+			return nil, terr(err)
+		}
+		return map[string]any{"task": taskJSON(e, *t),
+			"message": "已委派 " + t.ID + "「" + t.Title + "」給 " + e.AgentName(t.AgentID) + ";對方做完會自動替你的角色排一筆「檢視回報」任務"}, nil
+	})
+
 	s.Register("dispatch_release", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		id, err := c.Args.Require("id")
@@ -286,4 +317,18 @@ func nextSteps(res *service.ClaimResult, agentName, endpoint, lockHHMM string) s
 	b.WriteString("\n領取驗證碼 " + code + ":dispatch_report、dispatch_comment 一定要帶,伺服器用它確認你操作的是這次領取的任務與角色(同時領了好幾筆時不會選錯)。")
 	b.WriteString("\n以上工具都以你登入 omixor 的身分呼叫,伺服器確認你是領取者後替你以角色署名,不需要使用 credential 的密鑰(密鑰給直接連角色端點 /mcp/agent 的程式用,不要寫進 Issue、留言、任務結果或檔案)。")
 	return b.String()
+}
+
+// delegateStep nextSteps 的委派說明:這個角色在組織鏈上可以委派給誰(沒有下游就不提)
+func delegateStep(e AgentEnv, res *service.ClaimResult) string {
+	t := res.Task
+	can := downstreamAgents(e, t.AgentID)
+	if can == "" {
+		return ""
+	}
+	code := ""
+	if res.Credential != nil {
+		code = res.Credential.Code
+	}
+	return "\n5. 依組織鏈,這個角色可以把工作委派給:" + can + "。用 dispatch_delegate(id: " + t.ID + ", code: " + code + ", to, title, instructions)委派,對方做完會自動替你排一筆「檢視回報」任務。"
 }

@@ -11,12 +11,13 @@ import (
 
 // WorkerToolAllow 執行者端點開放的工具(其餘一律「沒有這個工具」)
 var WorkerToolAllow = map[string]bool{
-	"dispatch_queue":   true,
-	"dispatch_claim":   true,
-	"dispatch_status":  true,
-	"dispatch_release": true,
-	"dispatch_report":  true,
-	"dispatch_comment": true,
+	"dispatch_queue":    true,
+	"dispatch_claim":    true,
+	"dispatch_status":   true,
+	"dispatch_release":  true,
+	"dispatch_report":   true,
+	"dispatch_comment":  true,
+	"dispatch_delegate": true,
 }
 
 // WorkerEndpointConfig 執行者端點的設定
@@ -32,7 +33,7 @@ type WorkerEndpointConfig struct {
 
 const workerInstructions = "這是 omixor 的執行者(派發)端點,給領取任務的 LLM 用:" +
 	"dispatch_queue 看有哪些任務可領、dispatch_claim 領取(回傳角色設定與下一步說明)、dispatch_status 看我領取中的任務、" +
-	"dispatch_report 以角色身分回報(inProgress 續約、blocked 提問、done 結案)、dispatch_comment 以角色身分在 Issue 留言、dispatch_release 放棄領取。" +
+	"dispatch_report 以角色身分回報(inProgress 續約、blocked 提問、done 結案)、dispatch_comment 以角色身分在 Issue 留言、dispatch_delegate 依組織鏈委派給下游角色、dispatch_release 放棄領取。" +
 	"標準流程:queue → claim → 照角色設定與任務說明工作 → 定期 dispatch_report(inProgress)續約 → dispatch_comment 在相關 Issue 說明結果 → dispatch_report done 或 blocked。" +
 	"這些工具都用你登入 omixor 的身分,伺服器確認你是領取者後以角色署名,不需要也不要使用角色憑證的密鑰。"
 

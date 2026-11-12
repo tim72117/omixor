@@ -98,4 +98,8 @@ type Store interface {
 	DeleteDoc(org, id string) error
 	// ImportDocs 第一次搬資料用:保留 id、作者與時間;list 是新的在前;組織已經有文件就回錯誤
 	ImportDocs(org string, list []model.CabinetDoc) (int, error)
+
+	// 組織鏈(依組織分;DeleteOrg 一併刪除)。GetOrgChain 沒存過回 ErrNotFound
+	GetOrgChain(org string) (*model.OrgChain, error)
+	SaveOrgChain(org string, c model.OrgChain) error // 整份取代
 }

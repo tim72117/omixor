@@ -58,7 +58,7 @@ func (a *API) agentRoutes(mux *http.ServeMux) {
 	tk := "/api/orgs/{org}/agent-tasks"
 	mux.HandleFunc("GET "+tk, a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		q := r.URL.Query()
-		l, err := a.Svc.ListAgentTasks(p, r.PathValue("org"), service.TaskFilter{AgentID: q.Get("agent"), Status: q.Get("status")})
+		l, err := a.Svc.ListAgentTasks(p, r.PathValue("org"), service.TaskFilter{AgentID: q.Get("agent"), Status: q.Get("status"), ReportTo: q.Get("reportTo")})
 		reply(w, l, err)
 	}))
 	mux.HandleFunc("POST "+tk, a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {

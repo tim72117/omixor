@@ -65,6 +65,13 @@ type Backend interface {
 	// RunRoutine 立刻替角色排一筆例行任務(組織管理員);author 是署名(只有伺服器管理員的有效)
 	RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error)
 
+	// 組織鏈(權限同 service/chain.go:成員讀、組織管理員改;依鏈委派要角色身分,或伺服器管理員帶 From)。實作在 chain.go
+	GetChain(org string) (*model.OrgChain, error)
+	SaveChain(org string, edges []model.ChainEdge) (*model.OrgChain, error)
+	DelegateTask(org string, in service.DelegateInput) (*model.AgentTask, error)
+	// WorkerDelegate 領取者本人以任務角色的身分依組織鏈委派(要領取驗證碼 code)
+	WorkerDelegate(org, taskID, code string, in service.DelegateInput) (*model.AgentTask, error)
+
 	// 文件櫃(權限同 service/cabinet.go:成員讀寫文件、組織管理員改結構、角色身分依 docAccess)。實作在 cabinet.go
 	// GetCabinet 結構與文件(新的在前);組織沒存過結構時是空白結構(LayoutSaved = false)
 	GetCabinet(org string) (*model.Cabinet, error)

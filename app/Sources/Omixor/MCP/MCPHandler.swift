@@ -403,6 +403,26 @@ final class MCPHandler {
                  "instructions": prop("string", "任務說明(Markdown)"),
                  "priority": prop("string", "優先度,預設 normal", enum: cases(IssuePriority.self)),
              ], required: ["assign_to", "title"]),
+        Tool(name: "ops_chain", title: "組織鏈",
+             description: "列出組織鏈(資訊流動方向):每條邊 from → to 表示 from 可以派工作給 to(label 例如 目標、任務;空白 = 任務),to 做完回報給 from。節點是 agent:<角色 id> 或 user:<email>;fromName、toName 是顯示名稱。",
+             properties: [:], required: [], readOnly: true),
+        Tool(name: "ops_chain_save", title: "修改組織鏈",
+             description: "修改組織鏈(組織管理員)。edges 取代全部邊;或用 add 加上(同 from、to 的會被取代)、remove 拿掉(依 from、to)。每條邊 {from, to, label}:節點寫 agent:<角色 id> 或 user:<email>,label 例如 目標、任務(空白 = 任務)。不能指向自己、不能重複、不能有循環,節點要存在(角色存在、人是組織成員)。",
+             properties: [
+                 "edges": ["type": "array", "items": ["type": "object"], "description": "取代全部邊:[{from, to, label}]"],
+                 "add": ["type": "array", "items": ["type": "object"], "description": "加上的邊:[{from, to, label}]"],
+                 "remove": ["type": "array", "items": ["type": "object"], "description": "拿掉的邊:[{from, to}]"],
+             ], required: []),
+        Tool(name: "ops_agent_task_delegate", title: "依組織鏈委派任務",
+             description: "以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 ops_agent_context 的 chain.downstream。",
+             properties: [
+                 "agent": prop("string", "你自己正在扮演的角色 id 或名稱(委派者)"),
+                 "to": prop("string", "接任務的角色 id 或名稱(要是鏈上的下游)"),
+                 "title": prop("string", "標題"),
+                 "instructions": prop("string", "任務說明(Markdown)"),
+                 "priority": prop("string", "優先度,預設 normal", enum: cases(IssuePriority.self)),
+                 "task": prop("string", "委派它的來源任務 id(選填;不給就用你的角色進行中的任務)"),
+             ], required: ["agent", "to", "title"]),
         Tool(name: "ops_github", title: "GitHub 概況",
              description: "列出 omixor 追蹤的 GitHub repo(目前組織的)、開著的 PR(含檢查結果)與最近的 Actions 執行。資料是 omixor 最近一次讀到的(約 5 分鐘更新一次);refresh=true 先重新讀。只讀。需要人先在 omixor 的 開發進度 › GitHub 登入。",
              properties: [
@@ -526,6 +546,9 @@ final class MCPHandler {
         case "ops_agent_task_report": return try agentReport(a)
         case "ops_agent_task_create": return try agentCreate(a)
         case "ops_agent_upsert": return try agentUpsert(a)
+        case "ops_chain": return chainList()
+        case "ops_chain_save": return try chainSave(a)
+        case "ops_agent_task_delegate": return try agentDelegate(a)
         case "ops_orgs": return orgsInfo()
         case "ops_server": return serverInfo()
         case "ops_cabinet": return try cabinet(a)
@@ -1015,6 +1038,76 @@ final class MCPHandler {
         return t.map(taskJSON) ?? [:]
     }
 
+    // MARK: 組織鏈
+
+    private func chainEdgeJSON(_ e: ChainEdge) -> [String: Any] {
+        ["from": e.from, "to": e.to, "label": e.label, "fromName": agentStore.chainName(e.from), "toName": agentStore.chainName(e.to)]
+    }
+
+    private func chainList() -> Any {
+        let store = agentStore
+        if store.isRemote { store.loadChain() }
+        var out: [String: Any] = ["edges": app.orgChain.edges.map(chainEdgeJSON)]
+        if let u = app.orgChain.updatedAt { out["updatedAt"] = ISO8601DateFormatter().string(from: u) }
+        if let e = app.orgChainError { out["error"] = e }
+        return out
+    }
+
+    private func chainEdges(_ v: Any?, _ key: String) throws -> [ChainEdge]? {
+        guard let v else { return nil }
+        guard let list = v as? [[String: Any]] else { throw MCPToolError("\(key) 必須是 [{from, to, label}] 陣列") }
+        return list.map { ChainEdge(from: $0["from"] as? String ?? "", to: $0["to"] as? String ?? "", label: $0["label"] as? String ?? "") }
+    }
+
+    private func chainSave(_ a: MCPArgs) throws -> Any {
+        let store = agentStore
+        let replace = try chainEdges(a.raw["edges"], "edges")
+        let add = try chainEdges(a.raw["add"], "add")
+        let remove = try chainEdges(a.raw["remove"], "remove")
+        guard replace != nil || add != nil || remove != nil else { throw MCPToolError("要給 edges(取代全部)或 add / remove") }
+        if store.isRemote { store.loadChain() }
+        // 比對 add、remove 前先把節點正規化(沒有前綴的 agent 名稱、email 大小寫)
+        func key(_ raw: String) -> String {
+            let s = raw.trimmingCharacters(in: .whitespaces)
+            if let id = ChainNode.agentId(s) ?? (s.hasPrefix(ChainNode.userPrefix) || s.contains("@") ? nil : s) {
+                return ChainNode.agent(store.agent(id)?.id ?? id)
+            }
+            return ChainNode.user(ChainNode.userId(s) ?? s)
+        }
+        var edges = replace ?? app.orgChain.edges
+        for r in remove ?? [] { edges.removeAll { $0.from == key(r.from) && $0.to == key(r.to) } }
+        for e in add ?? [] {
+            let n = ChainEdge(from: key(e.from), to: key(e.to), label: e.label)
+            if let i = edges.firstIndex(where: { $0.from == n.from && $0.to == n.to }) { edges[i] = n } else { edges.append(n) }
+        }
+        do {
+            let saved = try store.saveChain(edges)
+            app.log(.mcp, "arrow.triangle.branch", "更新組織鏈(\(saved.edges.count) 條)", .automation)
+            var out: [String: Any] = ["edges": saved.edges.map(chainEdgeJSON)]
+            if let u = saved.updatedAt { out["updatedAt"] = ISO8601DateFormatter().string(from: u) }
+            return out
+        } catch { throw MCPToolError(error.localizedDescription) }
+    }
+
+    private func agentDelegate(_ a: MCPArgs) throws -> Any {
+        let me = try a.require("agent")
+        let to = try a.require("to")
+        let title = try a.require("title")
+        do {
+            let t = try agentStore.delegate(from: me, to: to, title: title, instructions: a.raw["instructions"] as? String ?? "",
+                                            priority: try a.optionalEnum("priority", IssuePriority.self) ?? .normal, sourceTask: a.string("task"))
+            return taskJSON(t)
+        } catch let e as MCPToolError { throw e } catch { throw MCPToolError(error.localizedDescription) }
+    }
+
+    /// ops_agent_context 的 chain:上游(回報給誰)與下游(可以派給誰)
+    private func chainContext(_ g: Agent) -> [String: Any] {
+        let node = ChainNode.agent(g.id)
+        func row(_ n: String, _ label: String) -> [String: Any] { ["node": n, "name": agentStore.chainName(n), "label": label] }
+        return ["upstream": app.orgChain.upstream(of: node).map { row($0.from, $0.labelText) },
+                "downstream": app.orgChain.downstream(of: node).map { row($0.to, $0.labelText) }]
+    }
+
     // MARK: 組織
 
     /// ops_server:連線資訊與版本(對應 web 的 internal/mcp/tools_server.go;不含網址與密鑰)
@@ -1113,6 +1206,7 @@ final class MCPHandler {
                 ["id": t.id, "title": t.title, "status": t.status.rawValue, "priority": t.priority.rawValue,
                  "updatedAt": ISO8601DateFormatter().string(from: t.updatedAt)]
             }],
+            "chain": chainContext(g),
             "cabinet": cabinetSections(g),
             "docs": ["total": docs.count, "docs": docs.prefix(50).enumerated().map { i, d -> [String: Any] in
                 var o = docJSON(d, full: bodies && i < bodyLimit)

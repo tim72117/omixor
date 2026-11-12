@@ -122,6 +122,15 @@ export function leaseLabel(t: AgentTask): string | null {
 }
 export type AgentsView = { agents: Agent[]; tasks: AgentTask[] };
 
+/** 組織鏈的一條邊:from 可以派工作給 to(label 空白 = 任務),to 做完回報給 from。節點是 "agent:<角色 id>" 或 "user:<email 小寫>" */
+export type ChainEdge = { from: string; to: string; label: string };
+export type OrgChain = { edges: ChainEdge[]; updatedAt?: string };
+/** 組織鏈視圖(org_chain):鏈、組織成員(user 節點的候選)、能不能修改 */
+export type OrgChainView = {
+  org: string; remote: boolean; canEdit: boolean; chain: OrgChain;
+  members: { email: string; name: string; role: string }[]; error?: string;
+};
+
 /** 代理人可存取某位置的權限(nil = 不能) */
 export function agentAccess(a: Agent, section: string, tab?: string | null): DocAccess | undefined {
   const da = a.docAccess ?? {};

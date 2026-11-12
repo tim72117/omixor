@@ -11,6 +11,7 @@ final class VoicePipelineTests: XCTestCase {
     private var apps: [AppState] = []
 
     override func setUp() async throws {
+        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("ops-voice-\(UUID().uuidString)")
         root = base.appendingPathComponent("shuttle")
         dataDir = base.appendingPathComponent("data")

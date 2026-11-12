@@ -39,7 +39,7 @@ func ToolDef(name, title, desc string, readOnly bool, schema map[string]any) map
 // CoreToolDefs 核心提供的工具規格:組織、Issue、虛擬角色與任務、文件櫃
 func CoreToolDefs() []any {
 	prio := []string{"urgent", "high", "normal", "low"}
-	return []any{
+	defs := []any{
 		ToolDef("ops_orgs", "列出組織", "列出目前能用的組織(current 是這個連線所在的組織)。", true, obj(map[string]any{})),
 		ToolDef("ops_issue_create", "建立 Issue",
 			"把發現的問題或待辦存成 Issue。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 ops_issues 搜尋,避免重複。給 assignee(角色 id)會自動替該角色排一筆任務。", false,
@@ -174,6 +174,7 @@ func CoreToolDefs() []any {
 				"title":          pStr("標題(新增時必填)"),
 			})),
 	}
+	return append(defs, ChainToolDefs()...)
 }
 
 // CoreInitialize initialize 的回應內容(protocolVersion 由協定層決定)
@@ -197,6 +198,7 @@ func NewCoreServer(instructions string) *Server {
 	RegisterIssueTools(s)
 	RegisterAgentTools(s)
 	RegisterCabinetTools(s)
+	RegisterChainTools(s)
 	return s
 }
 
@@ -246,6 +248,17 @@ func WorkerToolDefs() []any {
 				"id":     pStr("任務 id"),
 				"reason": pStr("放棄的原因(選填,會寫進備註)"),
 			}, "id")),
+		ToolDef("dispatch_delegate", "依組織鏈委派",
+			"以我領取中任務的角色身分,把工作委派給組織鏈上的下游角色(鏈上要有 agent:<這個角色> → agent:<to>;可以派給誰見 dispatch_claim 的 nextSteps)。"+
+				"新任務署名這個角色,links 帶上這筆任務與它的 links,label(目標、任務…)寫在任務說明開頭;對方做完 done 或 blocked 會自動替這個角色排一筆「檢視回報」任務。不需要角色憑證。", false,
+			obj(map[string]any{
+				"id":           pStr("我領取中的任務 id(決定以哪個角色委派)"),
+				"code":         pStr("領取驗證碼(dispatch_claim 回傳的 credential.code,6 位數)"),
+				"to":           pStr("接任務的角色 id 或名稱(要是鏈上的下游)"),
+				"title":        pStr("標題"),
+				"instructions": pStr("任務說明(Markdown)"),
+				"priority":     pEnum("優先度,預設 normal", "urgent", "high", "normal", "low"),
+			}, "id", "code", "to", "title")),
 	}
 }
 

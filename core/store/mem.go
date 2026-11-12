@@ -26,6 +26,7 @@ type Mem struct {
 	creds   []model.AgentCredential
 	layouts map[string][]model.CabinetSection // org → 文件櫃結構
 	docs    map[string][]model.CabinetDoc     // org → 新的在前
+	chains  map[string]model.OrgChain         // org → 組織鏈
 }
 
 type memToken struct {
@@ -37,7 +38,7 @@ func NewMem() *Mem {
 	return &Mem{users: map[string]model.User{}, tokens: map[string]*memToken{}, orgs: map[string]model.Org{},
 		members: map[string]map[string]model.Member{}, issues: map[string][]model.Issue{}, attach: map[string]map[string][]byte{},
 		agents: map[string][]model.Agent{}, tasks: map[string][]model.AgentTask{},
-		layouts: map[string][]model.CabinetSection{}, docs: map[string][]model.CabinetDoc{}}
+		layouts: map[string][]model.CabinetSection{}, docs: map[string][]model.CabinetDoc{}, chains: map[string]model.OrgChain{}}
 }
 
 func (m *Mem) CountUsers() (int, error) {
@@ -225,6 +226,7 @@ func (m *Mem) DeleteOrg(id string) error {
 	delete(m.tasks, id)
 	delete(m.layouts, id)
 	delete(m.docs, id)
+	delete(m.chains, id)
 	kept := m.creds[:0:0]
 	for _, c := range m.creds {
 		if c.Org != id {
@@ -710,4 +712,24 @@ func (m *Mem) ImportDocs(org string, list []model.CabinetDoc) (int, error) {
 	}
 	m.docs[org] = out
 	return len(out), nil
+}
+
+// ---- 組織鏈 ----
+
+func (m *Mem) GetOrgChain(org string) (*model.OrgChain, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.chains[org]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	c = c.Clone()
+	return &c, nil
+}
+
+func (m *Mem) SaveOrgChain(org string, c model.OrgChain) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.chains[org] = c.Clone()
+	return nil
 }

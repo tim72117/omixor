@@ -322,6 +322,7 @@ func (s *Service) DeleteAgent(p *model.Principal, org, id string) error {
 	if err := s.Store.DeleteAgent(org, g.ID); err != nil {
 		return err
 	}
+	s.pruneChainNode(org, model.AgentNode(g.ID))
 	issues, err := s.Store.ListIssues(org)
 	if err == nil {
 		for _, i := range issues {
@@ -348,10 +349,12 @@ type TaskInput struct {
 	Author string `json:"author,omitempty"`
 }
 
-// TaskFilter 列任務的條件:AgentID 空 = 全部角色;Status 空或 all = 全部,open = 未結束,或單一狀態
+// TaskFilter 列任務的條件:AgentID 空 = 全部角色;Status 空或 all = 全部,open = 未結束,或單一狀態;
+// ReportTo 不空 = 只列依組織鏈回報給這個節點的任務(me、user:<email>、agent:<角色 id>;見 chain.go)
 type TaskFilter struct {
-	AgentID string `json:"agentId,omitempty"`
-	Status  string `json:"status,omitempty"`
+	AgentID  string `json:"agentId,omitempty"`
+	Status   string `json:"status,omitempty"`
+	ReportTo string `json:"reportTo,omitempty"`
 }
 
 // TaskReport 回報任務;nil 表示沒給
@@ -407,9 +410,11 @@ func (s *Service) insertTaskFor(org string, g *model.Agent, title, instructions,
 	return &saved, nil
 }
 
-// AssignTask 派任務給角色(組織管理員)
+// AssignTask 派任務給角色:組織管理員可以派給任何角色;一般成員要組織鏈上有 user:<自己> → agent:<目標> 的邊
+// (否則 403,訊息說明可以派給誰),任務說明開頭寫上那條邊的 label(見 chain.go)
 func (s *Service) AssignTask(p *model.Principal, org string, in TaskInput) (*model.AgentTask, error) {
-	if err := s.needOrgAdmin(p, org); err != nil {
+	role, err := s.orgRole(p, org)
+	if err != nil {
 		return nil, err
 	}
 	title := strings.TrimSpace(in.Title)
@@ -420,9 +425,17 @@ func (s *Service) AssignTask(p *model.Principal, org string, in TaskInput) (*mod
 	if err != nil {
 		return nil, err
 	}
+	instructions := in.Instructions
+	if role != "admin" {
+		label, err := s.memberAssign(p, org, g)
+		if err != nil {
+			return nil, err
+		}
+		instructions = model.LabeledInstructions(label, instructions)
+	}
 	s.agents.mu.Lock()
 	defer s.agents.mu.Unlock()
-	t, err := s.insertTask(org, g, title, in.Instructions, in.Priority, author(p, in.Author), in.Links)
+	t, err := s.insertTask(org, g, title, instructions, in.Priority, author(p, in.Author), in.Links)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +457,20 @@ func (s *Service) ListAgentTasks(p *model.Principal, org string, f TaskFilter) (
 		return nil, err
 	}
 	agentID := strings.TrimSpace(f.AgentID)
-	if p.Agent != nil {
+	reportTo := ""
+	if strings.TrimSpace(f.ReportTo) != "" {
+		n, err := reportToNode(p, f.ReportTo)
+		if err != nil {
+			return nil, err
+		}
+		reportTo = n
+	}
+	if p.Agent != nil && reportTo != "" { // 角色身分只能查回報給自己的(它委派出去的任務)
+		if reportTo != model.AgentNode(p.Agent.AgentID) {
+			return nil, fail(403, "角色身分只能查回報給自己的任務")
+		}
+		agentID = ""
+	} else if p.Agent != nil {
 		agentID = p.Agent.AgentID
 	} else if agentID != "" {
 		g, err := s.mustAgent(org, agentID)
@@ -464,6 +490,9 @@ func (s *Service) ListAgentTasks(p *model.Principal, org string, f TaskFilter) (
 	out := []model.AgentTask{}
 	for _, t := range all {
 		if agentID != "" && t.AgentID != agentID {
+			continue
+		}
+		if reportTo != "" && (model.NodeOfAuthor(t.CreatedBy) != reportTo || !reportedTo(t)) {
 			continue
 		}
 		switch st {
@@ -731,6 +760,9 @@ func (s *Service) ReportTask(p *model.Principal, org, id string, in TaskReport) 
 	})
 	if err != nil {
 		return nil, err
+	}
+	if in.Status != nil && *in.Status != t.Status { // 變成 done、blocked:依組織鏈回報給建立者
+		s.chainReport(p, org, updated, note)
 	}
 	if renewed && updated.LockedUntil != nil {
 		if err := s.Store.ExtendAgentCredential(org, updated.ID, updated.LockedUntil.Time); err != nil {

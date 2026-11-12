@@ -5,6 +5,9 @@ import SwiftUI
 /// 把含圖片的 Markdown 算繪成圖,確認附件真的畫得出來(OPS_RENDER_OUT 有設時存檔給人看)
 @MainActor
 final class MarkdownRenderTests: XCTestCase {
+    override func setUp() async throws {
+        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+    }
     func testImageAttachmentRenders() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-md-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

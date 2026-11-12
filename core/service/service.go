@@ -506,6 +506,9 @@ func (s *Service) RemoveMember(p *model.Principal, org, email string) error {
 	if err := s.Store.RemoveMember(org, u.ID); err != nil {
 		return fail(404, "%s 不是組織 %s 的成員", email, org)
 	}
+	s.agents.mu.Lock()
+	s.pruneChainNode(org, model.UserNode(u.Email))
+	s.agents.mu.Unlock()
 	s.Audit(p, "member.remove", org, map[string]any{"email": u.Email})
 	return nil
 }
