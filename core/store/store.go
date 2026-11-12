@@ -77,6 +77,8 @@ type Store interface {
 	// SaveAgentCredential 存憑證;同一個 (org, taskId) 舊的先刪(同任務只有一組有效憑證)
 	SaveAgentCredential(c model.AgentCredential) error
 	AgentCredentialByHash(h []byte) (*model.AgentCredential, error)
+	// AgentCredentialForTask 任務目前的憑證(沒有回 ErrNotFound)
+	AgentCredentialForTask(org, taskID string) (*model.AgentCredential, error)
 	// DeleteAgentCredentials 刪任務的憑證(taskID 不空)或某角色的全部憑證(agentID 不空)
 	DeleteAgentCredentials(org, taskID, agentID string) error
 	// ImportAgents 第一次搬資料用:角色與任務整批寫入,保留 id、時間與備註;組織已經有角色或任務就回錯誤

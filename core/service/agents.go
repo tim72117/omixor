@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -526,6 +527,14 @@ func (s *Service) saveTaskChange(org string, before model.AgentTask, change func
 	return &t, nil
 }
 
+// ClaimCode 由憑證雜湊算出 6 位數的領取驗證碼(同一次領取不變;只用來確認執行者對的是哪一次領取,不是密碼)
+func ClaimCode(hash []byte) string {
+	if len(hash) < 4 {
+		return ""
+	}
+	return fmt.Sprintf("%06d", binary.BigEndian.Uint32(hash[:4])%1000000)
+}
+
 func newSecret() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
@@ -638,7 +647,7 @@ func (s *Service) claimPicked(p *model.Principal, org string, g *model.Agent, pi
 		return nil, err
 	}
 	s.Audit(p, "agent.task.claim", org, map[string]any{"task": claimed.ID, "agent": g.ID, "expiresAt": cred.ExpiresAt.Time.Format(time.RFC3339)})
-	return &ClaimResult{Agent: g, Task: claimed, Credential: &model.AgentGrant{AgentID: g.ID, TaskID: claimed.ID, Secret: secret,
+	return &ClaimResult{Agent: g, Task: claimed, Credential: &model.AgentGrant{AgentID: g.ID, TaskID: claimed.ID, Secret: secret, Code: ClaimCode(cred.Hash),
 		ExpiresAt: cred.ExpiresAt.Time.UTC().Format(time.RFC3339)}}, nil
 }
 
@@ -1203,57 +1212,83 @@ func (s *Service) StartRoutines(interval time.Duration, onCreated func([]model.A
 
 // claimedAgent 呼叫者(人,不是角色憑證)是這筆任務的領取者、任務進行中且租約還沒到期時,
 // 回傳和角色憑證相同的角色身分(AuthenticateAgent 的結果)。讓執行者不經手密鑰也能以角色身分回報、留言。
-func (s *Service) claimedAgent(p *model.Principal, org, id string) (*model.Principal, error) {
+func (s *Service) claimedAgent(p *model.Principal, org, id, code string) (*model.Principal, *model.AgentTask, error) {
 	if err := notAgent(p); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := s.viewer(p, org); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s.agents.mu.Lock()
 	t, err := s.findTask(org, id)
 	s.agents.mu.Unlock()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if t.Status != "inProgress" {
-		return nil, fail(409, "%s 目前是%s,不是進行中", t.ID, model.TaskStatusLabel(t.Status))
+		return nil, nil, fail(409, "%s 目前是%s,不是進行中", t.ID, model.TaskStatusLabel(t.Status))
 	}
 	who := claimerName(p)
 	if who == "" || t.ClaimedBy != who {
-		return nil, fail(403, "%s 是 %s 領取的,只有領取者本人可以用角色身分回報或留言", t.ID, t.ClaimedBy)
+		return nil, nil, fail(403, "%s 是 %s 領取的,只有領取者本人可以用角色身分回報或留言", t.ID, t.ClaimedBy)
 	}
 	if t.LockedUntil == nil || !s.now().Before(t.LockedUntil.Time) {
-		return nil, fail(409, "%s 的租約已到期,請重新領取", t.ID)
+		return nil, nil, fail(409, "%s 的租約已到期,請重新領取", t.ID)
 	}
 	g, err := s.Store.GetAgent(org, t.AgentID)
 	if err != nil {
-		return nil, fail(404, "找不到角色 %s", t.AgentID)
+		return nil, nil, fail(404, "找不到角色 %s", t.AgentID)
+	}
+	// 領取驗證碼:確認執行者對的是這次領取的任務與角色(避免同時領了好幾筆時選錯角色)
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil, nil, fail(400, "要給領取驗證碼 code(dispatch_claim 回傳的 credential.code)")
+	}
+	cr, err := s.Store.AgentCredentialForTask(org, t.ID)
+	if err != nil {
+		return nil, nil, fail(409, "%s 沒有有效的領取,請重新領取", t.ID)
+	}
+	if subtle.ConstantTimeCompare([]byte(ClaimCode(cr.Hash)), []byte(code)) != 1 {
+		return nil, nil, fail(403, "領取驗證碼不符:這不是 %s(%s)這次領取的驗證碼,請確認任務與角色", t.ID, g.Name)
 	}
 	name := model.AgentPrefix + g.ID
 	return &model.Principal{
 		User:  model.User{ID: name, Email: name, Name: g.Name, Role: "member"},
 		Agent: &model.AgentIdentity{Org: org, AgentID: g.ID, TaskID: t.ID},
-	}, nil
+	}, t, nil
+}
+
+// WorkerReportInput 執行者回報的內容:領取驗證碼 + 回報(同 TaskReport)
+type WorkerReportInput struct {
+	Code string `json:"code"`
+	TaskReport
 }
 
 // WorkerReport 領取者以角色身分回報自己領取的任務(規則同角色憑證的 ReportTask:狀態只能 inProgress、blocked、done,
 // inProgress 會續約,done、blocked 後憑證作廢)
-func (s *Service) WorkerReport(p *model.Principal, org, id string, in TaskReport) (*model.AgentTask, error) {
-	ap, err := s.claimedAgent(p, org, id)
+func (s *Service) WorkerReport(p *model.Principal, org, id, code string, in TaskReport) (*model.AgentTask, error) {
+	ap, t, err := s.claimedAgent(p, org, id, code)
 	if err != nil {
 		return nil, err
 	}
-	return s.ReportTask(ap, org, id, in)
+	u, err := s.ReportTask(ap, org, id, in)
+	if err == nil { // 角色身分的操作紀錄只有 agent:<id>;另記一筆實際呼叫的人
+		st := ""
+		if in.Status != nil {
+			st = *in.Status
+		}
+		s.Audit(p, "agent.task.worker.report", org, map[string]any{"task": t.ID, "agent": t.AgentID, "status": st})
+	}
+	return u, err
 }
 
-// WorkerComment 領取者以角色身分在 Issue 留言(署名 agent:<角色 id>)
-func (s *Service) WorkerComment(p *model.Principal, org, taskID, issueID, text string) (*model.Issue, error) {
+// WorkerComment 領取者以角色身分在 Issue 留言(署名 agent:<角色 id>);只能留在任務 links 裡的 Issue
+func (s *Service) WorkerComment(p *model.Principal, org, taskID, code, issueID, text string) (*model.Issue, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil, fail(400, "留言不能是空的")
 	}
-	ap, err := s.claimedAgent(p, org, taskID)
+	ap, t, err := s.claimedAgent(p, org, taskID, code)
 	if err != nil {
 		return nil, err
 	}
@@ -1261,8 +1296,19 @@ func (s *Service) WorkerComment(p *model.Principal, org, taskID, issueID, text s
 	if err != nil {
 		return nil, err
 	}
+	if !hasLink(t.Links, cur.ID) {
+		links := "沒有相關 Issue"
+		if len(t.Links) > 0 {
+			links = "只有 " + strings.Join(t.Links, "、")
+		}
+		return nil, fail(403, "%s 的相關 Issue %s,不能在 %s 留言", t.ID, links, cur.ID)
+	}
 	cs := append(append([]model.Comment{}, cur.Comments...), model.Comment{ID: uuid(), Author: ap.User.Email, Text: text, At: s.mt()})
-	return s.UpdateIssue(ap, org, cur.ID, IssuePatch{Comments: &cs})
+	u, err := s.UpdateIssue(ap, org, cur.ID, IssuePatch{Comments: &cs})
+	if err == nil {
+		s.Audit(p, "agent.task.worker.comment", org, map[string]any{"task": t.ID, "agent": t.AgentID, "issue": cur.ID})
+	}
+	return u, err
 }
 
 // ================= 匯入 =================
@@ -1291,17 +1337,17 @@ func (s *Service) ImportAgents(p *model.Principal, org string, in AgentImport) (
 		return nil, fail(400, "沒有要匯入的角色")
 	}
 	now := s.mt()
-	ids := map[string]bool{}
+	ids := map[string]string{} // 小寫 → 角色 id(任務的 agentId 換成角色的寫法,store 比對大小寫)
 	for k := range in.Agents {
 		g := &in.Agents[k]
 		g.ID = strings.TrimSpace(g.ID)
 		if g.ID == "" || strings.TrimSpace(g.Name) == "" {
 			return nil, fail(400, "每個角色都要有 id 與 name")
 		}
-		if ids[strings.ToLower(g.ID)] {
+		if _, dup := ids[strings.ToLower(g.ID)]; dup {
 			return nil, fail(400, "角色 id 重複:%s", g.ID)
 		}
-		ids[strings.ToLower(g.ID)] = true
+		ids[strings.ToLower(g.ID)] = g.ID
 		for key, v := range g.DocAccess {
 			if !model.OneOf(v, model.DocAccessLevels) {
 				return nil, fail(400, "角色 %s 的 docAccess %s 必須是 %s 之一", g.ID, key, strings.Join(model.DocAccessLevels, "、"))
@@ -1329,9 +1375,11 @@ func (s *Service) ImportAgents(p *model.Principal, org string, in AgentImport) (
 			return nil, fail(400, "任務 id 重複:%s", t.ID)
 		}
 		tids[t.ID] = true
-		if !ids[strings.ToLower(t.AgentID)] {
+		aid, ok := ids[strings.ToLower(strings.TrimSpace(t.AgentID))]
+		if !ok {
 			return nil, fail(400, "任務 %s 的角色 %s 不在匯入的角色裡", t.ID, t.AgentID)
 		}
+		t.AgentID = aid
 		if !model.OneOf(t.Priority, model.IssuePriorities) {
 			t.Priority = "normal"
 		}

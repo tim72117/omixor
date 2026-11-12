@@ -59,6 +59,8 @@ type cabState struct {
 	cab     model.Cabinet
 	syncing bool
 	err     string
+	// migrateErr 本機舊資料(cabinet.json)沒有匯入的原因(核心已經有文件);匯入成功前一直顯示在畫面
+	migrateErr string
 }
 
 var cabStates sync.Map // *App → *cabState
@@ -149,6 +151,12 @@ func (a *App) CabinetError() string {
 	st := a.cabSt()
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if st.migrateErr != "" {
+		if st.err != "" {
+			return st.migrateErr + ";" + st.err
+		}
+		return st.migrateErr
+	}
 	return st.err
 }
 
@@ -356,17 +364,25 @@ func (a *App) migrateCabinet(org string) {
 				_ = WriteJSON(filepath.Join(dir, cabinetImportedFile), mark)
 			} else {
 				res, err := ops.Import(org, service.CabinetImport{Layout: layout, Docs: docs})
+				st := a.cabSt()
+				msg := ""
 				switch {
 				case err == nil:
 					mark["docs"], mark["layout"] = res.Docs, res.LayoutSaved
 					_ = WriteJSON(filepath.Join(dir, cabinetImportedFile), mark)
-				case cabCode(err) == 409 || cabCode(err) == 400: // 核心已經有文件,或舊資料不合格:不再重試(舊檔案留著)
+				case cabCode(err) == 400: // 舊資料不合格:重試也不會過,記下來不再重試(舊檔案留著)
 					mark["error"] = err.Error()
 					_ = WriteJSON(filepath.Join(dir, cabinetImportedFile), mark)
+					log.Printf("文件櫃舊資料沒有匯入(%s):%v", org, err)
+				case cabCode(err) == 409: // 核心已經有文件:不寫記號(舊檔案留著,下次載入再試),並顯示在畫面上讓人處理
+					msg = "本機舊的文件櫃資料(" + filepath.Join(dir, "cabinet.json") + ")還沒匯入:" + err.Error()
 					log.Printf("文件櫃舊資料沒有匯入(%s):%v", org, err)
 				default:
 					log.Printf("文件櫃舊資料匯入失敗(%s):%v", org, err)
 				}
+				st.mu.Lock()
+				st.migrateErr = msg
+				st.mu.Unlock()
 			}
 		}
 	}

@@ -196,32 +196,34 @@ func WorkerToolDefs() []any {
 			})),
 		ToolDef("dispatch_claim", "領取任務",
 			"領取任務並取得角色資訊與憑證:給 id 就領那一筆;不給 id 就從全部啟用中角色的待領取任務挑優先度最高(同優先度最舊)的一筆領走(給 agent 則限定該角色)。"+
-				"回傳 task、agent(id、名稱、職責、instructions)、credential(agentId、secret、endpoint、expiresAt;密鑰只這一次看得到)、lockedUntil 與 nextSteps(接下來怎麼做)。"+
+				"回傳 task、agent(id、名稱、職責、instructions)、credential(agentId、secret、code、endpoint、expiresAt;密鑰只這一次看得到;code 是 6 位數領取驗證碼,dispatch_report、dispatch_comment 要帶)、lockedUntil 與 nextSteps(接下來怎麼做)。"+
 				"領取即鎖定,鎖定期間別人不能領(被鎖時回錯誤並說明鎖到幾點);沒有可領的任務時 task 為 null。", false,
 			obj(map[string]any{
 				"agent": pStr("角色 id 或名稱(選填;限定角色)"),
 				"id":    pStr("任務 id,例如 T-3(選填;不給就自動挑最優先的)"),
 			})),
 		ToolDef("dispatch_status", "我領取中的任務",
-			"列出我領取中(inProgress)的任務:鎖定到期時間、剩餘分鐘、是否已逾時。逾時的任務會被自動退回待領取;要續約請用憑證連角色端點呼叫 ops_agent_task_report(status: inProgress)。", true,
+			"列出我領取中(inProgress)的任務:鎖定到期時間、剩餘分鐘、是否已逾時。逾時的任務會被自動退回待領取;要續約請用 dispatch_report(status: inProgress)。", true,
 			obj(map[string]any{})),
 		ToolDef("dispatch_report", "以角色身分回報任務",
 			"回報我領取中的任務(不需要角色憑證,伺服器確認我是領取者後以該角色身分回報):status inProgress(附 note 回報進度並續約)、"+
 				"blocked(需要人決定,在 note 提問)或 done(在 result 寫結果)。done、blocked 後任務結束、憑證作廢。任務要是進行中且租約還沒到期。", false,
 			obj(map[string]any{
 				"id":     pStr("任務 id,例如 T-3"),
+				"code":   pStr("領取驗證碼(dispatch_claim 回傳的 credential.code,6 位數)"),
 				"status": map[string]any{"type": "string", "enum": []string{"inProgress", "blocked", "done"}, "description": "狀態(選填;不給就只加備註或結果)"},
 				"result": pStr("結果(done 時寫)"),
 				"note":   pStr("備註(進度、問題),署名該角色"),
 				"links":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "相關 Issue id(選填,附加)"},
-			}, "id")),
+			}, "id", "code")),
 		ToolDef("dispatch_comment", "以角色身分在 Issue 留言",
-			"在 Issue 留言,署名是我領取中任務的角色(agent:<角色 id>),不需要角色憑證。任務要是我領取的、進行中且租約還沒到期。", false,
+			"在 Issue 留言,署名是我領取中任務的角色(agent:<角色 id>),不需要角色憑證。任務要是我領取的、進行中且租約還沒到期;只能留在任務 links 裡的 Issue。", false,
 			obj(map[string]any{
 				"id":      pStr("我領取中的任務 id(決定以哪個角色署名)"),
+				"code":    pStr("領取驗證碼(dispatch_claim 回傳的 credential.code,6 位數)"),
 				"issue":   pStr("Issue id,例如 ISS-13"),
 				"comment": pStr("留言內容(Markdown)"),
-			}, "id", "issue", "comment")),
+			}, "id", "code", "issue", "comment")),
 		ToolDef("dispatch_release", "放棄領取",
 			"放棄一筆我領取中的任務:退回待領取、解鎖、憑證作廢,並在任務留一則備註(署名放棄者,含原因)。只有領取者本人或組織管理員可以。", false,
 			obj(map[string]any{

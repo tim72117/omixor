@@ -30,7 +30,7 @@ func TestImportAgents(t *testing.T) {
 		Tasks: []model.AgentTask{
 			{ID: "T-3", AgentID: "analyst", Title: "進行中的", Status: "inProgress", Priority: "high", ClaimedBy: "x", RoutineID: &rid,
 				Notes: []model.AgentTaskNote{{ID: "n1", Author: "agent:analyst", Text: "做到一半"}}},
-			{ID: "T-1", AgentID: "dev", Title: "做完的", Status: "done", Result: "好了"},
+			{ID: "T-1", AgentID: "DEV", Title: "做完的", Status: "done", Result: "好了"},
 			{ID: "T-2", AgentID: "analyst", Title: "取消的", Status: "canceled"},
 		},
 	}
@@ -54,6 +54,9 @@ func TestImportAgents(t *testing.T) {
 	ts, _ := boss.ListAgentTasks("o1", service.TaskFilter{Status: "all"})
 	if len(ts) != 3 || ts[0].ID != "T-3" || ts[0].Status != "queued" || ts[0].ClaimedBy != "" || len(ts[0].Notes) != 1 {
 		t.Fatalf("%+v", ts)
+	}
+	if ts[2].ID != "T-1" || ts[2].AgentID != "dev" {
+		t.Fatalf("任務的角色 id 要換成角色的寫法:%+v", ts[2])
 	}
 	// 之後新建的任務接著編號
 	nt, err := boss.AssignTask("o1", service.TaskInput{AgentID: "analyst", Title: "新的"})

@@ -126,18 +126,20 @@ func (a *API) agentRoutes(mux *http.ServeMux) {
 		t, err := a.Svc.ReportTask(p, r.PathValue("org"), r.PathValue("id"), in)
 		reply(w, t, err)
 	}))
-	// 執行者(領取者本人)以角色身分回報與留言,不需要角色憑證:body 同 report;留言 {"issueId": "...", "comment": "..."}
+	// 執行者(領取者本人)以角色身分回報與留言,不需要角色憑證,但要帶領取驗證碼 code:
+	// 回報 {"code", "status"?, "result"?, "note"?, "links"?};留言 {"code", "issueId", "comment"}
 	mux.HandleFunc("POST "+tk+"/{id}/worker/report", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
-		var in service.TaskReport
+		var in service.WorkerReportInput
 		if err := read(r, &in); err != nil {
 			bad(w, err)
 			return
 		}
-		t, err := a.Svc.WorkerReport(p, r.PathValue("org"), r.PathValue("id"), in)
+		t, err := a.Svc.WorkerReport(p, r.PathValue("org"), r.PathValue("id"), in.Code, in.TaskReport)
 		reply(w, t, err)
 	}))
 	mux.HandleFunc("POST "+tk+"/{id}/worker/comment", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		var in struct {
+			Code    string `json:"code"`
 			IssueID string `json:"issueId"`
 			Comment string `json:"comment"`
 		}
@@ -145,7 +147,7 @@ func (a *API) agentRoutes(mux *http.ServeMux) {
 			bad(w, err)
 			return
 		}
-		i, err := a.Svc.WorkerComment(p, r.PathValue("org"), r.PathValue("id"), in.IssueID, in.Comment)
+		i, err := a.Svc.WorkerComment(p, r.PathValue("org"), r.PathValue("id"), in.Code, in.IssueID, in.Comment)
 		reply(w, i, err)
 	}))
 	mux.HandleFunc("POST "+tk+"/{id}/cancel", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {

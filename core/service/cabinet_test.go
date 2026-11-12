@@ -211,3 +211,20 @@ func TestImportCabinet(t *testing.T) {
 		t.Fatal("編號接在匯入的後面", d.ID)
 	}
 }
+
+// 已經有文件時匯入整個被拒,結構也不會先寫進去(之後可以整個重來)
+func TestImportCabinetRejectedWritesNothing(t *testing.T) {
+	svc, boss, alice := cabEnv(t)
+	if _, err := svc.CreateDoc(alice, "o1", service.DocInput{Title: "先有的", Section: "docs"}); err != nil {
+		t.Fatal(err)
+	}
+	layout := []model.CabinetSection{{ID: "docs", Label: "文件"}, {ID: "extra", Label: "另外"}}
+	docs := []model.CabinetDoc{{ID: "DOC-3", Title: "舊", Section: "docs"}}
+	if _, err := svc.ImportCabinet(boss, "o1", service.CabinetImport{Layout: layout, Docs: docs}); code(err) != 409 {
+		t.Fatal("已經有文件要拒絕", err)
+	}
+	c, _ := svc.GetCabinet(alice, "o1")
+	if c.LayoutSaved || len(c.Docs) != 1 {
+		t.Fatalf("被拒時不能先存結構:%+v", c)
+	}
+}

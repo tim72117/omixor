@@ -480,12 +480,12 @@ func (o AgentOps) ReportTask(org, id string, in service.TaskReport) (*model.Agen
 }
 
 // WorkerReport 領取者(本機是 ops-web,遠端是雲端帳號)以角色身分回報自己領取的任務(/mcp/worker 的 dispatch_report)
-func (o AgentOps) WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error) {
+func (o AgentOps) WorkerReport(org, id, code string, in service.TaskReport) (*model.AgentTask, error) {
 	b, err := o.be()
 	if err != nil {
 		return nil, err
 	}
-	t, err := b.WorkerReport(org, id, in)
+	t, err := b.WorkerReport(org, id, code, in)
 	if err != nil {
 		return nil, err
 	}
@@ -503,12 +503,12 @@ func (o AgentOps) WorkerReport(org, id string, in service.TaskReport) (*model.Ag
 }
 
 // WorkerComment 領取者以角色身分在 Issue 留言(/mcp/worker 的 dispatch_comment);寫完重讀 Issue 給畫面
-func (o AgentOps) WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error) {
+func (o AgentOps) WorkerComment(org, taskID, code, issueID, comment string) (*model.Issue, error) {
 	b, err := o.be()
 	if err != nil {
 		return nil, err
 	}
-	i, err := b.WorkerComment(org, taskID, issueID, comment)
+	i, err := b.WorkerComment(org, taskID, code, issueID, comment)
 	if err != nil {
 		return nil, err
 	}

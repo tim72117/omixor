@@ -1103,6 +1103,23 @@ func (p *PG) SaveAgentCredential(cr model.AgentCredential) error {
 	return tx.Commit(c)
 }
 
+func (p *PG) AgentCredentialForTask(org, taskID string) (*model.AgentCredential, error) {
+	c, cancel := ctx()
+	defer cancel()
+	var cr model.AgentCredential
+	var issued, exp time.Time
+	err := p.pool.QueryRow(c, `select token_hash, org, agent_id, task_id, issued_at, expires_at from omixor_agent_credentials
+		where org = $1 and task_id = $2`, org, taskID).Scan(&cr.Hash, &cr.Org, &cr.AgentID, &cr.TaskID, &issued, &exp)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	cr.IssuedAt, cr.ExpiresAt = model.Time{Time: issued.UTC()}, model.Time{Time: exp.UTC()}
+	return &cr, nil
+}
+
 func (p *PG) AgentCredentialByHash(h []byte) (*model.AgentCredential, error) {
 	c, cancel := ctx()
 	defer cancel()

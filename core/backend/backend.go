@@ -57,8 +57,9 @@ type Backend interface {
 	ReleaseTask(org, id, reason string) (*model.AgentTask, error)
 	// WorkerReport、WorkerComment 領取者本人(人,不是角色憑證)以任務角色的身分回報任務、在 Issue 留言;
 	// 任務要是進行中、租約還沒到期、而且是呼叫者領取的
-	WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error)
-	WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error)
+	// code 是領取時拿到的 6 位數驗證碼(確認是這次領取的任務與角色)
+	WorkerReport(org, id, code string, in service.TaskReport) (*model.AgentTask, error)
+	WorkerComment(org, taskID, code, issueID, comment string) (*model.Issue, error)
 	// Whoami 呼叫者的署名,和領取任務時寫進 ClaimedBy 的值一致(email 優先,否則名稱);不知道回空字串
 	Whoami() string
 	// RunRoutine 立刻替角色排一筆例行任務(組織管理員);author 是署名(只有伺服器管理員的有效)

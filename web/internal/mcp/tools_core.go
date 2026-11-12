@@ -228,11 +228,11 @@ func (b appBackend) Whoami() string { return b.a.AgentOps().Whoami() }
 func (b appBackend) ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error) {
 	return b.a.AgentOps().ReportTask(org, id, in)
 }
-func (b appBackend) WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error) {
-	return b.a.AgentOps().WorkerReport(org, id, in)
+func (b appBackend) WorkerReport(org, id, code string, in service.TaskReport) (*model.AgentTask, error) {
+	return b.a.AgentOps().WorkerReport(org, id, code, in)
 }
-func (b appBackend) WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error) {
-	return b.a.AgentOps().WorkerComment(org, taskID, issueID, comment)
+func (b appBackend) WorkerComment(org, taskID, code, issueID, comment string) (*model.Issue, error) {
+	return b.a.AgentOps().WorkerComment(org, taskID, code, issueID, comment)
 }
 func (b appBackend) CancelTask(org, id string) (*model.AgentTask, error) {
 	return b.a.AgentOps().CancelTask(org, id)

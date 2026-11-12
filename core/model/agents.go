@@ -233,9 +233,12 @@ type AgentCredential struct {
 // AgentGrant 領取任務當下回給呼叫端的憑證(Secret 明文只有這一次看得到)
 // 連角色端點用 Authorization: Bearer <agentId>:<secret>
 type AgentGrant struct {
-	AgentID   string `json:"agentId"`
-	TaskID    string `json:"taskId"`
-	Secret    string `json:"secret"`
+	AgentID string `json:"agentId"`
+	TaskID  string `json:"taskId"`
+	Secret  string `json:"secret"`
+	// Code 6 位數的領取驗證碼(由憑證算出,同一次領取不變):執行者用 dispatch_report、dispatch_comment 時要帶,
+	// 確認是對這次領取的任務與角色操作,避免選錯角色
+	Code      string `json:"code"`
 	ExpiresAt string `json:"expiresAt"`
 }
 

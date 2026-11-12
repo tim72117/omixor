@@ -310,8 +310,10 @@ func (s *Service) DeleteDoc(p *model.Principal, org, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.Store.DeleteDoc(org, d.ID); err != nil {
+	if err := s.Store.DeleteDoc(org, d.ID); errors.Is(err, store.ErrNotFound) {
 		return fail(404, "找不到文件 %s", id)
+	} else if err != nil {
+		return err
 	}
 	s.Audit(p, "doc.delete", org, map[string]any{"id": d.ID})
 	return nil
@@ -399,6 +401,14 @@ func (s *Service) ImportCabinet(p *model.Principal, org string, in CabinetImport
 			return nil, fail(409, "%s 的文件櫃已經有 %d 份文件;匯入只在第一次搬資料時用", org, len(cur))
 		}
 	}
+	// 先匯入文件再存結構:文件被拒(409)時什麼都沒寫,之後可以整個重來
+	if len(docs) > 0 {
+		n, err := s.Store.ImportDocs(org, docs)
+		if err != nil {
+			return nil, fail(409, "%v", err)
+		}
+		res.Docs = n
+	}
 	if in.Layout != nil {
 		if _, saved, err := s.layoutOf(org); err != nil {
 			return nil, err
@@ -410,13 +420,6 @@ func (s *Service) ImportCabinet(p *model.Principal, org string, in CabinetImport
 			}
 			res.LayoutSaved = true
 		}
-	}
-	if len(docs) > 0 {
-		n, err := s.Store.ImportDocs(org, docs)
-		if err != nil {
-			return nil, fail(409, "%v", err)
-		}
-		res.Docs = n
 	}
 	s.Audit(p, "cabinet.import", org, map[string]any{"docs": res.Docs, "layout": res.LayoutSaved})
 	return res, nil

@@ -9,7 +9,7 @@ import (
 	"omixor-core/service"
 )
 
-// 派發工具(執行者端點 /mcp/worker 專用):dispatch_queue、dispatch_claim、dispatch_status、dispatch_release。
+// 派發工具(執行者端點 /mcp/worker 專用):dispatch_queue、dispatch_claim、dispatch_status、dispatch_report、dispatch_comment、dispatch_release。
 // 給「領取任務的 LLM」用,只做找任務、領取、看自己領的、放棄;角色與任務的建立修改、Issue、文件、成員都不在這裡。
 // 資料操作都透過 Backend(Local / Remote);「我」的比對用 Backend.Whoami(同 ClaimTask 寫進 ClaimedBy 的值)。
 
@@ -144,7 +144,7 @@ func RegisterDispatchTools(s *Server) {
 		}
 		endpoint := e.EndpointURL()
 		if cr := res.Credential; cr != nil {
-			m := map[string]any{"agentId": cr.AgentID, "secret": cr.Secret, "expiresAt": cr.ExpiresAt}
+			m := map[string]any{"agentId": cr.AgentID, "secret": cr.Secret, "code": cr.Code, "expiresAt": cr.ExpiresAt}
 			if endpoint != "" {
 				m["endpoint"] = endpoint
 			}
@@ -207,7 +207,11 @@ func RegisterDispatchTools(s *Server) {
 		if l, ok := c.Args.Strings("links"); ok {
 			in.Links = l
 		}
-		t, err := e.Backend().WorkerReport(e.Org(), id, in)
+		code, err := c.Args.Require("code")
+		if err != nil {
+			return nil, err
+		}
+		t, err := e.Backend().WorkerReport(e.Org(), id, code, in)
 		if err != nil {
 			return nil, terr(err)
 		}
@@ -232,7 +236,11 @@ func RegisterDispatchTools(s *Server) {
 		if err != nil {
 			return nil, err
 		}
-		i, err := e.Backend().WorkerComment(e.Org(), id, issue, cm)
+		code, err := c.Args.Require("code")
+		if err != nil {
+			return nil, err
+		}
+		i, err := e.Backend().WorkerComment(e.Org(), id, code, issue, cm)
 		if err != nil {
 			return nil, terr(err)
 		}
@@ -261,6 +269,10 @@ func RegisterDispatchTools(s *Server) {
 
 func nextSteps(res *service.ClaimResult, agentName, endpoint, lockHHMM string) string {
 	t := res.Task
+	code := ""
+	if res.Credential != nil {
+		code = res.Credential.Code
+	}
 	var b strings.Builder
 	b.WriteString("已領取 " + t.ID + "「" + t.Title + "」,你現在是虛擬角色「" + agentName + "」。")
 	b.WriteString("\n1. 照上面的角色設定(instructions)與任務說明完成工作;相關 Issue 見 task.links。")
@@ -268,9 +280,10 @@ func nextSteps(res *service.ClaimResult, agentName, endpoint, lockHHMM string) s
 	if lockHHMM != "" {
 		b.WriteString("到 " + lockHHMM)
 	}
-	b.WriteString(",鎖定期間別人不能領取。工作期間請定期(至少每小時)用 dispatch_report(id: " + t.ID + ", status: inProgress,可附 note)回報進度以續約;逾時沒回報會被自動退回待領取。")
-	b.WriteString("\n3. 用 dispatch_comment(id: " + t.ID + ", issue, comment)在相關 Issue 以角色身分留言說明結果;做完用 dispatch_report status=done 並在 result 寫結果,需要人決定就用 status=blocked 並在 note 提問。")
+	b.WriteString(",鎖定期間別人不能領取。工作期間請定期(至少每小時)用 dispatch_report(id: " + t.ID + ", code: " + code + ", status: inProgress,可附 note)回報進度以續約;逾時沒回報會被自動退回待領取。")
+	b.WriteString("\n3. 用 dispatch_comment(id: " + t.ID + ", code: " + code + ", issue, comment)在相關 Issue 以角色身分留言說明結果;做完用 dispatch_report status=done 並在 result 寫結果,需要人決定就用 status=blocked 並在 note 提問。")
 	b.WriteString("\n4. 不想做了或做不下去(又不需要人決定):用 dispatch_release 放棄,任務會退回待領取。")
-	b.WriteString("\n以上工具都以你登入 omixor 的身分呼叫,伺服器替你以角色署名,不需要使用 credential 的密鑰(密鑰只給直接連角色端點 /mcp/agent 的程式用,不要寫進 Issue、留言、任務結果或檔案)。")
+	b.WriteString("\n領取驗證碼 " + code + ":dispatch_report、dispatch_comment 一定要帶,伺服器用它確認你操作的是這次領取的任務與角色(同時領了好幾筆時不會選錯)。")
+	b.WriteString("\n以上工具都以你登入 omixor 的身分呼叫,伺服器確認你是領取者後替你以角色署名,不需要使用 credential 的密鑰(密鑰給直接連角色端點 /mcp/agent 的程式用,不要寫進 Issue、留言、任務結果或檔案)。")
 	return b.String()
 }

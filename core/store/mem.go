@@ -569,6 +569,19 @@ func (m *Mem) SaveAgentCredential(c model.AgentCredential) error {
 	return nil
 }
 
+func (m *Mem) AgentCredentialForTask(org, taskID string) (*model.AgentCredential, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, x := range m.creds {
+		if x.Org == org && x.TaskID == taskID {
+			c := x
+			c.Hash = append([]byte(nil), x.Hash...)
+			return &c, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
 func (m *Mem) AgentCredentialByHash(h []byte) (*model.AgentCredential, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

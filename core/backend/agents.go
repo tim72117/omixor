@@ -39,10 +39,10 @@ func (Unsupported) ClaimNext(string, string) (*service.ClaimResult, error) {
 func (Unsupported) ReleaseTask(string, string, string) (*model.AgentTask, error) {
 	return nil, errUnsupported
 }
-func (Unsupported) WorkerReport(string, string, service.TaskReport) (*model.AgentTask, error) {
+func (Unsupported) WorkerReport(string, string, string, service.TaskReport) (*model.AgentTask, error) {
 	return nil, errUnsupported
 }
-func (Unsupported) WorkerComment(string, string, string, string) (*model.Issue, error) {
+func (Unsupported) WorkerComment(string, string, string, string, string) (*model.Issue, error) {
 	return nil, errUnsupported
 }
 func (Unsupported) Whoami() string { return "" }
@@ -117,14 +117,14 @@ func (l *Local) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
 	return l.Svc.ReleaseTask(l.P, org, id, reason)
 }
 
-func (l *Local) WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error) {
+func (l *Local) WorkerReport(org, id, code string, in service.TaskReport) (*model.AgentTask, error) {
 	l.ensureOrg(org)
-	return l.Svc.WorkerReport(l.P, org, id, in)
+	return l.Svc.WorkerReport(l.P, org, id, code, in)
 }
 
-func (l *Local) WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error) {
+func (l *Local) WorkerComment(org, taskID, code, issueID, comment string) (*model.Issue, error) {
 	l.ensureOrg(org)
-	return l.Svc.WorkerComment(l.P, org, taskID, issueID, comment)
+	return l.Svc.WorkerComment(l.P, org, taskID, code, issueID, comment)
 }
 
 func (l *Local) Whoami() string { return service.ClaimerName(l.P) }
@@ -230,16 +230,16 @@ func (r *Remote) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
 	return t, nil
 }
 
-func (r *Remote) WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error) {
-	t, err := r.Client().WorkerReport(r.org(org), id, in)
+func (r *Remote) WorkerReport(org, id, code string, in service.TaskReport) (*model.AgentTask, error) {
+	t, err := r.Client().WorkerReport(r.org(org), id, code, in)
 	if err != nil {
 		return nil, wrap(err)
 	}
 	return t, nil
 }
 
-func (r *Remote) WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error) {
-	i, err := r.Client().WorkerComment(r.org(org), taskID, issueID, comment)
+func (r *Remote) WorkerComment(org, taskID, code, issueID, comment string) (*model.Issue, error) {
+	i, err := r.Client().WorkerComment(r.org(org), taskID, code, issueID, comment)
 	if err != nil {
 		return nil, wrap(err)
 	}
