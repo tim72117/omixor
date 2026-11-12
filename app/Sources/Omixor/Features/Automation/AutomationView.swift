@@ -66,7 +66,7 @@ struct AutomationView: View {
     }
 
     private func tabTitle(_ t: AutoTab) -> String {
-        if t == .agents {
+        if t == .agents || t == .dispatch {
             let blocked = app.agentTasks.filter { $0.status == .blocked }.count
             if blocked > 0 { return "\(t.label)(\(blocked))" }
         }
@@ -82,6 +82,8 @@ struct AutomationView: View {
                           openRun: { id in selectedRun = id; tab = .runs })
         case .agents:
             AutoAgentsView(selection: $selectedAgent)
+        case .dispatch:
+            AutoDispatchView(openTask: { t in selectedAgent = t.agentId; tab = .agents })
         case .facebook:
             AutoFacebookView()
         case .flows:
@@ -104,6 +106,7 @@ struct AutomationView: View {
     @discardableResult
     private func open(_ id: String) -> Bool {
         if id == "agents" { tab = .agents; return true }
+        if id == "dispatch" { tab = .dispatch; return true }
         if id == "facebook" || app.fbSettings.drafts.contains(where: { $0.id == id }) { tab = .facebook; return true }
         if let a = app.agents.first(where: { $0.id == id }) { selectedAgent = a.id; tab = .agents; return true }
         if let t = app.agentTasks.first(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) {

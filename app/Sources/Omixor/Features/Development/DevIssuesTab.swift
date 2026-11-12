@@ -99,8 +99,14 @@ private struct IssueRow: View {
                     AuthorIcon(author: issue.createdBy, size: 14).help(app.issueStore?.authorName(issue.createdBy) ?? "")
                 }
                 if issue.priority <= .high { Pill(text: issue.priority.label, color: issue.priority.color) }
-                ForEach(issue.labels.prefix(3), id: \.self) { Pill(text: $0) }
-                Spacer()
+                // 寬度不夠時依序少放標籤,最後指派只剩圖示
+                ViewThatFits(in: .horizontal) {
+                    tags(labels: 3, assigneeName: true)
+                    tags(labels: 1, assigneeName: true)
+                    tags(labels: 0, assigneeName: true)
+                    tags(labels: 0, assigneeName: false)
+                }
+                Spacer(minLength: 4)
                 if !issue.comments.isEmpty {
                     Label("\(issue.comments.count)", systemImage: "bubble.left").font(.caption).foregroundStyle(.secondary)
                 }
@@ -108,6 +114,24 @@ private struct IssueRow: View {
             }
         }
         .padding(.vertical, 3)
+    }
+
+    /// 指派與標籤(列表用)
+    private func tags(labels n: Int, assigneeName: Bool) -> some View {
+        HStack(spacing: 6) {
+            if let a = issue.assignedAgent {
+                let name = app.agents.first { $0.id == a }?.name ?? a
+                Group {
+                    if assigneeName {
+                        Pill(text: name, color: .purple, icon: "person.crop.circle")
+                    } else {
+                        Image(systemName: "person.crop.circle").font(.caption).foregroundStyle(.purple)
+                    }
+                }
+                .help("指派給角色:\(name)")
+            }
+            ForEach(issue.labels.prefix(n), id: \.self) { Pill(text: $0) }
+        }
     }
 }
 
@@ -125,6 +149,18 @@ private struct IssueDetail: View {
     @State private var confirmDelete = false
 
     private var store: IssueStore { app.startIssues() }
+
+    /// 指派給角色(遠端模式:伺服器自動替角色排任務;列出啟用中的角色,已指派的停用角色也列出來)
+    @ViewBuilder private var assigneeMenu: some View {
+        Picker("指派給角色(會自動排任務)", selection: Binding(get: { issue.assignedAgent ?? "" }, set: { v in
+            store.update(issue.id, by: app.me) { $0.assignee = v.isEmpty ? nil : v }
+        })) {
+            Text("未指派").tag("")
+            ForEach(app.agents.filter { $0.active || $0.id == issue.assignedAgent }) { a in
+                Text(a.active ? a.name : "\(a.name)(停用)").tag(a.id)
+            }
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -158,6 +194,7 @@ private struct IssueDetail: View {
                     })) {
                         ForEach(IssuePriority.allCases) { Text($0.label).tag($0) }
                     }
+                    if store.isRemote { assigneeMenu }
                     Divider()
                     Button("編輯…") { startEdit() }
                     Button("刪除…", role: .destructive) { confirmDelete = true }
@@ -172,7 +209,22 @@ private struct IssueDetail: View {
                 Pill(text: issue.status.label, color: issue.status == .open ? .green : .secondary,
                      icon: issue.status == .open ? "circle.dotted" : "checkmark.circle")
                 Pill(text: "優先度:" + issue.priority.label, color: issue.priority.color)
+                if let a = issue.assignedAgent {
+                    Pill(text: "指派:" + (app.agents.first { $0.id == a }?.name ?? a), color: .purple, icon: "person.crop.circle")
+                }
                 ForEach(issue.labels, id: \.self) { Pill(text: $0, icon: "tag") }
+                if let e = store.remoteError { Text(e).font(.caption).foregroundStyle(.orange).lineLimit(2) }
+            }
+            if store.isRemote, let a = issue.assignedAgent {
+                let ts = app.agentTasks.filter { $0.agentId == a && $0.links.contains { $0.caseInsensitiveCompare(issue.id) == .orderedSame } }
+                if let t = ts.first(where: { $0.status.isOpen }) ?? ts.first {
+                    Button { app.go(.automation, focus: t.id) } label: {
+                        Label("\(t.id) \(t.status.label)" + (t.leaseLabel.map { " · \($0)" } ?? ""), systemImage: t.status.icon)
+                            .font(.caption).foregroundStyle(t.status.color)
+                    }
+                    .buttonStyle(.plain)
+                    .help("這個 Issue 替角色排的任務")
+                }
             }
             HStack(spacing: 12) {
                 HStack(spacing: 4) {

@@ -291,9 +291,10 @@ final class MCPHandler {
                  "source": prop("string", "從哪裡發現的,例如「網站訪客 7d」"),
                  "link": prop("string", "相關網址"),
                  "agent": prop("string", "以虛擬角色身分工作時填角色 id 或名稱,Issue 會署名該角色"),
+                 "assignee": prop("string", "指派給的虛擬角色 id;連 omixor server 時伺服器會自動替它排任務(角色必須存在)"),
              ], required: ["title"]),
         Tool(name: "ops_issue_update", title: "更新 Issue",
-             description: "更新 Issue:改標題、內文、優先度、標籤,加留言,或關閉/重新打開。只給要改的欄位。",
+             description: "更新 Issue:改標題、內文、優先度、標籤、指派,加留言,或關閉/重新打開。只給要改的欄位。",
              properties: [
                  "id": prop("string", "Issue id,例如 ISS-3"),
                  "title": prop("string", "新標題"),
@@ -305,6 +306,7 @@ final class MCPHandler {
                  "status": prop("string", "open 重新打開,closed 關閉", enum: cases(IssueStatus.self)),
                  "comment": prop("string", "加一則留言"),
                  "agent": prop("string", "以虛擬角色身分工作時填角色 id 或名稱,留言與變更會署名該角色"),
+                 "assignee": prop("string", "改指派給的角色 id(空字串 = 取消指派);連 omixor server 時會自動替新角色排任務、取消舊角色還沒領取的任務"),
              ], required: ["id"]),
         Tool(name: "ops_issues", title: "查 Issue",
              description: "給 id 回傳完整內容(含留言);不給 id 則列出符合條件的 Issue(預設只列未解決,依優先度與時間排序)。",
@@ -333,7 +335,7 @@ final class MCPHandler {
                                 enum: ["open", "all"] + cases(AgentTaskStatus.self)),
              ], required: [], readOnly: true),
         Tool(name: "ops_agent_task_claim", title: "以角色身分領取任務",
-             description: "以某個虛擬角色的身分領取任務(狀態改成進行中)。給 id 就領那筆;不給就領該角色最優先的待領取任務。回傳角色設定與任務說明,照著做,做完用 ops_agent_task_report 回報。沒有任務時 task 為 null。",
+             description: "以某個虛擬角色的身分領取任務(狀態改成進行中)。給 id 就領那筆;不給就領該角色最優先的待領取任務。回傳角色設定與任務說明,照著做,做完用 ops_agent_task_report 回報。沒有任務時 task 為 null。連 omixor server 時另外回傳 credential(agentId、taskId、secret、expiresAt、endpoint):綁這筆任務的角色憑證,secret 只給這一次,不要寫進 Issue、留言或檔案。",
              properties: [
                  "agent": prop("string", "角色 id 或名稱"),
                  "id": prop("string", "任務 id(選填)"),
@@ -362,6 +364,9 @@ final class MCPHandler {
                  "doc_access": ["type": "object", "additionalProperties": ["type": "string", "enum": cases(DocAccess.self)],
                                 "description": "文件櫃存取範圍,會合併進現有設定:key 是區塊 id(levels、dev、ideas、docs、overview、todo、members、tools)或頁籤網址(例如 /studio/tools、/docs/course-goals),值是 read、write 或 none(移除)。頁籤的設定優先於區塊。"],
              ], required: []),
+        Tool(name: "ops_server", title: "伺服器與連線資訊",
+             description: "目前連線資訊與版本:模式(本機/遠端)、遠端 server 名稱(不含網址)、登入狀態(帳號、角色、token 到期時間)與目前組織,以及 omixor app 與遠端 server 的版本(version、commit、buildTime)。不會顯示任何密鑰。",
+             properties: [:], required: [], readOnly: true),
         Tool(name: "ops_orgs", title: "組織",
              description: "列出 omixor 的組織與目前使用中的組織。Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織;切換組織只能由人在 app 裡做。",
              properties: [:], required: [], readOnly: true),
@@ -522,6 +527,7 @@ final class MCPHandler {
         case "ops_agent_task_create": return try agentCreate(a)
         case "ops_agent_upsert": return try agentUpsert(a)
         case "ops_orgs": return orgsInfo()
+        case "ops_server": return serverInfo()
         case "ops_cabinet": return try cabinet(a)
         case "ops_docs": return try docs(a)
         case "ops_doc_save": return try docSave(a)
@@ -911,11 +917,18 @@ final class MCPHandler {
 
     private func agentClaim(_ a: MCPArgs) throws -> Any {
         let ag = try a.require("agent")
-        let t = try agentStore.claim(agent: ag, task: a.string("id"))
-        let g = agentStore.agent(ag)
-        return ["agent": g.map(agentJSON) ?? [:], "task": t.map { taskJSON($0) as Any } ?? NSNull(),
-                "message": t == nil ? "\(g?.name ?? ag) 目前沒有待領取的任務"
-                    : "已領取,做完用 ops_agent_task_report 回報。開 Issue 或留言時帶 agent: \"\(g?.id ?? ag)\",才會署名這個角色"]
+        let c = try agentStore.claimWithCredential(agent: ag, task: a.string("id"))
+        let t = c.task
+        let g = agentStore.agent(ag) ?? c.agent
+        var out: [String: Any] = ["agent": g.map(agentJSON) ?? [:], "task": t.map { taskJSON($0) as Any } ?? NSNull(),
+                                  "message": t == nil ? "\(g?.name ?? ag) 目前沒有待領取的任務"
+                                      : "已領取,做完用 ops_agent_task_report 回報。開 Issue 或留言時帶 agent: \"\(g?.id ?? ag)\",才會署名這個角色"]
+        if let cr = c.credential {
+            out["credential"] = ["agentId": cr.agentId, "taskId": cr.taskId, "secret": cr.secret,
+                                 "expiresAt": cr.expiresAt, "endpoint": cr.endpoint]
+            out["message"] = "已領取。用 credential 連角色端點(\(cr.endpoint),HTTP 標頭 Authorization: Bearer <agentId>:<secret>)以角色身分工作;secret 只給這一次,不要寫進 Issue、留言、任務結果或檔案。至少每小時用 ops_agent_task_report status=inProgress 回報以續約,做完回報 done、需要人決定回報 blocked(之後憑證失效)。"
+        }
+        return out
     }
 
     private func agentReport(_ a: MCPArgs) throws -> Any {
@@ -968,7 +981,7 @@ final class MCPHandler {
                 g.docAccess[key] = level == .none ? nil : level
             }
         }
-        agentStore.upsert(g)
+        do { g = try agentStore.save(agent: g) } catch { throw MCPToolError("角色沒有存起來:\(error.localizedDescription)") }
         app.log(.mcp, "person.badge.plus", "\(isNew ? "新增" : "修改")角色「\(g.name)」", .automation)
         return agentJSON(g)
     }
@@ -998,10 +1011,33 @@ final class MCPHandler {
         }
         let t = agentStore.assign(to: ag, title: try a.require("title"), instructions: a.raw["instructions"] as? String ?? "",
                                   priority: try a.optionalEnum("priority", IssuePriority.self) ?? .normal, by: by)
+        if t == nil, let e = agentStore.remoteError { throw MCPToolError("任務沒有派出去:\(e)") }
         return t.map(taskJSON) ?? [:]
     }
 
     // MARK: 組織
+
+    /// ops_server:連線資訊與版本(對應 web 的 internal/mcp/tools_server.go;不含網址與密鑰)
+    private func serverInfo() -> Any {
+        var out: [String: Any] = ["mode": app.mode.mode, "org": ["id": app.currentOrgId, "name": app.currentOrg?.name ?? ""]]
+        var ver: [String: Any] = ["app": ["version": Self.serverVersion]]
+        if let s = app.remoteServer {
+            var login: [String: Any] = ["loggedIn": false]
+            if let a = app.omixorLogin.account {
+                login = ["loggedIn": true, "email": a.email, "name": a.name, "role": a.role]
+                if let e = a.expiresAt { login["tokenExpiresAt"] = ISO8601DateFormatter().string(from: e) }
+            }
+            out["remote"] = ["server": s.name, "serverId": s.id, "login": login]
+            do {
+                let v = try IssueRemote(config: IssueServerConfig(url: s.url, token: nil)).version()
+                ver["server"] = ["version": v.version, "commit": v.commit, "buildTime": v.buildTime]
+            } catch {
+                ver["server"] = ["error": "查不到遠端 server 的版本(連不上、逾時或不支援)"]
+            }
+        }
+        out["version"] = ver
+        return out
+    }
 
     private func orgsInfo() -> Any {
         app.ensureOrgs()
@@ -1161,13 +1197,22 @@ final class MCPHandler {
         return IssueStore.agentPrefix + g.id
     }
 
+    /// assignee 參數:nil = 沒給;"" = 取消指派;其他換成角色 id(找不到角色就報錯)
+    private func issueAssignee(_ a: MCPArgs) throws -> String? {
+        guard let v = a.raw["assignee"] as? String else { return nil }
+        let s = v.trimmingCharacters(in: .whitespaces)
+        if s.isEmpty { return "" }
+        guard let g = agentStore.agent(s) else { throw MCPToolError("找不到角色 \(s)") }
+        return g.id
+    }
+
     private func issueCreate(_ a: MCPArgs) throws -> Any {
         let store = app.startIssues()
         let author = try issueAuthor(a)
         let issue = store.create(title: try a.require("title"), body: a.raw["body"] as? String ?? "",
                                  priority: try a.optionalEnum("priority", IssuePriority.self) ?? .normal,
                                  labels: a.strings("labels") ?? [], source: a.string("source") ?? "",
-                                 link: a.string("link") ?? "", by: author)
+                                 link: a.string("link") ?? "", assignee: try issueAssignee(a), by: author)
         // Issue 伺服器模式連不上時,create 回傳沒存起來的草稿(id 是空的)
         if issue.id.isEmpty { throw MCPToolError("Issue 沒有存起來:\(store.remoteError ?? "Issue 伺服器沒有回應")") }
         return issueJSON(issue)
@@ -1181,7 +1226,9 @@ final class MCPHandler {
         let priority = try a.optionalEnum("priority", IssuePriority.self)
         let status = try a.optionalEnum("status", IssueStatus.self)
         if let t = a.string("title"), t.isEmpty { throw MCPToolError("標題不能是空的") }
+        let assignee = try issueAssignee(a)
         var updated = store.update(id, by: author) { i in
+            if let v = assignee { i.assignee = v.isEmpty ? nil : v }
             if let t = a.string("title") { i.title = t }
             if let b = a.raw["body"] as? String { i.body = b }
             if let b = a.raw["append_body"] as? String, !b.isEmpty { i.body += (i.body.isEmpty ? "" : "\n\n") + b }

@@ -11,6 +11,8 @@ struct SettingsOrgsPane: View {
     @State private var deleting: Organization?
     @State private var editingLayout = false
     @State private var error: String?
+    /// 遠端 omixor 的版本(GET /api/version)
+    @State private var serverVersion: String?
 
     private var remote: OmixorMode.Server? { app.remoteServer }
     /// 能不能新增、編輯組織:本機都可以;遠端要伺服器管理員
@@ -48,7 +50,7 @@ struct SettingsOrgsPane: View {
                 Text(remote.map { "組織(\($0.name))" } ?? "組織(本機)")
             } footer: {
                 if remote != nil {
-                    Text("組織的名稱、圖示、顏色、備註以 omixor server 為準,Issue 也存在伺服器;新增與編輯要伺服器管理員,成員由組織管理員用 omixor CLI 管理。虛擬角色、文件櫃、連線還是存在這台 Mac。")
+                    Text("組織的名稱、圖示、顏色、備註以 omixor server 為準,Issue、虛擬角色與任務也存在伺服器;新增與編輯要伺服器管理員,成員由組織管理員用 omixor CLI 管理。文件櫃、連線還是存在這台 Mac。")
                 } else {
                     Text("每個組織有自己的 Issue、虛擬角色與任務、文件櫃與結構、連線(登入也分開)。旁白批次與畫面上的範例資料是共用的。")
                 }
@@ -115,6 +117,12 @@ struct SettingsOrgsPane: View {
                     Spacer()
                     Button("登出") { Task { await app.omixorLogout() } }
                 }
+                LabeledContent("伺服器版本", value: serverVersion ?? "查詢中…")
+                    .font(.caption)
+                    .task(id: s.url) {
+                        do { serverVersion = try await IssueRemote.fetchVersion(s.url).label }
+                        catch { serverVersion = "查不到(\(error.localizedDescription))" }
+                    }
             } else {
                 Label("本機:資料存在這台 Mac,不用登入", systemImage: "internaldrive")
             }
@@ -209,6 +217,8 @@ private struct NewOrgSheet: View {
     @State private var switchNow = true
     @State private var busy = false
     @State private var error: String?
+    /// 遠端 omixor 的版本(GET /api/version)
+    @State private var serverVersion: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -269,6 +279,8 @@ private struct OrgEditSheet: View {
     @State private var draft: Organization
     @State private var busy = false
     @State private var error: String?
+    /// 遠端 omixor 的版本(GET /api/version)
+    @State private var serverVersion: String?
 
     init(original: Organization) {
         self.original = original
@@ -318,6 +330,8 @@ struct CabinetLayoutEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: [CabinetSection] = CabinetLayout.sections
     @State private var error: String?
+    /// 遠端 omixor 的版本(GET /api/version)
+    @State private var serverVersion: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

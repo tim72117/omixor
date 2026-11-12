@@ -1,10 +1,13 @@
+import CryptoKit
 import Foundation
 import SwiftUI
 
 // 虛擬角色:每個角色有職責說明(給 AI 的角色設定)、例行任務與被指派的單次任務。
 // Ops 不自己跑 AI:任務排在這裡,由 Claude Code 透過 MCP 以角色身分領取(ops_agent_task_claim)、做完回報(ops_agent_task_report)。
 // 例行任務到時間時,Ops 會替該角色排一筆任務等人叫 AI 來領。
-// 存在 ~/Library/Application Support/Ops/agents.json(OPS_DATA_DIR 可改)。
+// 本機模式存在組織資料夾的 agents.json(~/Library/Application Support/Ops/orgs/<id>/,OPS_DATA_DIR 可改);
+// 遠端模式改讀寫 omixor server 的 /agents 與 /agent-tasks(AgentRemote.swift),例行任務由伺服器排,領取時伺服器發角色憑證。
+// 沒有內建預設角色,也不從其他檔案匯入:新組織一開始沒有任何角色,由使用者自己建立。
 
 struct Agent: Codable, Hashable, Identifiable {
     var id: String
@@ -151,9 +154,28 @@ enum AgentTaskStatus: String, Codable, CaseIterable, Identifiable {
 
 struct AgentTaskNote: Codable, Hashable, Identifiable {
     var id = UUID()
-    var author: String            // person id、"mcp" 或角色 id(以 agent: 開頭)
+    var author: String            // person id、"mcp" 或角色 id(以 agent: 開頭);伺服器的是名稱或 email
     var text: String
     var at = Date.now
+}
+
+extension AgentTaskNote {
+    init(from decoder: Decoder) throws {
+        // 伺服器(core)的留言 id 不一定是 UUID:換成由內容算出的固定 UUID(不會送回伺服器)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        author = try c.decodeIfPresent(String.self, forKey: .author) ?? ""
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        at = try c.decodeIfPresent(Date.self, forKey: .at) ?? .distantPast
+        let raw: String? = try? c.decodeIfPresent(String.self, forKey: .id)
+        id = raw.flatMap(UUID.init(uuidString:)) ?? AgentTaskNote.stableId(raw ?? "\(author)|\(at.timeIntervalSince1970)|\(text)")
+    }
+
+    static func stableId(_ s: String) -> UUID {
+        var b = Array(SHA256.hash(data: Data(s.utf8)).prefix(16))
+        b[6] = b[6] & 0x0f | 0x50
+        b[8] = b[8] & 0x3f | 0x80
+        return UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
+    }
 }
 
 struct AgentTask: Codable, Hashable, Identifiable {
@@ -172,8 +194,62 @@ struct AgentTask: Codable, Hashable, Identifiable {
     var result = ""               // 完成時的回報(Markdown)
     var links: [String] = []      // 相關的 Issue id 或網址
     var notes: [AgentTaskNote] = []
+    /// 領取租約的到期時間(遠端模式、進行中才有);鎖定期間別人不能領
+    var lockedUntil: Date?
+    /// 領取者(email 或名稱,遠端模式才有,只供顯示)
+    var claimedBy: String?
 
     var number: Int { Int(id.filter(\.isNumber)) ?? 0 }
+    /// 相關的 Issue id(links 裡第一個 ISS-n)
+    var issueId: String? { links.first { $0.uppercased().hasPrefix("ISS-") && Int($0.dropFirst(4)) != nil } }
+}
+
+extension AgentTask {
+    // 手寫解碼:伺服器(core)沒有 routineId、links/notes 可能是 null、未知的狀態或優先度不要讓整份讀不出來
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        instructions = try c.decodeIfPresent(String.self, forKey: .instructions) ?? ""
+        agentId = try c.decodeIfPresent(String.self, forKey: .agentId) ?? ""
+        status = (try? c.decodeIfPresent(String.self, forKey: .status)).flatMap(AgentTaskStatus.init) ?? .queued
+        priority = (try? c.decodeIfPresent(String.self, forKey: .priority)).flatMap(IssuePriority.init) ?? .normal
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy) ?? ""
+        routineId = try c.decodeIfPresent(String.self, forKey: .routineId)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        claimedAt = try c.decodeIfPresent(Date.self, forKey: .claimedAt)
+        completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
+        result = try c.decodeIfPresent(String.self, forKey: .result) ?? ""
+        links = try c.decodeIfPresent([String].self, forKey: .links) ?? []
+        notes = try c.decodeIfPresent([AgentTaskNote].self, forKey: .notes) ?? []
+        lockedUntil = try c.decodeIfPresent(Date.self, forKey: .lockedUntil)
+        claimedBy = try c.decodeIfPresent(String.self, forKey: .claimedBy)
+    }
+
+    /// 租約文字(進行中且有鎖定時間才有),例如「鎖定到 11:50」
+    var leaseLabel: String? {
+        guard status == .inProgress, let u = lockedUntil else { return nil }
+        let who = claimedBy.flatMap { $0.isEmpty ? nil : $0 }
+        return (who.map { "\($0) · " } ?? "") + "鎖定到 " + u.formatted(date: .omitted, time: .shortened)
+    }
+}
+
+/// 領取時伺服器發的角色憑證(綁單一任務;secret 只在領取時給一次,不要存檔)
+struct AgentCredential: Hashable {
+    var agentId: String
+    var taskId: String
+    var secret: String
+    var expiresAt: String
+    /// 角色端點(<server>/mcp/agent),用 Authorization: Bearer <agentId>:<secret> 連
+    var endpoint: String
+}
+
+/// 領取結果:沒有可領的任務時 task 是 nil;本機模式沒有 credential
+struct AgentClaim {
+    var agent: Agent?
+    var task: AgentTask?
+    var credential: AgentCredential?
 }
 
 struct AgentData: Codable {
@@ -191,20 +267,89 @@ final class AgentStore {
 
     private var fileURL: URL { app.dataDir.appendingPathComponent("agents.json") }
 
+    // MARK: - 遠端(omixor server)
+
+    private var remoteClient: IssueRemote?
+    /// 遠端模式時的用戶端(和 Issue 同一個伺服器與登入;nil = 用本機檔案)
+    var remote: IssueRemote? {
+        guard let cfg = IssueServerConfig.current else { remoteClient = nil; stopPolling(); return nil }
+        if remoteClient?.config != cfg { remoteClient = IssueRemote(config: cfg) }
+        return remoteClient
+    }
+    var isRemote: Bool { remote != nil }
+    /// 最近一次和伺服器溝通的錯誤(nil = 正常)
+    private(set) var remoteError: String?
+    private var poller: Timer?
+    /// 遠端模式多久重新讀一次(秒);0 = 不定時讀
+    static var pollInterval: TimeInterval = NSClassFromString("XCTestCase") != nil ? 0 : 10
+
+    private func remoteFailed(_ e: Error) {
+        let msg = e.localizedDescription
+        if remoteError != msg { NSLog("虛擬角色(omixor server):%@", msg) }
+        remoteError = msg
+    }
+
+    private func startPolling() {
+        guard poller == nil, Self.pollInterval > 0 else { return }
+        poller = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.isRemote else { return }
+                self.refresh()
+            }
+        }
+    }
+
+    private func stopPolling() {
+        poller?.invalidate()
+        poller = nil
+    }
+
+    /// 遠端模式:重新讀目前組織的角色與任務(內容有變才更新畫面)
+    @discardableResult
+    func refresh() -> Bool {
+        guard let r = remote else { return false }
+        do {
+            let org = app.currentOrgId
+            let agents = try r.listAgents(org: org)
+            let tasks = try r.listTasks(org: org).sorted { $0.number > $1.number }
+            remoteError = nil
+            if agents != app.agents { app.agents = agents }
+            if tasks != app.agentTasks { app.agentTasks = tasks }
+            return true
+        } catch {
+            remoteFailed(error)
+            return false
+        }
+    }
+
+    /// 把伺服器回傳的任務放進清單(新的放最前面)
+    private func merge(_ t: AgentTask) {
+        if let i = app.agentTasks.firstIndex(where: { $0.id == t.id }) { app.agentTasks[i] = t } else { app.agentTasks.insert(t, at: 0) }
+    }
+
     func load() {
+        if isRemote {
+            // 換組織或剛連上:先清掉,讀不到也不會顯示別的組織的角色
+            app.agents = []
+            app.agentTasks = []
+            refresh()
+            startPolling()
+            return
+        }
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
         if let data = try? Data(contentsOf: fileURL), let v = try? d.decode(AgentData.self, from: data) {
             app.agents = v.agents
             app.agentTasks = v.tasks
         } else {
-            app.agents = Self.defaults
+            // 沒有角色資料就是空的:不內建預設角色
+            app.agents = []
             app.agentTasks = []
-            save()
         }
     }
 
     func save() {
+        guard !isRemote else { return }   // 遠端模式每個動作各自送出
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         e.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -217,6 +362,7 @@ final class AgentStore {
     func start(timer enabled: Bool = true) {
         runDueRoutines()
         guard enabled, timer == nil else { return }
+        if isRemote { startPolling() }
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.runDueRoutines() }
         }
@@ -244,12 +390,34 @@ final class AgentStore {
     // MARK: - 角色
 
     func upsert(_ a: Agent) {
+        do { try save(agent: a) } catch { remoteFailed(error) }
+    }
+
+    /// 新增或修改角色;遠端模式送到伺服器(要組織管理員),回傳伺服器存下來的內容
+    @discardableResult
+    func save(agent a: Agent) throws -> Agent {
+        if let r = remote {
+            let saved = try r.saveAgent(org: app.currentOrgId, a)
+            remoteError = nil
+            if let i = app.agents.firstIndex(where: { $0.id == saved.id }) { app.agents[i] = saved } else { app.agents.append(saved) }
+            return saved
+        }
         if let i = app.agents.firstIndex(where: { $0.id == a.id }) { app.agents[i] = a } else { app.agents.append(a) }
         save()
+        return a
     }
 
     /// 刪除角色:未完成的任務一併取消
     func delete(_ id: String) {
+        if let r = remote {
+            do {
+                try r.deleteAgent(org: app.currentOrgId, id: id)
+                remoteError = nil
+                app.agents.removeAll { $0.id == id }
+                refresh()
+            } catch { remoteFailed(error) }
+            return
+        }
         for i in app.agentTasks.indices where app.agentTasks[i].agentId == id && app.agentTasks[i].status.isOpen {
             app.agentTasks[i].status = .canceled
             app.agentTasks[i].updatedAt = .now
@@ -272,11 +440,24 @@ final class AgentStore {
 
     @discardableResult
     func assign(to agentId: String, title: String, instructions: String = "", priority: IssuePriority = .normal,
-                by author: String, routineId: String? = nil) -> AgentTask? {
+                links: [String] = [], by author: String, routineId: String? = nil) -> AgentTask? {
         guard let agent = agent(agentId) else { return nil }
+        if let r = remote {
+            do {
+                let t = try r.assignTask(org: app.currentOrgId, agent: agent.id, title: title, instructions: instructions,
+                                         priority: priority, links: links, author: author)
+                remoteError = nil
+                merge(t)
+                app.log(IssueStore(app: app).actor(author), "person.badge.clock", "指派 \(t.id)「\(title)」給\(agent.name)", .automation)
+                return t
+            } catch {
+                remoteFailed(error)
+                return nil
+            }
+        }
         let num = (app.agentTasks.map(\.number).max() ?? 0) + 1
         let t = AgentTask(id: "T-\(num)", title: title, instructions: instructions, agentId: agent.id,
-                          priority: priority, createdBy: author, routineId: routineId)
+                          priority: priority, createdBy: author, routineId: routineId, links: links)
         app.agentTasks.insert(t, at: 0)
         save()
         let who: Actor = author == Self.routineAuthor ? .system : IssueStore(app: app).actor(author)
@@ -284,8 +465,13 @@ final class AgentStore {
         return t
     }
 
+    /// 只用在本機模式:遠端模式的狀態變更走 cancel、requeue、claim、report(伺服器決定時間與憑證)
     @discardableResult
     func update(_ id: String, _ change: (inout AgentTask) -> Void) -> AgentTask? {
+        if isRemote {
+            remoteError = "遠端模式不能直接改任務,請用取消、退回待領取、領取或回報"
+            return nil
+        }
         guard let i = app.agentTasks.firstIndex(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) else { return nil }
         var t = app.agentTasks[i]
         let before = t
@@ -307,8 +493,58 @@ final class AgentStore {
         return update(id) { $0.notes.append(AgentTaskNote(author: author, text: s)) }
     }
 
+    /// 取消任務(遠端要組織管理員)
+    @discardableResult
+    func cancel(_ id: String) -> AgentTask? {
+        guard let r = remote else { return update(id) { $0.status = .canceled } }
+        do {
+            let t = try r.cancelTask(org: app.currentOrgId, id: id)
+            remoteError = nil
+            merge(t)
+            return t
+        } catch { remoteFailed(error); return nil }
+    }
+
+    /// 退回待領取 / 重新排入(遠端要組織管理員;領取的憑證會失效)
+    @discardableResult
+    func requeue(_ id: String) -> AgentTask? {
+        guard let r = remote else { return update(id) { $0.status = .queued } }
+        do {
+            let t = try r.requeueTask(org: app.currentOrgId, id: id)
+            remoteError = nil
+            merge(t)
+            return t
+        } catch { remoteFailed(error); return nil }
+    }
+
     /// 角色領取任務:給 id 就領那筆,否則領最優先、最早的一筆待領取任務
     func claim(agent agentId: String, task id: String? = nil) throws -> AgentTask? {
+        try claimWithCredential(agent: agentId, task: id).task
+    }
+
+    /// 同 claim;遠端模式時伺服器另外發一組綁這筆任務的角色憑證(secret 只有這一次,不存檔)
+    func claimWithCredential(agent agentId: String, task id: String? = nil) throws -> AgentClaim {
+        if let r = remote {
+            let name = agent(agentId)?.id ?? agentId
+            do {
+                let c = try r.claimTask(org: app.currentOrgId, agent: name, task: id)
+                remoteError = nil
+                if let t = c.task {
+                    merge(t)
+                    let a = c.agent ?? agent(t.agentId)
+                    app.log(.ai(t.agentId), "figure.walk", "\(a?.name ?? t.agentId)開始處理 \(t.id)「\(t.title)」", .automation)
+                }
+                return c
+            } catch {
+                remoteFailed(error)
+                throw MCPToolError(error.localizedDescription)
+            }
+        }
+        let t = try claimLocal(agent: agentId, task: id)
+        return AgentClaim(agent: agent(agentId), task: t, credential: nil)
+    }
+
+    private func claimLocal(agent agentId: String, task id: String?) throws -> AgentTask? {
         guard let agent = agent(agentId) else { throw MCPToolError("找不到角色 \(agentId)") }
         let pick: AgentTask?
         if let id {
@@ -331,6 +567,25 @@ final class AgentStore {
     }
 
     func report(_ id: String, status: AgentTaskStatus?, result: String?, note: String?, links: [String]?) throws -> AgentTask? {
+        if let r = remote {
+            do {
+                let before = task(id)
+                let t = try r.reportTask(org: app.currentOrgId, id: id, status: status, result: result, note: note, links: links)
+                remoteError = nil
+                merge(t)
+                if let status, status != before?.status, let a = agent(t.agentId) {
+                    switch status {
+                    case .done: app.log(.ai(a.id), "checkmark.circle", "\(a.name)完成 \(t.id)「\(t.title)」", .automation)
+                    case .blocked: app.log(.ai(a.id), "hand.raised", "\(a.name)在 \(t.id)「\(t.title)」需要協助", .automation)
+                    default: break
+                    }
+                }
+                return t
+            } catch {
+                remoteFailed(error)
+                throw MCPToolError(error.localizedDescription)
+            }
+        }
         guard let t = task(id) else { throw MCPToolError("找不到任務 \(id)") }
         guard t.status != .canceled else { throw MCPToolError("\(t.id) 已取消") }
         let author = "agent:\(t.agentId)"
@@ -354,6 +609,7 @@ final class AgentStore {
 
     /// 到時間的例行任務各排一筆;上一筆還沒做完就不重複排
     func runDueRoutines(now: Date = .now) {
+        guard !isRemote else { return }   // 遠端模式由伺服器排(core 的 RunDueRoutines)
         var changed = false
         for ai in app.agents.indices where app.agents[ai].active {
             for ri in app.agents[ai].routines.indices {
@@ -373,6 +629,13 @@ final class AgentStore {
 
     /// 手動立刻排一筆例行任務
     func runNow(agent agentId: String, routine routineId: String) {
+        if let r = remote {
+            do {
+                merge(try r.runRoutine(org: app.currentOrgId, agent: agentId, routine: routineId, author: app.me))
+                remoteError = nil
+            } catch { remoteFailed(error) }
+            return
+        }
         guard let ai = app.agents.firstIndex(where: { $0.id == agentId }),
               let ri = app.agents[ai].routines.firstIndex(where: { $0.id == routineId }) else { return }
         let r = app.agents[ai].routines[ri]
@@ -386,93 +649,5 @@ final class AgentStore {
             return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))處理任務 \(task.id):用 ops_agent_task_claim 領取,照角色設定與任務說明完成,過程用 ops_agent_task_report 回報,做完把結果回報成 done;開 Issue 或留言時帶 agent: \(agent.id)。"
         }
         return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))工作:用 ops_agent_task_claim 依序領取它的待領取任務,照角色設定與任務說明完成並用 ops_agent_task_report 回報,直到沒有任務為止;開 Issue 或留言時帶 agent: \(agent.id)。"
-    }
-
-    // MARK: - 預設角色
-
-    /// 預設角色的文件櫃存取範圍
-    static let defaultDocAccess: [String: [String: DocAccess]] = [
-        "visitor-analyst": ["members": .write, "overview": .read],
-        "narrator": ["levels": .read, "/docs/research/voice-cost": .read, "/docs/research/tts-landscape": .read],
-        "triager": ["todo": .write],
-        "course-dev": ["levels": .write, "dev": .read, "ideas": .read, "docs": .read],
-        "marketing": ["overview": .read, "levels": .read, "docs": .read, "/docs/research/marketing": .write],
-        "product-manager": ["overview": .write, "todo": .write, "ideas": .write, "levels": .read, "dev": .read,
-                            "docs": .read, "members": .read],
-    ]
-
-    static var defaults: [Agent] {
-        baseDefaults.map { a in
-            var a = a
-            a.docAccess = defaultDocAccess[a.id] ?? [:]
-            return a
-        }
-    }
-
-    private static var baseDefaults: [Agent] {
-        [
-            Agent(id: "visitor-analyst", name: "訪客分析師", role: "盯 evoleap 網站的訪客與播放數字",
-                  symbol: "chart.line.uptrend.xyaxis", color: "teal",
-                  instructions: """
-                  你負責 evoleap 網站的訪客分析。
-                  - 用 ops_site_visitors 讀數字(1d、7d 都看),和上次比較。
-                  - 看漏斗(打開 → 載入完成 → 有播放)、各課概況、載入錯誤、登入門檻。
-                  - 發現異常(播放率掉、某課載入失敗、某課打開很多但沒人播)時,先用 ops_issues 搜尋,沒有才用 ops_issue_create 開 Issue,標籤加 evoleap、訪客。
-                  - 回報時列出關鍵數字與你的判斷;樣本太小就說明不下結論。
-                  """,
-                  routines: [AgentRoutine(title: "每日訪客檢查",
-                                          instructions: "讀 1d 與 7d 的訪客統計,摘要重點數字,有異常就開 Issue 或在既有 Issue 留言。",
-                                          kind: .daily, hour: 9, minute: 0)]),
-            Agent(id: "narrator", name: "旁白製作", role: "把課程旁白做成語音",
-                  symbol: "waveform", color: "purple",
-                  instructions: """
-                  你負責 shuttle 課程的旁白語音。
-                  - 先用 ops_voice_submit 加 dry_run 試算有哪些段落缺語音,再決定要不要送批次;一次只會有一個批次在跑。
-                  - 用 ops_voice_jobs 追蹤進度。
-                  - 你不能發佈:批次完成後回報,請人在 omixor 的 CI/CD › 旁白發佈 試聽後按發佈。
-                  """,
-                  routines: [AgentRoutine(title: "檢查缺少語音的旁白",
-                                          instructions: "用 ops_voice_submit 的 dry_run 試算,回報有幾段缺語音、預估費用;不要直接送出。",
-                                          kind: .weekly, hour: 10, minute: 0, weekday: 2)]),
-            Agent(id: "triager", name: "Issue 整理員", role: "整理未解決的 Issue",
-                  symbol: "tray.full", color: "orange",
-                  instructions: """
-                  你負責整理 omixor 的 Issue。
-                  - 用 ops_issues 列出未解決的 Issue。
-                  - 重複的在較新的那筆留言指向舊的並關閉;優先度不合理的調整並留言說明理由。
-                  - 不要關閉你不確定已解決的 Issue,改成留言詢問。
-                  - 回報時列出你改了哪些。
-                  """,
-                  routines: [AgentRoutine(title: "每週整理 Issue",
-                                          instructions: "整理所有未解決的 Issue:合併重複、調整優先度,回報變更清單。",
-                                          kind: .weekly, hour: 17, minute: 0, weekday: 6)]),
-            Agent(id: "course-dev", name: "課程開發", role: "規劃與撰寫 evoleap 的課程腳本",
-                  symbol: "doc.text", color: "indigo",
-                  instructions: """
-                  你負責 evoleap 的課程開發,課程與腳本在 shuttle 專案(/Users/caitingyu/Documents/shuttle)。
-                  - 課程結構:courses_seed.json(server/internal/store/)→ 單元 → 課;每課的腳本在 web/src/content/live/<課程>/*.json,旁白語音是同名的 .voice.json。
-                  - 目前的課:AI 工具介紹、AI 工具入門、Vibe Coding 入門、網頁怎麼運作、給孩子的網頁程式、從做好到上線、Claude Code 工作術;AI Agent 兩門還是空的。
-                  - 寫新課或改腳本時,先讀同一門課現有的腳本,沿用語氣、長度與格式;改完跑 shuttle 的課程一致性測試(web/src/content/courseMap.test.ts)。
-                  - 只在本機改檔案,不要 commit、不要部署、不要用 evoleap script push 或 lesson set 改線上資料,也不要連資料庫;做完在結果列出改了哪些檔,請人審。
-                  - 旁白要配語音時,指派給「旁白製作」(ops_agent_task_create),不要自己送批次。
-                  - 參考訪客數字(ops_site_visitors)找出沒人播、或中途離開多的課,作為改善的依據。
-                  """,
-                  routines: [AgentRoutine(title: "課程成效回顧",
-                                          instructions: "用 ops_site_visitors 看 7d 各課的打開、播放與載入錯誤,挑出最需要改善的 1~2 課,提出具體的改寫方向(不要直接改檔),有需要就開 Issue。",
-                                          kind: .weekly, hour: 10, minute: 0, weekday: 3)]),
-            Agent(id: "marketing", name: "行銷", role: "帶更多訪客認識 evoleap 的課程",
-                  symbol: "megaphone", color: "pink",
-                  instructions: """
-                  你負責 evoleap(https://evoleap.io)的行銷。
-                  - 用 ops_site_visitors 看訪客從哪裡來(進站來源、裝置)、首頁停留、從首頁進到哪些課、登入門檻擋掉多少人。
-                  - 根據數字提出行銷想法:社群貼文、短影片腳本、課程介紹文案、首頁或課程頁的標題與一句話、SEO 關鍵字。宣傳素材腳本在 shuttle 的 web/src/content/live/promo/。
-                  - 文案用繁體中文,口吻親切、具體,講學員能做出什麼,不誇大。
-                  - 你不能對外發佈任何東西(不發貼文、不寄信、不改網站);草稿寫在任務結果裡,請人決定要不要用。
-                  - 有值得追蹤的想法或問題,開 Issue,標籤加 行銷。
-                  """,
-                  routines: [AgentRoutine(title: "每週行銷週報",
-                                          instructions: "整理 7d 的訪客來源、首頁停留與各課熱度,和上週比較;提出 3 則下週可以發的社群貼文草稿。",
-                                          kind: .weekly, hour: 9, minute: 30, weekday: 2)]),
-        ]
     }
 }

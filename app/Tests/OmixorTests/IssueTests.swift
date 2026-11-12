@@ -77,7 +77,7 @@ final class IssueTests: XCTestCase {
         XCTAssertTrue(isError)
 
         // 以虛擬角色身分建立與留言:署名角色
-        app.startAgents(timer: false)
+        app.startTestAgents()
         (obj, text, isError) = try await call(mcp, "ops_issue_create", ["title": "UTM", "agent": "行銷"])
         XCTAssertFalse(isError, text)
         XCTAssertEqual((obj as? [String: Any])?["createdBy"] as? String, "行銷")
