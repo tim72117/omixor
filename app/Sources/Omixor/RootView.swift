@@ -167,17 +167,28 @@ private struct AccountFooter: View {
 struct MainToolbar: ToolbarContent {
     @EnvironmentObject var app: AppState
 
+    /// 會讀工具列環境(正式、預備、開發)的區塊
+    static let envSections: Set<AppSection> = [.overview, .pipelines, .infrastructure]
+    /// 會讀工具列時間範圍的區塊
+    static let rangeSections: Set<AppSection> = [.overview, .infrastructure, .monitoring]
+
     var body: some ToolbarContent {
+        // 同 web 版(web/ui/src/App.tsx 的 ENV_SECTIONS、RANGE_SECTIONS):只有會讀環境、時間範圍的區塊才顯示切換;
+        // Issue、文件櫃、自動化等的資料屬於組織,和環境無關
         ToolbarItemGroup(placement: .principal) {
-            Picker("環境", selection: $app.env) {
-                ForEach(DeployEnv.allCases) { Text($0.label).tag($0) }
+            if Self.envSections.contains(app.section) {
+                Picker("環境", selection: $app.env) {
+                    ForEach(DeployEnv.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .help("環境")
             }
-            .pickerStyle(.segmented)
-            .help("環境")
-            Picker("時間範圍", selection: $app.timeRange) {
-                ForEach(TimeRange.allCases) { Text($0.label).tag($0) }
+            if Self.rangeSections.contains(app.section) {
+                Picker("時間範圍", selection: $app.timeRange) {
+                    ForEach(TimeRange.allCases) { Text($0.label).tag($0) }
+                }
+                .help("時間範圍")
             }
-            .help("時間範圍")
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Button { app.showCommandPalette = true } label: { Label("搜尋", systemImage: "magnifyingglass") }
