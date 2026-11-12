@@ -37,6 +37,15 @@
 //	  連角色端點 /mcp/agent 用 Authorization: Bearer <agentId>:<secret>(見 core/mcp、server)
 //	Issue 的 POST(建立、修改)多一個 assignee(角色 id):指向存在的角色(不存在 400)且啟用時自動替它排任務
 //
+//	GET  /api/orgs/{org}/cabinet               文件櫃:{layout, docs, layoutSaved}(成員;角色憑證只看到 docAccess 能讀的文件)
+//	POST /api/orgs/{org}/cabinet/layout        {layout} 改結構(組織管理員;被拿掉的區塊、頁籤裡不能還有文件)
+//	POST /api/orgs/{org}/cabinet/import        {layout?, docs?} 第一次搬資料用(組織管理員;已經有文件就拒絕,已經有結構就略過結構)
+//	GET  /api/orgs/{org}/docs                  文件(新的在前;角色憑證只看到能讀的)
+//	POST /api/orgs/{org}/docs                  {title, body, section, tab?, tags, author?} 新增 → DOC-<n>(依範本檢查必填欄位)
+//	GET  /api/orgs/{org}/docs/{id}
+//	POST /api/orgs/{org}/docs/{id}             {title?, body?, appendBody?, section?, tab?, tags?} 修改;給 section 就是搬移
+//	POST /api/orgs/{org}/docs/{id}/delete      刪除(成員;角色憑證不行)
+//
 //	GET  /api/admin/users | POST {email, role?, disabled?}   (伺服器管理員,以下同)
 //	GET  /api/admin/tokens | POST /api/admin/tokens/{id}/revoke
 //	GET  /api/admin/audit?limit=
@@ -258,6 +267,7 @@ func (a *API) Handler() http.Handler {
 
 	// 虛擬角色與任務(agents.go)
 	a.agentRoutes(mux)
+	a.cabinetRoutes(mux)
 
 	// 伺服器管理
 	mux.HandleFunc("GET /api/admin/users", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {

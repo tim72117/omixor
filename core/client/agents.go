@@ -80,6 +80,19 @@ func (c *Client) ReportTask(org, id string, in service.TaskReport) (*model.Agent
 	return &t, c.Do("POST", c.agentTasks(org)+"/"+esc(id)+"/report", in, &t)
 }
 
+// WorkerReport 領取者以角色身分回報自己領取的任務
+func (c *Client) WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error) {
+	var t model.AgentTask
+	return &t, c.Do("POST", c.agentTasks(org)+"/"+esc(id)+"/worker/report", in, &t)
+}
+
+// WorkerComment 領取者以角色身分在 Issue 留言
+func (c *Client) WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error) {
+	var i model.Issue
+	return &i, c.Do("POST", c.agentTasks(org)+"/"+esc(taskID)+"/worker/comment",
+		map[string]any{"issueId": issueID, "comment": comment}, &i)
+}
+
 func (c *Client) CancelTask(org, id string) (*model.AgentTask, error) {
 	var t model.AgentTask
 	return &t, c.Do("POST", c.agentTasks(org)+"/"+esc(id)+"/cancel", map[string]any{}, &t)

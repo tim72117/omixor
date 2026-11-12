@@ -55,10 +55,25 @@ type Backend interface {
 	ClaimNext(org, agentID string) (*service.ClaimResult, error)
 	// ReleaseTask 放棄領取(進行中 → 待領取,作廢憑證、解鎖、留備註);只有領取者本人或組織管理員可以
 	ReleaseTask(org, id, reason string) (*model.AgentTask, error)
+	// WorkerReport、WorkerComment 領取者本人(人,不是角色憑證)以任務角色的身分回報任務、在 Issue 留言;
+	// 任務要是進行中、租約還沒到期、而且是呼叫者領取的
+	WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error)
+	WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error)
 	// Whoami 呼叫者的署名,和領取任務時寫進 ClaimedBy 的值一致(email 優先,否則名稱);不知道回空字串
 	Whoami() string
 	// RunRoutine 立刻替角色排一筆例行任務(組織管理員);author 是署名(只有伺服器管理員的有效)
 	RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error)
+
+	// 文件櫃(權限同 service/cabinet.go:成員讀寫文件、組織管理員改結構、角色身分依 docAccess)。實作在 cabinet.go
+	// GetCabinet 結構與文件(新的在前);組織沒存過結構時是空白結構(LayoutSaved = false)
+	GetCabinet(org string) (*model.Cabinet, error)
+	SaveCabinetLayout(org string, layout []model.CabinetSection) ([]model.CabinetSection, error)
+	// ImportCabinet 第一次搬資料用(組織管理員)
+	ImportCabinet(org string, in service.CabinetImport) (*service.CabinetImportResult, error)
+	GetDoc(org, id string) (*model.CabinetDoc, error) // 不分大小寫
+	CreateDoc(org string, in service.DocInput) (*model.CabinetDoc, error)
+	UpdateDoc(org, id string, p service.DocPatch) (*model.CabinetDoc, error)
+	DeleteDoc(org, id string) error
 
 	// 附件(圖片)
 	SaveAttachment(org string, data []byte) (id string, err error)

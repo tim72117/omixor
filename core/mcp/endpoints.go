@@ -38,20 +38,23 @@ var AgentToolAllow = map[string]bool{
 	"ops_issues":            true,
 	"ops_issue_create":      true,
 	"ops_issue_update":      true,
+	"ops_cabinet":           true,
+	"ops_docs":              true,
+	"ops_doc_save":          true,
 }
 
 // AgentEndpointConfig 角色端點的設定
 type AgentEndpointConfig struct {
 	Svc *service.Service
-	// Tools 額外的工具(例如 web 的文件櫃 ops_cabinet、ops_docs、ops_doc_save);掛上來的一律開放給角色端點,
-	// 用 RoleOf(call) 取得是哪個角色,並應該自己依 docAccess 檢查
+	// Tools 額外的工具;掛上來的一律開放給角色端點,用 RoleOf(call) 取得是哪個角色,權限要自己檢查
+	// (文件櫃已經是核心的工具,不用另外掛)
 	Tools []Tool
 	// Filter 每次工具呼叫前額外的限制(核心的工具與額外的工具都會經過);回傳錯誤就拒絕。
 	// args 已經強制帶上憑證的角色(args["agent"])
 	Filter func(role Role, tool string, args map[string]any) error
-	// ContextExtra 附加到 ops_agent_context 輸出的欄位(例如文件櫃權限與文件清單)
+	// ContextExtra 附加到 ops_agent_context 輸出的欄位(文件櫃的 cabinet、docs 核心已經附上)
 	ContextExtra func(role Role, g model.Agent, includeBodies bool) map[string]any
-	// Decorate 改寫角色的輸出(ops_agents、ops_agent_context 的 agent 欄位),例如把 docAccess 換成看得懂的文件櫃範圍
+	// Decorate 改寫角色的輸出(ops_agents、ops_agent_context 的 agent 欄位);docAccess 核心已經換成看得懂的文件櫃範圍
 	Decorate func(role Role, g model.Agent, out map[string]any)
 	// Instructions initialize 回傳的說明;空 = 預設
 	Instructions string
@@ -62,7 +65,8 @@ type AgentEndpointConfig struct {
 
 const agentInstructions = "這是 omixor 的角色端點:你正以虛擬角色的身分工作,身分由憑證決定。" +
 	"先用 ops_agent_context 取得角色設定與任務,照任務說明完成,過程與結果用 ops_agent_task_report 回報(做完 done、卡住 blocked,回報後憑證立刻失效)。" +
-	"可以讀 Issue(ops_issues)、建立 Issue(ops_issue_create)、對 Issue 留言與改狀態(ops_issue_update);署名一律是你的角色。"
+	"可以讀 Issue(ops_issues)、建立 Issue(ops_issue_create)、對 Issue 留言與改狀態(ops_issue_update);" +
+	"文件櫃(ops_cabinet、ops_docs、ops_doc_save)只能讀寫角色 docAccess 範圍內的位置。署名一律是你的角色。"
 
 // AgentEndpoint 角色端點的 http.Handler(掛在 /mcp/agent):
 //
@@ -176,6 +180,9 @@ var AdminToolAllow = map[string]bool{
 	"ops_agent_task_report": true,
 	"ops_agent_upsert":      true,
 	"ops_agent_task_create": true,
+	"ops_cabinet":           true,
+	"ops_docs":              true,
+	"ops_doc_save":          true,
 }
 
 // AdminEndpointConfig 管理端點的設定
@@ -192,7 +199,8 @@ type AdminEndpointConfig struct {
 
 const adminInstructions = "這是 omixor 的 MCP 端點,操作目前組織的 Issue、虛擬角色與任務,權限同你登入的 omixor 帳號。" +
 	"虛擬角色:ops_agents 看角色,ops_agent_task_claim 領任務(回傳一組綁定該任務的角色憑證,用它連角色端點以該角色身分工作)," +
-	"ops_agent_task_report 回報。ops_issue_create / ops_issue_update 的 assignee 指派 Issue 給角色,會自動替它排任務。"
+	"ops_agent_task_report 回報。ops_issue_create / ops_issue_update 的 assignee 指派 Issue 給角色,會自動替它排任務。" +
+	"文件櫃:ops_cabinet 看結構、ops_docs 查文件、ops_doc_save 新增或修改(以角色身分工作時帶 agent,只能讀寫該角色 docAccess 範圍內的文件)。"
 
 // AdminEndpoint 管理用 MCP 的 http.Handler(雲端掛在 /mcp/org/{org},用 omixor token 認證)
 func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {

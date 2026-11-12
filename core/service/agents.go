@@ -1198,3 +1198,69 @@ func (s *Service) StartRoutines(interval time.Duration, onCreated func([]model.A
 	}()
 	return func() { close(done) }
 }
+
+// ================= 執行者代角色操作(/mcp/worker) =================
+
+// claimedAgent 呼叫者(人,不是角色憑證)是這筆任務的領取者、任務進行中且租約還沒到期時,
+// 回傳和角色憑證相同的角色身分(AuthenticateAgent 的結果)。讓執行者不經手密鑰也能以角色身分回報、留言。
+func (s *Service) claimedAgent(p *model.Principal, org, id string) (*model.Principal, error) {
+	if err := notAgent(p); err != nil {
+		return nil, err
+	}
+	if err := s.viewer(p, org); err != nil {
+		return nil, err
+	}
+	s.agents.mu.Lock()
+	t, err := s.findTask(org, id)
+	s.agents.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if t.Status != "inProgress" {
+		return nil, fail(409, "%s 目前是%s,不是進行中", t.ID, model.TaskStatusLabel(t.Status))
+	}
+	who := claimerName(p)
+	if who == "" || t.ClaimedBy != who {
+		return nil, fail(403, "%s 是 %s 領取的,只有領取者本人可以用角色身分回報或留言", t.ID, t.ClaimedBy)
+	}
+	if t.LockedUntil == nil || !s.now().Before(t.LockedUntil.Time) {
+		return nil, fail(409, "%s 的租約已到期,請重新領取", t.ID)
+	}
+	g, err := s.Store.GetAgent(org, t.AgentID)
+	if err != nil {
+		return nil, fail(404, "找不到角色 %s", t.AgentID)
+	}
+	name := model.AgentPrefix + g.ID
+	return &model.Principal{
+		User:  model.User{ID: name, Email: name, Name: g.Name, Role: "member"},
+		Agent: &model.AgentIdentity{Org: org, AgentID: g.ID, TaskID: t.ID},
+	}, nil
+}
+
+// WorkerReport 領取者以角色身分回報自己領取的任務(規則同角色憑證的 ReportTask:狀態只能 inProgress、blocked、done,
+// inProgress 會續約,done、blocked 後憑證作廢)
+func (s *Service) WorkerReport(p *model.Principal, org, id string, in TaskReport) (*model.AgentTask, error) {
+	ap, err := s.claimedAgent(p, org, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.ReportTask(ap, org, id, in)
+}
+
+// WorkerComment 領取者以角色身分在 Issue 留言(署名 agent:<角色 id>)
+func (s *Service) WorkerComment(p *model.Principal, org, taskID, issueID, text string) (*model.Issue, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, fail(400, "留言不能是空的")
+	}
+	ap, err := s.claimedAgent(p, org, taskID)
+	if err != nil {
+		return nil, err
+	}
+	cur, err := s.GetIssue(ap, org, issueID)
+	if err != nil {
+		return nil, err
+	}
+	cs := append(append([]model.Comment{}, cur.Comments...), model.Comment{ID: uuid(), Author: ap.User.Email, Text: text, At: s.mt()})
+	return s.UpdateIssue(ap, org, cur.ID, IssuePatch{Comments: &cs})
+}

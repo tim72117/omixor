@@ -24,6 +24,8 @@ type Mem struct {
 	agents  map[string][]model.Agent           // org → 依建立順序
 	tasks   map[string][]model.AgentTask       // org → 新的在前
 	creds   []model.AgentCredential
+	layouts map[string][]model.CabinetSection // org → 文件櫃結構
+	docs    map[string][]model.CabinetDoc     // org → 新的在前
 }
 
 type memToken struct {
@@ -34,7 +36,8 @@ type memToken struct {
 func NewMem() *Mem {
 	return &Mem{users: map[string]model.User{}, tokens: map[string]*memToken{}, orgs: map[string]model.Org{},
 		members: map[string]map[string]model.Member{}, issues: map[string][]model.Issue{}, attach: map[string]map[string][]byte{},
-		agents: map[string][]model.Agent{}, tasks: map[string][]model.AgentTask{}}
+		agents: map[string][]model.Agent{}, tasks: map[string][]model.AgentTask{},
+		layouts: map[string][]model.CabinetSection{}, docs: map[string][]model.CabinetDoc{}}
 }
 
 func (m *Mem) CountUsers() (int, error) {
@@ -220,6 +223,8 @@ func (m *Mem) DeleteOrg(id string) error {
 	delete(m.attach, id)
 	delete(m.agents, id)
 	delete(m.tasks, id)
+	delete(m.layouts, id)
+	delete(m.docs, id)
 	kept := m.creds[:0:0]
 	for _, c := range m.creds {
 		if c.Org != id {
@@ -586,4 +591,95 @@ func (m *Mem) PruneAgentCredentials(now time.Time) error {
 	}
 	m.creds = kept
 	return nil
+}
+
+// ---- 文件櫃 ----
+
+func (m *Mem) GetCabinetLayout(org string) ([]model.CabinetSection, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	l, ok := m.layouts[org]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return model.CloneLayout(l), nil
+}
+
+func (m *Mem) SaveCabinetLayout(org string, layout []model.CabinetSection) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.layouts[org] = model.CloneLayout(layout)
+	return nil
+}
+
+func (m *Mem) ListDocs(org string) ([]model.CabinetDoc, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []model.CabinetDoc{}
+	for _, d := range m.docs[org] {
+		out = append(out, d.Clone())
+	}
+	return out, nil
+}
+
+func (m *Mem) GetDoc(org, id string) (*model.CabinetDoc, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, d := range m.docs[org] {
+		if d.ID == id {
+			c := d.Clone()
+			return &c, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *Mem) CreateDoc(org string, d model.CabinetDoc) (model.CabinetDoc, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, x := range m.docs[org] {
+		n = max(n, x.Number())
+	}
+	d.ID = fmt.Sprintf("%s%d", model.DocPrefix, n+1)
+	m.docs[org] = append([]model.CabinetDoc{d.Clone()}, m.docs[org]...)
+	return d, nil
+}
+
+func (m *Mem) UpdateDoc(org string, d model.CabinetDoc) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, x := range m.docs[org] {
+		if x.ID == d.ID {
+			m.docs[org][k] = d.Clone()
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (m *Mem) DeleteDoc(org, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, x := range m.docs[org] {
+		if x.ID == id {
+			m.docs[org] = append(m.docs[org][:k:k], m.docs[org][k+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (m *Mem) ImportDocs(org string, list []model.CabinetDoc) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if n := len(m.docs[org]); n > 0 {
+		return 0, fmt.Errorf("組織 %s 已經有 %d 份文件", org, n)
+	}
+	out := []model.CabinetDoc{}
+	for _, d := range list {
+		out = append(out, d.Clone())
+	}
+	m.docs[org] = out
+	return len(out), nil
 }

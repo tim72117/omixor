@@ -39,6 +39,12 @@ func (Unsupported) ClaimNext(string, string) (*service.ClaimResult, error) {
 func (Unsupported) ReleaseTask(string, string, string) (*model.AgentTask, error) {
 	return nil, errUnsupported
 }
+func (Unsupported) WorkerReport(string, string, service.TaskReport) (*model.AgentTask, error) {
+	return nil, errUnsupported
+}
+func (Unsupported) WorkerComment(string, string, string, string) (*model.Issue, error) {
+	return nil, errUnsupported
+}
 func (Unsupported) Whoami() string { return "" }
 func (Unsupported) RunRoutine(string, string, string, string) (*model.AgentTask, error) {
 	return nil, errUnsupported
@@ -109,6 +115,16 @@ func (l *Local) ClaimNext(org, agentID string) (*service.ClaimResult, error) {
 func (l *Local) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
 	l.ensureOrg(org)
 	return l.Svc.ReleaseTask(l.P, org, id, reason)
+}
+
+func (l *Local) WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error) {
+	l.ensureOrg(org)
+	return l.Svc.WorkerReport(l.P, org, id, in)
+}
+
+func (l *Local) WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error) {
+	l.ensureOrg(org)
+	return l.Svc.WorkerComment(l.P, org, taskID, issueID, comment)
 }
 
 func (l *Local) Whoami() string { return service.ClaimerName(l.P) }
@@ -212,6 +228,22 @@ func (r *Remote) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
 		return nil, wrap(err)
 	}
 	return t, nil
+}
+
+func (r *Remote) WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error) {
+	t, err := r.Client().WorkerReport(r.org(org), id, in)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return t, nil
+}
+
+func (r *Remote) WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error) {
+	i, err := r.Client().WorkerComment(r.org(org), taskID, issueID, comment)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return i, nil
 }
 
 // Whoami 問伺服器「我是誰」(GET /api/auth/me),規則同伺服器寫進 ClaimedBy 的值:email 優先,否則名稱;失敗回空字串

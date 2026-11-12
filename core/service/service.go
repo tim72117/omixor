@@ -3,7 +3,8 @@
 // 權限:
 //   - 伺服器管理員(users.role = admin):所有組織的所有操作,管使用者、token、操作紀錄,建立組織
 //   - 組織管理員(org_members.role = admin):自己組織的 Issue 與成員、匯出匯入
-//   - 組織成員:自己組織的 Issue;作者一律是自己(不能冒名)
+//   - 組織成員:自己組織的 Issue 與文件櫃的文件;作者一律是自己(不能冒名)
+//   - 文件櫃的結構:組織管理員(見 cabinet.go)
 //   - 不是成員:403
 package service
 
@@ -58,6 +59,8 @@ type Service struct {
 	// AgentCredTTL 角色憑證有效時間(0 = 2 小時)
 	AgentCredTTL time.Duration
 	agents       agentState
+	// cabinetMu 文件櫃的「讀了再改」(結構檢查、範本檢查)在這把鎖裡(單一程式內)
+	cabinetMu sync.Mutex
 
 	// 登入端點的頻率限制(每個來源每分鐘、整個服務每分鐘)
 	LoginPerIP, LoginTotal int

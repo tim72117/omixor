@@ -197,6 +197,53 @@ func RegisterDispatchTools(s *Server) {
 		return map[string]any{"me": me, "total": len(out), "tasks": out}, nil
 	})
 
+	s.Register("dispatch_report", func(c *Call) (any, error) {
+		e := agentEnv(c)
+		id, err := c.Args.Require("id")
+		if err != nil {
+			return nil, err
+		}
+		in := service.TaskReport{Status: c.Args.Opt("status"), Result: c.Args.Opt("result"), Note: c.Args.Opt("note")}
+		if l, ok := c.Args.Strings("links"); ok {
+			in.Links = l
+		}
+		t, err := e.Backend().WorkerReport(e.Org(), id, in)
+		if err != nil {
+			return nil, terr(err)
+		}
+		out := map[string]any{"task": taskJSON(e, *t)}
+		if t.LockedUntil != nil && t.Status == "inProgress" {
+			out["lockedUntil"] = iso(t.LockedUntil.Time)
+		}
+		return out, nil
+	})
+
+	s.Register("dispatch_comment", func(c *Call) (any, error) {
+		e := agentEnv(c)
+		id, err := c.Args.Require("id")
+		if err != nil {
+			return nil, err
+		}
+		issue, err := c.Args.Require("issue")
+		if err != nil {
+			return nil, err
+		}
+		cm, err := c.Args.Require("comment")
+		if err != nil {
+			return nil, err
+		}
+		i, err := e.Backend().WorkerComment(e.Org(), id, issue, cm)
+		if err != nil {
+			return nil, terr(err)
+		}
+		last := map[string]any{}
+		if n := len(i.Comments); n > 0 {
+			lc := i.Comments[n-1]
+			last = map[string]any{"id": lc.ID, "author": lc.Author, "at": iso(lc.At.Time)}
+		}
+		return map[string]any{"issue": i.ID, "comments": len(i.Comments), "comment": last}, nil
+	})
+
 	s.Register("dispatch_release", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		id, err := c.Args.Require("id")
@@ -216,22 +263,14 @@ func nextSteps(res *service.ClaimResult, agentName, endpoint, lockHHMM string) s
 	t := res.Task
 	var b strings.Builder
 	b.WriteString("已領取 " + t.ID + "「" + t.Title + "」,你現在是虛擬角色「" + agentName + "」。")
-	if cr := res.Credential; cr != nil {
-		b.WriteString("\n1. 用憑證連角色端點,以該角色身分工作:")
-		if endpoint != "" {
-			b.WriteString("MCP 端點 " + endpoint + ",")
-		} else {
-			b.WriteString("(沒有提供端點網址,請向管理員取得角色端點 /mcp/agent 的網址)")
-		}
-		b.WriteString("HTTP 標頭 Authorization: Bearer " + cr.AgentID + ":" + cr.Secret + "(密鑰只這一次看得到,不要寫進 Issue、留言或任務結果)。")
-		b.WriteString("先用 ops_agent_context 讀角色設定與任務,照任務說明完成;開 Issue 與留言的署名由憑證決定。")
-	}
+	b.WriteString("\n1. 照上面的角色設定(instructions)與任務說明完成工作;相關 Issue 見 task.links。")
 	b.WriteString("\n2. 任務已鎖定")
 	if lockHHMM != "" {
 		b.WriteString("到 " + lockHHMM)
 	}
-	b.WriteString(",鎖定期間別人不能領取。工作期間請定期(至少每小時)用 ops_agent_task_report status=inProgress(可附 note)回報進度以續約;逾時沒回報會被自動退回待領取,憑證也會失效。")
-	b.WriteString("\n3. 做完用 ops_agent_task_report status=done 並在 result 寫結果;需要人決定就用 status=blocked 並在 note 留言提問。done、blocked 之後憑證立刻失效。")
+	b.WriteString(",鎖定期間別人不能領取。工作期間請定期(至少每小時)用 dispatch_report(id: " + t.ID + ", status: inProgress,可附 note)回報進度以續約;逾時沒回報會被自動退回待領取。")
+	b.WriteString("\n3. 用 dispatch_comment(id: " + t.ID + ", issue, comment)在相關 Issue 以角色身分留言說明結果;做完用 dispatch_report status=done 並在 result 寫結果,需要人決定就用 status=blocked 並在 note 提問。")
 	b.WriteString("\n4. 不想做了或做不下去(又不需要人決定):用 dispatch_release 放棄,任務會退回待領取。")
+	b.WriteString("\n以上工具都以你登入 omixor 的身分呼叫,伺服器替你以角色署名,不需要使用 credential 的密鑰(密鑰只給直接連角色端點 /mcp/agent 的程式用,不要寫進 Issue、留言、任務結果或檔案)。")
 	return b.String()
 }

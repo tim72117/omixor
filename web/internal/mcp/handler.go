@@ -67,15 +67,11 @@ func mustServer() *coremcp.Server {
 
 // Register 登記 web 自己的工具實作(各 tools_*.go 在 init() 呼叫)。名稱必須在 spec/tools.json 裡。
 func Register(name string, f ToolFunc) {
-	rawTools[name] = f
 	srv.Register(name, func(c *coremcp.Call) (any, error) {
 		x := c.Ctx.(*callCtx)
 		return f(&Call{App: x.App, Args: c.Args, Actor: x.Actor})
 	})
 }
-
-// rawTools 已登記的 web 工具實作(角色端點 /mcp/agent 把文件櫃工具掛到核心的端點上時用)
-var rawTools = map[string]ToolFunc{}
 
 // ToolNames 全部工具名稱(依 tools/list 的順序)
 func ToolNames() []string { return srv.ToolNames() }

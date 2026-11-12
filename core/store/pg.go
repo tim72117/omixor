@@ -23,6 +23,8 @@ import (
 //	omixor_agent_tasks                            角色任務(主鍵 (org, id) = T-<n>;links、notes 是 jsonb)
 //	omixor_agent_credentials                      任務綁定的角色憑證(只存 SHA-256 雜湊與到期時間;token_hash 是主鍵)
 //	ops_issues.assignee                           指派給的角色 id(空字串 = 未指派)
+//	omixor_cabinet_layouts                        文件櫃結構(主鍵 org;layout 是 jsonb,區塊與頁籤)
+//	omixor_docs                                   文件櫃的文件(主鍵 (org, id) = DOC-<n>;pos 大的在前;tags 是 jsonb;tab 可以是 null)
 const pgSchema = `
 create table if not exists omixor_users (
   id text primary key,
@@ -153,6 +155,27 @@ create table if not exists omixor_agent_credentials (
   expires_at timestamptz not null
 );
 create unique index if not exists omixor_agent_credentials_task on omixor_agent_credentials (org, task_id);
+create table if not exists omixor_cabinet_layouts (
+  org text primary key,
+  layout jsonb not null default '[]',
+  updated_at timestamptz not null default now()
+);
+create table if not exists omixor_docs (
+  org text not null,
+  id text not null,
+  number integer not null,
+  pos bigint not null,
+  title text not null,
+  body text not null default '',
+  section text not null,
+  tab text,
+  tags jsonb not null default '[]',
+  author text not null default '',
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  primary key (org, id)
+);
+create index if not exists omixor_docs_org_pos on omixor_docs (org, pos desc);
 `
 
 type PG struct{ pool *pgxpool.Pool }
@@ -464,6 +487,8 @@ func (p *PG) DeleteOrg(id string) error {
 		`delete from omixor_agent_credentials where org = $1`,
 		`delete from omixor_agent_tasks where org = $1`,
 		`delete from omixor_agents where org = $1`,
+		`delete from omixor_docs where org = $1`,
+		`delete from omixor_cabinet_layouts where org = $1`,
 		`delete from omixor_org_members where org = $1`,
 	} {
 		if _, err := tx.Exec(c, q, id); err != nil {
@@ -1066,4 +1091,168 @@ func (p *PG) PruneAgentCredentials(now time.Time) error {
 	defer cancel()
 	_, err := p.pool.Exec(c, `delete from omixor_agent_credentials where expires_at <= $1`, now)
 	return err
+}
+
+// ---- 文件櫃 ----
+
+func (p *PG) GetCabinetLayout(org string) ([]model.CabinetSection, error) {
+	c, cancel := ctx()
+	defer cancel()
+	var b []byte
+	if err := p.pool.QueryRow(c, `select layout from omixor_cabinet_layouts where org = $1`, org).Scan(&b); err != nil {
+		return nil, notFound(err)
+	}
+	l := []model.CabinetSection{}
+	if err := json.Unmarshal(b, &l); err != nil {
+		return nil, err
+	}
+	return l, nil
+}
+
+func (p *PG) SaveCabinetLayout(org string, layout []model.CabinetSection) error {
+	c, cancel := ctx()
+	defer cancel()
+	if layout == nil {
+		layout = []model.CabinetSection{}
+	}
+	_, err := p.pool.Exec(c, `insert into omixor_cabinet_layouts (org, layout, updated_at) values ($1, $2, now())
+		on conflict (org) do update set layout = $2, updated_at = now()`, org, jb(layout))
+	return err
+}
+
+const docCols = `id, title, body, section, tab, tags, author, created_at, updated_at`
+
+func scanDoc(row pgx.Row) (*model.CabinetDoc, error) {
+	var d model.CabinetDoc
+	var tags []byte
+	var created, updated time.Time
+	if err := row.Scan(&d.ID, &d.Title, &d.Body, &d.Section, &d.Tab, &tags, &d.Author, &created, &updated); err != nil {
+		return nil, err
+	}
+	d.CreatedAt, d.UpdatedAt = model.Time{Time: created.UTC()}, model.Time{Time: updated.UTC()}
+	_ = json.Unmarshal(tags, &d.Tags)
+	if d.Tags == nil {
+		d.Tags = []string{}
+	}
+	return &d, nil
+}
+
+func tagsOrEmpty(l []string) []string {
+	if l == nil {
+		return []string{}
+	}
+	return l
+}
+
+func (p *PG) ListDocs(org string) ([]model.CabinetDoc, error) {
+	c, cancel := ctx()
+	defer cancel()
+	rows, err := p.pool.Query(c, `select `+docCols+` from omixor_docs where org = $1 order by pos desc`, org)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.CabinetDoc{}
+	for rows.Next() {
+		d, err := scanDoc(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *d)
+	}
+	return out, rows.Err()
+}
+
+func (p *PG) GetDoc(org, id string) (*model.CabinetDoc, error) {
+	c, cancel := ctx()
+	defer cancel()
+	d, err := scanDoc(p.pool.QueryRow(c, `select `+docCols+` from omixor_docs where org = $1 and id = $2`, org, id))
+	if err != nil {
+		return nil, notFound(err)
+	}
+	return d, nil
+}
+
+func insertDoc(c context.Context, tx pgx.Tx, org string, d model.CabinetDoc, pos int64) error {
+	_, err := tx.Exec(c, `insert into omixor_docs (org, id, number, pos, title, body, section, tab, tags, author, created_at, updated_at)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		org, d.ID, d.Number(), pos, d.Title, d.Body, d.Section, d.Tab, jb(tagsOrEmpty(d.Tags)), d.Author, secs(d.CreatedAt.Time), secs(d.UpdatedAt.Time))
+	return err
+}
+
+func (p *PG) CreateDoc(org string, d model.CabinetDoc) (model.CabinetDoc, error) {
+	c, cancel := ctx()
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return d, err
+	}
+	defer tx.Rollback(c)
+	// 同一個組織同時只建一份,號碼才不會撞
+	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-docs:' || $1))`, org); err != nil {
+		return d, err
+	}
+	var num int
+	var pos int64
+	if err := tx.QueryRow(c, `select coalesce(max(number),0), coalesce(max(pos),0) from omixor_docs where org = $1`, org).Scan(&num, &pos); err != nil {
+		return d, err
+	}
+	d.ID = fmt.Sprintf("%s%d", model.DocPrefix, num+1)
+	if err := insertDoc(c, tx, org, d, pos+1); err != nil {
+		return d, err
+	}
+	return d, tx.Commit(c)
+}
+
+func (p *PG) UpdateDoc(org string, d model.CabinetDoc) error {
+	c, cancel := ctx()
+	defer cancel()
+	tag, err := p.pool.Exec(c, `update omixor_docs set title = $3, body = $4, section = $5, tab = $6, tags = $7, author = $8, updated_at = $9
+		where org = $1 and id = $2`, org, d.ID, d.Title, d.Body, d.Section, d.Tab, jb(tagsOrEmpty(d.Tags)), d.Author, secs(d.UpdatedAt.Time))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (p *PG) DeleteDoc(org, id string) error {
+	c, cancel := ctx()
+	defer cancel()
+	tag, err := p.pool.Exec(c, `delete from omixor_docs where org = $1 and id = $2`, org, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (p *PG) ImportDocs(org string, list []model.CabinetDoc) (int, error) {
+	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(c)
+	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-docs:' || $1))`, org); err != nil {
+		return 0, err
+	}
+	var n int
+	if err := tx.QueryRow(c, `select count(*) from omixor_docs where org = $1`, org).Scan(&n); err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		return 0, fmt.Errorf("組織 %s 已經有 %d 份文件", org, n)
+	}
+	for k, d := range list {
+		if err := insertDoc(c, tx, org, d, int64(len(list)-k)); err != nil {
+			return 0, fmt.Errorf("%s:%w", d.ID, err)
+		}
+	}
+	return len(list), tx.Commit(c)
 }

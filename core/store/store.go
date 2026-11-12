@@ -81,4 +81,17 @@ type Store interface {
 	DeleteAgentCredentials(org, taskID, agentID string) error
 	// PruneAgentCredentials 清掉到期的憑證
 	PruneAgentCredentials(now time.Time) error
+
+	// 文件櫃(依組織分;DeleteOrg 一併刪除)。id 比對精確,不分大小寫的查找在 service。
+	// GetCabinetLayout 這個組織存過的結構;沒存過回 ErrNotFound
+	GetCabinetLayout(org string) ([]model.CabinetSection, error)
+	SaveCabinetLayout(org string, layout []model.CabinetSection) error
+	ListDocs(org string) ([]model.CabinetDoc, error) // 新的在前
+	GetDoc(org, id string) (*model.CabinetDoc, error)
+	// CreateDoc 指定新的 id(DOC-<最大號碼+1>)並放在最前面,回傳存好的
+	CreateDoc(org string, d model.CabinetDoc) (model.CabinetDoc, error)
+	UpdateDoc(org string, d model.CabinetDoc) error // 整筆取代(位置不變)
+	DeleteDoc(org, id string) error
+	// ImportDocs 第一次搬資料用:保留 id、作者與時間;list 是新的在前;組織已經有文件就回錯誤
+	ImportDocs(org string, list []model.CabinetDoc) (int, error)
 }

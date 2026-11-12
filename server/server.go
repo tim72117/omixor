@@ -15,9 +15,9 @@
 //
 //	/health                        健康檢查
 //	/api/…                         核心 HTTP API(core/api)
-//	/mcp/agent                     角色端點:Authorization: Bearer <agentId>:<secret>(領取任務時發的憑證),白名單工具
+//	/mcp/agent                     角色端點:Authorization: Bearer <agentId>:<secret>(領取任務時發的憑證),白名單工具(含文件櫃,依角色的 docAccess)
 //	/mcp/worker/{org}              執行者專用 MCP(只有 dispatch_queue/claim/status/release):認證同 /mcp/org/{org}
-//	/mcp/org/{org}                 管理用 MCP(組織 {org} 的 Issue、角色、任務):Authorization: Bearer omx_…(omixor token),權限同該使用者
+//	/mcp/org/{org}                 管理用 MCP(組織 {org} 的 Issue、角色、任務、文件櫃):Authorization: Bearer omx_…(omixor token),權限同該使用者
 package server
 
 import (
@@ -57,7 +57,7 @@ func Handler(svc *service.Service) http.Handler {
 	})
 	mux.Handle("/api/", api.New(svc).Handler())
 
-	// MCP:角色端點與管理端點(協定與工具都在 omixor-core/mcp,這裡只接路由與認證)
+	// MCP:角色端點與管理端點(協定與工具都在 omixor-core/mcp,這裡只接路由與認證;文件櫃工具是核心內建的,不用另外掛)
 	public := strings.TrimRight(os.Getenv("OMIXOR_PUBLIC_URL"), "/")
 	agentURL := ""
 	if public != "" {

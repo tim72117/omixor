@@ -22,8 +22,8 @@ func toMap(v any) map[string]any {
 	return d
 }
 
-// agentJSON 角色的輸出:設定、各狀態未結束任務數、例行任務摘要
-func agentJSON(e AgentEnv, g model.Agent, open []model.AgentTask) map[string]any {
+// agentJSON 角色的輸出:設定、各狀態未結束任務數、例行任務摘要;l 不是 nil 時 docAccess 換成看得懂的文件櫃範圍(DocScope)
+func agentJSON(e AgentEnv, l model.Layout, g model.Agent, open []model.AgentTask) map[string]any {
 	d := toMap(g)
 	counts := map[string]any{}
 	for _, t := range open {
@@ -38,6 +38,9 @@ func agentJSON(e AgentEnv, g model.Agent, open []model.AgentTask) map[string]any
 		routines = append(routines, map[string]any{"title": r.Title, "schedule": r.ScheduleLabel(), "enabled": r.Enabled, "instructions": r.Instructions})
 	}
 	d["routines"] = routines
+	if l != nil {
+		d["docAccess"] = DocScope(l, g)
+	}
 	if dec, ok := e.(AgentDecorator); ok {
 		dec.DecorateAgent(g, d)
 	}
@@ -119,7 +122,8 @@ func objects(v any) ([]map[string]any, bool) {
 
 // RegisterAgentTools 登記虛擬角色工具:ops_agents、ops_agent_context、ops_agent_tasks、ops_agent_task_claim、
 // ops_agent_task_report、ops_agent_upsert、ops_agent_task_create。
-// 執行環境(Call.Ctx)要實作 AgentEnv;可選實作 AgentDecorator、DocAccessResolver(web 的文件櫃用)。
+// 執行環境(Call.Ctx)要實作 AgentEnv;可選實作 AgentDecorator、DocAccessResolver(要自己改寫輸出或 docAccess 的 key 時用;
+// 沒實作時依核心的文件櫃結構處理)。
 func RegisterAgentTools(s *Server) {
 	s.Register("ops_agents", func(c *Call) (any, error) {
 		e := agentEnv(c)
@@ -133,20 +137,21 @@ func RegisterAgentTools(s *Server) {
 			if err != nil {
 				return nil, terr(err)
 			}
-			return agentJSON(e, *g, tasks), nil
+			return agentJSON(e, cabLayout(e), *g, tasks), nil
 		}
 		list, err := bk.ListAgents(org)
 		if err != nil {
 			return nil, terr(err)
 		}
 		out := []any{}
+		l := cabLayout(e)
 		for _, g := range list {
-			out = append(out, agentJSON(e, g, tasks))
+			out = append(out, agentJSON(e, l, g, tasks))
 		}
 		return map[string]any{"agents": out}, nil
 	})
 
-	// 角色能讀取的資訊:角色設定、未完成的任務;文件櫃等由使用的程式透過 ContextExtra 附加
+	// 角色能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與能讀的文件(依 docAccess);其他由使用的程式透過 ContextExtra 附加
 	s.Register("ops_agent_context", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		bk, org := e.Backend(), e.Org()
@@ -173,8 +178,11 @@ func RegisterAgentTools(s *Server) {
 		bodies, _ := c.Args.Raw["include_bodies"].(bool)
 		out := map[string]any{
 			"organization": e.OrgName(),
-			"agent":        agentJSON(e, *g, open),
+			"agent":        agentJSON(e, cabLayout(e), *g, open),
 			"tasks":        map[string]any{"total": len(open), "tasks": tasks},
+		}
+		for k, v := range cabinetContext(e, *g, bodies) {
+			out[k] = v
 		}
 		for k, v := range e.ContextExtra(*g, bodies) {
 			out[k] = v
@@ -242,7 +250,7 @@ func RegisterAgentTools(s *Server) {
 		out := map[string]any{"agent": map[string]any{}, "task": nil}
 		name, gid := ag, ag
 		if res.Agent != nil {
-			out["agent"] = agentJSON(e, *res.Agent, openTasksOf(e, res.Agent.ID))
+			out["agent"] = agentJSON(e, cabLayout(e), *res.Agent, openTasksOf(e, res.Agent.ID))
 			name, gid = res.Agent.Name, res.Agent.ID
 		}
 		if res.Task == nil {
@@ -363,6 +371,8 @@ func RegisterAgentTools(s *Server) {
 			g.Routines = rs
 		}
 		if m, ok := c.Args.Raw["doc_access"].(map[string]any); ok {
+			// key 可以是區塊 id 或名稱、頁籤網址、名稱或代號:依文件櫃結構換成存起來的 key(區塊 id 或頁籤網址)
+			layout := cabLayout(e)
 			keys := make([]string, 0, len(m))
 			for k := range m {
 				keys = append(keys, k)
@@ -380,6 +390,12 @@ func RegisterAgentTools(s *Server) {
 						return nil, err
 					}
 					key = rk
+				} else if layout != nil {
+					rk, msg := layout.ResolveAccessKey(k)
+					if msg != "" {
+						return nil, ToolError{Message: msg}
+					}
+					key = rk
 				}
 				if level == "none" {
 					delete(g.DocAccess, key)
@@ -392,7 +408,7 @@ func RegisterAgentTools(s *Server) {
 		if err != nil {
 			return nil, terr(err)
 		}
-		return agentJSON(e, *saved, openTasksOf(e, saved.ID)), nil
+		return agentJSON(e, cabLayout(e), *saved, openTasksOf(e, saved.ID)), nil
 	})
 
 	s.Register("ops_agent_task_create", func(c *Call) (any, error) {

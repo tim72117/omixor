@@ -15,6 +15,7 @@ import (
 func fbTestApp(t *testing.T) (*core.App, *core.FakeNet) {
 	t.Helper()
 	a := extTestApp(t)
+	seedAgents(t, a)
 	f := core.NewFakeNet(core.FBFakeGraph)
 	saved := core.FBConfirmOwner
 	core.FBConfirmOwner = func(string) bool { return true }

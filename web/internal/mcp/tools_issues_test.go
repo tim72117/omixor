@@ -1,11 +1,14 @@
 package mcp
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
 
 	"omixor-web/internal/core"
 )
 
+// iaApp 測試用的 App:自己的暫存資料夾;本機模式時核心(記憶體)裡放好測試用的 5 個角色(../core/testdata/agents.json)
 func iaApp(t *testing.T) *core.App {
 	t.Helper()
 	t.Setenv("OPS_DATA_DIR", t.TempDir())
@@ -13,7 +16,32 @@ func iaApp(t *testing.T) *core.App {
 	a.Mu.Lock()
 	a.LoadOrgData()
 	a.Mu.Unlock()
+	seedAgents(t, a)
 	return a
+}
+
+// seedAgents 本機模式時,把測試用的角色存進目前組織的核心(遠端模式的測試:角色在假的雲端,不放)
+func seedAgents(t *testing.T, a *core.App) {
+	t.Helper()
+	if core.IsRemote() {
+		return
+	}
+	a.Mu.Lock()
+	org := a.CurrentOrgID()
+	a.Mu.Unlock()
+	b, err := os.ReadFile("../core/testdata/agents.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []core.Agent
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range list {
+		if _, err := a.AgentOps().SaveAgent(org, g); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func iaRun(t *testing.T, a *core.App, actor core.Actor, name string, args map[string]any) map[string]any {

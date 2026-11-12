@@ -48,7 +48,7 @@ type AgentRoutine struct {
 	Weekday      int    `json:"weekday"`
 }
 
-// Agent 虛擬角色。DocAccess 的 key 是文件櫃的區塊 id 或頁籤網址(文件櫃不在核心,核心只保存)
+// Agent 虛擬角色。DocAccess 的 key 是文件櫃的區塊 id 或頁籤網址(見 cabinet.go;權限由 service 依它強制)
 type Agent struct {
 	Active       bool              `json:"active"`
 	Color        string            `json:"color"`

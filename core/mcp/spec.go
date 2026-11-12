@@ -36,7 +36,7 @@ func ToolDef(name, title, desc string, readOnly bool, schema map[string]any) map
 	}
 }
 
-// CoreToolDefs 核心提供的工具規格:組織、Issue、虛擬角色與任務
+// CoreToolDefs 核心提供的工具規格:組織、Issue、虛擬角色與任務、文件櫃
 func CoreToolDefs() []any {
 	prio := []string{"urgent", "high", "normal", "low"}
 	return []any{
@@ -81,7 +81,7 @@ func CoreToolDefs() []any {
 			"列出組織的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。以角色身分工作前先讀它的 instructions。", true,
 			obj(map[string]any{"id": pStr("只看這個角色")})),
 		ToolDef("ops_agent_context", "角色能讀取的資訊",
-			"用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務;端點有掛文件櫃時,還有能存取的區塊與文件(依角色的 docAccess)。", true,
+			"用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與頁籤(read / write),以及能讀的文件清單。include_bodies 為 true 時附上文件全文(最多 20 份,其餘只列清單)。文件權限依角色的 docAccess。", true,
 			obj(map[string]any{
 				"agent":          pStr("角色 id 或名稱"),
 				"include_bodies": pBool("附上文件全文,預設 false"),
@@ -114,7 +114,7 @@ func CoreToolDefs() []any {
 				"active":       pBool("啟用"),
 				"add_routines": pObjs("加上的例行任務"),
 				"color":        pEnum("顏色", "blue", "teal", "green", "orange", "pink", "purple", "indigo", "gray"),
-				"doc_access": map[string]any{"type": "object", "description": "文件櫃存取範圍,會合併進現有設定:key 是區塊 id 或頁籤網址,值是 read、write 或 none(移除)。",
+				"doc_access": map[string]any{"type": "object", "description": "文件櫃存取範圍,會合併進現有設定:key 是區塊 id 或名稱、頁籤網址、名稱或代號(存成區塊 id 或頁籤網址),值是 read、write 或 none(移除)。頁籤的設定優先於區塊。",
 					"additionalProperties": map[string]any{"type": "string", "enum": []string{"none", "read", "write"}}},
 				"id":           pStr("要修改的角色 id 或名稱;新增時可指定英文 id(例如 product-manager),不給就自動產生"),
 				"instructions": pStr("角色設定(給 AI 的說明,Markdown)"),
@@ -132,6 +132,31 @@ func CoreToolDefs() []any {
 				"priority":     pEnum("優先度,預設 normal", prio...),
 				"title":        pStr("標題"),
 			}, "assign_to", "title")),
+		ToolDef("ops_cabinet", "文件櫃結構",
+			"列出文件櫃的區塊與頁籤,以及各處有幾份文件。給 agent 時只列該角色能存取的位置並標出權限(read / write)。", true,
+			obj(map[string]any{"agent": pStr("以角色身分查看時填角色 id 或名稱")})),
+		ToolDef("ops_docs", "查文件",
+			"給 id 回傳文件全文;否則依區塊、頁籤、關鍵字列出文件(最多 50 筆)。給 agent 時只看得到該角色有權限的文件。", true,
+			obj(map[string]any{
+				"agent":   pStr("以角色身分查看時填角色 id 或名稱"),
+				"id":      pStr("文件 id,例如 DOC-3"),
+				"query":   pStr("標題、內文或標籤包含這段文字"),
+				"section": pStr("區塊 id 或名稱"),
+				"tab":     pStr("頁籤網址、名稱或代號"),
+			})),
+		ToolDef("ops_doc_save", "存文件到文件櫃",
+			"新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置(角色端點一律是憑證的角色)。"+
+				"內文開頭可以有欄位(--- 之間一行一個 key: value),kind 是文件類型:有對應範本(kind: template、for: <類型> 的文件,內含 ```html 版面與 ```css 樣式)時,畫面依範本顯示,存檔前也會檢查範本的 required 欄位。", false,
+			obj(map[string]any{
+				"agent":       pStr("以角色身分工作時填角色 id 或名稱"),
+				"append_body": pStr("接在內文後面的文字"),
+				"body":        pStr("取代內文(Markdown)"),
+				"id":          pStr("要修改的文件 id;新增時不給"),
+				"section":     pStr("區塊 id 或名稱(新增時必填,或只給 tab)"),
+				"tab":         pStr("頁籤網址或名稱"),
+				"tags":        pStrs("標籤"),
+				"title":       pStr("標題(新增時必填)"),
+			})),
 	}
 }
 
@@ -155,10 +180,11 @@ func NewCoreServer(instructions string) *Server {
 	RegisterOrgTools(s)
 	RegisterIssueTools(s)
 	RegisterAgentTools(s)
+	RegisterCabinetTools(s)
 	return s
 }
 
-// WorkerToolDefs 執行者端點(WorkerEndpoint)的工具規格:只有派發需要的四個,前綴 dispatch_
+// WorkerToolDefs 執行者端點(WorkerEndpoint)的工具規格:只有派發需要的,前綴 dispatch_
 func WorkerToolDefs() []any {
 	return []any{
 		ToolDef("dispatch_queue", "列出可領的任務",
@@ -179,6 +205,23 @@ func WorkerToolDefs() []any {
 		ToolDef("dispatch_status", "我領取中的任務",
 			"列出我領取中(inProgress)的任務:鎖定到期時間、剩餘分鐘、是否已逾時。逾時的任務會被自動退回待領取;要續約請用憑證連角色端點呼叫 ops_agent_task_report(status: inProgress)。", true,
 			obj(map[string]any{})),
+		ToolDef("dispatch_report", "以角色身分回報任務",
+			"回報我領取中的任務(不需要角色憑證,伺服器確認我是領取者後以該角色身分回報):status inProgress(附 note 回報進度並續約)、"+
+				"blocked(需要人決定,在 note 提問)或 done(在 result 寫結果)。done、blocked 後任務結束、憑證作廢。任務要是進行中且租約還沒到期。", false,
+			obj(map[string]any{
+				"id":     pStr("任務 id,例如 T-3"),
+				"status": map[string]any{"type": "string", "enum": []string{"inProgress", "blocked", "done"}, "description": "狀態(選填;不給就只加備註或結果)"},
+				"result": pStr("結果(done 時寫)"),
+				"note":   pStr("備註(進度、問題),署名該角色"),
+				"links":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "相關 Issue id(選填,附加)"},
+			}, "id")),
+		ToolDef("dispatch_comment", "以角色身分在 Issue 留言",
+			"在 Issue 留言,署名是我領取中任務的角色(agent:<角色 id>),不需要角色憑證。任務要是我領取的、進行中且租約還沒到期。", false,
+			obj(map[string]any{
+				"id":      pStr("我領取中的任務 id(決定以哪個角色署名)"),
+				"issue":   pStr("Issue id,例如 ISS-13"),
+				"comment": pStr("留言內容(Markdown)"),
+			}, "id", "issue", "comment")),
 		ToolDef("dispatch_release", "放棄領取",
 			"放棄一筆我領取中的任務:退回待領取、解鎖、憑證作廢,並在任務留一則備註(署名放棄者,含原因)。只有領取者本人或組織管理員可以。", false,
 			obj(map[string]any{

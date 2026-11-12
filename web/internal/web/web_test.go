@@ -18,6 +18,8 @@ func TestMain(m *testing.M) {
 	dir, _ := os.MkdirTemp("", "omixor-web-test")
 	os.Setenv("OPS_DATA_DIR", dir)
 	os.Setenv("OPS_NO_TIMERS", "1")
+	// 預設不載入範本;這裡的測試要用範例資料(告警等),所以開著(templates/ 在 repo 最外層)
+	os.Setenv("OMIXOR_TEMPLATES", "1")
 	core.Vault = core.NewMemoryVault()
 	code := m.Run()
 	os.RemoveAll(dir)

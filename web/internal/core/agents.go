@@ -77,14 +77,18 @@ func AgentService() *service.Service {
 	return nil
 }
 
-// RoleCallFinished 角色端點(/mcp/agent)處理完一個請求:核心可能多了 Issue、留言、任務狀態,
-// 重讀 Issue 清單與角色資料並通知畫面。不要拿著 Mu
+// RoleCallFinished 角色端點(/mcp/agent)處理完一個請求:核心可能多了 Issue、留言、任務狀態、文件,
+// 重讀 Issue 清單、角色資料與文件櫃並通知畫面。不要拿著 Mu
 func (a *App) RoleCallFinished() {
 	a.Mu.Lock()
 	a.RefreshIssuesIfStale(0)
 	a.changedIssues()
+	org := a.CurrentOrgID()
 	a.Mu.Unlock()
 	a.AgentsChanged()
+	if org != "" && a.cabinetRefresh(org) {
+		a.Changed("cabinet")
+	}
 }
 
 // ---- 快取 ----
@@ -473,6 +477,46 @@ func (o AgentOps) ReportTask(org, id string, in service.TaskReport) (*model.Agen
 		}
 	}
 	return t, nil
+}
+
+// WorkerReport 領取者(本機是 ops-web,遠端是雲端帳號)以角色身分回報自己領取的任務(/mcp/worker 的 dispatch_report)
+func (o AgentOps) WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	t, err := b.WorkerReport(org, id, in)
+	if err != nil {
+		return nil, err
+	}
+	o.done(org)
+	if in.Status != nil {
+		name := o.agentName(org, t.AgentID)
+		switch *in.Status {
+		case "done":
+			o.logf(AI(t.AgentID), "checkmark.circle", name+"完成 "+t.ID+"「"+t.Title+"」")
+		case "blocked":
+			o.logf(AI(t.AgentID), "hand.raised", name+"在 "+t.ID+"「"+t.Title+"」需要協助")
+		}
+	}
+	return t, nil
+}
+
+// WorkerComment 領取者以角色身分在 Issue 留言(/mcp/worker 的 dispatch_comment);寫完重讀 Issue 給畫面
+func (o AgentOps) WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	i, err := b.WorkerComment(org, taskID, issueID, comment)
+	if err != nil {
+		return nil, err
+	}
+	o.a.Mu.Lock()
+	o.a.ReloadIssues()
+	o.a.Mu.Unlock()
+	go o.a.Changed("issues")
+	return i, nil
 }
 
 func (o AgentOps) CancelTask(org, id string) (*model.AgentTask, error) {

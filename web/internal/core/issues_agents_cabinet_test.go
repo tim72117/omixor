@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	"omixor-core/service"
 )
 
-// 每個測試用自己的暫存資料夾
+// 每個測試用自己的暫存資料夾;核心(記憶體)裡放好測試用的 5 個角色(testdata/agents.json)
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 	t.Setenv("OPS_DATA_DIR", t.TempDir())
@@ -19,7 +20,27 @@ func newTestApp(t *testing.T) *App {
 	a.Mu.Lock()
 	a.LoadOrgData()
 	a.Mu.Unlock()
+	seedTestAgents(t, a)
 	return a
+}
+
+// seedTestAgents 測試用的角色(原本預設角色範本的內容;角色已經不從檔案載入)存進目前組織的核心
+func seedTestAgents(t *testing.T, a *App) {
+	t.Helper()
+	b, err := os.ReadFile("testdata/agents.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []Agent
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatal(err)
+	}
+	org := a.currentOrgNow()
+	for _, g := range list {
+		if _, err := a.AgentOps().SaveAgent(org, g); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func writeOrgFile(t *testing.T, name, body string) {
@@ -33,20 +54,14 @@ func writeOrgFile(t *testing.T, name, body string) {
 	}
 }
 
-func TestOldFilesWithMissingFields(t *testing.T) {
+// 本機舊的 cabinet.json / cabinet-layout.json:組織載入時匯入核心一次(缺欄位用預設值;舊檔案留著)
+func TestOldCabinetFilesImported(t *testing.T) {
 	t.Setenv("OPS_DATA_DIR", t.TempDir())
-	writeOrgFile(t, "issues.json", `[{"id":"ISS-3","title":"舊的","createdBy":"tim","createdAt":"2026-01-01T00:00:00Z","comments":[{"author":"mcp","text":"hi"}]}]`)
 	writeOrgFile(t, "cabinet.json", `[{"id":"DOC-2","title":"文件","section":"docs"}]`)
 	writeOrgFile(t, "cabinet-layout.json", `[{"id":"docs","label":"文件"}]`)
 	a := New()
 	a.Mu.Lock()
-	defer a.Mu.Unlock()
 	a.LoadOrgData()
-
-	is := a.Issues()
-	if len(is) != 1 || is[0].Status != "open" || is[0].Priority != "normal" || is[0].Labels == nil || is[0].Comments[0].ID == "" {
-		t.Fatalf("Issue 預設值不對:%+v", is)
-	}
 	d := a.FindDoc("doc-2")
 	if d == nil || d.Author != MCPAuthor || d.Tags == nil || !d.UpdatedAt.Equal(d.CreatedAt.Time) {
 		t.Fatalf("文件預設值不對:%+v", d)
@@ -54,9 +69,21 @@ func TestOldFilesWithMissingFields(t *testing.T) {
 	if l := a.CabinetLayout(); len(l) != 1 || l[0].Tabs == nil {
 		t.Fatalf("結構不對:%+v", l)
 	}
+	dir := filepath.Join(DataRoot(), "orgs", DefaultOrgID)
+	if !Exists(filepath.Join(dir, "cabinet.json")) || !Exists(filepath.Join(dir, "cabinet-layout.json")) || !Exists(filepath.Join(dir, cabinetImportedFile)) {
+		t.Fatal("舊檔案要留著,並記下已匯入")
+	}
+	// 再載入一次不重複匯入
+	a.LoadOrgData()
+	org := a.CurrentOrgID()
+	a.Mu.Unlock()
+	if len(a.CabinetDocs()) != 1 {
+		t.Fatal("只匯入一次")
+	}
 	// 新的編號接在舊的後面
-	if n := a.CreateIssue("新", "", "", nil, "", "", "tim"); n.ID != "ISS-4" {
-		t.Fatalf("編號 %s", n.ID)
+	n, err := a.CabinetOps().CreateDoc(org, service.DocInput{Title: "新", Section: "docs", Author: "tim"})
+	if err != nil || n.ID != "DOC-3" {
+		t.Fatalf("編號 %+v %v", n, err)
 	}
 }
 
@@ -104,8 +131,15 @@ func TestOrgCreateAndSwitch(t *testing.T) {
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
 	a.CreateIssue("預設組織的 Issue", "", "high", nil, "", "", "tim")
-	a.SaveCabinetLayout(append(TemplateCabinetLayout(), CabinetSection{ID: "extra", Label: "額外", Tabs: []CabinetTab{}}))
-	a.CreateDoc("文件", "", "docs", nil, nil, "tim")
+	org := a.CurrentOrgID()
+	a.Mu.Unlock()
+	if _, err := a.CabinetOps().SaveLayout(org, append(TemplateCabinetLayout(), CabinetSection{ID: "extra", Label: "額外", Tabs: []CabinetTab{}})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.CabinetOps().CreateDoc(org, service.DocInput{Title: "文件", Section: "docs", Author: "tim"}); err != nil {
+		t.Fatal(err)
+	}
+	a.Mu.Lock()
 
 	blank := a.CreateOrg("空白", "", "", "blank")
 	cp := a.CreateOrg("複製", "", "", "copyCurrent")
@@ -287,8 +321,10 @@ func TestIssueBadgeAndDelete(t *testing.T) {
 
 func TestCabinetValidate(t *testing.T) {
 	a := newTestApp(t)
+	if _, err := a.CabinetOps().CreateDoc(a.currentOrgNow(), service.DocInput{Title: "L0 文件", Section: "levels", Tab: cabSP("/studio/tools"), Author: "tim"}); err != nil {
+		t.Fatal(err)
+	}
 	a.Mu.Lock()
-	a.CreateDoc("L0 文件", "", "levels", cabSP("/studio/tools"), nil, "tim")
 	cases := map[string][]CabinetSection{
 		"區塊名稱不能是空的":               {{ID: "a", Label: " "}},
 		"區塊 id 重複:a":              {{ID: "a", Label: "A"}, {ID: "a", Label: "B"}},

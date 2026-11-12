@@ -35,6 +35,13 @@ func TestCabinetToolsAccess(t *testing.T) {
 	a.Mu.Lock()
 	by := a.FindDoc("DOC-3").Author
 	a.Mu.Unlock()
+	// 以角色身分新增的文件署名角色(存在核心的是 agent:<id>)
+	a.Mu.Lock()
+	by2 := a.FindDoc("DOC-2").Author
+	a.Mu.Unlock()
+	if by2 != "agent:course-dev" {
+		t.Fatal(by2)
+	}
 	if by != "tim" {
 		t.Fatal(by)
 	}

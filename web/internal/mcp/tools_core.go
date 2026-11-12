@@ -11,16 +11,18 @@ import (
 	"omixor-web/internal/core"
 )
 
-// 組織、Issue、虛擬角色與任務的工具(ops_orgs、ops_issue_*、ops_agent*)在 omixor-core/mcp,
+// 組織、Issue、虛擬角色與任務、文件櫃的工具(ops_orgs、ops_issue_*、ops_agent*、ops_cabinet、ops_docs、ops_doc_save)在 omixor-core/mcp,
 // 透過核心的共同介面 backend.Backend 操作。這裡提供 web 的實作(appBackend):
 //   - 組織、Issue:包著 web 的 core.App(組織清單、Issue 快取、動態牆、與核心 service/client 的同步),
 //     讓 MCP 工具的副作用和畫面操作完全一樣
 //   - 角色與任務:交給 App.AgentOps(本機內建核心或遠端 omixor server),寫入後更新快取、寫動態、通知畫面
+//   - 文件櫃:交給 App.CabinetOps(同上;見 tools_cabinet.go)
 
 func init() {
 	coremcp.RegisterOrgTools(srv)
 	coremcp.RegisterIssueTools(srv)
 	coremcp.RegisterAgentTools(srv)
+	coremcp.RegisterCabinetTools(srv)
 }
 
 // toolErr 把 core.UserError 轉成工具錯誤
@@ -92,40 +94,17 @@ func (x *callCtx) AgentName(id string) (name string) {
 	})
 	return
 }
-func (x *callCtx) ContextExtra(g model.Agent, includeBodies bool) (out map[string]any) {
-	x.withMu(func() { out = cabinetContext(x.App, g, includeBodies) })
-	return
-}
+
+// ContextExtra 文件櫃的欄位(cabinet、docs)核心已經附上,web 沒有別的要加
+func (x *callCtx) ContextExtra(model.Agent, bool) map[string]any { return nil }
 func (x *callCtx) EndpointURL() (u string) {
 	x.withMu(func() { u = x.App.AgentEndpointURL() })
 	return
 }
 
-// DecorateAgent 角色輸出的 docAccess 換成看得懂的文件櫃範圍(區塊或頁籤的名稱與權限)
-func (x *callCtx) DecorateAgent(g model.Agent, out map[string]any) {
-	x.withMu(func() { out["docAccess"] = docScope(x.App, g) })
-}
+var _ coremcp.AgentEnv = (*callCtx)(nil)
 
-// ResolveDocAccessKey ops_agent_upsert 的 doc_access:區塊 id、頁籤網址或名稱 → 存起來的 key
-func (x *callCtx) ResolveDocAccessKey(k string) (key string, err error) {
-	x.withMu(func() {
-		a := x.App
-		if sec := a.CabinetSectionByID(k); sec != nil {
-			key = sec.ID
-		} else if _, t, e := a.ResolveCabinet(nil, &k); e == nil && t != nil {
-			key = t.Path
-		} else {
-			err = Errorf("文件櫃沒有「%s」這個區塊或頁籤", k)
-		}
-	})
-	return
-}
-
-var (
-	_ coremcp.AgentEnv          = (*callCtx)(nil)
-	_ coremcp.AgentDecorator    = (*callCtx)(nil)
-	_ coremcp.DocAccessResolver = (*callCtx)(nil)
-)
+// docAccess 的顯示(換成看得懂的文件櫃範圍)與 ops_agent_upsert 的 doc_access key 解析都由核心依文件櫃結構處理
 
 // appBackend 以 core.App 實作 backend.Backend:組織與 Issue 的部分包 web 的狀態(呼叫時要拿著 App.Mu,MCP 工具會先 Lock),
 // 角色與任務的部分交給 App.AgentOps(不要拿著 Mu)。組織 id 參數:Issue 忽略(一律是目前的組織),角色與任務照給的用。
@@ -248,6 +227,12 @@ func (b appBackend) ReleaseTask(org, id, reason string) (*model.AgentTask, error
 func (b appBackend) Whoami() string { return b.a.AgentOps().Whoami() }
 func (b appBackend) ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error) {
 	return b.a.AgentOps().ReportTask(org, id, in)
+}
+func (b appBackend) WorkerReport(org, id string, in service.TaskReport) (*model.AgentTask, error) {
+	return b.a.AgentOps().WorkerReport(org, id, in)
+}
+func (b appBackend) WorkerComment(org, taskID, issueID, comment string) (*model.Issue, error) {
+	return b.a.AgentOps().WorkerComment(org, taskID, issueID, comment)
 }
 func (b appBackend) CancelTask(org, id string) (*model.AgentTask, error) {
 	return b.a.AgentOps().CancelTask(org, id)

@@ -2,7 +2,6 @@ package web
 
 import (
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,7 +21,7 @@ func issueList(t *testing.T, c *client, org string) []any {
 	return list
 }
 
-// Swift 版透過這組 API 讀寫 Issue:原始格式(作者字串)、作者照 body、狀態變了有關閉時間、存到組織的 issues.json
+// Swift 版透過這組 API 讀寫 Issue:原始格式(作者字串)、作者照 body、狀態變了有關閉時間、存在核心
 func TestIssueAPICurrentOrg(t *testing.T) {
 	os.Remove(core.DataRoot() + "/auth.json")
 	c, app := newServer(t, auth.New(&auth.MemorySecrets{}))
@@ -86,10 +85,9 @@ func TestIssueAPICurrentOrg(t *testing.T) {
 		t.Fatal("找不到要 404")
 	}
 
-	// 存檔:issues.json 是原始格式
-	var saved []core.OpsIssue
-	if err := core.ReadJSON(filepath.Join(core.OrgDir(org), "issues.json"), &saved); err != nil || saved[0].ID != id || saved[0].Status != "closed" {
-		t.Fatalf("issues.json 沒存:%v", err)
+	// 存檔:Issue 存在核心(不再寫 issues.json),重讀還在
+	if list := issueList(t, c, org); list[0].(map[string]any)["status"] != "closed" {
+		t.Fatalf("核心沒存:%v", list)
 	}
 
 	_, out = c.do("POST", "/api/issues/"+org+"/"+id+"/delete", map[string]any{}, nil)
@@ -98,7 +96,7 @@ func TestIssueAPICurrentOrg(t *testing.T) {
 	}
 }
 
-// 不是 omixor-web 目前組織的 Issue:讀寫那個組織自己的資料,不動目前組織的清單與動態牆
+// 不是 omixor-web 目前組織的 Issue:讀寫那個組織自己的資料(核心裡那個組織的),不動目前組織的清單與動態牆
 func TestIssueAPIOtherOrg(t *testing.T) {
 	os.Remove(core.DataRoot() + "/auth.json")
 	c, app := newServer(t, auth.New(&auth.MemorySecrets{}))
@@ -126,9 +124,6 @@ func TestIssueAPIOtherOrg(t *testing.T) {
 		t.Fatal("不該動目前組織")
 	}
 	app.Mu.Unlock()
-	if !core.Exists(filepath.Join(core.OrgDir(other), "issues.json")) {
-		t.Fatal("要存在那個組織的資料夾")
-	}
 	if code, _ := c.do("GET", "/api/issues/..%2Fx", nil, nil); code != 400 && code != 404 {
 		t.Fatalf("不合法的組織 id:%d", code)
 	}
