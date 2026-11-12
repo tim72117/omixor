@@ -6,6 +6,8 @@ import AppKit
 // 第一次啟動時,舊版直接放在 <資料夾> 的 issues.json 等檔案會複製到預設組織(原檔保留不動)。
 // 旁白批次(voice-jobs.json)是全部組織共用的。
 // 畫面上的範例資料與動態牆分組織(OrgMock.swift):預設組織用範例資料,其他組織從空的開始。
+// 本機模式:組織清單在 orgs.json。遠端模式(OmixorMode.swift):組織的全部資訊(名稱、圖示、顏色、備註)以 omixor server 為準,
+// 這裡只存快取 orgs-remote.json;id 加 "~" 前綴,資料夾是 orgs/~<伺服器的組織 id>/(角色、文件櫃、連線等還是存在這台 Mac)。
 
 struct Organization: Codable, Hashable, Identifiable {
     var id: String
@@ -90,6 +92,17 @@ enum OrgFiles {
     static func saveIndex(_ idx: OrgIndex) {
         if let data = try? encoder().encode(idx) { try? data.write(to: indexURL, options: .atomic) }
     }
+
+    /// 遠端組織清單的快取(上次從伺服器讀到的);沒有回傳 nil
+    static func loadRemoteIndex() -> OrgIndex? {
+        guard let data = try? Data(contentsOf: OmixorMode.remoteOrgsURL), let idx = try? decoder().decode(OrgIndex.self, from: data),
+              !idx.orgs.isEmpty else { return nil }
+        return idx
+    }
+
+    static func saveRemoteIndex(_ idx: OrgIndex) {
+        if let data = try? encoder().encode(idx) { try? data.write(to: OmixorMode.remoteOrgsURL, options: .atomic) }
+    }
 }
 
 extension AppState {
@@ -104,33 +117,35 @@ extension AppState {
     func ensureOrgs() {
         guard !orgsLoaded else { return }
         orgsLoaded = true
-        let idx = OrgFiles.loadIndex()
+        // 遠端模式但沒有組織清單的快取(不該發生):回本機
+        if OmixorMode.isRemote, OrgFiles.loadRemoteIndex() == nil { OmixorMode.save(OmixorMode.File(mode: OmixorMode.local)) }
+        let idx = OmixorMode.isRemote ? OrgFiles.loadRemoteIndex()! : OrgFiles.loadIndex()
         orgs = idx.orgs
         currentOrgId = idx.orgs.contains { $0.id == idx.current } ? idx.current : idx.orgs[0].id
         TokenVault.scope = currentOrgId == OrgFiles.defaultId ? "" : "\(currentOrgId)/"
         switchMock()
     }
 
-    private func saveOrgs() { OrgFiles.saveIndex(OrgIndex(current: currentOrgId, orgs: orgs)) }
-
-    func newOrgId(for name: String) -> String {
-        let ascii = name.lowercased().unicodeScalars.map { CharacterSet.alphanumerics.contains($0) && $0.isASCII ? String($0) : "-" }.joined()
-        let base = ascii.split(separator: "-").joined(separator: "-")
-        let root = base.isEmpty ? "org-\(orgs.count + 1)" : base
-        var id = root
-        var n = 2
-        while orgs.contains(where: { $0.id == id }) || FileManager.default.fileExists(atPath: OrgFiles.root.appendingPathComponent("orgs/\(id)").path) {
-            id = "\(root)-\(n)"; n += 1
-        }
-        return id
+    private func saveOrgs() {
+        let idx = OrgIndex(current: currentOrgId, orgs: orgs)
+        if OmixorMode.isRemoteOrg(currentOrgId) { OrgFiles.saveRemoteIndex(idx) } else { OrgFiles.saveIndex(idx) }
     }
 
-    /// 建立組織並寫好它的初始檔案;不會切換過去
+    /// 遠端模式:組織清單換成伺服器的(目前的組織還在就不動,不在就選第一個)。回傳目前的組織有沒有換
     @discardableResult
-    func createOrg(name: String, symbol: String = "building.2", color: String = "blue", template: OrgTemplate) -> Organization {
-        ensureOrgs()
-        let org = Organization(id: newOrgId(for: name), name: name, symbol: symbol, color: color)
-        let d = OrgFiles.dir(org.id)
+    func applyRemoteOrgs(_ list: [ServerOrg]) -> Bool {
+        let remote = list.map(\.organization)
+        let saved = OrgFiles.loadRemoteIndex()?.current ?? currentOrgId
+        let cur = remote.contains { $0.id == saved } ? saved : (remote.first?.id ?? saved)
+        OrgFiles.saveRemoteIndex(OrgIndex(current: cur, orgs: remote))
+        guard OmixorMode.isRemote, orgsLoaded else { return false }
+        if orgs != remote { orgs = remote }
+        return cur != currentOrgId
+    }
+
+    /// 遠端組織的初始檔案(角色、連線、文件櫃結構存在這台 Mac,伺服器只有組織本身與 Issue)
+    private func writeOrgTemplate(_ id: String, _ template: OrgTemplate) {
+        let d = OrgFiles.dir(id)
         let enc = OrgFiles.encoder()
         switch template {
         case .blank:
@@ -150,6 +165,48 @@ extension AppState {
             try? enc.encode(githubSettings).write(to: d.appendingPathComponent("github.json"))
             try? enc.encode(gcpSettings).write(to: d.appendingPathComponent("gcp.json"))
         }
+    }
+
+    /// 遠端模式:在伺服器建立組織(要伺服器管理員),寫好這台 Mac 上的初始檔案;不會切換過去
+    func createRemoteOrg(name: String, symbol: String, color: String, template: OrgTemplate) async throws -> Organization {
+        guard let srv = OmixorMode.remoteServer else { throw CabinetError("目前不是遠端模式") }
+        let root = OmixorMode.serverOrgId(newOrgId(for: name))
+        var id = root, n = 2
+        while orgs.contains(where: { $0.id == OmixorMode.remoteOrgPrefix + id }) { id = "\(root)-\(n)"; n += 1 }
+        let created = try await OmixorAuth.createOrg(server: srv.url, id: id, name: name, symbol: symbol, color: color)
+        let org = created.organization
+        writeOrgTemplate(org.id, template)
+        if let list = await OmixorAuth.fetchOrgs(server: srv.url) { applyRemoteOrgs(list) } else if !orgs.contains(org) { orgs.append(org); saveOrgs() }
+        log(.person(me), "building.2", "在 omixor server 建立組織「\(name)」", .settings)
+        return org
+    }
+
+    /// 遠端模式:改伺服器上的組織(要伺服器管理員)
+    func updateRemoteOrg(_ org: Organization) async throws {
+        guard let srv = OmixorMode.remoteServer else { throw CabinetError("目前不是遠端模式") }
+        let saved = try await OmixorAuth.updateOrg(server: srv.url, org).organization
+        if let i = orgs.firstIndex(where: { $0.id == saved.id }) { orgs[i] = saved }
+        saveOrgs()
+    }
+
+    func newOrgId(for name: String) -> String {
+        let ascii = name.lowercased().unicodeScalars.map { CharacterSet.alphanumerics.contains($0) && $0.isASCII ? String($0) : "-" }.joined()
+        let base = ascii.split(separator: "-").joined(separator: "-")
+        let root = base.isEmpty ? "org-\(orgs.count + 1)" : base
+        var id = root
+        var n = 2
+        while orgs.contains(where: { $0.id == id }) || FileManager.default.fileExists(atPath: OrgFiles.root.appendingPathComponent("orgs/\(id)").path) {
+            id = "\(root)-\(n)"; n += 1
+        }
+        return id
+    }
+
+    /// 建立組織並寫好它的初始檔案;不會切換過去
+    @discardableResult
+    func createOrg(name: String, symbol: String = "building.2", color: String = "blue", template: OrgTemplate) -> Organization {
+        ensureOrgs()
+        let org = Organization(id: newOrgId(for: name), name: name, symbol: symbol, color: color)
+        writeOrgTemplate(org.id, template)
         orgs.append(org)
         saveOrgs()
         log(.person(me), "building.2", "建立組織「\(name)」", .settings)
@@ -164,6 +221,7 @@ extension AppState {
 
     /// 刪除組織:資料夾移到垃圾桶(可以從垃圾桶救回);不能刪目前的組織
     func deleteOrg(_ id: String) throws {
+        guard !OmixorMode.isRemoteOrg(id) else { throw CabinetError("遠端的組織由 omixor server 管理,不能在 app 刪除") }
         guard id != currentOrgId else { throw CabinetError("不能刪除目前使用中的組織,先切換到別的組織") }
         guard orgs.count > 1 else { throw CabinetError("至少要留一個組織") }
         let d = OrgFiles.root.appendingPathComponent("orgs/\(id)", isDirectory: true)
@@ -199,7 +257,13 @@ extension AppState {
         guard id != currentOrgId, orgs.contains(where: { $0.id == id }) else { return }
         currentOrgId = id
         saveOrgs()
-        TokenVault.scope = id == OrgFiles.defaultId ? "" : "\(id)/"
+        reloadOrgData()
+        log(.person(me), "arrow.left.arrow.right", "切換到組織「\(currentOrg?.name ?? id)」", .settings)
+    }
+
+    /// 組織或模式換了之後,各功能重新讀目前組織的資料
+    func reloadOrgData() {
+        TokenVault.scope = currentOrgId == OrgFiles.defaultId ? "" : "\(currentOrgId)/"
         switchMock()
         issueStore?.load()
         agentStore?.load()
@@ -214,6 +278,12 @@ extension AppState {
         fbStore?.load()
         if gcpStore?.isLoggedIn == true, gcpStore?.isConfigured == true { Task { await gcpStore?.refresh() } }
         focusId = nil
-        log(.person(me), "arrow.left.arrow.right", "切換到組織「\(currentOrg?.name ?? id)」", .settings)
+    }
+
+    /// 換模式(本機 ⇄ 遠端)後重讀組織清單與各功能的資料
+    func reloadOrgsForMode() {
+        orgsLoaded = false
+        ensureOrgs()
+        reloadOrgData()
     }
 }

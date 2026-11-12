@@ -63,57 +63,104 @@ struct SidebarView: View {
     }
 }
 
-/// 側邊欄底部:登入的 omixor 帳號(資料來自 omixor 伺服器的 /api/auth/me);點一下到設定看詳細與登出
+/// 側邊欄底部:資料來源與帳號(同 Go 版 AccountBox.tsx)。本機(這台 Mac 的資料)和遠端(啟動設定裡的 omixor,
+/// 用 evoleap 授權)完全分開;點一下可以切換,有設定遠端或在遠端時一直看得到「登出」(登出後回到選擇連接對象)
 private struct AccountFooter: View {
     @EnvironmentObject var app: AppState
 
     var body: some View {
-        Button { app.go(.settings) } label: {
-            HStack(spacing: 8) {
-                avatar
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    Text(title).font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
+        VStack(spacing: 6) {
+            Menu {
+                Button { app.connectLocal() } label: {
+                    if remote == nil { Label("本機", systemImage: "checkmark") } else { Label("本機", systemImage: "internaldrive") }
                 }
-                Spacer(minLength: 0)
-                if let a = app.omixorLogin.account {
-                    Text(a.role == "admin" ? "管理員" : "成員")
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background((a.role == "admin" ? Color.purple : Color.blue).opacity(0.15), in: Capsule())
-                        .foregroundStyle(a.role == "admin" ? Color.purple : Color.blue)
+                ForEach(OmixorMode.servers) { s in
+                    Button {
+                        guard remote != s else { return }
+                        Task { await app.connectRemote(s, auth: s.auth.first?.id) }
+                    } label: {
+                        if remote == s { Label(s.name, systemImage: "checkmark") } else { Label(s.name, systemImage: "cloud") }
+                    }
                 }
+            } label: {
+                HStack(spacing: 8) {
+                    avatar
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                        Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer(minLength: 0)
+                    if app.connectError != nil || isProblem { Circle().fill(.orange).frame(width: 7, height: 7) }
+                    Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .contentShape(Rectangle())
             }
-            .padding(10)
-            .contentShape(Rectangle())
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .disabled(app.connecting != nil)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            .help(help)
+            if let name = app.connecting {
+                Text("請在瀏覽器完成 \(name) 的核准…").font(.caption2).foregroundStyle(.secondary)
+            } else if let e = app.connectError {
+                Text(e).font(.caption2).foregroundStyle(.red).lineLimit(3)
+            }
+            if remote != nil || !OmixorMode.servers.isEmpty {
+                Button { Task { await app.omixorLogout() } } label: {
+                    Label("登出", systemImage: "power").font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 4)
+                .disabled(app.connecting != nil)
+                .help("登出並回到選擇連接對象")
+            }
         }
-        .buttonStyle(.plain)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
         .padding(10)
-        .help(app.omixorLogin.account.map { "\($0.email)(\($0.device))· 點一下到設定" } ?? "點一下到設定")
+    }
+
+    private var remote: OmixorMode.Server? { app.remoteServer }
+
+    private var isProblem: Bool {
+        guard remote != nil else { return false }
+        if case .loggedIn = app.omixorLogin { return false }
+        return true
     }
 
     private var title: String {
-        guard let a = app.omixorLogin.account else { return "沒有登入" }
+        guard remote != nil else { return "本機使用者" }
+        guard let a = app.omixorLogin.account else { return "\(remote?.name ?? "遠端"):未登入" }
         return a.name.isEmpty ? a.email : a.name
     }
 
     private var subtitle: String {
+        guard let s = remote else { return "本機 · 檔案" }
         switch app.omixorLogin {
-        case .loggedIn(let a): return a.name.isEmpty ? "已登入 omixor" : a.email
-        case .skipped: return "離線使用"
-        case .unreachable: return "連不到 omixor"
-        case .checking: return "確認登入中…"
-        case .needLogin: return "還沒登入"
+        case .loggedIn(let a): return s.name + (a.role == "admin" ? " · 管理員" : " · 成員")
+        case .unreachable: return "\(s.name) · 連不到"
+        case .checking: return "\(s.name) · 確認登入中…"
+        case .needLogin, .skipped: return "\(s.name) · 登入已失效,請重新連接"
         }
     }
 
+    private var help: String {
+        if case .unreachable(let m) = app.omixorLogin { return m }
+        if let a = app.omixorLogin.account { return "\(a.email)(\(a.device))· 點一下切換連接對象" }
+        return "點一下切換連接對象"
+    }
+
     private var avatar: some View {
-        let initial = String(title.first.map { String($0) } ?? "?").uppercased()
-        return Text(initial)
-            .font(.caption.weight(.bold)).foregroundStyle(.white)
-            .frame(width: 24, height: 24)
-            .background(app.omixorLogin.account == nil ? Color.gray : Color.accentColor, in: Circle())
+        Group {
+            if remote == nil {
+                Image(systemName: "internaldrive").font(.caption.weight(.bold))
+            } else {
+                Text(String(title.first.map { String($0) } ?? "?").uppercased()).font(.caption.weight(.bold))
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(width: 24, height: 24)
+        .background(remote == nil ? Color.gray : (app.omixorLogin.account == nil ? Color.orange : Color.accentColor), in: Circle())
     }
 }
 

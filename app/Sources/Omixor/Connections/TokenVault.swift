@@ -30,14 +30,19 @@ enum TokenVault {
         SecItemAdd(q as CFDictionary, nil)
     }
 
-    static func tokens(_ id: String) -> TokenSet? {
+    static func tokens(_ id: String) -> TokenSet? { tokens(id, scope: scope) }
+
+    /// 指定前綴讀(例如遠端 omixor 的登入,不分組織,存在 "remote/")
+    static func tokens(_ id: String, scope: String) -> TokenSet? {
         guard let d = data("\(scope)\(id):token") else { return nil }
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
         return try? dec.decode(TokenSet.self, from: d)
     }
 
-    static func setTokens(_ t: TokenSet?, _ id: String) {
+    static func setTokens(_ t: TokenSet?, _ id: String) { setTokens(t, id, scope: scope) }
+
+    static func setTokens(_ t: TokenSet?, _ id: String, scope: String) {
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         set(t.flatMap { try? enc.encode($0) }, "\(scope)\(id):token")

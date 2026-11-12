@@ -1,16 +1,15 @@
 import CryptoKit
 import Foundation
 
-// Issue 伺服器:設了就不讀寫本機的 issues.json,改透過 Go 版 omixor-web 的 /api/issues/<組織> 讀寫
-// (omixor-web 再存到 PostgreSQL 或它自己的資料夾)。預設關閉。
+// 遠端模式(OmixorMode.swift)時 Issue 不讀寫本機的 issues.json,改透過 omixor server(core)的
+// /api/orgs/<組織>/issues 讀寫。本機模式一律存在這台 Mac 的 issues.json。
 //
-//   網址:環境變數 OPS_ISSUE_SERVER(例如 http://127.0.0.1:5191),沒設就用 設定 › 組織 的「Issue 伺服器」欄位
-//   token:環境變數 OPS_ISSUE_SERVER_TOKEN(omixor-web 啟用 LDAP 時要,對應 omixor-web 的 OPS_API_TOKEN);
-//          沒設時用 omixor 自己的 token(omx_…,存在鑰匙圈的 omixor-issues):沒有或被拒絕(401)時,
-//          拿 evoleap 連線登入後的 token 去 omixor-issues 的 /api/auth/evoleap 換一個(evoleap 只證明身分,
-//          能不能用由 omixor 的使用者名單決定),再重送一次
+//   網址:目前連的遠端 omixor(啟動設定裡的,見 OmixorMode.servers)
+//   token:環境變數 OPS_ISSUE_SERVER_TOKEN(固定的,開發用);沒設時用 omixor 自己的 token(omx_…,
+//          鑰匙圈的 remote/omixor-issues,登入時存的):沒有或被拒絕(401)時,拿 evoleap 連線登入後的 token
+//          去 /api/auth/evoleap 換一個(evoleap 只證明身分,能不能用由 omixor 的使用者名單決定),再重送一次
 //
-// IssueStore 的介面是同步的(畫面與 MCP 工具直接拿回傳值),所以這裡用同步請求(有逾時);伺服器通常在本機。
+// IssueStore 的介面是同步的(畫面與 MCP 工具直接拿回傳值),所以這裡用同步請求(有逾時)。
 
 struct IssueServerConfig: Equatable {
     var url: URL
@@ -27,13 +26,9 @@ struct IssueServerConfig: Equatable {
 
     static var current: IssueServerConfig? {
         if let o = testOverride { return o }
-        let env = ProcessInfo.processInfo.environment
-        let isTesting = NSClassFromString("XCTestCase") != nil
-        let raw = env["OPS_ISSUE_SERVER"] ?? (isTesting ? nil : UserDefaults.standard.string(forKey: defaultsKey))
-        guard let s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
-        guard let u = URL(string: s), let scheme = u.scheme?.lowercased(), ["http", "https"].contains(scheme), u.host != nil else { return nil }
-        let tok = env["OPS_ISSUE_SERVER_TOKEN"].flatMap { $0.isEmpty ? nil : $0 }
-        return IssueServerConfig(url: u, token: tok)
+        guard let srv = OmixorMode.remoteServer else { return nil }
+        let tok = ProcessInfo.processInfo.environment["OPS_ISSUE_SERVER_TOKEN"].flatMap { $0.isEmpty ? nil : $0 }
+        return IssueServerConfig(url: srv.url, token: tok)
     }
 }
 
@@ -42,7 +37,7 @@ struct IssueRemoteError: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// /api/issues/<組織> 的用戶端
+/// omixor server(core)/api/orgs/<組織>/issues 的用戶端
 final class IssueRemote {
     let config: IssueServerConfig
     let session: URLSession
@@ -73,7 +68,9 @@ final class IssueRemote {
 
     private func url(_ org: String, _ rest: [String]) -> URL {
         // 核心的路徑:/api/orgs/<組織>/issues[/<id>[/delete]](伺服器也還接受舊的 /api/issues/<組織>)
-        var u = config.url.appendingPathComponent("api").appendingPathComponent("orgs").appendingPathComponent(org).appendingPathComponent("issues")
+        // 遠端組織在 app 裡的 id 有 "~" 前綴,送給伺服器時去掉
+        var u = config.url.appendingPathComponent("api").appendingPathComponent("orgs")
+            .appendingPathComponent(OmixorMode.serverOrgId(org)).appendingPathComponent("issues")
         for r in rest { u = u.appendingPathComponent(r) }
         return u
     }
@@ -99,20 +96,23 @@ final class IssueRemote {
     /// 測試用:取代鑰匙圈(omixor token 與 evoleap token 都從這裡讀寫)
     nonisolated(unsafe) static var testVault: [String: String]?
 
+    /// omixor token 存在不分組織的 remote/;evoleap 連線的 token 照連線的規則存在目前組織底下
+    private func scope(_ id: String) -> String { id == IssueServerConfig.omixorTokenId ? OmixorMode.tokenScope : TokenVault.scope }
+
     private func vaultGet(_ id: String) -> String? {
         if let v = Self.testVault { return v[id] }
-        return TokenVault.tokens(id)?.accessToken
+        return TokenVault.tokens(id, scope: scope(id))?.accessToken
     }
 
     private func vaultSet(_ id: String, _ token: String?, expires: Date?) {
         if Self.testVault != nil { Self.testVault?[id] = token; return }
-        TokenVault.setTokens(token.map { TokenSet(accessToken: $0, expiresAt: expires, tokenType: "Bearer") }, id)
+        TokenVault.setTokens(token.map { TokenSet(accessToken: $0, expiresAt: expires, tokenType: "Bearer") }, id, scope: scope(id))
     }
 
     /// 用 evoleap 連線的登入,向 omixor-issues 換一個 omixor 自己的 token(存進鑰匙圈)
     private func exchangeToken() throws -> String {
         guard let evo = vaultGet(IssueServerConfig.evoleapConnection), !evo.isEmpty else {
-            throw IssueRemoteError(message: "還沒登入 omixor:請在 設定 › 組織 › Issue 伺服器 按「用瀏覽器登入」(或先登入 evoleap 連線,omixor 會用它證明身分)")
+            throw IssueRemoteError(message: "還沒登入 omixor:請從左下角的帳號選單重新連接遠端 omixor(或先登入 evoleap 連線,omixor 會用它證明身分)")
         }
         var req = URLRequest(url: config.url.appendingPathComponent("api/auth/evoleap"), timeoutInterval: timeout)
         req.httpMethod = "POST"

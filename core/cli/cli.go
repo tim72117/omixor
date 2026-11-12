@@ -187,6 +187,16 @@ func Run(args []string, out io.Writer) error {
 			dev = "omixor CLI(" + strings.TrimSuffix(h, ".local") + ")"
 		}
 		fmt.Fprintln(out, "瀏覽器會打開 evoleap 的核准頁,核准後回到這裡…")
+		// 也把網址印出來:不在這台電腦旁時,可以用別的裝置打開核准
+		openBrowser := evoleap.OpenBrowser
+		evoleap.OpenBrowser = func(u string) {
+			fmt.Fprintln(out, "核准頁:"+u)
+			if f, ok := out.(interface{ Sync() error }); ok {
+				_ = f.Sync()
+			}
+			openBrowser(u)
+		}
+		defer func() { evoleap.OpenBrowser = openBrowser }()
 		evoTok, err := evoleap.Login(*evo, *console, 10*time.Minute)
 		if err != nil {
 			return fmt.Errorf("evoleap 登入失敗:%v", err)

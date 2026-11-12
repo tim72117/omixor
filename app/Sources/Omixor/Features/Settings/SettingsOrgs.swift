@@ -1,6 +1,7 @@
 import SwiftUI
 
-// 設定 › 組織:新增、切換、改名、刪除組織,以及目前組織工作空間的各項設定入口
+// 設定 › 組織:新增、切換、改名、刪除組織,以及目前組織工作空間的各項設定入口。
+// 遠端模式:組織來自 omixor server,新增與編輯(名稱、圖示、顏色、備註)寫回伺服器,要伺服器管理員;不能在 app 刪除。
 
 struct SettingsOrgsPane: View {
     @EnvironmentObject var app: AppState
@@ -10,12 +11,10 @@ struct SettingsOrgsPane: View {
     @State private var deleting: Organization?
     @State private var editingLayout = false
     @State private var error: String?
-    @AppStorage(IssueServerConfig.defaultsKey) private var issueServer = ""
-    @State private var issueServerDraft = ""
-    @State private var issueServerStatus: String?
-    @State private var omixorAccount: OmixorAccount?
-    @State private var omixorBusy = false
-    @State private var omixorError: String?
+
+    private var remote: OmixorMode.Server? { app.remoteServer }
+    /// 能不能新增、編輯組織:本機都可以;遠端要伺服器管理員
+    private var canEditOrgs: Bool { remote == nil || app.omixorLogin.account?.role == "admin" }
 
     var body: some View {
         Form {
@@ -34,19 +33,25 @@ struct SettingsOrgsPane: View {
                         if o.id != app.currentOrgId {
                             Button("切換") { app.switchOrg(o.id) }
                         }
-                        Button("編輯…") { editing = o }
-                        if o.id != app.currentOrgId {
+                        if canEditOrgs { Button("編輯…") { editing = o } }
+                        if o.id != app.currentOrgId, remote == nil {
                             Button(role: .destructive) { deleting = o } label: { Image(systemName: "trash") }
                                 .buttonStyle(.borderless)
                         }
                     }
                     .padding(.vertical, 2)
                 }
-                Button { creating = true } label: { Label("新增組織…", systemImage: "plus") }
+                if canEditOrgs {
+                    Button { creating = true } label: { Label("新增組織…", systemImage: "plus") }
+                }
             } header: {
-                Text("組織")
+                Text(remote.map { "組織(\($0.name))" } ?? "組織(本機)")
             } footer: {
-                Text("每個組織有自己的 Issue、虛擬角色與任務、文件櫃與結構、連線(登入也分開)。旁白批次與畫面上的範例資料是共用的。")
+                if remote != nil {
+                    Text("組織的名稱、圖示、顏色、備註以 omixor server 為準,Issue 也存在伺服器;新增與編輯要伺服器管理員,成員由組織管理員用 omixor CLI 管理。虛擬角色、文件櫃、連線還是存在這台 Mac。")
+                } else {
+                    Text("每個組織有自己的 Issue、虛擬角色與任務、文件櫃與結構、連線(登入也分開)。旁白批次與畫面上的範例資料是共用的。")
+                }
             }
             if let e = error {
                 Section { Text(e).foregroundStyle(.orange) }
@@ -67,7 +72,7 @@ struct SettingsOrgsPane: View {
             } header: {
                 Text("「\(app.currentOrg?.name ?? "")」的工作空間")
             }
-            issueServerSection
+            connectionSection
         }
         .formStyle(.grouped)
         .onAppear {
@@ -90,121 +95,47 @@ struct SettingsOrgsPane: View {
         }
     }
 
-    /// Issue 伺服器:填了就改透過 Go 版 omixor-web 讀寫 Issue(IssueRemote.swift);空的 = 存在這台 Mac 的 issues.json
-    @ViewBuilder private var issueServerSection: some View {
-        let env = ProcessInfo.processInfo.environment["OPS_ISSUE_SERVER"]
+    /// 連接對象:本機或遠端 omixor(遠端只能選啟動設定裡的,不顯示網址);切換也可以從左下角的帳號選單
+    @ViewBuilder private var connectionSection: some View {
         Section {
-            HStack {
-                TextField("Issue 伺服器網址", text: $issueServerDraft, prompt: Text("http://127.0.0.1:5191"))
-                    .disabled(env != nil)
-                    .onSubmit(applyIssueServer)
-                Button(issueServerDraft.isEmpty ? "關閉" : "套用", action: applyIssueServer)
-                    .disabled(env != nil || issueServerDraft.trimmingCharacters(in: .whitespaces) == issueServer)
-            }
-            if let env { Text("由環境變數 OPS_ISSUE_SERVER 設定:\(env)").font(.caption).foregroundStyle(.secondary) }
-            if let st = issueServerStatus { Text(st).font(.caption).foregroundStyle(.secondary) }
-            if let server = IssueServerConfig.current?.url {
-                omixorLoginRow(server)
-            }
-        } header: {
-            Text("Issue 伺服器")
-        } footer: {
-            Text("留空:Issue 存在這台 Mac(issues.json)。填 omixor-issues(或 Go 版 omixor-web)的網址:Issue 改存在那台伺服器,各組織分開;畫面與 MCP 工具用法不變。正式的 omixor-issues 要登入 omixor:按「用瀏覽器登入」,在 evoleap 的核准頁核准後,omixor 依自己的使用者名單決定能不能用。")
-        }
-        .onAppear { issueServerDraft = issueServer }
-        .task(id: issueServer) { await refreshOmixorAccount() }
-    }
-
-    /// 登入 omixor 的狀態與按鈕
-    @ViewBuilder private func omixorLoginRow(_ server: URL) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            if let a = omixorAccount {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("已登入 omixor:\(a.email)(\(a.role == "admin" ? "管理員" : "成員"))")
-                        if let exp = a.expiresAt {
-                            Text("到期:\(exp.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
-                        }
+            if let s = remote {
+                HStack(alignment: .firstTextBaseline) {
+                    if let a = app.omixorLogin.account {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(s.name):\(a.email)(\(a.role == "admin" ? "伺服器管理員" : "成員"))")
+                                if let exp = a.expiresAt {
+                                    Text("登入到期:\(exp.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        } icon: { Image(systemName: "cloud").foregroundStyle(.green) }
+                    } else {
+                        Label("\(s.name):登入已失效或連不到", systemImage: "exclamationmark.icloud").foregroundStyle(.orange)
                     }
-                } icon: { Image(systemName: "person.crop.circle.badge.checkmark").foregroundStyle(.green) }
-                Spacer()
-                Button("登出") {
-                    Task {
-                        omixorBusy = true
-                        await OmixorAuth.logout(server: server)
-                        omixorAccount = nil
-                        omixorBusy = false
-                        app.omixorLogin = .needLogin   // 回到登入畫面
-                    }
+                    Spacer()
+                    Button("登出") { Task { await app.omixorLogout() } }
                 }
-                .disabled(omixorBusy)
             } else {
-                Label("還沒登入 omixor", systemImage: "person.crop.circle.badge.questionmark").foregroundStyle(.secondary)
-                Spacer()
-                Button(omixorBusy ? "等瀏覽器核准…" : "用瀏覽器登入") {
-                    Task {
-                        omixorBusy = true
-                        omixorError = nil
-                        do {
-                            let a = try await OmixorAuth.login(app, server: server)
-                            omixorAccount = a
-                            app.omixorLogin = .loggedIn(a)
-                            app.startIssues().load()
-                        } catch {
-                            omixorError = error.localizedDescription
-                        }
-                        omixorBusy = false
+                Label("本機:資料存在這台 Mac,不用登入", systemImage: "internaldrive")
+            }
+            if !OmixorMode.servers.isEmpty {
+                HStack {
+                    Text("切換到").foregroundStyle(.secondary)
+                    if remote != nil { Button("本機") { app.connectLocal() } }
+                    ForEach(OmixorMode.servers.filter { $0 != remote }) { s in
+                        Button(s.name) { Task { await app.connectRemote(s, auth: s.auth.first?.id) } }
                     }
                 }
-                .disabled(omixorBusy)
+                .disabled(app.connecting != nil)
             }
-        }
-        if let e = omixorError { Text(e).font(.caption).foregroundStyle(.orange) }
-        if omixorAccount != nil {
-            let cur = app.currentOrgId
-            VStack(alignment: .leading, spacing: 4) {
-                Text("伺服器上我能用的組織").font(.caption).foregroundStyle(.secondary)
-                if app.serverOrgs.isEmpty {
-                    Text("沒有(請 omixor 管理員把你加進組織)").font(.caption).foregroundStyle(.orange)
-                }
-                ForEach(app.serverOrgs) { o in
-                    HStack(spacing: 6) {
-                        Image(systemName: o.id == cur ? "checkmark.circle.fill" : "building.2").foregroundStyle(o.id == cur ? .green : .secondary)
-                        Text(o.name)
-                        Text(o.id).font(.caption.monospaced()).foregroundStyle(.secondary)
-                        if let r = o.myRole { Text(r == "admin" ? "管理員" : "成員").font(.caption2).foregroundStyle(.secondary) }
-                    }
-                    .font(.callout)
-                }
-                if !app.serverOrgs.isEmpty, !app.serverOrgs.contains(where: { $0.id == cur }) {
-                    Text("目前的組織(\(cur))不在伺服器上,Issue 會讀寫失敗;請伺服器管理員用 omixor orgs create \(cur) 建立。")
-                        .font(.caption).foregroundStyle(.orange)
-                }
-            }
-            .task { if let orgs = await OmixorAuth.fetchOrgs(server: server) { app.serverOrgs = orgs } }
-        }
-    }
-
-    private func refreshOmixorAccount() async {
-        guard let server = IssueServerConfig.current?.url else { omixorAccount = nil; return }
-        omixorAccount = await OmixorAuth.me(server: server)
-    }
-
-    private func applyIssueServer() {
-        let v = issueServerDraft.trimmingCharacters(in: .whitespaces)
-        if !v.isEmpty, URL(string: v)?.host == nil || !(v.hasPrefix("http://") || v.hasPrefix("https://")) {
-            issueServerStatus = "網址要是 http:// 或 https:// 開頭"
-            return
-        }
-        issueServer = v
-        let store = app.startIssues()
-        store.load()
-        if v.isEmpty {
-            issueServerStatus = "已改回本機 issues.json"
-        } else if let e = store.remoteError {
-            issueServerStatus = "連線失敗:\(e)"
-        } else {
-            issueServerStatus = "已連上,讀到 \(app.issues.count) 筆 Issue"
+            if let name = app.connecting { Text("請在瀏覽器完成 \(name) 的核准…").font(.caption).foregroundStyle(.secondary) }
+            if let e = app.connectError { Text(e).font(.caption).foregroundStyle(.orange) }
+        } header: {
+            Text("連接對象")
+        } footer: {
+            Text(OmixorMode.servers.isEmpty
+                 ? "沒有設定遠端 omixor,只能用本機。要連遠端:在資料夾放 servers.json,或設環境變數 OMIXOR_SERVERS。"
+                 : "本機和遠端的組織、Issue 完全分開。遠端用 evoleap 帳號證明身分,能不能用由 omixor 的使用者名單決定。")
         }
     }
 
@@ -246,7 +177,7 @@ struct OrgSwitcher: View {
                 }
             }
             Divider()
-            Button("新增組織…") { creating = true }
+            if app.remoteServer == nil || app.omixorLogin.account?.role == "admin" { Button("新增組織…") { creating = true } }
             Button("管理組織…") { pane = .orgs; app.go(.settings) }
         } label: {
             HStack(spacing: 8) {
@@ -276,6 +207,8 @@ private struct NewOrgSheet: View {
     @State private var color = "indigo"
     @State private var template: OrgTemplate = .blank
     @State private var switchNow = true
+    @State private var busy = false
+    @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -294,19 +227,34 @@ private struct NewOrgSheet: View {
                 .pickerStyle(.radioGroup)
                 Text(template.detail).font(.caption).foregroundStyle(.secondary)
                 Toggle("建立後切換過去", isOn: $switchNow)
+                if let s = app.remoteServer { Text("會建立在 \(s.name) 上(要伺服器管理員)。").font(.caption).foregroundStyle(.secondary) }
             }
             .formStyle(.grouped)
+            if let error { Text(error).font(.callout).foregroundStyle(.red) }
             HStack {
                 Spacer()
                 Button("取消") { dismiss() }
-                Button("建立") {
-                    let o = app.createOrg(name: name.trimmingCharacters(in: .whitespaces), symbol: symbol, color: color, template: template)
-                    if switchNow { app.switchOrg(o.id) }
-                    dismiss()
+                Button(busy ? "建立中…" : "建立") {
+                    let n = name.trimmingCharacters(in: .whitespaces)
+                    guard app.remoteServer != nil else {
+                        let o = app.createOrg(name: n, symbol: symbol, color: color, template: template)
+                        if switchNow { app.switchOrg(o.id) }
+                        dismiss()
+                        return
+                    }
+                    Task {
+                        busy = true
+                        defer { busy = false }
+                        do {
+                            let o = try await app.createRemoteOrg(name: n, symbol: symbol, color: color, template: template)
+                            if switchNow { app.switchOrg(o.id) }
+                            dismiss()
+                        } catch { self.error = "伺服器沒有建立組織:\(error.localizedDescription)" }
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(20)
@@ -319,6 +267,8 @@ private struct OrgEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     let original: Organization
     @State private var draft: Organization
+    @State private var busy = false
+    @State private var error: String?
 
     init(original: Organization) {
         self.original = original
@@ -337,15 +287,24 @@ private struct OrgEditSheet: View {
                 Picker("顏色", selection: $draft.color) {
                     ForEach(AgentPalette.names, id: \.self) { Text($0).foregroundStyle(AgentPalette.color($0)).tag($0) }
                 }
-                LabeledContent("id", value: draft.id)
+                LabeledContent("id", value: OmixorMode.serverOrgId(draft.id))
+                if let s = app.remoteServer { Text("會寫回 \(s.name)(要伺服器管理員)。").font(.caption).foregroundStyle(.secondary) }
             }
             .formStyle(.grouped)
+            if let error { Text(error).font(.callout).foregroundStyle(.red) }
             HStack {
                 Spacer()
                 Button("取消") { dismiss() }
-                Button("儲存") { app.updateOrg(draft); dismiss() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button(busy ? "儲存中…" : "儲存") {
+                    guard OmixorMode.isRemoteOrg(draft.id) else { app.updateOrg(draft); dismiss(); return }
+                    Task {
+                        busy = true
+                        defer { busy = false }
+                        do { try await app.updateRemoteOrg(draft); dismiss() } catch { self.error = "伺服器沒有改組織:\(error.localizedDescription)" }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(busy || draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(20)

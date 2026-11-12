@@ -41,7 +41,7 @@ final class OmixorAuthTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        TokenVault.removeAll(OmixorAuth.tokenId)
+        OmixorAuth.setToken(nil)
         ConnHTTP.protocolClasses = []
         StubProtocol.handler = nil
     }
@@ -54,12 +54,12 @@ final class OmixorAuthTests: XCTestCase {
         XCTAssertEqual(a.email, "boss@example.com")
         XCTAssertEqual(a.role, "admin")
         XCTAssertNotNil(a.expiresAt, "有小數秒的時間也要讀得懂")
-        XCTAssertEqual(TokenVault.tokens(OmixorAuth.tokenId)?.accessToken, "omx_abc")
+        XCTAssertEqual(OmixorAuth.token?.accessToken, "omx_abc")
         XCTAssertEqual(paths, ["/api/auth/evoleap", "/api/cli-auth/logout"], "換完要撤銷 evoleap token")
         let me = await OmixorAuth.me(server: server)
         XCTAssertEqual(me?.email, "boss@example.com")
         await OmixorAuth.logout(server: server)
-        XCTAssertNil(TokenVault.tokens(OmixorAuth.tokenId))
+        XCTAssertNil(OmixorAuth.token)
         XCTAssertTrue(paths.contains("/api/auth/logout"))
         let after = await OmixorAuth.me(server: server)
         XCTAssertNil(after)
@@ -73,17 +73,17 @@ final class OmixorAuthTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("沒有 omixor 的權限"), error.localizedDescription)
         }
         XCTAssertEqual(paths, ["/api/auth/evoleap", "/api/cli-auth/logout"], "被拒絕也要撤銷 evoleap token")
-        XCTAssertNil(TokenVault.tokens(OmixorAuth.tokenId))
+        XCTAssertNil(OmixorAuth.token)
     }
 
     /// 開啟時的檢查:沒存登入 → 登入畫面;401 → 登入畫面;伺服器錯誤 → 連不到;有效 → 進主畫面
     func testCheckStates() async {
         var st = await OmixorAuth.check(server: server)
         XCTAssertEqual(st, .needLogin)
-        TokenVault.setTokens(TokenSet(accessToken: "omx_old", tokenType: "Bearer"), OmixorAuth.tokenId)
+        OmixorAuth.setToken(TokenSet(accessToken: "omx_old", tokenType: "Bearer"))
         st = await OmixorAuth.check(server: server)
         XCTAssertEqual(st, .needLogin, "token 失效要回登入畫面")
-        TokenVault.setTokens(TokenSet(accessToken: "omx_abc", tokenType: "Bearer"), OmixorAuth.tokenId)
+        OmixorAuth.setToken(TokenSet(accessToken: "omx_abc", tokenType: "Bearer"))
         st = await OmixorAuth.check(server: server)
         guard case .loggedIn(let a) = st else { return XCTFail("\(st)") }
         XCTAssertEqual(a.email, "boss@example.com")
@@ -93,11 +93,12 @@ final class OmixorAuthTests: XCTestCase {
         if case .unreachable = st {} else { XCTFail("\(st)") }
     }
 
-    /// 登入畫面輸出成圖片(OPS_RENDER_OUT 有設時寫檔,給人看)
+    /// 選擇連接對象的畫面輸出成圖片(OPS_RENDER_OUT 有設時寫檔,給人看)
     func testRenderLoginView() throws {
+        OmixorMode.testServers = [OmixorMode.Server(id: "prod", name: "正式站", url: server, auth: [OmixorMode.AuthOption(id: "evoleap", label: "evoleap 帳號")])]
+        defer { OmixorMode.testServers = nil }
         let app = AppState()
-        app.omixorLogin = .needLogin
-        let view = LoginView().environmentObject(app).frame(width: 900, height: 620).background(Color.white)
+        let view = ConnectPicker().environmentObject(app).frame(width: 900, height: 620).background(Color.white)
         let r = ImageRenderer(content: view)
         let img = try XCTUnwrap(r.nsImage)
         XCTAssertGreaterThan(img.size.width, 0)
@@ -107,17 +108,32 @@ final class OmixorAuthTests: XCTestCase {
         }
     }
 
-    /// 組織清單:登入後向伺服器取得並存成快取;沒登入回傳 nil(照用快取)
-    func testFetchOrgsCaches() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-orgs-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dir.path, 1)
-        defer { unsetenv("OPS_DATA_DIR"); try? FileManager.default.removeItem(at: dir) }
+    /// 組織清單:登入後向伺服器取得;沒登入回傳 nil
+    func testFetchOrgs() async throws {
         let none = await OmixorAuth.fetchOrgs(server: server)
         XCTAssertNil(none)
-        TokenVault.setTokens(TokenSet(accessToken: "omx_abc", tokenType: "Bearer"), OmixorAuth.tokenId)
+        OmixorAuth.setToken(TokenSet(accessToken: "omx_abc", tokenType: "Bearer"))
         let orgs = await OmixorAuth.fetchOrgs(server: server)
-        XCTAssertEqual(orgs, [ServerOrg(id: "default", name: "evoleap", myRole: "admin")])
-        XCTAssertEqual(OmixorAuth.cachedOrgs(), orgs, "要存成快取")
+        XCTAssertEqual(orgs, [ServerOrg(id: "default", name: "evoleap", createdAt: "2026-11-12T00:00:00Z", myRole: "admin")])
+        let o = try XCTUnwrap(orgs?.first?.organization)
+        XCTAssertEqual(o.id, "~default", "遠端組織加前綴")
+        XCTAssertEqual(o.symbol, "building.2", "沒填圖示用預設")
+    }
+
+    /// omixor token 不分組織:換組織(TokenVault.scope)也讀得到
+    func testTokenIgnoresOrgScope() {
+        OmixorAuth.setToken(TokenSet(accessToken: "omx_abc", tokenType: "Bearer"))
+        TokenVault.scope = "other/"
+        defer { TokenVault.scope = "" }
+        XCTAssertEqual(OmixorAuth.token?.accessToken, "omx_abc")
+        XCTAssertNil(TokenVault.tokens(OmixorAuth.tokenId), "不存在組織底下")
+    }
+
+    /// 舊版存在預設組織底下的 token 搬到 remote/
+    func testMigrateLegacyToken() {
+        TokenVault.setTokens(TokenSet(accessToken: "omx_old", tokenType: "Bearer"), OmixorAuth.tokenId, scope: "")
+        OmixorAuth.migrateLegacyToken()
+        XCTAssertEqual(OmixorAuth.token?.accessToken, "omx_old")
+        XCTAssertNil(TokenVault.tokens(OmixorAuth.tokenId, scope: ""))
     }
 }

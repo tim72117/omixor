@@ -11,10 +11,16 @@ final class AppState: ObservableObject {
     @Published var timeRange: TimeRange = .hours24
     @Published var search = ""
     @Published var showAssistant = true
-    /// 登入 omixor 的狀態(app 剛開啟時先檢查;沒登入顯示登入畫面,見 Features/Login/LoginGate.swift)
+    /// 遠端 omixor 的登入狀態(本機模式是 .skipped;見 Features/Login/LoginGate.swift)
     @Published var omixorLogin: OmixorLoginState = .checking
-    /// omixor server 上我能用的組織(快取;登入確認後更新,見 OmixorAuth.fetchOrgs)
-    @Published var serverOrgs: [ServerOrg] = OmixorAuth.cachedOrgs()
+    /// 目前的模式(本機/遠端,見 Orgs/OmixorMode.swift)
+    @Published var mode: OmixorMode.File = OmixorMode.current
+    /// 這次執行選過連接對象沒有(有設定遠端時,啟動後要先選;登出會重設)
+    @Published var connectChosen = false
+    /// 正在連接的對象(等瀏覽器核准時顯示)
+    @Published var connecting: String?
+    @Published var connectError: String?
+    var remoteRefreshStarted = false
     @Published var showCommandPalette = false
     /// 跨頁跳轉時要選中的項目(例如從總覽點告警 → 監控頁選中該告警)
     @Published var focusId: String?

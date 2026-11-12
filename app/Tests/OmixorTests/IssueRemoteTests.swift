@@ -137,15 +137,24 @@ final class IssueRemoteTests: XCTestCase {
 
     func testConfigDefaultsOff() {
         IssueServerConfig.testOverride = nil
-        unsetenv("OPS_ISSUE_SERVER")
-        XCTAssertNil(IssueServerConfig.current, "預設關閉")
-        setenv("OPS_ISSUE_SERVER", "http://127.0.0.1:5191", 1)
-        setenv("OPS_ISSUE_SERVER_TOKEN", "abc", 1)
-        XCTAssertEqual(IssueServerConfig.current, IssueServerConfig(url: URL(string: "http://127.0.0.1:5191")!, token: "abc"))
-        setenv("OPS_ISSUE_SERVER", "ftp://x", 1)
-        XCTAssertNil(IssueServerConfig.current, "只接受 http/https")
-        unsetenv("OPS_ISSUE_SERVER")
-        unsetenv("OPS_ISSUE_SERVER_TOKEN")
+        OmixorMode.testServers = []
+        defer { OmixorMode.testServers = nil }
+        XCTAssertNil(IssueServerConfig.current, "本機模式:存檔案")
+        let srv = OmixorMode.Server(id: "prod", name: "正式站", url: URL(string: "http://127.0.0.1:5191")!, auth: [])
+        OmixorMode.testServers = [srv]
+        OmixorMode.save(OmixorMode.File(mode: OmixorMode.remote, server: "prod"))
+        XCTAssertEqual(IssueServerConfig.current?.url, srv.url, "遠端模式:連設定裡的 server")
+        OmixorMode.testServers = []
+        XCTAssertNil(IssueServerConfig.current, "上次的遠端不在設定裡就回本機")
+        OmixorMode.save(OmixorMode.File(mode: OmixorMode.local))
+    }
+
+    /// 遠端組織 id 的 "~" 前綴不送給伺服器
+    func testRemoteOrgPrefixStripped() throws {
+        let r = IssueRemote(config: IssueServerConfig(url: URL(string: "http://127.0.0.1:5999")!, token: "tok-123"))
+        FakeIssueServer.orgs = [:]
+        _ = try r.list(org: "~default")
+        XCTAssertEqual(FakeIssueServer.requests.last?.path, "/api/orgs/default/issues")
     }
 
     /// MCP 工具與本機模式的行為一樣,只是資料在伺服器
