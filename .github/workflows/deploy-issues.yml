@@ -1,11 +1,11 @@
-# omixor-server(server/,引用 core/ 的 omixor-core;Cloud Run 服務名稱仍是 omixor-issues)部署到 Cloud Run。照 evoleap 的做法:
+# omixor-server(server/,引用 core/ 的 omixor-core)部署到 Cloud Run,服務名稱 omixor(舊的服務叫 omixor-issues,同一個資料庫)。照 evoleap 的做法:
 #   - Workload Identity Federation:provider github-provider-omixor 只允許 tim72117/omixor
 #   - 資料庫:Cloud SQL onagent-prod:asia-east1:onagent-db 上的 omixor 資料庫(帳號 omixor_app),
 #     連線字串在 Secret Manager 的 OMIXOR_DATABASE_URL
 #   - 授權:omixor 自己管(internal/omixor):evoleap 登入只用來證明身分,換 omixor 自己的 token;
 #     使用者名單、token、操作紀錄存在 omixor 資料庫;第一位管理員的 email 是 repo variable OMIXOR_ADMIN_BOOTSTRAP_EMAIL
 #     (不是機密;只在使用者表是空的時候用,沒設就不會自動建立管理員)
-name: Deploy omixor-issues
+name: Deploy omixor server
 
 on:
   push:
@@ -19,12 +19,12 @@ on:
 env:
   GCP_PROJECT_ID: shuttle-045094509
   REGION: asia-east1
-  SERVICE: omixor-issues
-  IMAGE: asia-east1-docker.pkg.dev/shuttle-045094509/cloud-run-source-deploy/omixor-issues
+  SERVICE: omixor
+  IMAGE: asia-east1-docker.pkg.dev/shuttle-045094509/cloud-run-source-deploy/omixor
   CLOUDSQL_INSTANCE: onagent-prod:asia-east1:onagent-db
 
 concurrency:
-  group: omixor-issues
+  group: omixor-server
   cancel-in-progress: false
 
 jobs:

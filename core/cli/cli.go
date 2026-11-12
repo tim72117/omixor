@@ -42,7 +42,7 @@ import (
 	"omixor-core/service"
 )
 
-const DefaultServer = "https://omixor-issues-340121279179.asia-east1.run.app"
+const DefaultServer = "https://omixor-340121279179.asia-east1.run.app"
 
 type credentials struct {
 	Server    string      `json:"server"`
