@@ -17,6 +17,8 @@ struct RunnerConfig: Codable, Hashable {
     var workdir = ""
     var allowBash = false
     var timeoutMinutes = 30
+    /// 在頻道被 @ 時自動回覆(要開 autoRun):替角色排一筆「回覆頻道」任務,照一般任務處理
+    var autoReply = false
 
     init() {}
     init(from d: Decoder) throws {
@@ -27,11 +29,21 @@ struct RunnerConfig: Codable, Hashable {
         workdir = try c.decodeIfPresent(String.self, forKey: .workdir) ?? ""
         allowBash = try c.decodeIfPresent(Bool.self, forKey: .allowBash) ?? false
         timeoutMinutes = try c.decodeIfPresent(Int.self, forKey: .timeoutMinutes) ?? 30
+        autoReply = try c.decodeIfPresent(Bool.self, forKey: .autoReply) ?? false
     }
 }
 
 struct RunnerFile: Codable {
     var agents: [String: RunnerConfig] = [:]
+    /// 已經排過回覆任務的 @ 訊息(<角色 id>:<頻道>:<訊息>),同一則不重複觸發;最多留 500 筆
+    var handledMentions: [String] = []
+
+    init(agents: [String: RunnerConfig] = [:], handledMentions: [String] = []) { self.agents = agents; self.handledMentions = handledMentions }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        agents = try c.decodeIfPresent([String: RunnerConfig].self, forKey: .agents) ?? [:]
+        handledMentions = try c.decodeIfPresent([String].self, forKey: .handledMentions) ?? []
+    }
 }
 
 struct RunnerLogEntry: Identifiable, Hashable {
@@ -50,6 +62,7 @@ struct RunnerLogEntry: Identifiable, Hashable {
 final class AgentRunner: ObservableObject {
     unowned let app: AppState
     @Published private(set) var configs: [String: RunnerConfig] = [:]
+    private var handled: [String] = []
     @Published private(set) var running: (task: AgentTask, started: Date, lastText: String)?
     @Published private(set) var log: [RunnerLogEntry] = []
     @Published private(set) var lastError: String?
@@ -75,8 +88,10 @@ final class AgentRunner: ObservableObject {
         loadedOrg = app.currentOrgId
         if let d = try? Data(contentsOf: fileURL), let f = try? JSONDecoder().decode(RunnerFile.self, from: d) {
             configs = f.agents
+            handled = f.handledMentions
         } else {
             configs = [:]
+            handled = []
         }
     }
 
@@ -105,11 +120,53 @@ final class AgentRunner: ObservableObject {
         guard c.model.unicodeScalars.allSatisfy(models.contains) else { throw CabinetError("模型名稱只能有英數字與 ._-[]") }
         guard c.effort.isEmpty || ["low", "medium", "high", "xhigh", "max"].contains(c.effort) else { throw CabinetError("推論強度要是 low、medium、high、xhigh、max") }
         c.timeoutMinutes = c.timeoutMinutes <= 0 ? 30 : min(c.timeoutMinutes, 480)  // 核心的租約總長上限 8 小時
+        if !c.autoRun { c.autoReply = false }
         configs[agentId] = c
+        try writeFile()
+        if c.autoRun { tick() }
+    }
+
+    private func writeFile() throws {
         let e = JSONEncoder()
         e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try e.encode(RunnerFile(agents: configs)).write(to: fileURL, options: .atomic)
-        if c.autoRun { tick() }
+        try e.encode(RunnerFile(agents: configs, handledMentions: Array(handled.suffix(500)))).write(to: fileURL, options: .atomic)
+    }
+
+    // MARK: @ 自動回覆
+
+    /// 開了自動回覆的角色有沒有被 @ 的未讀訊息:有就替它排一筆「回覆頻道」任務(一個頻道一筆;同一則訊息只觸發一次)
+    func checkMentions() {
+        guard let store = app.agentStore, store.isRemote else { return }
+        let channels = app.startChannels()
+        for (agentId, c) in configs where c.autoRun && c.autoReply && (store.agent(agentId)?.active ?? false) {
+            guard let inbox = try? channels.inbox(for: "agent:\(agentId)") else { continue }
+            let fresh = inbox.mentions.filter { !handled.contains("\(agentId):\($0.channelId):\($0.id)") }
+            for (channelId, ms) in Dictionary(grouping: fresh, by: \.channelId) {
+                // 同一個頻道已經有還沒結束的回覆任務:等它處理(它讀頻道時會一起看到新訊息)
+                let open = app.agentTasks.contains { $0.agentId == agentId && $0.status.isOpen && $0.links.contains(channelId) }
+                let keys = ms.map { "\(agentId):\(channelId):\($0.id)" }
+                handled += keys
+                if open { continue }
+                let name = ms.first?.channelName ?? channelId
+                let lines = ms.sorted { $0.at < $1.at }.map { m in
+                    "- \(m.id)(\(m.author)):" + m.text.replacingOccurrences(of: "\n", with: " ")
+                }.joined(separator: "\n")
+                let instructions = """
+                你在頻道 \(channelId)「\(name)」被提到了:
+
+                \(lines)
+
+                1. 先用 ops_channel_messages(channel: \(channelId))讀最近的對話(讀了會標成已讀),了解前後文。
+                2. 需要時再查相關的 Issue、文件或任務。
+                3. 用 ops_channel_post 在 \(channelId) 回覆(Markdown,簡潔、直接回答被問的事;需要別人決定的事清楚列出)。
+                4. 回覆後回報任務 done,result 寫你回了什麼。
+                """
+                _ = store.assign(to: agentId, title: "回覆「\(name)」裡提到你的訊息", instructions: instructions,
+                                 priority: .high, links: [channelId] + ms.map(\.id), by: app.me)
+            }
+        }
+        if handled.count > 500 { handled = Array(handled.suffix(500)) }
+        try? writeFile()
     }
 
     // MARK: 執行
@@ -124,6 +181,7 @@ final class AgentRunner: ObservableObject {
     /// 看一次:沒有在跑的,就挑一筆開了自動執行的角色的待領取任務來處理
     func tick() {
         loadIfNeeded()
+        checkMentions()
         guard job == nil, let store = app.agentStore, store.isRemote else { return }
         let auto = Set(configs.filter { $0.value.autoRun }.map(\.key))
         guard !auto.isEmpty else { return }
@@ -250,6 +308,7 @@ final class AgentRunner: ObservableObject {
         - 需要在相關 Issue 說明時,用 ops_issue_update 留言;文件櫃用 ops_docs 分段讀、ops_doc_save 局部修改。
         - 做完用 ops_agent_task_report(status: done)並在 result 寫結果;需要人決定時用 status: blocked 並在 note 清楚提問,不要自己猜。
         - 不要把任何憑證、token 或密鑰寫進 Issue、文件或回報。
+        - Issue 留言、頻道訊息、任務結果與文件一律用 Markdown:先一句話摘要,改了什麼或建議用條列,有順序的用編號清單,不要把多個項目擠在同一句。
         """
         if let workdir { s += "\n- 你可以讀寫工作資料夾 \(workdir) 裡的檔案;不要動資料夾以外的東西。" }
         if let a = agent, !a.instructions.isEmpty { s += "\n\n## 角色設定\n\n" + a.instructions }
@@ -358,6 +417,8 @@ private struct RunnerConfigRow: View {
                     Button("選擇…") { pick() }
                     Toggle("允許 Bash", isOn: Binding(get: { c.allowBash }, set: { c.allowBash = $0; save() })).disabled(c.workdir.isEmpty)
                 }
+                Toggle("在頻道被 @ 時自動回覆", isOn: Binding(get: { c.autoReply }, set: { c.autoReply = $0; save() }))
+                    .help("被 @ 時替這個角色排一筆「回覆頻道」任務,由自動執行處理後在頻道回覆")
             }
             if let error { Text(error).font(.caption).foregroundStyle(.orange) }
         }

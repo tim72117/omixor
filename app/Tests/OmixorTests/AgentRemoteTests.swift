@@ -10,6 +10,8 @@ final class FakeOmixorServer: URLProtocol {
     nonisolated(unsafe) static var requests: [(method: String, path: String, body: [String: Any])] = []
     nonisolated(unsafe) static var layout: [[String: Any]] = []
     nonisolated(unsafe) static var docs: [[String: Any]] = []
+    /// GET /channels/inbox 回的 @ 訊息(自動回覆的測試用)
+    nonisolated(unsafe) static var inbox: [[String: Any]] = []
     nonisolated(unsafe) static var chain: [[String: Any]] = []
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -26,6 +28,7 @@ final class FakeOmixorServer: URLProtocol {
         tasks = []
         issues = []
         requests = []
+        inbox = []
         chain = []
         layout = [["id": "overview", "label": "總覽", "path": "", "tabs": []],
                   ["id": "docs", "label": "文件", "path": "", "tabs": [["label": "研究", "path": "/docs/research"]]]]
@@ -86,6 +89,8 @@ final class FakeOmixorServer: URLProtocol {
         guard p.count >= 4, p[0] == "api", p[1] == "orgs" else { return fail(404, "?") }
         let rest = Array(p.dropFirst(4))
         switch (p[3], method, rest.count) {
+        case ("channels", "GET", 1) where rest[0] == "inbox":
+            ok(["node": "agent:x", "mentions": Self.inbox, "channels": []])
         case ("cabinet", "GET", 0):
             ok(["layout": Self.layout, "docs": Self.docs, "layoutSaved": true])
         case ("cabinet", "POST", 1) where rest[0] == "layout":

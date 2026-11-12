@@ -124,4 +124,29 @@ final class AgentRunnerTests: XCTestCase {
         XCTAssertFalse(sent.contains("s3cret"), "回報裡不能有密鑰")
         XCTAssertFalse(r.log.first?.detail.contains("s3cret") ?? true)
     }
+
+    /// 開了 @ 自動回覆:被 @ 就排一筆「回覆頻道」任務;同一則不重複;沒開的角色不排
+    func testMentionCreatesReplyTask() throws {
+        FakeOmixorServer.inbox = [["channelId": "CH-1", "channelName": "動態牆討論", "id": "M-1", "author": "user:tim@example.com",
+                                   "text": "@程式設計師 可以看一下嗎?", "at": "2026-11-12T14:33:38Z"]]
+        let a = app()
+        let r = a.agentRunner
+        var c = RunnerConfig()
+        c.autoRun = true
+        c.autoReply = true
+        try r.save("programmer", c)   // save 會 tick 一次(會檢查 @)
+        r.checkMentions()
+        let replies = FakeOmixorServer.tasks.filter { ($0["title"] as? String ?? "").hasPrefix("回覆「動態牆討論」") }
+        XCTAssertEqual(replies.count, 1, "同一則 @ 只排一次")
+        XCTAssertEqual(replies.first?["agentId"] as? String, "programmer")
+        XCTAssertEqual(replies.first?["links"] as? [String], ["CH-1", "M-1"])
+        let body = FakeOmixorServer.requests.last { $0.path.hasSuffix("/agent-tasks") && $0.method == "POST" }?.body
+        XCTAssertTrue((body?["instructions"] as? String ?? "").contains("ops_channel_post"))
+
+        // 沒開自動執行就不能開自動回覆
+        var off = RunnerConfig()
+        off.autoReply = true
+        try r.save("tester", off)
+        XCTAssertFalse(r.config("tester").autoReply)
+    }
 }
