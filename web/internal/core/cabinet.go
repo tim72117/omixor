@@ -274,6 +274,28 @@ func (o CabinetOps) UpdateDoc(org, id string, p service.DocPatch) (*CabinetDoc, 
 	return d, err
 }
 
+// ReadDoc 分段讀(大綱、段落、行號範圍、搜尋;見 omixor-core/model/docsections.go)
+func (o CabinetOps) ReadDoc(org, id string, in service.DocRead) (*service.DocView, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	return b.ReadDoc(org, id, in)
+}
+
+// EditDoc 局部修改(字串取代、整段替換、段尾附加);改完更新快取、通知畫面
+func (o CabinetOps) EditDoc(org, id string, in service.DocEdit) (*service.DocEditResult, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	r, err := b.EditDoc(org, id, in)
+	if err == nil && !r.Unchanged {
+		o.done(org)
+	}
+	return r, err
+}
+
 func (o CabinetOps) DeleteDoc(org, id string) error {
 	b, err := agentBackend()
 	if err != nil {

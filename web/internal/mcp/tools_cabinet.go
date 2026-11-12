@@ -39,3 +39,9 @@ func (b appBackend) UpdateDoc(org, id string, p service.DocPatch) (*model.Cabine
 	return b.a.CabinetOps().UpdateDoc(org, id, p)
 }
 func (b appBackend) DeleteDoc(org, id string) error { return b.a.CabinetOps().DeleteDoc(org, id) }
+func (b appBackend) ReadDoc(org, id string, in service.DocRead) (*service.DocView, error) {
+	return b.a.CabinetOps().ReadDoc(org, id, in)
+}
+func (b appBackend) EditDoc(org, id string, in service.DocEdit) (*service.DocEditResult, error) {
+	return b.a.CabinetOps().EditDoc(org, id, in)
+}

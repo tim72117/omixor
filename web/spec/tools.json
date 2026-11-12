@@ -1228,7 +1228,7 @@
       "readOnlyHint": true,
       "title": "查文件"
     },
-    "description": "給 id 回傳文件全文;否則依區塊、頁籤、關鍵字列出文件。給 agent 時只看得到該角色有權限的文件。",
+    "description": "給 id 讀一份文件;否則依區塊、頁籤、關鍵字列出文件。給 agent 時只看得到該角色有權限的文件。讀長文件時建議分段讀,省上下文:先 outline 看大綱(各段的 id、標題、行號範圍、字數),再用 part 讀一段、from/to 讀幾行,或 grep 找關鍵字;回傳的 version 在局部修改(ops_doc_save 的 edits、replace_part、append_to_part)時帶回來。只給 id 時回全文,但超過 6000 字的文件只回大綱與開頭(要全文帶 full)。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1236,8 +1236,32 @@
           "description": "以角色身分查看時填角色 id 或名稱",
           "type": "string"
         },
+        "context": {
+          "description": "grep 前後各幾行,預設 2",
+          "type": "integer"
+        },
+        "from": {
+          "description": "給 id 時從第幾行讀(1 起算,含)",
+          "type": "integer"
+        },
+        "full": {
+          "description": "給 id 時一定回全文(長文件也是)",
+          "type": "boolean"
+        },
+        "grep": {
+          "description": "給 id 時只回含這段文字的行(含行號與前後文)",
+          "type": "string"
+        },
         "id": {
           "description": "文件 id,例如 DOC-3",
+          "type": "string"
+        },
+        "outline": {
+          "description": "給 id 時只回大綱與版本",
+          "type": "boolean"
+        },
+        "part": {
+          "description": "給 id 時只讀這一段:大綱裡的 id(例如 s3)或標題",
           "type": "string"
         },
         "query": {
@@ -1251,6 +1275,10 @@
         "tab": {
           "description": "頁籤網址或名稱,例如 /studio/tools、L0、課程目標",
           "type": "string"
+        },
+        "to": {
+          "description": "給 id 時讀到第幾行(含)",
+          "type": "integer"
         }
       },
       "required": [],
@@ -1266,7 +1294,7 @@
       "readOnlyHint": false,
       "title": "存文件到文件櫃"
     },
-    "description": "新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在研發基地對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置。文件存在本機,重開 omixor 也還在。內文開頭可以有欄位(--- 之間一行一個 key: value),kind 是文件類型:有對應範本(kind: template、for: <類型> 的文件,內含 ```html 版面與 ```css 樣式)時,畫面依範本顯示,存檔前也會檢查範本的 required 欄位。要新增一種類型,存一份範本文件就好。",
+    "description": "新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在研發基地對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置。文件存在本機,重開 omixor 也還在。內文開頭可以有欄位(--- 之間一行一個 key: value),kind 是文件類型:有對應範本(kind: template、for: <類型> 的文件,內含 ```html 版面與 ```css 樣式)時,畫面依範本顯示,存檔前也會檢查範本的 required 欄位。要新增一種類型,存一份範本文件就好。修改長文件時建議局部修改(edits、replace_part、append_to_part 三種擇一,不必送全文),回傳只有改到的那幾行與新版本。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1278,12 +1306,54 @@
           "description": "接在內文後面的文字",
           "type": "string"
         },
+        "append_to_part": {
+          "description": "局部修改:接在這一段最後(大綱的 id 或標題);內容放 content,自帶標題就是在這段後面插入新段落",
+          "type": "string"
+        },
+        "base_version": {
+          "description": "局部修改時帶讀到的 version:版本不符時,edits 會在最新內文上再套一次,replace_part、append_to_part 會被拒絕",
+          "type": "string"
+        },
         "body": {
           "description": "取代內文(Markdown)",
           "type": "string"
         },
+        "content": {
+          "description": "replace_part、append_to_part 的內容(Markdown)",
+          "type": "string"
+        },
+        "edits": {
+          "description": "局部修改:字串取代,依序套用;old 在全文必須剛好出現一次(或設 all),任何一個失敗就都不改",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "all": {
+                "description": "取代全部出現的地方",
+                "type": "boolean"
+              },
+              "new": {
+                "description": "新的文字",
+                "type": "string"
+              },
+              "old": {
+                "description": "要被取代的原文(多帶前後文讓它唯一)",
+                "type": "string"
+              }
+            },
+            "required": [
+              "old",
+              "new"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
         "id": {
           "description": "要修改的文件 id;新增時不給",
+          "type": "string"
+        },
+        "replace_part": {
+          "description": "局部修改:整段替換這一段(大綱的 id 或標題),保留標題那一行;內容放 content",
           "type": "string"
         },
         "section": {

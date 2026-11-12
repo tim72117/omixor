@@ -43,3 +43,15 @@ func (c *Client) UpdateDoc(org, id string, p service.DocPatch) (*model.CabinetDo
 func (c *Client) DeleteDoc(org, id string) error {
 	return c.Do("POST", c.docs(org)+"/"+esc(id)+"/delete", map[string]any{}, nil)
 }
+
+// ReadDoc 分段讀(大綱、段落、行號範圍、搜尋)
+func (c *Client) ReadDoc(org, id string, in service.DocRead) (*service.DocView, error) {
+	var v service.DocView
+	return &v, c.Do("POST", c.docs(org)+"/"+esc(id)+"/read", in, &v)
+}
+
+// EditDoc 局部修改(字串取代、整段替換、段尾附加)
+func (c *Client) EditDoc(org, id string, in service.DocEdit) (*service.DocEditResult, error) {
+	var r service.DocEditResult
+	return &r, c.Do("POST", c.docs(org)+"/"+esc(id)+"/edit", in, &r)
+}

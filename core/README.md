@@ -57,6 +57,9 @@ API:
 - `POST /api/orgs/{org}/docs`:`{title, body, section, tab?, tags, author?}` 新增(`author` 只有伺服器管理員給的算數)
 - `POST /api/orgs/{org}/docs/{id}`:`{title?, body?, appendBody?, section?, tab?, tags?}` 修改;給 `section` 就是搬移
 - `POST /api/orgs/{org}/docs/{id}/delete`(成員;角色憑證不行)
+- `POST /api/orgs/{org}/docs/{id}/read`:分段讀(像讀真實檔案,省 agent 的上下文):`{outline}` 大綱(各段 id、標題、行號範圍、字數)、`{section}` 讀一段(id 或標題)、`{from, to}` 讀行號範圍、`{grep, context}` 搜尋;都會回 `version`(內文雜湊)
+- `POST /api/orgs/{org}/docs/{id}/edit`:局部修改(三種擇一):`{edits: [{old, new, all?}]}` 字串取代(old 必須唯一,任何一個失敗都不改)、`{replaceSection, content}` 整段替換(保留標題)、`{appendToSection, content}` 接在段尾(content 自帶標題就是插入新段落);帶 `baseVersion` 時版本不符:字串取代在最新內文上再套一次,其他回 409。只回改到的那幾行與新版本。權限、範本必填欄位同一般修改。段落規則見 `model/docsections.go`
+- MCP:`ops_docs` 給 id 時可帶 `outline`、`part`、`from`/`to`、`grep`/`context`、`full`(超過 6000 字的文件只給 id 時只回大綱與開頭);`ops_doc_save` 可帶 `edits`、`replace_part`、`append_to_part` + `content`、`base_version`
 
 ## MCP 端點
 

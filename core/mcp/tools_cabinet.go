@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -206,7 +207,40 @@ func RegisterCabinetTools(s *Server) {
 			if !visible(*d) {
 				return nil, Errorf("%s沒有權限讀「%s」的文件", g.Name, l.Location(d.Section, d.TabPath()))
 			}
-			return docJSON(e, l, *d, true), nil
+			// 分段讀:大綱、一段、幾行、搜尋;只給 id 時回全文,太長的只回大綱與開頭
+			in := service.DocRead{Section: c.Args.Str("part"), Grep: c.Args.Str("grep")}
+			in.Outline, _ = c.Args.Raw["outline"].(bool)
+			in.From, _ = c.Args.Int("from")
+			in.To, _ = c.Args.Int("to")
+			in.Context, _ = c.Args.Int("context")
+			full, _ := c.Args.Raw["full"].(bool)
+			partial := in.Outline || in.Section != "" || in.From > 0 || in.To > 0 || in.Grep != ""
+			if !partial && (full || utf8.RuneCountInString(d.Body) <= docFullLimit) {
+				o := docJSON(e, l, *d, true)
+				o["version"] = model.DocVersion(d.Body)
+				return o, nil
+			}
+			v, err := e.Backend().ReadDoc(e.Org(), d.ID, in)
+			if err != nil {
+				return nil, terr(err)
+			}
+			o := docJSON(e, l, *d, false)
+			for k, x := range map[string]any{"version": v.Version, "lines": v.Lines, "partial": v.Partial} {
+				o[k] = x
+			}
+			if v.Outline != nil {
+				o["outline"] = v.Outline
+			}
+			if v.Text != nil {
+				o["text"], o["from"], o["to"] = *v.Text, v.From, v.To
+			}
+			if in.Grep != "" {
+				o["matches"] = v.Matches
+			}
+			if !partial {
+				o["note"] = fmt.Sprintf("文件很長(%d 字),只回大綱與開頭;用 part 讀一段、from/to 讀幾行,或帶 full 讀全文", o["chars"])
+			}
+			return o, nil
 		}
 		cab, err := cabinetOf(e)
 		if err != nil {
@@ -292,6 +326,17 @@ func RegisterCabinetTools(s *Server) {
 			if err := checkWrite(d.Section, d.Tab); err != nil {
 				return nil, err
 			}
+			// 局部修改(edits、replace_part、append_to_part):只回改到的那幾行與新版本
+			if ed, ok, err := docEditArgs(c); err != nil {
+				return nil, err
+			} else if ok {
+				r, err := bk.EditDoc(org, d.ID, ed)
+				if err != nil {
+					return nil, terr(err)
+				}
+				return map[string]any{"id": r.ID, "version": r.Version, "lines": r.Lines, "from": r.From, "to": r.To,
+					"text": r.Text, "rebased": r.Rebased, "unchanged": r.Unchanged}, nil
+			}
 			p := service.DocPatch{}
 			if c.Args.Opt("section") != nil || c.Args.Opt("tab") != nil {
 				sec, t, msg := l.Resolve(c.Args.Opt("section"), c.Args.Opt("tab"))
@@ -342,4 +387,34 @@ func RegisterCabinetTools(s *Server) {
 		}
 		return docJSON(e, l, *d, false), nil
 	})
+}
+
+// docFullLimit 只給 id 時回全文的上限(字);超過只回大綱與開頭
+const docFullLimit = 6000
+
+// docEditArgs ops_doc_save 的局部修改參數(edits、replace_part、append_to_part 三種擇一,不能和 body 等整份修改混用)
+func docEditArgs(c *Call) (service.DocEdit, bool, error) {
+	ed := service.DocEdit{BaseVersion: c.Args.Str("base_version"), ReplaceSection: c.Args.Str("replace_part"),
+		AppendToSection: c.Args.Str("append_to_part"), Content: c.Args.Str("content")}
+	if raw, ok := c.Args.Raw["edits"].([]any); ok {
+		for i, x := range raw {
+			m, ok := x.(map[string]any)
+			if !ok {
+				return ed, false, Errorf("edits 第 %d 個要是 {old, new}", i+1)
+			}
+			o, _ := m["old"].(string)
+			n, _ := m["new"].(string)
+			all, _ := m["all"].(bool)
+			ed.Edits = append(ed.Edits, model.TextEdit{Old: o, New: n, All: all})
+		}
+	}
+	if len(ed.Edits) == 0 && ed.ReplaceSection == "" && ed.AppendToSection == "" {
+		return ed, false, nil
+	}
+	for _, k := range []string{"body", "append_body", "title", "section", "tab", "tags"} {
+		if _, has := c.Args.Raw[k]; has {
+			return ed, false, Errorf("局部修改(edits、replace_part、append_to_part)不能和 %s 一起用;分兩次存", k)
+		}
+	}
+	return ed, true, nil
 }

@@ -74,6 +74,9 @@ type Backend interface {
 	GetDoc(org, id string) (*model.CabinetDoc, error) // 不分大小寫
 	CreateDoc(org string, in service.DocInput) (*model.CabinetDoc, error)
 	UpdateDoc(org, id string, p service.DocPatch) (*model.CabinetDoc, error)
+	// ReadDoc、EditDoc 分段讀與局部修改(見 core/model/docsections.go)
+	ReadDoc(org, id string, in service.DocRead) (*service.DocView, error)
+	EditDoc(org, id string, in service.DocEdit) (*service.DocEditResult, error)
 	DeleteDoc(org, id string) error
 
 	// 附件(圖片)

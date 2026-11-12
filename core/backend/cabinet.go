@@ -113,3 +113,38 @@ func (r *Remote) UpdateDoc(org, id string, p service.DocPatch) (*model.CabinetDo
 func (r *Remote) DeleteDoc(org, id string) error {
 	return wrap(r.Client().DeleteDoc(r.org(org), id))
 }
+
+// ---- 分段讀寫 ----
+
+func (Unsupported) ReadDoc(string, string, service.DocRead) (*service.DocView, error) {
+	return nil, errUnsupported
+}
+func (Unsupported) EditDoc(string, string, service.DocEdit) (*service.DocEditResult, error) {
+	return nil, errUnsupported
+}
+
+func (l *Local) ReadDoc(org, id string, in service.DocRead) (*service.DocView, error) {
+	l.ensureOrg(org)
+	return l.Svc.ReadDoc(l.P, org, id, in)
+}
+
+func (l *Local) EditDoc(org, id string, in service.DocEdit) (*service.DocEditResult, error) {
+	l.ensureOrg(org)
+	return l.Svc.EditDoc(l.P, org, id, in)
+}
+
+func (r *Remote) ReadDoc(org, id string, in service.DocRead) (*service.DocView, error) {
+	v, err := r.Client().ReadDoc(r.org(org), id, in)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return v, nil
+}
+
+func (r *Remote) EditDoc(org, id string, in service.DocEdit) (*service.DocEditResult, error) {
+	v, err := r.Client().EditDoc(r.org(org), id, in)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return v, nil
+}

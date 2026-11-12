@@ -66,6 +66,26 @@ func (a *API) cabinetRoutes(mux *http.ServeMux) {
 		d, err := a.Svc.UpdateDoc(p, r.PathValue("org"), r.PathValue("id"), in)
 		reply(w, d, err)
 	}))
+	// 分段讀:{"outline"?, "section"?, "from"?, "to"?, "grep"?, "context"?};回傳大綱或那一部分與版本(見 service.DocRead)
+	mux.HandleFunc("POST "+dc+"/{id}/read", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in service.DocRead
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		v, err := a.Svc.ReadDoc(p, r.PathValue("org"), r.PathValue("id"), in)
+		reply(w, v, err)
+	}))
+	// 局部修改:{"baseVersion"?, "edits"? | "replaceSection"+"content" | "appendToSection"+"content"}(見 service.DocEdit)
+	mux.HandleFunc("POST "+dc+"/{id}/edit", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in service.DocEdit
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		res, err := a.Svc.EditDoc(p, r.PathValue("org"), r.PathValue("id"), in)
+		reply(w, res, err)
+	}))
 	mux.HandleFunc("POST "+dc+"/{id}/delete", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		reply(w, true, a.Svc.DeleteDoc(p, r.PathValue("org"), r.PathValue("id")))
 	}))
