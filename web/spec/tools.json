@@ -800,6 +800,10 @@
           ],
           "type": "string"
         },
+        "repo": {
+          "description": "所屬程式碼倉庫,例如 owner/name(GitHub)或 group/sub/project(GitLab),可加 github:、gitlab: 前綴;只能用英數與 - _ . / :",
+          "type": "string"
+        },
         "source": {
           "description": "從哪裡發現的,例如「網站訪客 7d」",
           "type": "string"
@@ -872,6 +876,10 @@
           ],
           "type": "string"
         },
+        "repo": {
+          "description": "改所屬程式碼倉庫(owner/name 或 group/sub/project,可加 github:、gitlab: 前綴;空字串 = 清除標記)",
+          "type": "string"
+        },
         "status": {
           "description": "open 重新打開,closed 關閉",
           "enum": [
@@ -918,6 +926,10 @@
         },
         "query": {
           "description": "標題、內文或留言包含這段文字",
+          "type": "string"
+        },
+        "repo": {
+          "description": "只列標記這個程式碼倉庫的(不分大小寫;github:、gitlab: 前綴一邊沒寫就忽略)",
           "type": "string"
         },
         "status": {

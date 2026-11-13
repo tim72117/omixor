@@ -12,12 +12,12 @@
 //	GET  /api/orgs/{org}/members               成員
 //	POST /api/orgs/{org}/members               {email, role} 加入或改角色(組織管理員)
 //	POST /api/orgs/{org}/members/remove        {email}
-//	GET  /api/orgs/{org}/issues                全部 Issue(新的在前)
-//	POST /api/orgs/{org}/issues                {title, body, priority, labels, source, link, author} 建立
+//	GET  /api/orgs/{org}/issues?repo=          全部 Issue(新的在前);repo 有給只回標記該倉庫的(不分大小寫,github:/gitlab: 前綴一邊沒寫就忽略)
+//	POST /api/orgs/{org}/issues                {title, body, priority, labels, source, link, repo?, author} 建立
 //	GET  /api/orgs/{org}/issues/{id}
 //	POST /api/orgs/{org}/attachments           {data: base64} 上傳圖片(PNG、JPEG、GIF、WebP,10 MB)→ {id}
 //	GET  /api/orgs/{org}/attachments/{id}      → {type, data: base64}
-//	POST /api/orgs/{org}/issues/{id}           {title?, body?, status?, priority?, labels?, source?, link?, comments?, author?} 修改
+//	POST /api/orgs/{org}/issues/{id}           {title?, body?, status?, priority?, labels?, source?, link?, repo?, comments?, author?} 修改
 //	POST /api/orgs/{org}/issues/{id}/delete
 //	GET  /api/orgs/{org}/issues/export         整份(組織管理員)
 //	POST /api/orgs/{org}/issues/import         {issues} 第一次搬資料用(組織管理員;已經有 Issue 就拒絕)
@@ -45,6 +45,8 @@
 //	  credential = {agentId, taskId, secret, expiresAt}:密鑰只在領取時給一次,伺服器只存雜湊;
 //	  連角色端點 /mcp/agent 用 Authorization: Bearer <agentId>:<secret>(見 core/mcp、server)
 //	Issue 的 POST(建立、修改)多一個 assignee(角色 id):指向存在的角色(不存在 400)且啟用時自動替它排任務
+//	Issue 的 repo:所屬程式碼倉庫,owner/name(GitHub)或 group/sub/project(GitLab),可加 github:、gitlab: 前綴;
+//	  只允許英數與 - _ . / :、最長 200,不合格 400;修改時給 "" = 清除;沒標記時 JSON 不帶 repo
 //
 //	GET  /api/orgs/{org}/cabinet               文件櫃:{layout, docs, layoutSaved}(成員;角色憑證只看到 docAccess 能讀的文件)
 //	POST /api/orgs/{org}/cabinet/layout        {layout} 改結構(組織管理員;被拿掉的區塊、頁籤裡不能還有文件)
@@ -268,6 +270,9 @@ func (a *API) Handler() http.Handler {
 	for _, base := range []string{"/api/orgs/{org}/issues", "/api/issues/{org}"} {
 		mux.HandleFunc("GET "+base, a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 			l, err := a.Svc.ListIssues(p, r.PathValue("org"))
+			if err == nil {
+				l = service.FilterIssuesByRepo(l, r.URL.Query().Get("repo"))
+			}
 			reply(w, l, err)
 		}))
 		mux.HandleFunc("POST "+base, a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {

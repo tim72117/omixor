@@ -63,9 +63,9 @@ func TestAgentToolsFollowRoleSettings(t *testing.T) {
 	}
 	auth := "Bearer solo:" + res.Credential.Secret
 
-	// 什麼都沒設:只有任務與 Issue
+	// 什麼都沒設:只有任務、Issue 與不需要設定的工具(線框圖、流程圖)
 	got := listTools(t, role, auth)
-	want := []string{"agent_context", "agent_tasks", "agent_task_report", "issues", "issue_create", "issue_update"}
+	want := []string{"agent_context", "agent_tasks", "agent_task_report", "issues", "issue_create", "issue_update", "wireframe_render", "flowchart_render"}
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
@@ -77,7 +77,7 @@ func TestAgentToolsFollowRoleSettings(t *testing.T) {
 	}
 	ctx := ok(t, role, auth, "agent_context", map[string]any{})
 	tools := ctx["tools"].(map[string]any)
-	if n := len(tools["available"].([]any)); n != 6 {
+	if n := len(tools["available"].([]any)); n != 8 {
 		t.Fatal(tools)
 	}
 	un := tools["unavailable"].([]any)

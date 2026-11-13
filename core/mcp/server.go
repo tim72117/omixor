@@ -30,6 +30,8 @@ func Errorf(format string, a ...any) error { return ToolError{fmt.Sprintf(format
 type Call struct {
 	Args Args
 	Ctx  any
+	// hooks 這次請求的 Allow、Guard(由 Handle 帶入);工具在執行中呼叫其他工具時用 RunNested 套用同一組限制
+	hooks *Hooks
 }
 
 type ToolFunc func(c *Call) (any, error)
@@ -136,6 +138,30 @@ func (s *Server) Missing() []string {
 
 // Run 執行工具(MCP 與畫面共用)。panic 會轉成錯誤,不會讓伺服器掛掉。
 func (s *Server) Run(name string, args map[string]any, ctx any) (out any, err error) {
+	return s.run(name, args, ctx, nil)
+}
+
+// RunNested 工具在執行中呼叫其他工具(例如繪圖工具存文件呼叫 doc_save):
+// 套用同一次請求的 Allow 與 Guard,角色端點的工具開關與強制角色不會被繞過。
+// 直接用 Run 呼叫就沒有這些限制(只給畫面、內部用)。
+func (s *Server) RunNested(c *Call, name string, args map[string]any) (any, error) {
+	if args == nil {
+		args = map[string]any{}
+	}
+	if h := c.hooks; h != nil {
+		if h.Allow != nil && !h.Allow(name) {
+			return nil, Errorf("這個連線沒有開放 %s(角色設定或端點限制),不能代為呼叫", name)
+		}
+		if h.Guard != nil {
+			if err := h.Guard(name, args); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return s.run(name, args, c.Ctx, c.hooks)
+}
+
+func (s *Server) run(name string, args map[string]any, ctx any, h *Hooks) (out any, err error) {
 	f := s.registry[name]
 	if f == nil {
 		return nil, ToolError{"這個工具在 Go 版還沒實作:" + name}
@@ -148,7 +174,7 @@ func (s *Server) Run(name string, args map[string]any, ctx any) (out any, err er
 			out, err = nil, fmt.Errorf("%v", r)
 		}
 	}()
-	return f(&Call{Args: Args{Raw: args}, Ctx: ctx})
+	return f(&Call{Args: Args{Raw: args}, Ctx: ctx, hooks: h})
 }
 
 // Handle 處理一則(或一批)JSON-RPC 訊息;回傳 nil 表示只有通知,不用回應
@@ -252,7 +278,7 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		if h.Tool != nil {
 			h.Tool(name)
 		}
-		out, err := s.Run(name, args, h.Ctx)
+		out, err := s.run(name, args, h.Ctx, &h)
 		if err != nil {
 			return result(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": err.Error()}}, "isError": true})
 		}

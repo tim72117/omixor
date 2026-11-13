@@ -1,7 +1,7 @@
 // 開發 › Issue:存在本機的真實 Issue(人或 AI 透過 MCP 建立)。Swift 的 DevIssuesTab.swift。
 // 建立、修改、留言、關閉走 MCP 工具(issue_create / issue_update),刪除是畫面專用的 issue_delete。
 import { useEffect, useState } from "react";
-import { action, tool } from "../../api";
+import { action, tool, useView } from "../../api";
 import { color, EmptyState, Modal, Pill } from "../../components/ui";
 import { Banner, MarkdownText, MenuButton, monthDayTime, Seg, SIcon, useAct, useConfirm, useList, useOps, type Agent } from "../../components/opsKit";
 import { relative } from "../../fmt";
@@ -13,7 +13,7 @@ import { go } from "../../components/bits";
 export type IssueComment = { id: string; author: string; text: string; at: string };
 export type OpsIssue = {
   id: string; title: string; body: string; status: "open" | "closed"; priority: Priority; labels: string[];
-  source: string; link: string; assignee?: string; createdBy: string; createdAt: string; updatedAt: string; closedAt?: string | null; comments: IssueComment[];
+  source: string; link: string; assignee?: string; repo?: string; createdBy: string; createdAt: string; updatedAt: string; closedAt?: string | null; comments: IssueComment[];
 };
 type Priority = "urgent" | "high" | "normal" | "low";
 export const PRIORITY: Record<Priority, { label: string; color: string; rank: number }> = {
@@ -27,16 +27,76 @@ const splitLabels = (s: string) => s.split(",").map((x) => x.trim()).filter(Bool
 
 type Filter = "open" | "closed" | "all";
 
+// 所屬倉庫(repo):owner/name(GitHub)或 group/sub/project(GitLab),可加 github:、gitlab: 前綴;"" = 未標記。
+// 格式同核心 model.CleanRepo(只允許英數與 - _ . / :,最長 200);存的時候核心會再檢查一次
+const REPO_RE = /^[A-Za-z0-9._/:-]{0,200}$/;
+/** 去重用的鍵:不分大小寫(平台前綴保留,github:x 與 gitlab:x 是不同倉庫) */
+const repoKey = (r: string) => r.trim().toLowerCase();
+/** 篩選比對,規則同核心的 model.RepoMatch:不分大小寫;平台前綴(github:、gitlab:)有一邊沒寫就忽略前綴比較,兩邊都寫就要相同 */
+function repoMatch(repo: string, filter: string): boolean {
+  const a = repo.trim().toLowerCase(), b = filter.trim().toLowerCase();
+  if (a === b) return true;
+  const strip = (x: string): [string, boolean] => { const m = x.match(/^(github|gitlab):(.*)$/); return m ? [m[2], true] : [x, false]; };
+  const [ra, pa] = strip(a), [rb, pb] = strip(b);
+  return ra !== "" && ra === rb && (!pa || !pb);
+}
+/** 篩選「未標記倉庫」用的值:含空白,核心的 CleanRepo 不接受,所以不會和真的 repo 名稱撞到 */
+const NO_REPO = " none ";
+type IssueRepos = { github: string[]; gitlab: string[]; used: string[] };
+
+/** 候選倉庫:GitHub 追蹤的 repos、GitLab 追蹤的專案(加 gitlab: 前綴)、其他 Issue 用過的(去重,不分大小寫與前綴) */
+function useRepoOptions(): { label: string; options: string[] }[] {
+  const [v] = useView<IssueRepos>("issue_repos", ["github", "gitlab", "issues"]);
+  const seen = new Set<string>();
+  const take = (l: string[] | undefined) => (l ?? []).filter((r) => {
+    if (!r || seen.has(repoKey(r))) return false;
+    seen.add(repoKey(r));
+    return true;
+  });
+  return [
+    { label: "GitHub", options: take(v?.github) },
+    { label: "GitLab", options: take((v?.gitlab ?? []).map((p) => "gitlab:" + p)) },
+    { label: "其他 Issue 用過的", options: take(v?.used) },
+  ].filter((g) => g.options.length > 0);
+}
+
+/** 設定所屬倉庫:下拉選已設定的倉庫、「不標記」,或「其他…」自己輸入 */
+function RepoPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const groups = useRepoOptions();
+  const known = groups.some((g) => g.options.includes(value));
+  const [custom, setCustom] = useState(false);
+  const other = custom || (value !== "" && !known);
+  const bad = !REPO_RE.test(value.trim());
+  return (
+    <div className="row gap6" style={{ alignItems: "center" }}>
+      <SIcon name="chevron.left.forwardslash.chevron.right" className="muted" />
+      <select className="select" title="所屬倉庫" value={other ? "__other" : value} onChange={(e) => {
+        if (e.target.value === "__other") { setCustom(true); return; }
+        setCustom(false); onChange(e.target.value);
+      }}>
+        <option value="">不標記倉庫</option>
+        {groups.map((g) => <optgroup key={g.label} label={g.label}>{g.options.map((r) => <option key={r} value={r}>{r}</option>)}</optgroup>)}
+        <option value="__other">其他…</option>
+      </select>
+      {other && <input className="input grow" placeholder="owner/name 或 gitlab:group/project" value={value} onChange={(e) => onChange(e.target.value)} />}
+      {bad && <span className="caption" style={{ color: "var(--red)" }}>只能用英數與 - _ . / :(最長 200)</span>}
+    </div>
+  );
+}
+
 export function DevIssuesTab() {
   const dev = useDev();
   const [issues, err, ready] = useList<OpsIssue>("issues");
   const [filter, setFilter] = useState<Filter>("open");
   const [query, setQuery] = useState("");
+  const [repo, setRepo] = useState(""); // "" = 全部倉庫;NO_REPO = 未標記;其他 = 只列這個倉庫(比對規則見 repoMatch)
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const q = query.trim().toLowerCase();
+  const repos = [...new Map(issues.filter((i) => i.repo).map((i) => [repoKey(i.repo!), i.repo!])).values()].sort((a, b) => a.localeCompare(b));
+  const repoOK = (i: OpsIssue) => !repo || (repo === NO_REPO ? !i.repo : !!i.repo && repoMatch(i.repo, repo));
   const list = issues
-    .filter((i) => (filter === "all" || i.status === filter) && (!q || i.title.toLowerCase().includes(q) || i.id.toLowerCase().includes(q) || (i.labels ?? []).some((l) => l.toLowerCase().includes(q)) || (i.body ?? "").toLowerCase().includes(q)))
+    .filter((i) => (filter === "all" || i.status === filter) && repoOK(i) && (!q || i.title.toLowerCase().includes(q) || i.id.toLowerCase().includes(q) || (i.labels ?? []).some((l) => l.toLowerCase().includes(q)) || (i.repo ?? "").toLowerCase().includes(q) || (i.body ?? "").toLowerCase().includes(q)))
     .sort((a, b) => (a.status === "open" ? 0 : 1) - (b.status === "open" ? 0 : 1) || prRank(a.priority) - prRank(b.priority) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   const count = (f: Filter) => {
     const n = f === "all" ? issues.length : issues.filter((i) => i.status === f).length;
@@ -53,10 +113,17 @@ export function DevIssuesTab() {
         <div className="col gap8" style={{ padding: 10 }}>
           <Seg value={filter} onChange={setFilter} options={(["open", "closed", "all"] as Filter[]).map((f) => ({ value: f, label: (f === "open" ? "未解決" : f === "closed" ? "已關閉" : "全部") + count(f) }))} />
           <div className="row gap6">
-            <input className="input grow" placeholder="搜尋標題、標籤、內文" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input className="input grow" placeholder="搜尋標題、標籤、倉庫、內文" value={query} onChange={(e) => setQuery(e.target.value)} />
             <button className="btn" title="新增 Issue" onClick={() => setCreating(true)}><SIcon name="plus" /></button>
             <button className="btn" title="從 Jira 匯入" onClick={() => setImporting(true)}><SIcon name="square.and.arrow.down" /></button>
           </div>
+          {(repos.length > 0 || repo) && (
+            <select className="select" title="依所屬倉庫篩選" value={repo} onChange={(e) => setRepo(e.target.value)}>
+              <option value="">全部倉庫</option>
+              <option value={NO_REPO}>未標記倉庫</option>
+              {repos.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          )}
         </div>
         <div className="divider" />
         {err && issues.length === 0 ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={err} />
@@ -118,6 +185,7 @@ function IssueRow({ issue, on, onClick }: { issue: OpsIssue; on: boolean; onClic
         <span className="caption mono muted">{issue.id}</span>
         {isAIAuthor(issue.createdBy) && <span title={name(issue.createdBy)}><AuthorIcon author={issue.createdBy} size={14} /></span>}
         {prRank(issue.priority) <= 1 && <Pill text={p.label} color={p.color} />}
+        {issue.repo && <span className="caption mono muted" title={"倉庫:" + issue.repo} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>{issue.repo}</span>}
         {(issue.labels ?? []).slice(0, 3).map((l) => <Pill key={l} text={l} />)}
         <span className="grow" />
         {issue.comments?.length > 0 && <span className="caption muted row gap4"><SIcon name="bubble.left" size={11} />{issue.comments.length}</span>}
@@ -136,6 +204,7 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [labels, setLabels] = useState("");
+  const [repo, setRepo] = useState("");
   const [comment, setComment] = useState("");
   const [dlg, ask] = useConfirm();
   const { run, toastEl } = useAct();
@@ -147,10 +216,13 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
   return (
     <div className="col" style={{ padding: 20, gap: 16, maxWidth: 820 }}>
       <div className="col gap8">
-        <div className="row gap8" style={{ alignItems: "baseline" }}>
-          <span className="h2" style={{ userSelect: "text" }}>{issue.title}</span>
-          <span className="mono muted" style={{ fontSize: 15 }}>{issue.id}</span>
-          <span className="grow" />
+        <div className="row gap8" style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
+          {/* 標題至少保留 280px、可換行;按鈕群不換行、放不下時整組換到標題下一行,避免被擠成直排或把標題擠窄 */}
+          <div className="row gap8" style={{ alignItems: "baseline", minWidth: 0, flexWrap: "wrap", flex: "1 1 280px" }}>
+            <span className="h2" style={{ userSelect: "text", minWidth: 0, overflowWrap: "anywhere" }}>{issue.title}</span>
+            <span className="mono muted" style={{ fontSize: 15, whiteSpace: "nowrap" }}>{issue.id}</span>
+          </div>
+          <div className="row gap8" style={{ flex: "0 0 auto", marginLeft: "auto", alignItems: "center", whiteSpace: "nowrap" }}>
           <MenuButton className="btn" label={<SIcon name="ellipsis.circle" />} align="right" items={[
             { header: "優先度" },
             ...PRIORITIES.map((x) => ({ label: PRIORITY[x].label, checked: x === issue.priority, onClick: () => upd({ priority: x }) })),
@@ -159,7 +231,7 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
             { label: "未指派", checked: !issue.assignee, onClick: () => upd({ assignee: "" }) },
             ...ops.agents.filter((x) => x.active !== false || x.id === issue.assignee).map((x) => ({ label: x.name, checked: x.id === issue.assignee, onClick: () => upd({ assignee: x.id }) })),
             "sep",
-            { label: "編輯…", onClick: () => { setTitle(issue.title); setBody(issue.body ?? ""); setLabels((issue.labels ?? []).join(", ")); setEditing(true); } },
+            { label: "編輯…", onClick: () => { setTitle(issue.title); setBody(issue.body ?? ""); setLabels((issue.labels ?? []).join(", ")); setRepo(issue.repo ?? ""); setEditing(true); } },
             { label: "刪除…", danger: true, onClick: () => ask({ title: `刪除 ${issue.id}?`, buttons: [{ label: "刪除(無法復原)", danger: true, onClick: async () => { const r = await run(() => action("issue_delete", { id: issue.id })); if (r !== undefined) dev.setSelectedIssue(undefined); } }] }) },
           ]} />
           <button className="btn" title="這個 Issue 的對話頻道(已有就跳過去,沒有就建立)" onClick={async () => {
@@ -168,11 +240,13 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
             if (c) go("channels", c.id);
           }}><SIcon name="bubble.left.and.bubble.right" /> 開對話頻道</button>
           <button className="btn" onClick={() => upd({ status: open ? "closed" : "open" })}>{open ? "關閉" : "重新打開"}</button>
+          </div>
         </div>
         <div className="row gap6 wrap">
           <Pill text={open ? "未解決" : "已關閉"} color={open ? "green" : "secondary"} icon={open ? "circle.dotted" : "checkmark.circle"} />
           <Pill text={"優先度:" + p.label} color={p.color} />
           {issue.assignee && <Pill text={"指派:" + (assignee?.name ?? issue.assignee)} color="purple" icon="person.crop.circle" />}
+          {issue.repo && <Pill text={"倉庫:" + issue.repo} color="teal" icon="chevron.left.forwardslash.chevron.right" />}
           {(issue.labels ?? []).map((l) => <Pill key={l} text={l} icon="tag" />)}
         </div>
         <div className="row gap12 caption muted wrap">
@@ -187,13 +261,14 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
         <div className="col gap8">
           <input className="input" style={{ fontSize: 15 }} placeholder="標題" value={title} onChange={(e) => setTitle(e.target.value)} />
           <input className="input" placeholder="標籤(逗號分隔)" value={labels} onChange={(e) => setLabels(e.target.value)} />
+          <RepoPicker value={repo} onChange={setRepo} />
           <MdTextarea style={{ minHeight: 220 }} value={body} onChange={setBody} />
           <div className="row gap8">
             <span className="caption muted">內文支援 Markdown</span>
             <span className="grow" />
             <button className="btn" onClick={() => setEditing(false)}>取消</button>
-            <button className="btn primary" disabled={!title.trim()} onClick={async () => {
-              const r = await upd({ title: title.trim(), body, labels: splitLabels(labels) });
+            <button className="btn primary" disabled={!title.trim() || !REPO_RE.test(repo.trim())} onClick={async () => {
+              const r = await upd({ title: title.trim(), body, labels: splitLabels(labels), ...(repo.trim() !== (issue.repo ?? "") ? { repo: repo.trim() } : {}) });
               if (r !== undefined) setEditing(false);
             }}>儲存</button>
           </div>
@@ -224,10 +299,11 @@ function NewIssue({ onDone }: { onDone: (id?: string) => void }) {
   const [body, setBody] = useState("");
   const [labels, setLabels] = useState("");
   const [priority, setPriority] = useState<Priority>("normal");
+  const [repo, setRepo] = useState("");
   const [error, setError] = useState<string>();
   const create = async () => {
     try {
-      const r: any = await tool("issue_create", { title: title.trim(), body, priority, labels: splitLabels(labels) });
+      const r: any = await tool("issue_create", { title: title.trim(), body, priority, labels: splitLabels(labels), ...(repo.trim() ? { repo: repo.trim() } : {}) });
       const id = typeof r === "string" ? (() => { try { return JSON.parse(r)?.id; } catch { return undefined; } })() : r?.id;
       onDone(id);
     } catch (e: any) { setError(String(e?.message ?? e)); }
@@ -242,13 +318,14 @@ function NewIssue({ onDone }: { onDone: (id?: string) => void }) {
         </label>
         <input className="input grow" placeholder="標籤(逗號分隔)" value={labels} onChange={(e) => setLabels(e.target.value)} />
       </div>
+      <RepoPicker value={repo} onChange={setRepo} />
       <MdTextarea style={{ minHeight: 180 }} value={body} onChange={setBody} />
       {error && <Banner>{error}</Banner>}
       <div className="row gap8">
         <span className="caption muted">內文支援 Markdown</span>
         <span className="grow" />
         <button className="btn" onClick={() => onDone()}>取消</button>
-        <button className="btn primary" disabled={!title.trim()} onClick={create}>建立</button>
+        <button className="btn primary" disabled={!title.trim() || !REPO_RE.test(repo.trim())} onClick={create}>建立</button>
       </div>
     </div>
   );

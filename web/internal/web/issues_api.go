@@ -15,8 +15,8 @@ import (
 // 回傳原始的 Issue(createdBy 等是作者字串,不是顯示名稱),和 issues.json 的格式一樣。
 //
 //	GET  /api/issues/{org}                全部 Issue(新的在前)
-//	POST /api/issues/{org}                建立 {title, body, priority, labels, source, link, author} → Issue
-//	POST /api/issues/{org}/{id}           修改 {author, title, body, status, priority, labels, source, link, comments}
+//	POST /api/issues/{org}                建立 {title, body, priority, labels, source, link, repo?, author} → Issue
+//	POST /api/issues/{org}/{id}           修改 {author, title, body, status, priority, labels, source, link, repo, comments}
 //	                                      (給的欄位整個取代;狀態變了會記關閉時間,同 issue_update)→ Issue
 //	POST /api/issues/{org}/{id}/delete    刪除
 //
@@ -107,7 +107,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		app.Mu.Lock()
 		var issue core.OpsIssue
 		app.WithOrgIssues(o, func() {
-			issue = app.CreateIssue(str(in, "title"), str(in, "body"), priority, labels, str(in, "source"), str(in, "link"), author)
+			issue = app.CreateIssueFor(str(in, "title"), str(in, "body"), priority, labels, str(in, "source"), str(in, "link"), author, "", str(in, "repo"))
 		})
 		app.Mu.Unlock()
 		writeJSON(w, 200, map[string]any{"result": issue})
@@ -166,6 +166,9 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 				}
 				if _, ok := in["link"]; ok {
 					i.Link = patch.Link
+				}
+				if _, ok := in["repo"]; ok {
+					i.Repo = strings.TrimSpace(patch.Repo)
 				}
 				if _, ok := in["comments"]; ok {
 					i.Comments = patch.Comments

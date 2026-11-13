@@ -248,13 +248,13 @@ func (r *remoteBackend) Save(scope, org string, updates, creates []model.Issue) 
 	for _, i := range updates {
 		labels, comments := i.Labels, i.Comments
 		if _, err := c.UpdateIssue(org, i.ID, service.IssuePatch{Title: &i.Title, Body: &i.Body, Status: &i.Status,
-			Priority: &i.Priority, Labels: &labels, Source: &i.Source, Link: &i.Link, Comments: &comments, Author: i.CreatedBy}); err != nil {
+			Priority: &i.Priority, Labels: &labels, Source: &i.Source, Link: &i.Link, Repo: &i.Repo, Comments: &comments, Author: i.CreatedBy}); err != nil {
 			return err
 		}
 	}
 	for _, i := range creates {
 		if _, err := c.CreateIssue(org, service.IssueInput{Title: i.Title, Body: i.Body, Priority: i.Priority,
-			Labels: i.Labels, Source: i.Source, Link: i.Link, Author: i.CreatedBy}); err != nil {
+			Labels: i.Labels, Source: i.Source, Link: i.Link, Repo: i.Repo, Author: i.CreatedBy}); err != nil {
 			return err
 		}
 	}
@@ -344,10 +344,10 @@ func (a *App) RefreshIssuesIfStale(maxAge time.Duration) {
 	}
 }
 
-func (a *App) issueRemoteCreate(title, body, priority string, labels []string, source, link, author, assignee string) (OpsIssue, error) {
+func (a *App) issueRemoteCreate(title, body, priority string, labels []string, source, link, author, assignee, repo string) (OpsIssue, error) {
 	b := currentIssueBackend()
 	i, err := b.Create(a.conns().Scope, a.issueSt().Org, service.IssueInput{Title: title, Body: body, Priority: priority,
-		Labels: labels, Source: source, Link: link, Author: author, Assignee: assignee})
+		Labels: labels, Source: source, Link: link, Author: author, Assignee: assignee, Repo: repo})
 	if err != nil {
 		return OpsIssue{}, err
 	}
@@ -362,6 +362,10 @@ func (a *App) issueRemoteUpdate(n, before OpsIssue, author string) (OpsIssue, er
 	if n.Assignee != before.Assignee { // 指派變了才送(核心會取消舊角色未領取的任務、替新角色排任務)
 		as := n.Assignee
 		patch.Assignee = &as
+	}
+	if n.Repo != before.Repo { // 所屬倉庫變了才送("" = 清除;格式由核心檢查)
+		rp := n.Repo
+		patch.Repo = &rp
 	}
 	i, err := b.Update(a.conns().Scope, a.issueSt().Org, n.ID, patch)
 	if err != nil {

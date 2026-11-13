@@ -61,11 +61,12 @@ func CoreToolDefs() []any {
 				"labels":   pStrs("標籤,例如 [\"evoleap\", \"訪客\"]"),
 				"link":     pStr("相關網址"),
 				"priority": pEnum("優先度,預設 normal", prio...),
+				"repo":     pStr("所屬程式碼倉庫,例如 owner/name(GitHub)或 group/sub/project(GitLab),可加 github:、gitlab: 前綴;只能用英數與 - _ . / :"),
 				"source":   pStr("從哪裡發現的,例如「網站訪客 7d」"),
 				"title":    pStr("標題,一句話說明問題"),
 			}, "title")),
 		coreDef("issue_update",
-			"更新 Issue:改標題、內文、優先度、標籤、指派,加留言,或關閉/重新打開。只給要改的欄位。", false,
+			"更新 Issue:改標題、內文、優先度、標籤、所屬倉庫、指派,加留言,或關閉/重新打開。只給要改的欄位。", false,
 			obj(map[string]any{
 				"add_labels":  pStrs("加上的標籤"),
 				"agent":       pStr("以虛擬角色身分工作時填角色 id 或名稱,留言與變更會署名該角色"),
@@ -76,6 +77,7 @@ func CoreToolDefs() []any {
 				"id":          pStr("Issue id,例如 ISS-3"),
 				"labels":      pStrs("取代全部標籤"),
 				"priority":    pEnum("優先度", prio...),
+				"repo":        pStr("改所屬程式碼倉庫(owner/name 或 group/sub/project,可加 github:、gitlab: 前綴;空字串 = 清除標記)"),
 				"status":      pEnum("open 重新打開,closed 關閉", "open", "closed"),
 				"title":       pStr("新標題"),
 			}, "id")),
@@ -86,6 +88,7 @@ func CoreToolDefs() []any {
 				"label":  pStr("只列有這個標籤的"),
 				"limit":  pInt("最多幾筆,預設 30"),
 				"query":  pStr("標題、內文或留言包含這段文字"),
+				"repo":   pStr("只列標記這個程式碼倉庫的(不分大小寫;github:、gitlab: 前綴一邊沒寫就忽略)"),
 				"status": pEnum("open、closed 或 all,預設 open", "open", "closed", "all"),
 			})),
 		coreDef("agents",
@@ -187,7 +190,9 @@ func CoreToolDefs() []any {
 	}
 	defs = append(defs, ChainToolDefs()...)
 	defs = append(defs, ChannelToolDefs()...)
-	return append(defs, IncidentToolDefs()...)
+	defs = append(defs, IncidentToolDefs()...)
+	defs = append(defs, WireframeToolDefs()...)
+	return append(defs, FlowchartToolDefs()...)
 }
 
 // CoreInitialize initialize 的回應內容(protocolVersion 由協定層決定)
@@ -214,6 +219,8 @@ func NewCoreServer(instructions string) *Server {
 	RegisterChainTools(s)
 	RegisterChannelTools(s)
 	RegisterIncidentTools(s)
+	RegisterWireframeTools(s)
+	RegisterFlowchartTools(s)
 	return s
 }
 

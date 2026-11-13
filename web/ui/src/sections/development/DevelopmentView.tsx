@@ -1,4 +1,5 @@
 // 開發進度:概覽 / Sprint 看板 / Issue / Pull Requests / Repositories / GitHub / GitLab(GitLab 只有 Web 版;Swift 的 DevelopmentView.swift)
+// GitHub、GitLab 分頁只看資料;連線、登入與追蹤的 repo / 專案在 設定 › 程式碼倉庫(sections/settings/SettingsRepos.tsx)。
 import { useEffect, useState } from "react";
 import { OpsProvider, Seg, SIcon, useList, type PullRequest, type Repository, type WorkItem } from "../../components/opsKit";
 import type { SectionProps } from "..";

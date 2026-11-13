@@ -58,6 +58,9 @@ var CoreTools = []CoreTool{
 	{Name: "incident_declare", Title: "宣告事件", Group: "事件", Admin: true},
 	{Name: "incident_update", Title: "更新事件", Group: "事件", Admin: true},
 
+	{Name: "wireframe_render", Title: "繪製線框圖", Group: "設計工具", Admin: true, Agent: true},
+	{Name: "flowchart_render", Title: "繪製流程圖", Group: "設計工具", Admin: true, Agent: true},
+
 	{Name: "dispatch_queue", Title: "列出可領的任務", Group: "派發", Worker: true},
 	{Name: "dispatch_claim", Title: "領取任務", Group: "派發", Worker: true},
 	{Name: "dispatch_status", Title: "我領取中的任務", Group: "派發", Worker: true},

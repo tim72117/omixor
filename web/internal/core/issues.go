@@ -73,10 +73,12 @@ type OpsIssue struct {
 	Labels    []string       `json:"labels"`
 	Link      string         `json:"link"`
 	Priority  string         `json:"priority"`
-	Source    string         `json:"source"`
-	Status    string         `json:"status"`
-	Title     string         `json:"title"`
-	UpdatedAt Time           `json:"updatedAt"`
+	// Repo 所屬的程式碼倉庫(空 = 未標記;格式與驗證在核心 model.CleanRepo)
+	Repo      string `json:"repo,omitempty"`
+	Source    string `json:"source"`
+	Status    string `json:"status"`
+	Title     string `json:"title"`
+	UpdatedAt Time   `json:"updatedAt"`
 }
 
 // UnmarshalJSON 寬鬆解碼:缺欄位用預設值
@@ -263,17 +265,18 @@ func CleanLabels(labels []string) []string {
 
 // CreateIssue 同 Swift 的 IssueStore.create(呼叫時要拿著 Mu)
 func (a *App) CreateIssue(title, body, priority string, labels []string, source, link, author string) OpsIssue {
-	return a.CreateIssueFor(title, body, priority, labels, source, link, author, "")
+	return a.CreateIssueFor(title, body, priority, labels, source, link, author, "", "")
 }
 
 // CreateIssueFor 同 CreateIssue,多一個指派的角色 id(空 = 不指派;有給核心會自動替該角色排任務)
-func (a *App) CreateIssueFor(title, body, priority string, labels []string, source, link, author, assignee string) OpsIssue {
+// 與所屬倉庫 repo(空 = 不標記;格式不對核心回 400)
+func (a *App) CreateIssueFor(title, body, priority string, labels []string, source, link, author, assignee, repo string) OpsIssue {
 	s := a.issueSt()
-	issue, err := a.issueRemoteCreate(title, body, priority, CleanLabels(labels), source, link, author, assignee)
+	issue, err := a.issueRemoteCreate(title, body, priority, CleanLabels(labels), source, link, author, assignee, repo)
 	if err != nil {
-		// 核心存不進去(伺服器連不上、沒有資料庫…):回傳沒有存起來的草稿(id 是空的),同 Swift
+		// 核心存不進去(伺服器連不上、沒有資料庫、欄位格式不對…):回傳沒有存起來的草稿(id 是空的),同 Swift
 		a.issueRemoteFailed(err)
-		return OpsIssue{Title: title, Body: body, Priority: priority, Labels: CleanLabels(labels), Status: "open", CreatedBy: author, Comments: []IssueComment{}}
+		return OpsIssue{Title: title, Body: body, Priority: priority, Labels: CleanLabels(labels), Repo: repo, Status: "open", CreatedBy: author, Comments: []IssueComment{}}
 	}
 	s.remoteErr = ""
 	s.gen++
@@ -391,6 +394,34 @@ func init() {
 		a.loadIssues()
 	})
 	RegisterView("issues", func(a *App) any { return a.Issues() })
+	// issue_repos 設定 Issue 所屬倉庫時的候選:GitHub 追蹤的 repos(owner/name)與 GitLab 追蹤的專案
+	// (有讀到專案資料就用 path_with_namespace,否則照追蹤時寫的);外加目前 Issue 已經用過的 repo
+	RegisterView("issue_repos", func(a *App) any {
+		s := a.conns()
+		gh := append([]string{}, s.GH.Repos...)
+		gl := []string{}
+		paths := map[string]string{}
+		for _, p := range s.GLSnap.Projects {
+			if p.Key != "" && p.Path != "" {
+				paths[p.Key] = p.Path
+			}
+		}
+		for _, k := range s.GL.Projects {
+			if p, ok := paths[k]; ok {
+				k = p
+			}
+			gl = append(gl, k)
+		}
+		used := []string{}
+		seen := map[string]bool{}
+		for _, i := range a.Issues() {
+			if i.Repo != "" && !seen[strings.ToLower(i.Repo)] {
+				seen[strings.ToLower(i.Repo)] = true
+				used = append(used, i.Repo)
+			}
+		}
+		return map[string]any{"github": gh, "gitlab": gl, "used": used}
+	})
 	RegisterAction("issue_delete", func(a *App, args map[string]any) (any, error) {
 		id, _ := args["id"].(string)
 		a.Mu.Lock()

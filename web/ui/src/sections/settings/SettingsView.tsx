@@ -1,4 +1,5 @@
-// 設定:組織、整合、連線、團隊與值班、AI 治理、通知、一般(Swift 的 SettingsView)
+// 設定:組織、認證、整合、程式碼倉庫、連線、團隊與值班、AI 治理、通知、一般(Swift 的 SettingsView)
+// 打開哪個分頁記在 localStorage(PANE_KEY);其他頁用 navigate 帶 focusId = 分頁 id 跳過來,例如開發進度的「前往設定」帶 "repos"。
 import { useEffect } from "react";
 import { action, useView } from "../../api";
 import { ActorAvatar, Switch, useDirectory, useStored } from "../../components/bits";
@@ -15,11 +16,13 @@ import { SettingsConnections } from "./SettingsConnections";
 import { SettingsIntegrations } from "./SettingsIntegrations";
 import { SettingsNotifications } from "./SettingsNotifications";
 import { SettingsOrgs } from "./SettingsOrgs";
+import { SettingsRepos } from "./SettingsRepos";
 import { SettingsTeam } from "./SettingsTeam";
 
-export type Pane = "orgs" | "auth" | "integrations" | "connections" | "team" | "ai" | "notifications" | "general";
+export type Pane = "orgs" | "auth" | "integrations" | "repos" | "connections" | "team" | "ai" | "notifications" | "general";
 const PANES: { id: Pane; title: string; icon: string }[] = [
   { id: "orgs", title: "組織", icon: "building.2" }, { id: "auth", title: "認證", icon: "lock" }, { id: "integrations", title: "整合", icon: "puzzlepiece.extension" },
+  { id: "repos", title: "程式碼倉庫", icon: "chevron.left.forwardslash.chevron.right" },
   { id: "connections", title: "連線", icon: "key.horizontal" }, { id: "team", title: "團隊與值班", icon: "person.2" },
   { id: "ai", title: "AI 治理", icon: "sparkles" }, { id: "notifications", title: "通知", icon: "bell.badge" }, { id: "general", title: "一般", icon: "gearshape" },
 ];
@@ -44,6 +47,7 @@ export default function SettingsView({ focusId, clearFocus }: SectionProps) {
         {pane === "orgs" && <SettingsOrgs setPane={setPane} />}
         {pane === "auth" && <AuthPane />}
         {pane === "integrations" && <SettingsIntegrations />}
+        {pane === "repos" && <SettingsRepos />}
         {pane === "connections" && <SettingsConnections />}
         {pane === "team" && <SettingsTeam />}
         {pane === "ai" && <SettingsAI />}

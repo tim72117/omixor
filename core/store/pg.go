@@ -23,6 +23,7 @@ import (
 //	omixor_agent_tasks                            角色任務(主鍵 (org, id) = T-<n>;links、notes 是 jsonb)
 //	omixor_agent_credentials                      任務綁定的角色憑證(只存 SHA-256 雜湊與到期時間;token_hash 是主鍵)
 //	ops_issues.assignee                           指派給的角色 id(空字串 = 未指派)
+//	ops_issues.repo                               Issue 所屬的程式碼倉庫(owner/name 或 group/sub/project,可帶 github:/gitlab:;空字串 = 未標記)
 //	omixor_cabinet_layouts                        文件櫃結構(主鍵 org;layout 是 jsonb,區塊與頁籤)
 //	omixor_docs                                   文件櫃的文件(主鍵 (org, id) = DOC-<n>;pos 大的在前;tags 是 jsonb;tab 可以是 null)
 //	omixor_org_chains                             組織鏈(主鍵 org;edges 是 jsonb)
@@ -97,6 +98,7 @@ create table if not exists ops_issues (
   primary key (org, id)
 );
 alter table ops_issues add column if not exists assignee text not null default '';
+alter table ops_issues add column if not exists repo text not null default '';
 create index if not exists ops_issues_org_pos on ops_issues (org, pos desc);
 create table if not exists ops_issue_comments (
   org text not null,
@@ -671,7 +673,7 @@ func listIssues(c context.Context, q querier, org, onlyID string) ([]model.Issue
 		where, args = `org = $1 and lower(id) = lower($2)`, []any{org, onlyID}
 	}
 	rows, err := q.Query(c, `select id, title, body, status, priority, labels, source, link, created_by,
-		created_at, updated_at, closed_at, assignee from ops_issues where `+where+` order by pos desc, number desc`, args...)
+		created_at, updated_at, closed_at, assignee, repo from ops_issues where `+where+` order by pos desc, number desc`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -682,7 +684,7 @@ func listIssues(c context.Context, q querier, org, onlyID string) ([]model.Issue
 		var created, updated time.Time
 		var closed *time.Time
 		if err := rows.Scan(&i.ID, &i.Title, &i.Body, &i.Status, &i.Priority, &i.Labels, &i.Source, &i.Link, &i.CreatedBy,
-			&created, &updated, &closed, &i.Assignee); err != nil {
+			&created, &updated, &closed, &i.Assignee, &i.Repo); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -747,16 +749,16 @@ func writeIssue(c context.Context, tx pgx.Tx, org string, i model.Issue, pos int
 	}
 	if insert {
 		if _, err := tx.Exec(c, `insert into ops_issues (org, id, number, pos, title, body, status, priority, labels, source, link,
-			created_by, created_at, updated_at, closed_at, assignee) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+			created_by, created_at, updated_at, closed_at, assignee, repo) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 			org, i.ID, i.Number(), pos, i.Title, i.Body, i.Status, i.Priority, labels, i.Source, i.Link,
-			i.CreatedBy, secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee); err != nil {
+			i.CreatedBy, secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee, i.Repo); err != nil {
 			return err
 		}
 	} else {
 		tag, err := tx.Exec(c, `update ops_issues set title = $3, body = $4, status = $5, priority = $6, labels = $7, source = $8,
-			link = $9, created_by = $10, created_at = $11, updated_at = $12, closed_at = $13, assignee = $14 where org = $1 and id = $2`,
+			link = $9, created_by = $10, created_at = $11, updated_at = $12, closed_at = $13, assignee = $14, repo = $15 where org = $1 and id = $2`,
 			org, i.ID, i.Title, i.Body, i.Status, i.Priority, labels, i.Source, i.Link, i.CreatedBy,
-			secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee)
+			secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee, i.Repo)
 		if err != nil {
 			return err
 		}

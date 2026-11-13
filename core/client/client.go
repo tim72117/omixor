@@ -212,6 +212,16 @@ func (c *Client) ListIssues(org string) ([]model.Issue, error) {
 	return l, c.Do("GET", c.issues(org), nil, &l)
 }
 
+// ListIssuesByRepo 只取標記某倉庫的 Issue(伺服器端 ?repo= 篩選;repo 空字串 = 全部)
+func (c *Client) ListIssuesByRepo(org, repo string) ([]model.Issue, error) {
+	path := c.issues(org)
+	if repo != "" {
+		path += "?repo=" + url.QueryEscape(repo)
+	}
+	var l []model.Issue
+	return l, c.Do("GET", path, nil, &l)
+}
+
 func (c *Client) GetIssue(org, id string) (*model.Issue, error) {
 	var i model.Issue
 	return &i, c.Do("GET", c.issues(org)+"/"+esc(id), nil, &i)

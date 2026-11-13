@@ -514,7 +514,7 @@ func issues(cl *client.Client, out io.Writer, sub string, pos []string, org, out
 			}
 			labels, comments := src.Labels, src.Comments
 			got, err := cl.UpdateIssue(org, src.ID, service.IssuePatch{Title: &src.Title, Body: &src.Body, Status: &src.Status,
-				Priority: &src.Priority, Labels: &labels, Source: &src.Source, Link: &src.Link, Comments: &comments, Author: src.CreatedBy})
+				Priority: &src.Priority, Labels: &labels, Source: &src.Source, Link: &src.Link, Repo: &src.Repo, Comments: &comments, Author: src.CreatedBy})
 			if err != nil {
 				return err
 			}

@@ -1,10 +1,12 @@
-// 開發進度 › GitHub:追蹤中 repo 的真實 PR(含檢查)與 Actions 執行。只讀。Swift 的 DevGitHubTab.swift。
-// 資料:view github;動作:github_* 與 connection_*(見 docs/PORTING.md)。
+// 開發進度 › GitHub:追蹤中 repo 的真實 PR(含檢查)與 Actions 執行。只讀,只看資料。Swift 的 DevGitHubTab.swift。
+// 資料:view github;動作:github_refresh、github_jobs、github_job_log、github_pull(見 docs/PORTING.md)。
+// 連線、登入與追蹤的 repo 在 設定 › 程式碼倉庫(sections/settings/SettingsRepos.tsx);這裡沒設定好時只顯示空狀態與「前往設定」。
 import { useEffect, useState } from "react";
-import { action, useRun, useView } from "../../api";
+import { action, useView } from "../../api";
 import { Card, EmptyState, Pill } from "../../components/ui";
-import { Banner, Check, copyText, MarkdownText, MenuButton, Seg, SIcon, useAct } from "../../components/opsKit";
+import { Banner, Check, MarkdownText, Seg, SIcon, useAct } from "../../components/opsKit";
 import { relative } from "../../fmt";
+import { ManageReposButton, RepoSetupEmpty } from "./devShared";
 
 type GHChecks = { total: number; success: number; failure: number; pending: number; skipped: number };
 type GHPull = { repo: string; number: number; title: string; author: string; branch: string; base: string; draft: boolean; labels: string[]; reviewers: string[]; headSHA: string; createdAt?: string; updatedAt?: string; url: string; checks?: GHChecks | null };
@@ -15,17 +17,13 @@ type GHFile = { filename: string; status: string; additions: number; deletions: 
 type GHPullDetail = { pull: GHPull; body: string; additions: number; deletions: number; changedFiles: number; mergeableState: string; files: GHFile[] };
 export type Connection = { id: string; name: string; baseURL: string; isProduction?: boolean; auth: "oauth" | "approval" | "bearer" | "basic" | "none"; oauth: { clientId: string; hasClientSecret: boolean; [k: string]: unknown }; [k: string]: unknown };
 export type ConnState = { account?: string | null; busy?: boolean; error?: string | null; lastTest?: string | null };
-type GitHubView = {
+export type GitHubView = {
   settings: { repos: string[]; connection: string };
   snapshot: { repos: unknown[]; pulls: GHPull[]; runs: GHRun[]; fetchedAt?: string | null; busy: boolean; errors: Record<string, string>; error?: string | null };
   connection: Connection | null; loggedIn: boolean; state: ConnState | null;
   /** 讀寫組織設定(核心)的錯誤;追蹤的 repo 是組織的設定,token 留在這台 */
   settingsError?: string;
 };
-
-const HOMEPAGE = "http://127.0.0.1";
-const CALLBACK = "http://127.0.0.1/callback";
-const REGISTER_URL = `https://github.com/settings/applications/new?oauth_application[name]=omixor&oauth_application[url]=${encodeURIComponent(HOMEPAGE)}&oauth_application[callback_url]=${encodeURIComponent(CALLBACK)}`;
 
 // MARK: - 狀態樣式(GHStyle)
 
@@ -87,7 +85,7 @@ export function DevGitHubTab() {
   if (err && !gh) return <EmptyState title="讀不到 GitHub 資料" icon="chevron.left.forwardslash.chevron.right" message={err} />;
   if (!gh) return <EmptyState title="讀取中…" icon="chevron.left.forwardslash.chevron.right" />;
   if (!gh.connection || !gh.loggedIn) {
-    return <div className="page-scroll"><div style={{ padding: 24, maxWidth: 720 }}><GitHubSetup gh={gh} /></div></div>;
+    return <RepoSetupEmpty title={!gh.connection ? "還沒設定 GitHub" : "還沒登入 GitHub"} message="GitHub 的連線、登入與要追蹤的 repo 在 設定 › 程式碼倉庫 設定。" />;
   }
   return <GitHubMain gh={gh} />;
 }
@@ -97,21 +95,14 @@ function GitHubMain({ gh }: { gh: GitHubView }) {
   const [selectedRun, setSelectedRun] = useState<number>();
   const [selectedPull, setSelectedPull] = useState<string>();
   const [failedOnly, setFailedOnly] = useState(false);
-  const [repoFilter, setRepoFilter] = useState("");
-  const [newRepo, setNewRepo] = useState("");
-  const [repoError, setRepoError] = useState<string>();
+  const [rawRepoFilter, setRepoFilter] = useState("");
   const { run, toastEl } = useAct();
   const snap = gh.snapshot ?? { repos: [], pulls: [], runs: [], busy: false, errors: {} };
   const repos = gh.settings?.repos ?? [];
+  // 在設定頁停止追蹤後,篩選值可能已不在清單裡,當成「全部 repo」
+  const repoFilter = repos.includes(rawRepoFilter) ? rawRepoFilter : "";
   const runs = (snap.runs ?? []).filter((r) => (!repoFilter || r.repo === repoFilter) && (!failedOnly || isFailure(r)));
   const pulls = (snap.pulls ?? []).filter((p) => !repoFilter || p.repo === repoFilter);
-  const addRepo = async () => {
-    try {
-      await action("github_add_repo", { repo: newRepo.trim() });
-      setNewRepo(""); setRepoError(undefined);
-      action("github_refresh").catch(() => undefined);
-    } catch (e: any) { setRepoError(String(e?.message ?? e)); }
-  };
   const errs = Object.entries(snap.errors ?? {}).sort(([a], [b]) => a.localeCompare(b));
   const selRun = snap.runs?.find((r) => r.id === selectedRun);
   const selPull = snap.pulls?.find((p) => `${p.repo}#${p.number}` === selectedPull);
@@ -121,19 +112,12 @@ function GitHubMain({ gh }: { gh: GitHubView }) {
         <SIcon name="person.crop.circle.badge.checkmark" color="green" />
         <span>{gh.state?.account ?? "已登入"}</span>
         <span style={{ width: 1, height: 16, background: "var(--line)" }} />
-        {repos.map((r) => (
-          <MenuButton key={r} className="btn link" label={<><SIcon name="shippingbox" size={12} />{r}</>} items={[
-            { label: "在 GitHub 打開", onClick: () => openURL(`https://github.com/${r}`) },
-            { label: "停止追蹤", danger: true, onClick: () => { run(() => action("github_remove_repo", { repo: r })); if (repoFilter === r) setRepoFilter(""); } },
-          ]} />
-        ))}
-        <input className="input" style={{ width: 160 }} placeholder="owner/name" value={newRepo} onChange={(e) => setNewRepo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && newRepo.trim() && addRepo()} />
-        <button className="btn" disabled={!newRepo.trim()} onClick={addRepo}>加入</button>
-        {repoError && <span className="caption ellipsis" style={{ color: "var(--red)" }}>{repoError}</span>}
-        {!repoError && gh.settingsError && <span className="caption ellipsis" style={{ color: "var(--orange)" }} title={gh.settingsError}>組織設定:{gh.settingsError}</span>}
+        <span className="caption muted">追蹤 {repos.length} 個 repo</span>
+        {gh.settingsError && <span className="caption ellipsis" style={{ color: "var(--orange)" }} title={gh.settingsError}>組織設定:{gh.settingsError}</span>}
         <span className="grow" />
         {snap.fetchedAt && <span className="caption muted">更新於 {relative(snap.fetchedAt)}</span>}
         {snap.busy && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
+        <ManageReposButton />
         <button className="btn" title="重新整理" disabled={snap.busy} onClick={() => run(() => action("github_refresh"))}><SIcon name="arrow.clockwise" /></button>
       </div>
       {(errs.length > 0 || snap.error) && (
@@ -144,7 +128,7 @@ function GitHubMain({ gh }: { gh: GitHubView }) {
       )}
       <div className="divider" />
       {repos.length === 0 ? (
-        <EmptyState title="還沒追蹤任何 repo" icon="shippingbox" message="在上面輸入 owner/name(例如 tim72117/evoleap)按「加入」。" />
+        <RepoSetupEmpty title="還沒追蹤任何 repo" icon="shippingbox" message="要追蹤的 repo 在 設定 › 程式碼倉庫 › GitHub 加入。" />
       ) : (
         <div className="ops-fill">
           <div className="col" style={{ width: 440, flex: "none", borderRight: "1px solid var(--line)", minHeight: 0 }}>
@@ -315,98 +299,6 @@ function PullDetail({ pull: p }: { pull: GHPull }) {
           </Card>
         </>
       ) : !error && <div className="row" style={{ justifyContent: "center" }}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>}
-    </div>
-  );
-}
-
-// MARK: - 登入引導
-
-function GitHubSetup({ gh }: { gh: GitHubView }) {
-  const conn = gh.connection;
-  const st = gh.state;
-  const [clientId, setClientId] = useState(conn?.oauth?.clientId ?? "");
-  const [secret, setSecret] = useState("");
-  const [useToken, setUseToken] = useState(false);
-  const { busy, error, run } = useRun();
-  const login = (id: string) => run(() => action("connection_login", { id }));
-  const copyRow = (label: string, value: string) => (
-    <div className="row gap8">
-      <span className="caption muted" style={{ width: 180 }}>{label}</span>
-      <span className="mono" style={{ userSelect: "text" }}>{value}</span>
-      <button className="ops-icon-btn" title="複製" onClick={() => copyText(value)}><SIcon name="doc.on.doc" size={12} /></button>
-    </div>
-  );
-  return (
-    <div className="col" style={{ gap: 16 }}>
-      <div className="row gap8 h2"><SIcon name="chevron.left.forwardslash.chevron.right" size={20} />連上 GitHub</div>
-      <div className="muted">連上後,這裡會列出追蹤中 repo 的 Actions 執行(含失敗的步驟與紀錄)和開著的 PR(含檢查結果);虛擬角色也能透過 MCP 讀。omixor 只讀,不會開 PR、留言或重跑。</div>
-      {!conn ? (
-        <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => run(() => action("github_ensure_connection"))}>開始設定</button>
-      ) : conn.auth === "oauth" ? (
-        !conn.oauth?.clientId || !conn.oauth?.hasClientSecret ? (
-          <Card>
-            <div className="card-title">1. 在 GitHub 註冊一個 OAuth App(只要做一次)</div>
-            <div className="muted">按下面的按鈕會打開 GitHub 的「New OAuth App」頁。名稱和網址會自動帶入;如果沒帶到,照下面填:</div>
-            {copyRow("Application name", "omixor")}
-            {copyRow("Homepage URL", HOMEPAGE)}
-            {copyRow("Authorization callback URL", CALLBACK)}
-            <div className="caption muted">「Enable Device Flow」不用勾。按 Register application 後,在 App 頁按「Generate a new client secret」。</div>
-            <button className="btn" style={{ alignSelf: "flex-start" }} onClick={() => openURL(REGISTER_URL)}>打開 GitHub 註冊頁</button>
-            <div className="divider" />
-            <div className="card-title">2. 把 Client ID 和 Client secret 貼到這裡</div>
-            <input className="input" placeholder="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-            <input className="input" type="password" placeholder="Client secret(存在鑰匙圈)" value={secret} onChange={(e) => setSecret(e.target.value)} />
-            <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy || !clientId.trim() || (!secret && !conn.oauth?.hasClientSecret)} onClick={() => run(async () => {
-              await action("connection_upsert", { ...conn, oauth: { ...conn.oauth, clientId: clientId.trim() } });
-              if (secret.trim()) await action("connection_secret", { id: conn.id, secret: secret.trim() });
-              setSecret("");
-              await action("connection_login", { id: conn.id });
-            })}>儲存並用瀏覽器登入</button>
-          </Card>
-        ) : (
-          <Card>
-            <div className="card-title">用瀏覽器登入 GitHub</div>
-            <div className="muted">會打開 GitHub 的授權頁,按 Authorize 後回到 omixor 就完成了。權限只要 read:user;公開 repo 的 PR 與 Actions 不用額外權限。</div>
-            <div className="row gap8">
-              <button className="btn primary" disabled={busy || !!st?.busy} onClick={() => login(conn.id)}>用瀏覽器登入</button>
-              {(busy || st?.busy) && <><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /><span className="caption">等瀏覽器授權…</span></>}
-              <span className="grow" />
-              <button className="btn link" onClick={() => run(async () => {
-                await action("connection_upsert", { ...conn, oauth: { ...conn.oauth, clientId: "" } });
-                await action("connection_secret", { id: conn.id, secret: "" });
-                setClientId("");
-              })}>重新設定 OAuth App</button>
-            </div>
-          </Card>
-        )
-      ) : <TokenStep conn={conn} />}
-      {(st?.error || error) && <Banner>{st?.error || error}</Banner>}
-      {conn?.auth === "oauth" && (
-        <details className="ops-disclosure" open={useToken} onToggle={(e) => setUseToken((e.target as HTMLDetailsElement).open)}>
-          <summary>改用個人存取權杖</summary>
-          <div style={{ paddingTop: 6 }}><TokenStep conn={conn} /></div>
-        </details>
-      )}
-    </div>
-  );
-}
-
-function TokenStep({ conn }: { conn: Connection }) {
-  const [token, setToken] = useState("");
-  const { busy, error, run } = useRun();
-  return (
-    <div className="col gap8">
-      <div className="caption muted">在 GitHub › Settings › Developer settings › Fine-grained tokens 建一個 token,Repository access 選要追蹤的 repo,權限給 Actions、Pull requests、Checks、Metadata 的 Read-only。</div>
-      <div className="row gap8">
-        <input className="input grow" type="password" placeholder="github_pat_…(存在鑰匙圈)" value={token} onChange={(e) => setToken(e.target.value)} />
-        <button className="btn" disabled={busy || !token.trim()} onClick={() => run(async () => {
-          await action("connection_upsert", { ...conn, auth: "bearer" });
-          await action("connection_bearer", { id: conn.id, token });
-          setToken("");
-        })}>使用這個 token</button>
-      </div>
-      {conn.auth === "bearer" && <button className="btn link" style={{ alignSelf: "flex-start" }} onClick={() => run(() => action("connection_upsert", { ...conn, auth: "oauth" }))}>改回網頁 OAuth 登入</button>}
-      {error && <Banner>{error}</Banner>}
     </div>
   );
 }

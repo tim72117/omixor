@@ -69,12 +69,55 @@ type Issue struct {
 	Labels    []string  `json:"labels"`
 	Link      string    `json:"link"`
 	Priority  string    `json:"priority"`
-	Source    string    `json:"source"`
+	// Repo 這張 Issue 屬於哪個程式碼倉庫(空 = 未標記);見 CleanRepo
+	Repo   string `json:"repo,omitempty"`
+	Source string `json:"source"`
 	// Assignee 指派給的虛擬角色 id(空 = 未指派);指派時會自動替該角色排任務(見 service/agents.go)
 	Assignee  string `json:"assignee,omitempty"`
 	Status    string `json:"status"`
 	Title     string `json:"title"`
 	UpdatedAt Time   `json:"updatedAt"`
+}
+
+// RepoMaxLen Issue repo 標記的長度上限
+const RepoMaxLen = 200
+
+// CleanRepo 整理 Issue 的 repo 標記:去頭尾空白;只允許英數、-、_、.、/、:,最長 RepoMaxLen。
+// 格式慣例是 owner/name(GitHub)或 group/sub/project(GitLab),可在前面加 github:、gitlab: 平台前綴;
+// 空字串 = 未標記。不合格回傳 ok=false
+func CleanRepo(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if len(s) > RepoMaxLen {
+		return "", false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-', r == '_', r == '.', r == '/', r == ':':
+		default:
+			return "", false
+		}
+	}
+	return s, true
+}
+
+// RepoMatch 依 repo 篩選用:不分大小寫比對;平台前綴(github:、gitlab:)有一邊沒寫就忽略前綴比較
+func RepoMatch(repo, filter string) bool {
+	a, b := strings.ToLower(strings.TrimSpace(repo)), strings.ToLower(strings.TrimSpace(filter))
+	if a == b {
+		return true
+	}
+	strip := func(x string) (string, bool) {
+		for _, pf := range []string{"github:", "gitlab:"} {
+			if r, ok := strings.CutPrefix(x, pf); ok {
+				return r, true
+			}
+		}
+		return x, false
+	}
+	ra, pa := strip(a)
+	rb, pb := strip(b)
+	return ra == rb && ra != "" && (!pa || !pb)
 }
 
 // Number ISS-12 → 12(格式不對回傳 0)

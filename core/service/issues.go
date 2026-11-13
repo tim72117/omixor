@@ -18,20 +18,24 @@ type IssueInput struct {
 	Labels   []string `json:"labels"`
 	Source   string   `json:"source"`
 	Link     string   `json:"link"`
-	Author   string   `json:"author"` // 伺服器管理員(app、omixor-web)可以指定;其他人一律是自己的 email
+	// Repo 所屬的程式碼倉庫(空 = 不標記);格式見 model.CleanRepo,不合格 400
+	Repo   string `json:"repo,omitempty"`
+	Author string `json:"author"` // 伺服器管理員(app、omixor-web)可以指定;其他人一律是自己的 email
 	// Assignee 指派給的角色 id(空 = 不指派);角色必須存在(否則 400),且 active 時會自動替它排一筆任務
 	Assignee string `json:"assignee,omitempty"`
 }
 
 // IssuePatch 修改 Issue:有給的欄位整個取代(同 app 的 issue_update)
 type IssuePatch struct {
-	Title    *string          `json:"title,omitempty"`
-	Body     *string          `json:"body,omitempty"`
-	Status   *string          `json:"status,omitempty"`
-	Priority *string          `json:"priority,omitempty"`
-	Labels   *[]string        `json:"labels,omitempty"`
-	Source   *string          `json:"source,omitempty"`
-	Link     *string          `json:"link,omitempty"`
+	Title    *string   `json:"title,omitempty"`
+	Body     *string   `json:"body,omitempty"`
+	Status   *string   `json:"status,omitempty"`
+	Priority *string   `json:"priority,omitempty"`
+	Labels   *[]string `json:"labels,omitempty"`
+	Source   *string   `json:"source,omitempty"`
+	Link     *string   `json:"link,omitempty"`
+	// Repo 改所屬倉庫:有給才改("" = 清除標記);格式不合格 400
+	Repo *string `json:"repo,omitempty"`
 	// Assignee 改指派:有給才處理("" = 取消指派);角色不存在 400。舊角色還沒領取的任務取消、新角色自動排任務
 	Assignee *string          `json:"assignee,omitempty"`
 	Comments *[]model.Comment `json:"comments,omitempty"`
@@ -64,6 +68,25 @@ func (s *Service) ListIssues(p *model.Principal, org string) ([]model.Issue, err
 	return s.Store.ListIssues(org)
 }
 
+// FilterIssuesByRepo 依 repo 篩選(API 的 ?repo=、MCP 的 issues repo 參數共用);repo 空字串 = 不篩。
+// 比對不分大小寫,平台前綴(github:、gitlab:)有一邊沒寫就忽略,見 model.RepoMatch
+func FilterIssuesByRepo(list []model.Issue, repo string) []model.Issue {
+	if strings.TrimSpace(repo) == "" {
+		return list
+	}
+	out := []model.Issue{}
+	for _, i := range list {
+		if model.RepoMatch(i.Repo, repo) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func repoErr() error {
+	return fail(400, "repo 只能用英數與 - _ . / :,最長 %d 字(例如 owner/name、gitlab:group/sub/project)", model.RepoMaxLen)
+}
+
 func (s *Service) GetIssue(p *model.Principal, org, id string) (*model.Issue, error) {
 	if err := s.viewer(p, org); err != nil {
 		return nil, err
@@ -88,13 +111,17 @@ func (s *Service) CreateIssue(p *model.Principal, org string, in IssueInput) (*m
 	if !model.OneOf(in.Priority, model.IssuePriorities) {
 		return nil, fail(400, "priority 必須是 %s 之一", strings.Join(model.IssuePriorities, "、"))
 	}
+	repo, ok := model.CleanRepo(in.Repo)
+	if !ok {
+		return nil, repoErr()
+	}
 	assignee, err := s.resolveAssignee(org, in.Assignee)
 	if err != nil {
 		return nil, err
 	}
 	now := s.mt()
 	i := model.Issue{Assignee: assignee, Title: in.Title, Body: in.Body, Status: "open", Priority: in.Priority, Labels: model.CleanLabels(in.Labels),
-		Source: in.Source, Link: in.Link, CreatedBy: author(p, in.Author), CreatedAt: now, UpdatedAt: now, Comments: []model.Comment{}}
+		Repo: repo, Source: in.Source, Link: in.Link, CreatedBy: author(p, in.Author), CreatedAt: now, UpdatedAt: now, Comments: []model.Comment{}}
 	saved, err := s.Store.CreateIssue(org, i)
 	if err != nil {
 		return nil, err
@@ -118,6 +145,13 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 	}
 	if in.Title != nil && strings.TrimSpace(*in.Title) == "" {
 		return nil, fail(400, "標題不能是空的")
+	}
+	if in.Repo != nil {
+		r, ok := model.CleanRepo(*in.Repo)
+		if !ok {
+			return nil, repoErr()
+		}
+		in.Repo = &r
 	}
 	newAssignee := ""
 	if in.Assignee != nil {
@@ -151,6 +185,7 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 	set(&n.Priority, in.Priority)
 	set(&n.Source, in.Source)
 	set(&n.Link, in.Link)
+	set(&n.Repo, in.Repo)
 	if in.Labels != nil {
 		n.Labels = model.CleanLabels(*in.Labels)
 	}
@@ -200,7 +235,7 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 
 func same(a, b model.Issue) bool {
 	if a.Title != b.Title || a.Body != b.Body || a.Status != b.Status || a.Priority != b.Priority || a.Source != b.Source ||
-		a.Link != b.Link || a.Assignee != b.Assignee || strings.Join(a.Labels, "\x00") != strings.Join(b.Labels, "\x00") || len(a.Comments) != len(b.Comments) {
+		a.Link != b.Link || a.Repo != b.Repo || a.Assignee != b.Assignee || strings.Join(a.Labels, "\x00") != strings.Join(b.Labels, "\x00") || len(a.Comments) != len(b.Comments) {
 		return false
 	}
 	for k := range a.Comments {
@@ -261,6 +296,11 @@ func (s *Service) ImportIssues(p *model.Principal, org string, list []model.Issu
 		}
 		if !model.OneOf(i.Priority, model.IssuePriorities) {
 			list[k].Priority = "normal"
+		}
+		if r, ok := model.CleanRepo(i.Repo); ok {
+			list[k].Repo = r
+		} else {
+			return nil, fail(400, "%s 的 repo 格式不對:%s", i.ID, i.Repo)
 		}
 		if i.Labels == nil {
 			list[k].Labels = []string{}

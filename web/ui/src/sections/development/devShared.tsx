@@ -1,6 +1,7 @@
 // 開發進度頁內部共用:分頁、跨分頁狀態、計算指標、小元件(Swift 的 DevShared.swift)。
 import { createContext, useContext } from "react";
-import { color } from "../../components/ui";
+import { action } from "../../api";
+import { color, EmptyState } from "../../components/ui";
 import { ActorAvatar, CHECK, SIcon, WORK_TYPE, now, t, type CheckKey, type PullRequest, type Repository, type WorkItem, type WorkTypeKey } from "../../components/opsKit";
 
 export type DevTab = "overview" | "board" | "issues" | "pulls" | "repos" | "github" | "gitlab";
@@ -24,6 +25,28 @@ export type DevModel = {
 };
 export const DevCtx = createContext<DevModel | null>(null);
 export const useDev = () => useContext(DevCtx)!;
+
+// MARK: - 程式碼倉庫設定的入口(GitHub、GitLab 分頁用)
+
+/** 跳到 設定 › 程式碼倉庫(SettingsView 以 focusId 決定打開的分頁) */
+export const openRepoSettings = () => action("navigate", { section: "settings", focusId: "repos" }).catch(() => undefined);
+
+/** 分頁頂端的小按鈕:管理連線與追蹤的 repo / 專案 */
+export function ManageReposButton() {
+  return <button className="btn" title="在 設定 › 程式碼倉庫 管理連線與追蹤的 repo / 專案" onClick={openRepoSettings}><SIcon name="gearshape" size={12} />管理倉庫</button>;
+}
+
+/** 還沒設定、沒登入或沒追蹤時的空狀態,附「前往設定」按鈕 */
+export function RepoSetupEmpty({ title, message, icon = "chevron.left.forwardslash.chevron.right" }: { title: string; message: string; icon?: string }) {
+  return (
+    <EmptyState title={title} icon={icon} message={
+      <span className="col" style={{ alignItems: "center", gap: 10 }}>
+        <span>{message}</span>
+        <button className="btn primary" onClick={openRepoSettings}>前往 設定 › 程式碼倉庫</button>
+      </span>
+    } />
+  );
+}
 
 // MARK: - 指標
 

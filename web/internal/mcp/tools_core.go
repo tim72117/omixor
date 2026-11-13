@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"omixor-core/backend"
 	coremcp "omixor-core/mcp"
@@ -140,7 +141,7 @@ func (b appBackend) GetIssue(_, id string) (*model.Issue, error) {
 }
 
 func (b appBackend) CreateIssue(_ string, in service.IssueInput) (*model.Issue, error) {
-	issue := b.a.CreateIssueFor(in.Title, in.Body, in.Priority, in.Labels, in.Source, in.Link, in.Author, in.Assignee)
+	issue := b.a.CreateIssueFor(in.Title, in.Body, in.Priority, in.Labels, in.Source, in.Link, in.Author, in.Assignee, in.Repo)
 	if issue.ID == "" { // Issue 伺服器連不上
 		return nil, errors.New(b.a.IssueRemoteError())
 	}
@@ -168,6 +169,9 @@ func (b appBackend) UpdateIssue(_, id string, p service.IssuePatch) (*model.Issu
 		}
 		if p.Assignee != nil {
 			i.Assignee = *p.Assignee
+		}
+		if p.Repo != nil {
+			i.Repo = strings.TrimSpace(*p.Repo)
 		}
 	})
 	// 新增的留言走 CommentIssue(和畫面一樣:空白不做事、記到動態牆)

@@ -4,6 +4,7 @@ import { useView } from "../api";
 import { guardedNavigate } from "../features";
 import type { Actor, SectionId } from "../types";
 import { Icon } from "./Icon";
+import { DiagramBlock, diagramKindOf } from "./Diagram";
 import { color, Pill } from "./ui";
 import "./bits.css";
 
@@ -369,11 +370,16 @@ export function Markdown({ text, inlineOnly }: { text: string; inlineOnly?: bool
   while (i < lines.length) {
     const l = lines[i];
     if (l.startsWith("```")) {
+      // 語言標記取 info string 的第一個字(「```mermaid title="x"」也算 mermaid)
+      const lang = (l.replace(/^`+/, "").trim().split(/\s+/)[0] ?? "").toLowerCase();
       const code: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith("```")) code.push(lines[i++]);
       i++;
-      blocks.push(<pre key={k++}><code>{code.join("\n")}</code></pre>);
+      // 圖表區塊:```wireframe、```flowchart、flowchart 語法的 ```mermaid 畫成圖(後端渲染,用 img 顯示;見 Diagram.tsx)
+      const kind = diagramKindOf(lang, code.join("\n"));
+      if (kind) blocks.push(<DiagramBlock key={k++} kind={kind} source={code.join("\n")} />);
+      else blocks.push(<pre key={k++}><code>{code.join("\n")}</code></pre>);
       continue;
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(l);

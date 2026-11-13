@@ -52,7 +52,7 @@ func RegisterIssueTools(s *Server) {
 		}
 		labels, _ := c.Args.Strings("labels")
 		issue, err := e.Backend().CreateIssue(e.Org(), service.IssueInput{Title: title, Body: body, Priority: priority,
-			Labels: labels, Source: c.Args.Str("source"), Link: c.Args.Str("link"), Author: author, Assignee: c.Args.Str("assignee")})
+			Labels: labels, Source: c.Args.Str("source"), Link: c.Args.Str("link"), Repo: c.Args.Str("repo"), Author: author, Assignee: c.Args.Str("assignee")})
 		if err != nil { // Issue 伺服器連不上(同 Swift)
 			return nil, Errorf("Issue 沒有存起來:%s", err.Error())
 		}
@@ -126,6 +126,9 @@ func RegisterIssueTools(s *Server) {
 		if status != "" && status != cur.Status {
 			patch.Status = &status
 		}
+		if rp := c.Args.Opt("repo"); rp != nil && strings.TrimSpace(*rp) != cur.Repo { // 所屬倉庫(空字串 = 清除)
+			patch.Repo = rp
+		}
 		if as := c.Args.Opt("assignee"); as != nil && *as != cur.Assignee { // 指派給角色(空字串 = 取消指派)
 			patch.Assignee = as
 		}
@@ -172,6 +175,7 @@ func RegisterIssueTools(s *Server) {
 		if err != nil {
 			return nil, ToolError{err.Error()}
 		}
+		all = service.FilterIssuesByRepo(all, c.Args.Str("repo"))
 		label := c.Args.Opt("label")
 		q := strings.ToLower(c.Args.Str("query"))
 		list := []model.Issue{}
@@ -222,6 +226,9 @@ func RegisterIssueTools(s *Server) {
 			}
 			if i.Assignee != "" {
 				row["assignee"] = i.Assignee
+			}
+			if i.Repo != "" {
+				row["repo"] = i.Repo
 			}
 			out = append(out, row)
 		}

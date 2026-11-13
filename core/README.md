@@ -39,6 +39,16 @@ omixor 的核心後端模組(Go)。目前有:
 
 舊的 PostgreSQL 資料庫啟動時會自動補上 `symbol`、`color`、`note` 三欄(`alter table … add column if not exists`)。
 
+## Issue 的所屬倉庫(repo)
+
+Issue 可以標記它屬於哪個程式碼倉庫:`repo` 欄位(`model.Issue.Repo`,JSON `repo`,未標記時不出現)。一張 Issue 一個倉庫。
+
+- 格式:`owner/name`(GitHub)或 `group/sub/project`(GitLab),可在前面加平台前綴 `github:`、`gitlab:`;空字串 = 未標記
+- 驗證(`model.CleanRepo`):去頭尾空白;只允許英數與 `-` `_` `.` `/` `:`,最長 200;不合格 400(建立、修改、匯入都檢查)
+- 建立 `{…, repo?}`;修改 `{repo?}`:有給才改,`""` 清除
+- 篩選:`GET /api/orgs/{org}/issues?repo=<repo>`、MCP `issues` 的 `repo` 參數(`service.FilterIssuesByRepo`;不分大小寫,`github:`/`gitlab:` 前綴有一邊沒寫就忽略前綴比較)
+- PostgreSQL:`ops_issues.repo text not null default ''`(舊資料庫啟動時自動補欄位)
+
 ## 文件櫃
 
 Markdown 文件依區塊與頁籤分類(同 app 的 Cabinet)。一個組織一份結構與一份文件清單,存在 `omixor_cabinet_layouts`(org → layout jsonb)與 `omixor_docs`(主鍵 (org, id),id 是 `DOC-<n>`,`pos` 大的在前)。刪除組織一併刪。
