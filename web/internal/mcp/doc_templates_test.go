@@ -29,18 +29,18 @@ func TestDocFrontMatterAndTemplate(t *testing.T) {
 
 func TestDocSaveChecksTemplate(t *testing.T) {
 	a := iaApp(t)
-	iaErr(t, a, "ops_doc_save", map[string]any{"section": "tools", "title": "壞範本", "body": "---\nkind: template\n---\n"}, "範本要有 for 欄位(這份範本套用在哪種 kind)")
-	iaErr(t, a, "ops_doc_save", map[string]any{"section": "tools", "title": "壞範本", "body": "---\nkind: template\nfor: lesson\n---\n"}, "範本要有一個 ```html 區塊(版面)")
-	iaRun(t, a, core.MCPActor, "ops_doc_save", map[string]any{"section": "levels", "title": "早到的", "body": "---\nkind: lesson\n---\n# x"})
-	tpl := iaRun(t, a, core.MCPActor, "ops_doc_save", map[string]any{"section": "tools", "title": "課程範本", "body": tplBody})
-	iaErr(t, a, "ops_doc_save", map[string]any{"section": "levels", "title": "缺欄位", "body": "---\nkind: lesson\ncourse: L0\n---\n# x"},
+	iaErr(t, a, "doc_save", map[string]any{"section": "tools", "title": "壞範本", "body": "---\nkind: template\n---\n"}, "範本要有 for 欄位(這份範本套用在哪種 kind)")
+	iaErr(t, a, "doc_save", map[string]any{"section": "tools", "title": "壞範本", "body": "---\nkind: template\nfor: lesson\n---\n"}, "範本要有一個 ```html 區塊(版面)")
+	iaRun(t, a, core.MCPActor, "doc_save", map[string]any{"section": "levels", "title": "早到的", "body": "---\nkind: lesson\n---\n# x"})
+	tpl := iaRun(t, a, core.MCPActor, "doc_save", map[string]any{"section": "tools", "title": "課程範本", "body": tplBody})
+	iaErr(t, a, "doc_save", map[string]any{"section": "levels", "title": "缺欄位", "body": "---\nkind: lesson\ncourse: L0\n---\n# x"},
 		"kind: lesson 的文件缺少欄位:lesson(見範本 "+tpl["id"].(string)+")")
-	d := iaRun(t, a, core.MCPActor, "ops_doc_save", map[string]any{"section": "levels", "title": "序章", "body": lessonBody})
+	d := iaRun(t, a, core.MCPActor, "doc_save", map[string]any{"section": "levels", "title": "序章", "body": lessonBody})
 	id := d["id"].(string)
-	if _, err := Run(a, "ops_doc_save", map[string]any{"id": id, "body": "---\nkind: lesson\n---\n"}, core.MCPActor); err == nil {
+	if _, err := Run(a, "doc_save", map[string]any{"id": id, "body": "---\nkind: lesson\n---\n"}, core.MCPActor); err == nil {
 		t.Fatal("修改時也要檢查")
 	}
-	iaRun(t, a, core.MCPActor, "ops_doc_save", map[string]any{"id": id, "append_body": "## 備註\n\n補充"})
+	iaRun(t, a, core.MCPActor, "doc_save", map[string]any{"id": id, "append_body": "## 備註\n\n補充"})
 	out, err := core.Action(a, "cabinet_doc_html", map[string]any{"id": id})
 	h, _ := out.(map[string]any)["html"].(string)
 	if err != nil || !strings.Contains(h, ".goal { color: #b5742a }") || !strings.Contains(h, "MdRender.mount(") || strings.Contains(h, "<不用>") {

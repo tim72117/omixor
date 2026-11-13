@@ -1,7 +1,7 @@
 {
  "steps": [
   {
-   "tool": "ops_doc_save",
+   "tool": "doc_save",
    "args": {
     "section": "tools",
     "title": "壞範本",
@@ -10,7 +10,7 @@
    "note": "範本缺 for"
   },
   {
-   "tool": "ops_doc_save",
+   "tool": "doc_save",
    "args": {
     "section": "tools",
     "title": "壞範本",
@@ -19,7 +19,7 @@
    "note": "範本缺 html"
   },
   {
-   "tool": "ops_doc_save",
+   "tool": "doc_save",
    "args": {
     "section": "levels",
     "title": "早到的",
@@ -28,7 +28,7 @@
    "note": "還沒有範本,不檢查"
   },
   {
-   "tool": "ops_doc_save",
+   "tool": "doc_save",
    "args": {
     "section": "tools",
     "title": "課程範本",
@@ -36,7 +36,7 @@
    }
   },
   {
-   "tool": "ops_doc_save",
+   "tool": "doc_save",
    "args": {
     "section": "levels",
     "title": "缺欄位",
@@ -45,7 +45,7 @@
    "note": "缺 lesson"
   },
   {
-   "tool": "ops_doc_save",
+   "tool": "doc_save",
    "args": {
     "section": "levels",
     "title": "序章",
@@ -53,7 +53,7 @@
    }
   },
   {
-   "tool": "ops_doc_save",
+   "tool": "doc_save",
    "args": {
     "id": "DOC-1",
     "body": "---\nkind: lesson\n---\n"
@@ -61,7 +61,7 @@
    "note": "修改時也檢查"
   },
   {
-   "tool": "ops_doc_save",
+   "tool": "doc_save",
    "args": {
     "id": "DOC-1",
     "append_body": "補充"
@@ -69,19 +69,19 @@
    "note": "append 不動欄位"
   },
   {
-   "tool": "ops_docs",
+   "tool": "docs",
    "args": {
     "section": "levels"
    }
   },
   {
-   "tool": "ops_docs",
+   "tool": "docs",
    "args": {
     "id": "DOC-3"
    }
   },
   {
-   "tool": "ops_cabinet",
+   "tool": "cabinet",
    "args": {}
   }
  ]

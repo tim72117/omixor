@@ -84,7 +84,10 @@ struct IncPostmortemView: View {
         let id = "OPS-\(maxNum + 1)"
         app.workItems.append(WorkItem(id: id, title: title, type: .incident, status: .todo, assignee: nil,
                                       points: 3, service: incident.services.first, createdByAI: true))
-        app.incidents[i].followUps.append(id)
+        _ = i
+        do { _ = try app.startIncidents().update(id: incident.id, addFollowUps: [id], by: .person(app.me)) } catch {
+            app.errorNotice = "\(id) 沒有關聯到 \(incident.id):\(error.localizedDescription)"
+        }
         app.log(.person(app.me), "checklist", "依 \(incident.id) 檢討報告建立 \(id)", .incidents)
         createdActions.insert(title)
     }

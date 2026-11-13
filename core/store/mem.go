@@ -11,7 +11,7 @@ import (
 	"omixor-core/model"
 )
 
-// Mem 記憶體裡的存放處(測試、比對用;程式結束就沒了)
+// Mem 記憶體裡的存放處(測試、比對用;程式結束就沒了)。File(file.go)用它當記憶體實作,每次寫入後存檔
 type Mem struct {
 	mu      sync.Mutex
 	users   map[string]model.User
@@ -31,6 +31,14 @@ type Mem struct {
 	channels map[string][]model.Channel
 	messages map[string]map[string][]model.ChannelMessage
 	reads    map[string]map[string]map[string]model.ChannelRead
+	// 事件:org → 新的在前(方法在 mem_incident.go;nil 時第一次寫入才建)
+	incidents map[string][]model.Incident
+	// 組織的 GitHub、GitLab 設定:org → 設定(方法在 mem_integration.go;nil 時第一次寫入才建)
+	integrations map[string]model.OrgIntegrations
+	// 組織的系統設定(功能開關):org → 設定(方法在 mem_system.go;nil 時第一次寫入才建)
+	system map[string]model.OrgSystemSettings
+	// 組織的外部 MCP 登記:org → 設定(方法在 mem_mcp.go;nil 時第一次寫入才建)
+	mcp map[string]model.OrgMCPConfig
 }
 
 type memToken struct {
@@ -158,7 +166,11 @@ func (m *Mem) ListTokens(now time.Time) ([]model.Token, error) {
 func (m *Mem) AddAudit(e model.AuditEntry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	e.ID = int64(len(m.audit) + 1)
+	// 下一個 id = 最後一筆 + 1(File 讀回時只留最近的紀錄,不能用筆數)
+	e.ID = 1
+	if n := len(m.audit); n > 0 {
+		e.ID = m.audit[n-1].ID + 1
+	}
 	m.audit = append(m.audit, e)
 	return nil
 }
@@ -236,6 +248,10 @@ func (m *Mem) DeleteOrg(id string) error {
 	delete(m.channels, id)
 	delete(m.messages, id)
 	delete(m.reads, id)
+	delete(m.incidents, id)
+	delete(m.integrations, id)
+	delete(m.system, id)
+	delete(m.mcp, id)
 	kept := m.creds[:0:0]
 	for _, c := range m.creds {
 		if c.Org != id {
@@ -898,7 +914,13 @@ func (m *Mem) UnreadMentions(org, member string, channelIDs []string, limit int)
 			}
 		}
 	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].At.After(all[j].At.Time) })
+	// 同 PG:時間新的在前,同一秒的號碼大的在前
+	sort.SliceStable(all, func(i, j int) bool {
+		if !all[i].At.Equal(all[j].At.Time) {
+			return all[i].At.After(all[j].At.Time)
+		}
+		return all[i].Number() > all[j].Number()
+	})
 	if limit > 0 && len(all) > limit {
 		all = all[:limit]
 	}

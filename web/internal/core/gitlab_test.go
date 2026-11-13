@@ -300,10 +300,18 @@ func TestGLRefreshWithCAPaginationApprovalsAndPipelines(t *testing.T) {
 			t.Fatalf("%s %s", r.Method, r.URL)
 		}
 	}
-	// gitlab.json
+	// 網址與專案是組織的設定,存在核心;這台的 gitlab.json 只寫用哪一個連線(專案不寫進去)
+	be, err := agentBackend()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := be.GetGitLabSettings(DefaultOrgID)
+	if err != nil || !cs.Saved || cs.BaseURL != "https://"+glHost || strings.Join(cs.Projects, ",") != "web/shop,web/secret" {
+		t.Fatalf("核心的 GitLab 設定:%+v %v", cs, err)
+	}
 	b, _ := os.ReadFile(filepath.Join(DataRoot(), "orgs", DefaultOrgID, "gitlab.json"))
 	var saved GLSettings
-	if json.Unmarshal(b, &saved) != nil || len(saved.Projects) != 2 || saved.Connection != "gitlab" {
+	if len(b) > 0 && (json.Unmarshal(b, &saved) != nil || len(saved.Projects) != 0 || saved.Connection != "gitlab") {
 		t.Fatalf("%s", b)
 	}
 	// connections.json:caCert 有寫、insecure 是 false 時省略;舊格式(Swift)照樣讀得出來

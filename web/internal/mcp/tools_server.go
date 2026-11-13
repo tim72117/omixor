@@ -7,10 +7,10 @@ import (
 	"omixor-web/internal/core"
 )
 
-// ops_server:目前連線資訊與版本(唯讀,不含網址與密鑰)。
+// server:目前連線資訊與版本(唯讀,不含網址與密鑰)。
 // 版本:omixor web 自己的;遠端模式再查遠端 server 的 GET /api/version(逾時 3 秒,查不到就標示)。
 func init() {
-	Register("ops_server", func(c *Call) (any, error) {
+	Register("server", func(c *Call) (any, error) {
 		out := c.App.ConnectionInfo()
 		ver := map[string]any{"web": version.Info()}
 		if core.IsRemote() {

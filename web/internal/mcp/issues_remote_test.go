@@ -93,7 +93,7 @@ func TestIssueServerMode(t *testing.T) {
 	if err := a.SetMode(core.ModeRemote, srv.URL); err != nil {
 		t.Fatal(err)
 	}
-	d := iaRun(t, a, core.MCPActor, "ops_issue_create", map[string]any{"title": "遠端的第一筆"})
+	d := iaRun(t, a, core.MCPActor, "issue_create", map[string]any{"title": "遠端的第一筆"})
 	if d["id"] != "ISS-1" {
 		t.Fatal(d)
 	}
@@ -101,11 +101,11 @@ func TestIssueServerMode(t *testing.T) {
 	f.mu.Lock()
 	f.issues["default"] = append([]core.OpsIssue{{ID: "ISS-2", Title: "別處新增", Status: "open", Priority: "high", Labels: []string{}, Comments: []core.IssueComment{}}}, f.issues["default"]...)
 	f.mu.Unlock()
-	l := iaRun(t, a, core.MCPActor, "ops_issues", map[string]any{})
+	l := iaRun(t, a, core.MCPActor, "issues", map[string]any{})
 	if l["total"].(float64) != 2 {
 		t.Fatal(l)
 	}
-	d = iaRun(t, a, core.MCPActor, "ops_issue_update", map[string]any{"id": "ISS-2", "status": "closed", "comment": "處理好了"})
+	d = iaRun(t, a, core.MCPActor, "issue_update", map[string]any{"id": "ISS-2", "status": "closed", "comment": "處理好了"})
 	if d["status"] != "closed" || len(d["comments"].([]any)) != 1 {
 		t.Fatal(d)
 	}
@@ -116,8 +116,8 @@ func TestIssueServerMode(t *testing.T) {
 	f.mu.Unlock()
 	// 伺服器關掉:建立與修改要回錯誤,不能假裝成功
 	srv.Close()
-	iaErrPrefix(t, a, "ops_issue_create", map[string]any{"title": "x"}, "Issue 沒有存起來:連不到 omixor server")
-	iaErrPrefix(t, a, "ops_issue_update", map[string]any{"id": "ISS-1", "title": "y"}, "Issue 沒有改成:連不到 omixor server")
+	iaErrPrefix(t, a, "issue_create", map[string]any{"title": "x"}, "Issue 沒有存起來:連不到 omixor server")
+	iaErrPrefix(t, a, "issue_update", map[string]any{"id": "ISS-1", "title": "y"}, "Issue 沒有改成:連不到 omixor server")
 }
 
 func iaErrPrefix(t *testing.T, a *core.App, name string, args map[string]any, want string) {
@@ -167,12 +167,12 @@ func TestIssueServerOmixorToken(t *testing.T) {
 	core.Vault = core.NewMemoryVault()
 	a := iaApp(t)
 	// 沒登入 evoleap:錯誤訊息要說清楚
-	iaErrPrefix(t, a, "ops_issue_create", map[string]any{"title": "x"}, "Issue 沒有存起來:還沒登入 omixor server")
+	iaErrPrefix(t, a, "issue_create", map[string]any{"title": "x"}, "Issue 沒有存起來:還沒登入 omixor server")
 	core.ConnSetBearer(a, "evoleap", "evo-tok")                 // 自己會拿鎖
 	if err := a.SetMode(core.ModeRemote, srv.URL); err != nil { // 用 evoleap 連線換 token、讀組織清單
 		t.Fatal(err)
 	}
-	if d := iaRun(t, a, core.MCPActor, "ops_issue_create", map[string]any{"title": "一"}); d["id"] != "ISS-1" {
+	if d := iaRun(t, a, core.MCPActor, "issue_create", map[string]any{"title": "一"}); d["id"] != "ISS-1" {
 		t.Fatal(d)
 	}
 	for _, tok := range f.tokens {
@@ -184,7 +184,7 @@ func TestIssueServerOmixorToken(t *testing.T) {
 	mu.Lock()
 	valid = map[string]bool{}
 	mu.Unlock()
-	if d := iaRun(t, a, core.MCPActor, "ops_issue_create", map[string]any{"title": "二"}); d["id"] != "ISS-2" {
+	if d := iaRun(t, a, core.MCPActor, "issue_create", map[string]any{"title": "二"}); d["id"] != "ISS-2" {
 		t.Fatal(d)
 	}
 	if exchanges != 2 {

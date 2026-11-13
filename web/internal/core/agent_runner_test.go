@@ -175,7 +175,7 @@ func TestRunnerOptionsWithWorkdirAndSuccess(t *testing.T) {
 	if _, err := os.Stat(filepath.Dir(f.cfgPath)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("執行完要刪掉暫存資料夾")
 	}
-	if !strings.Contains(o.AppendSystemPrompt, "旁白製作") || !strings.Contains(o.AppendSystemPrompt, "ops_agent_context") || !strings.Contains(o.AppendSystemPrompt, "status=blocked") {
+	if !strings.Contains(o.AppendSystemPrompt, "旁白製作") || !strings.Contains(o.AppendSystemPrompt, "agent_context") || !strings.Contains(o.AppendSystemPrompt, "status=blocked") {
 		t.Fatalf("系統提示不對:%s", o.AppendSystemPrompt)
 	}
 	if p := f.prompts[0]; !strings.Contains(p, tk.ID) || !strings.Contains(p, "寫旁白") || !strings.Contains(p, "說明:寫旁白") || !strings.Contains(p, "ISS-1") {

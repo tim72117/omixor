@@ -19,7 +19,7 @@ import (
 //	綁 Issue:IssueID 要存在;同一個 Issue 只能有一個頻道 —— 已有而且呼叫者看得到就回傳那個頻道(不新建),看不到 409
 //	訊息:去頭尾空白後不能空白(400),最多 model.MaxChannelMessage 字;@ 只算頻道成員(不是成員的 @ 忽略,不報錯)、作者自己不算
 //	已讀:每個成員每個頻道一個「讀到第幾則」與時間,只會往前;發訊息時作者的已讀跟著標到那一則
-//	@ 角色只通知、不排任務:角色下次執行時 ops_agent_context 的 mentions 看得到(ChannelInbox)
+//	@ 角色只通知、不排任務:角色下次執行時 agent_context 的 mentions 看得到(ChannelInbox)
 //	以別人身分(As):只有伺服器管理員給的算數(同 Issue 的 author;例如 omixor-web 內建核心、本機 MCP 帶 agent);
 //	以角色身分時套用角色的規則(只能碰它是成員的頻道,不能建、不能改成員)
 //	刪角色、從組織移除成員:從所有頻道成員拿掉(pruneChannelNode)

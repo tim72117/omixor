@@ -22,6 +22,8 @@ DerivedData/
 
 # ===== Go =====
 bin/
+# server/scripts/build-local.sh 交叉編譯的 omixor-local
+server/dist/
 # go build ./cmd/omixor 在 web/ 底下產生的執行檔
 web/omixor
 *.test

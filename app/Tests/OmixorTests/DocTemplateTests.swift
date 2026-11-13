@@ -7,6 +7,7 @@ import WebKit
 final class DocTemplateTests: XCTestCase {
     var dataDir: URL!
     override func setUp() async throws {
+        try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
         TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-doctpl-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
@@ -70,26 +71,26 @@ final class DocTemplateTests: XCTestCase {
         app.startAgents(timer: false)
         let mcp = MCPHandler(app: app)
         // 範本缺 for、缺 html
-        var (_, text, err) = try await call(mcp, "ops_doc_save", ["section": "tools", "title": "壞範本", "body": "---\nkind: template\n---\n"])
+        var (_, text, err) = try await call(mcp, "doc_save", ["section": "tools", "title": "壞範本", "body": "---\nkind: template\n---\n"])
         XCTAssertTrue(err); XCTAssertTrue(text.contains("for 欄位"), text)
-        (_, text, err) = try await call(mcp, "ops_doc_save", ["section": "tools", "title": "壞範本", "body": "---\nkind: template\nfor: lesson\n---\n"])
+        (_, text, err) = try await call(mcp, "doc_save", ["section": "tools", "title": "壞範本", "body": "---\nkind: template\nfor: lesson\n---\n"])
         XCTAssertTrue(err); XCTAssertTrue(text.contains("```html"), text)
         // 還沒有範本時,lesson 文件不檢查
-        (_, text, err) = try await call(mcp, "ops_doc_save", ["section": "levels", "title": "早到的", "body": "---\nkind: lesson\n---\n# x"])
+        (_, text, err) = try await call(mcp, "doc_save", ["section": "levels", "title": "早到的", "body": "---\nkind: lesson\n---\n# x"])
         XCTAssertFalse(err, text)
-        var (d, _, _) = try await call(mcp, "ops_doc_save", ["section": "tools", "title": "課程範本", "body": Self.template])
+        var (d, _, _) = try await call(mcp, "doc_save", ["section": "tools", "title": "課程範本", "body": Self.template])
         let tplId = try XCTUnwrap(d["id"] as? String)
         // 有範本後檢查必填欄位
-        (_, text, err) = try await call(mcp, "ops_doc_save", ["section": "levels", "title": "缺欄位", "body": "---\nkind: lesson\ncourse: L0\n---\n# x"])
+        (_, text, err) = try await call(mcp, "doc_save", ["section": "levels", "title": "缺欄位", "body": "---\nkind: lesson\ncourse: L0\n---\n# x"])
         XCTAssertTrue(err)
         XCTAssertEqual(text, "kind: lesson 的文件缺少欄位:lesson(見範本 \(tplId))")
-        (d, text, err) = try await call(mcp, "ops_doc_save", ["section": "levels", "title": "序章", "body": Self.lesson])
+        (d, text, err) = try await call(mcp, "doc_save", ["section": "levels", "title": "序章", "body": Self.lesson])
         XCTAssertFalse(err, text)
         let id = try XCTUnwrap(d["id"] as? String)
         // 修改時也檢查(append_body 不會動到欄位)
-        (_, text, err) = try await call(mcp, "ops_doc_save", ["id": id, "body": "---\nkind: lesson\n---\n"])
+        (_, text, err) = try await call(mcp, "doc_save", ["id": id, "body": "---\nkind: lesson\n---\n"])
         XCTAssertTrue(err, text)
-        (_, text, err) = try await call(mcp, "ops_doc_save", ["id": id, "append_body": "## 備註\n\n補充"])
+        (_, text, err) = try await call(mcp, "doc_save", ["id": id, "append_body": "## 備註\n\n補充"])
         XCTAssertFalse(err, text)
         // 有範本的文件產生網頁;範本本身、一般文件不產生
         let doc = try XCTUnwrap(Cabinet.doc(app, id))

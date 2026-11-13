@@ -5,7 +5,7 @@ import Foundation
 ///
 /// 透過 MCP 做的變更都記為 `Actor.mcp`,會出現在動態牆與事件時間軸。
 /// 依 app 的 AI 治理原則,核准 AI 請求、核准部署、回滾、改自主程度、切換整合
-/// 這些決定只能由人在 app 裡做;MCP 用戶端要做這類變更時,用 ops_request_approval 送出待核准請求。
+/// 這些決定只能由人在 app 裡做;MCP 用戶端要做這類變更時,用 request_approval 送出待核准請求。
 @MainActor
 final class MCPHandler {
     let app: AppState
@@ -58,10 +58,33 @@ final class MCPHandler {
         case "ping":
             return result(id: id, [:])
         case "tools/list":
-            return result(id: id, ["tools": Self.tools.map(\.definition)])
+            // 核心工具用 core server 的定義(只有核心一份),App 自己的工具照舊;讀不到 server 時先列 App 裡的定義(呼叫會回錯誤)
+            // 外部 MCP 閘道開著時,再加上組織設定裡開著的外部工具(<伺服器>__<工具>,見 MCP/Gateway)
+            let external = app.isFeatureEnabled("mcpGateway") ? await app.mcpGateway.toolDefinitions(agent: nil) : []
+            guard let (_, remote) = await serverTools(), !remote.isEmpty else {
+                return result(id: id, ["tools": Self.tools.map(\.definition) + external])
+            }
+            let names = Set(remote.compactMap { $0["name"] as? String })
+            return result(id: id, ["tools": Self.tools.filter { !names.contains($0.name) }.map(\.definition) + remote + external])
         case "tools/call":
-            guard let name = params["name"] as? String else {
+            guard let raw = params["name"] as? String else {
                 return errorResponse(id: id, code: -32602, message: "缺少工具名稱")
+            }
+            // 外部 MCP 閘道的工具(權限問 core、需要確認的先問人)
+            if raw.contains("__"), app.isFeatureEnabled("mcpGateway") {
+                await app.mcpGateway.refreshIfNeeded()
+                if app.mcpGateway.isGatewayTool(raw) {
+                    app.mcp.lastTool = raw
+                    return result(id: id, await app.mcpGateway.call(raw, params["arguments"] as? [String: Any] ?? [:], caller: .member(app.mcp.lastClient)))
+                }
+            }
+            if let proxied = await callOnServer(id: id, raw, params["arguments"] as? [String: Any] ?? [:]) { return proxied }
+            let name = Self.legacyToolName(raw)
+            // 核心工具一律由 core server 執行;server 現在不能用時回錯誤(不會碰本機檔案)
+            if Self.coreTools.contains(name), await serverTools() == nil {
+                app.mcp.lastTool = name
+                let why = serverToolError ?? "讀不到 core server 的工具清單"
+                return result(id: id, ["content": [["type": "text", "text": "\(name) 由 omixor core server 處理,現在連不上:\(why)"]], "isError": true])
             }
             guard Self.tools.contains(where: { $0.name == name }) else {
                 return errorResponse(id: id, code: -32602, message: "沒有這個工具:\(name)")
@@ -85,6 +108,81 @@ final class MCPHandler {
         }
     }
 
+    // MARK: - 轉給 omixor server
+
+    /// 連 server 時也留在 App 處理的工具:App 自己的組織清單(含本機與各伺服器)、版本
+    static let keepLocal: Set<String> = ["orgs", "server"]
+    /// 屬於 core 的工具(Issue、角色與任務、文件櫃、組織鏈、頻道):server 的管理端點有的一律轉給 core server(遠端 omixor 或本機守護服務);
+    /// 讀不到 server 的工具清單時回錯誤。App 裡同名的 Swift 實作只剩 server 管理端點沒開放的(agent_task_delegate:core 只給角色身分用,
+    /// App 代角色委派走 REST /agent-tasks/delegate),而且它們讀寫的 Store 一律透過 core server,不會碰本機檔案
+    static let coreTools: Set<String> = ["issues", "issue_create", "issue_update", "agents", "agent_context", "agent_tasks",
+                                          "agent_task_claim", "agent_task_report", "agent_upsert", "agent_task_create",
+                                          "cabinet", "docs", "doc_save", "chain", "chain_save",
+                                          "channels", "channel_create", "channel_messages", "channel_post"]
+    /// 最近一次讀 server 工具清單的錯誤
+    private var serverToolError: String?
+    /// server 工具清單的快取秒數(讀不到時的快取較短,之後再試)
+    static var serverToolTTL: TimeInterval = 60
+    private var serverToolCache: (key: String, at: Date, defs: [[String: Any]]?)?
+
+    /// core server 管理端點(/mcp/org/<組織>)的工具定義(Issue、角色、文件櫃、組織鏈、頻道);讀不到時回 nil
+    /// (這時核心工具的呼叫回錯誤,見 coreTools)。請求在背景跑,不擋主執行緒
+    func serverTools() async -> (IssueRemote, [[String: Any]])? {
+        let r = app.startIssues().remote
+        let org = app.currentOrgId
+        let key = r.config.url.absoluteString + "|" + org
+        if let c = serverToolCache, c.key == key, Date().timeIntervalSince(c.at) < (c.defs == nil ? 15 : Self.serverToolTTL) {
+            return c.defs.map { (r, $0) }
+        }
+        do {
+            let res = try await r.run { try $0.mcp(org: org, method: "tools/list") }
+            let defs = (res["tools"] as? [[String: Any]] ?? []).filter { !Self.keepLocal.contains($0["name"] as? String ?? "") }
+            serverToolCache = (key, .now, defs)
+            serverToolError = nil
+            return (r, defs)
+        } catch {
+            NSLog("MCP:讀不到 omixor server 的工具清單:%@", error.localizedDescription)
+            serverToolError = error.localizedDescription
+            serverToolCache = (key, .now, nil)
+            return nil
+        }
+    }
+
+    /// 核心工具轉給 server 執行,回傳 server 的結果(nil = 不是 server 的工具,由 App 處理)。
+    /// 轉送的請求在背景跑,主執行緒只更新結果
+    private func callOnServer(id: Any, _ raw: String, _ args: [String: Any]) async -> [String: Any]? {
+        guard let (r, remote) = await serverTools(), !remote.isEmpty else { return nil }
+        let names = Set(remote.compactMap { $0["name"] as? String })
+        var name = raw
+        if !names.contains(name), name.hasPrefix("ops_"), names.contains(String(name.dropFirst(4))) { name = String(name.dropFirst(4)) }
+        guard names.contains(name) else { return nil }
+        app.mcp.lastTool = name
+        let org = app.currentOrgId
+        nonisolated(unsafe) let sendArgs = args
+        do {
+            let res = try await r.run { try $0.mcp(org: org, method: "tools/call", params: ["name": name, "arguments": sendArgs]) }
+            await refreshAfterServerTool(name)
+            return result(id: id, res)
+        } catch {
+            return result(id: id, ["content": [["type": "text", "text": error.localizedDescription]], "isError": true])
+        }
+    }
+
+    /// server 上改了資料:馬上重讀對應的畫面資料(不用等定時更新;請求在背景跑,回應前等它更新好)
+    private func refreshAfterServerTool(_ name: String) async {
+        if name.hasPrefix("incident_") { await app.startIncidents().reload() }   // incident_declare、incident_update
+        // channel_messages 也會標已讀
+        let writes = ["create", "update", "save", "report", "claim", "upsert", "delegate", "post", "channel_messages"]
+        guard writes.contains(where: { name.contains($0) }) else { return }
+        if name.hasPrefix("issue") { await app.startIssues().reload() }
+        if name.hasPrefix("agent") || name.hasPrefix("chain") { await app.startAgents().reload() }
+        if name.hasPrefix("channel") { await app.startChannels().reload() }
+        if name == "doc_save" {
+            if !app.cabinetLoaded { Cabinet.begin(app) }
+            await Cabinet.reload(app)
+        }
+    }
+
     private func result(id: Any, _ r: [String: Any]) -> [String: Any] {
         ["jsonrpc": "2.0", "id": id, "result": r]
     }
@@ -95,17 +193,17 @@ final class MCPHandler {
 
     static let instructions = """
     omixor 是維運線上服務的 macOS app。這些工具直接讀寫 app 裡的即時資料,變更會立刻出現在畫面上,並以「MCP 用戶端」記在動態牆。
-    先用 ops_overview 掌握整體狀況,再用 ops_list / ops_get 查細節。
-    核准 AI 請求、核准部署、回滾、調整自動化自主程度只能由人在 app 裡決定;需要這類變更時,用 ops_request_approval 建立待核准請求,附上理由、依據與回滾方式。
-    GCP(ops_gcp、ops_gcp_logs、ops_gcp_metrics)只讀:看 Cloud Run 狀態、錯誤日誌、請求量與延遲;omixor 不會部署、改流量或執行 Job。
-    GitHub(ops_github、ops_github_runs、ops_github_run、ops_github_pull)只讀:看 PR、檢查與 Actions 失敗原因;omixor 不會開 PR、留言或重跑 workflow。
-    Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織(ops_orgs 看是哪一個);切換組織只能由人在 app 裡做。
-    omixor 有虛擬角色(ops_agents)。使用者請你以某角色身分工作時:可先用 ops_agent_context 取得該角色能讀取的資訊,再用 ops_agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 ops_agent_task_report 回報;需要人決定時回報 blocked。以角色身分開 Issue 或留言時,ops_issue_create / ops_issue_update 帶上 agent(角色 id),才會署名該角色。
-    文件櫃(ops_cabinet、ops_docs、ops_doc_save)依 evoleap 研發基地的區塊分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。
-    發現值得追蹤的問題(例如從 ops_site_visitors 的數字看到異常)時,用 ops_issue_create 存成 Issue;先用 ops_issues 搜尋避免重複,已有就用 ops_issue_update 加留言。
-    旁白語音(shuttle 專案的 npm run voice)可以用 ops_voice_submit 分派成批次:omixor 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。
-    訊息頻道(ops_channels、ops_channel_messages、ops_channel_post、ops_channel_create)把人與角色拉進同一個對話;@ 角色只通知、不排任務。以角色身分工作時,ops_agent_context 的 mentions 列出提到它的未讀訊息,讀(ops_channel_messages)與回覆(ops_channel_post)都帶 agent。
-    Facebook 粉絲專頁(ops_fb_pages、ops_fb_posts、ops_fb_insights、ops_fb_drafts)只讀;ops_fb_draft_save 只能新增或修改草稿(以角色身分寫時帶 agent),發佈與排程只能由人在 app 的 AI 自動化 › 粉絲專頁 按。
+    先用 overview 掌握整體狀況,再用 list / get 查細節。
+    核准 AI 請求、核准部署、回滾、調整自動化自主程度只能由人在 app 裡決定;需要這類變更時,用 request_approval 建立待核准請求,附上理由、依據與回滾方式。
+    GCP(gcp、gcp_logs、gcp_metrics)只讀:看 Cloud Run 狀態、錯誤日誌、請求量與延遲;omixor 不會部署、改流量或執行 Job。
+    GitHub(github、github_runs、github_run、github_pull)只讀:看 PR、檢查與 Actions 失敗原因;omixor 不會開 PR、留言或重跑 workflow。
+    Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織(orgs 看是哪一個);切換組織只能由人在 app 裡做。
+    omixor 有虛擬角色(agents)。使用者請你以某角色身分工作時:可先用 agent_context 取得該角色能讀取的資訊,再用 agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 agent_task_report 回報;需要人決定時回報 blocked。以角色身分開 Issue 或留言時,issue_create / issue_update 帶上 agent(角色 id),才會署名該角色。
+    文件櫃(cabinet、docs、doc_save)依 evoleap 研發基地的區塊分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。
+    發現值得追蹤的問題(例如從 site_visitors 的數字看到異常)時,用 issue_create 存成 Issue;先用 issues 搜尋避免重複,已有就用 issue_update 加留言。
+    旁白語音(shuttle 專案的 npm run voice)可以用 voice_submit 分派成批次:omixor 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。
+    訊息頻道(channels、channel_messages、channel_post、channel_create)把人與角色拉進同一個對話;@ 角色只通知、不排任務。以角色身分工作時,agent_context 的 mentions 列出提到它的未讀訊息,讀(channel_messages)與回覆(channel_post)都帶 agent。
+    Facebook 粉絲專頁(fb_pages、fb_posts、fb_insights、fb_drafts)只讀;fb_draft_save 只能新增或修改草稿(以角色身分寫時帶 agent),發佈與排程只能由人在 app 的 AI 自動化 › 粉絲專頁 按。
     """
 
     // MARK: - 工具定義
@@ -149,12 +247,19 @@ final class MCPHandler {
         "incidents", "on_call", "automations", "automation_runs", "approvals", "activity", "integrations",
     ]
 
+    /// 舊的工具名稱(ops_ 開頭)換成現在的名稱:工具改名後過渡用,tools/list 只列新名稱,舊名稱還能呼叫(同核心的 LegacyToolName)
+    static func legacyToolName(_ name: String) -> String {
+        guard name.hasPrefix("ops_"), !tools.contains(where: { $0.name == name }) else { return name }
+        let n = String(name.dropFirst(4))
+        return tools.contains(where: { $0.name == n }) ? n : name
+    }
+
     static let tools: [Tool] = [
-        Tool(name: "ops_overview", title: "整體狀況",
+        Tool(name: "overview", title: "整體狀況",
              description: "目前畫面狀態、服務健康、觸發中的告警、進行中的事件、執行中的 CI/CD 與部署、待核准的 AI 請求、值班人員與最近動態。",
              properties: [:], required: [], readOnly: true),
-        Tool(name: "ops_list", title: "列出資料",
-             description: "列出某個資料集合。where 依欄位篩選(欄位可用 a.b 路徑;陣列欄位只要包含該值即符合;執行者欄位比對 id),search 對整筆資料做不分大小寫的文字搜尋。時間序列與日誌會裁短,完整內容用 ops_get。",
+        Tool(name: "list", title: "列出資料",
+             description: "列出某個資料集合。where 依欄位篩選(欄位可用 a.b 路徑;陣列欄位只要包含該值即符合;執行者欄位比對 id),search 對整筆資料做不分大小寫的文字搜尋。時間序列與日誌會裁短,完整內容用 get。",
              properties: [
                  "collection": prop("string", "資料集合", enum: collections),
                  "where": ["type": "object", "description": "欄位 = 值,例如 {\"state\":\"firing\",\"service\":\"payments\"}", "additionalProperties": true],
@@ -162,13 +267,13 @@ final class MCPHandler {
                  "limit": prop("integer", "最多幾筆,預設 30,上限 200"),
                  "offset": prop("integer", "略過前幾筆"),
              ], required: ["collection"], readOnly: true),
-        Tool(name: "ops_get", title: "取得一筆資料",
+        Tool(name: "get", title: "取得一筆資料",
              description: "依 id 取得一筆完整資料(含時間序列、工作日誌、事件時間軸)。",
              properties: [
                  "collection": prop("string", "資料集合", enum: collections.filter { $0 != "sprint" }),
                  "id": prop("string", "id,例如 ALT-5121、INC-2041、OPS-142;PR 與 pipeline run 用編號"),
              ], required: ["collection", "id"], readOnly: true),
-        Tool(name: "ops_navigate", title: "切換畫面",
+        Tool(name: "navigate", title: "切換畫面",
              description: "讓 app 切到某個頁面,可選中某個項目(例如告警或事件 id)。也可以切換環境與時間範圍。",
              properties: [
                  "section": prop("string", "頁面", enum: cases(AppSection.self)),
@@ -176,14 +281,14 @@ final class MCPHandler {
                  "env": prop("string", "環境篩選", enum: cases(DeployEnv.self)),
                  "time_range": prop("string", "時間範圍", enum: cases(TimeRange.self)),
              ], required: []),
-        Tool(name: "ops_alert_update", title: "處理告警",
+        Tool(name: "alert_update", title: "處理告警",
              description: "確認、解除或靜音告警,可附上 AI 判讀。",
              properties: [
                  "alert_id": prop("string", "告警 id"),
                  "action": prop("string", "動作", enum: ["acknowledge", "resolve", "silence"]),
                  "ai_note": prop("string", "寫進告警的 AI 判讀(選填)"),
              ], required: ["alert_id"]),
-        Tool(name: "ops_alert_create", title: "建立告警",
+        Tool(name: "alert_create", title: "建立告警",
              description: "從外部監控送進一筆觸發中的告警。",
              properties: [
                  "title": prop("string", "標題"),
@@ -193,7 +298,7 @@ final class MCPHandler {
                  "value": prop("string", "目前數值"),
                  "ai_note": prop("string", "AI 初步判讀"),
              ], required: ["title", "severity", "service", "rule", "value"]),
-        Tool(name: "ops_incident_declare", title: "宣告事件",
+        Tool(name: "incident_declare", title: "宣告事件",
              description: "宣告新事件,回傳事件 id。可關聯告警。",
              properties: [
                  "title": prop("string", "標題"),
@@ -203,7 +308,7 @@ final class MCPHandler {
                  "commander": prop("string", "指揮官 person id,預設為目前的 Primary 值班"),
                  "alert_ids": strings("關聯的告警 id"),
              ], required: ["title", "sev", "impact"]),
-        Tool(name: "ops_incident_update", title: "更新事件",
+        Tool(name: "incident_update", title: "更新事件",
              description: "更新事件狀態、在時間軸加註記或 AI 發現、或寫入 AI 摘要。至少給一項。",
              properties: [
                  "incident_id": prop("string", "事件 id"),
@@ -213,7 +318,7 @@ final class MCPHandler {
                  "ai_summary": prop("string", "取代事件的 AI 摘要"),
                  "impact": prop("string", "更新影響說明"),
              ], required: ["incident_id"]),
-        Tool(name: "ops_work_item_create", title: "建立工作項目",
+        Tool(name: "work_item_create", title: "建立工作項目",
              description: "在看板建立工作項目,可掛到事件的後續工作。",
              properties: [
                  "title": prop("string", "標題"),
@@ -224,21 +329,21 @@ final class MCPHandler {
                  "assignee": prop("string", "負責人 person id"),
                  "incident_id": prop("string", "加到這個事件的後續工作"),
              ], required: ["title", "type"]),
-        Tool(name: "ops_work_item_move", title: "移動工作項目",
+        Tool(name: "work_item_move", title: "移動工作項目",
              description: "把工作項目移到看板的另一欄。",
              properties: [
                  "id": prop("string", "工作項目 id,例如 OPS-142"),
                  "status": prop("string", "目標欄位", enum: cases(WorkStatus.self)),
              ], required: ["id", "status"]),
-        Tool(name: "ops_pipeline_update", title: "操作 CI/CD 執行",
+        Tool(name: "pipeline_update", title: "操作 CI/CD 執行",
              description: "重新執行或取消 pipeline run,或寫入 AI 失敗診斷。",
              properties: [
                  "run_id": prop("integer", "run 編號"),
                  "action": prop("string", "動作", enum: ["retry", "cancel"]),
                  "ai_diagnosis": prop("string", "寫入的 AI 失敗診斷"),
              ], required: ["run_id"]),
-        Tool(name: "ops_request_approval", title: "送出待核准請求",
-             description: "建立一筆待人核准的 AI 請求(出現在 AI 自動化 › 待核准與總覽)。用在任何需要人決定的變更:擴縮容、回滾、資料庫操作等。回傳請求 id;可之後用 ops_get approvals 查核准結果。",
+        Tool(name: "request_approval", title: "送出待核准請求",
+             description: "建立一筆待人核准的 AI 請求(出現在 AI 自動化 › 待核准與總覽)。用在任何需要人決定的變更:擴縮容、回滾、資料庫操作等。回傳請求 id;可之後用 get approvals 查核准結果。",
              properties: [
                  "title": prop("string", "標題"),
                  "action": prop("string", "要執行的指令或變更"),
@@ -249,7 +354,7 @@ final class MCPHandler {
                  "automation": prop("string", "歸屬的自動化 id,預設為 mcp"),
                  "expires_in_minutes": prop("integer", "多久後過期,預設 60"),
              ], required: ["title", "action", "rationale", "rollback_plan", "risk"]),
-        Tool(name: "ops_log_append", title: "寫入日誌",
+        Tool(name: "log_append", title: "寫入日誌",
              description: "把日誌寫進監控 › 日誌。",
              properties: [
                  "service": prop("string", "服務 id"),
@@ -258,14 +363,14 @@ final class MCPHandler {
                  "host": prop("string", "主機,預設 mcp"),
                  "trace_id": prop("string", "trace id"),
              ], required: ["service", "level", "message"]),
-        Tool(name: "ops_activity_post", title: "發到動態牆",
+        Tool(name: "activity_post", title: "發到動態牆",
              description: "在總覽的動態牆發一則以「MCP 用戶端」署名的動態。",
              properties: [
                  "text": prop("string", "內容"),
                  "section": prop("string", "點擊後前往的頁面,預設 overview", enum: cases(AppSection.self)),
                  "icon": prop("string", "SF Symbol 名稱,預設 sparkles"),
              ], required: ["text"]),
-        Tool(name: "ops_voice_submit", title: "分派旁白語音批次",
+        Tool(name: "voice_submit", title: "分派旁白語音批次",
              description: "把 shuttle 專案的旁白語音產生分派給 omixor:執行 npm run voice -- <腳本> --batch(Gemini Batch API,約一半價格,最長 24 小時)。立刻回傳工作 id,不用等;omixor 每隔幾分鐘查一次,完成後自動收結果(下載、轉 mp3、上傳 GCS、改寫本機 .voice.json),再由人在 omixor 試聽、按發佈上線。一次只能有一批,其餘排隊。dry_run 只列出會送哪些段落,不呼叫 API、不花錢。",
              properties: [
                  "scripts": strings("web/src/content/live/ 底下的腳本路徑,例如 launch/2.1.json"),
@@ -273,17 +378,17 @@ final class MCPHandler {
                  "limit": prop("integer", "每份腳本只送前幾段(試做用)"),
                  "dry_run": prop("boolean", "只試算,不送出"),
              ], required: []),
-        Tool(name: "ops_voice_jobs", title: "查旁白批次",
+        Tool(name: "voice_jobs", title: "查旁白批次",
              description: "查旁白語音批次的狀態(排隊中、產生中、待發佈、已發佈、失敗…)、變動的旁白清單與紀錄。不給 id 時列出最近的批次。",
              properties: ["id": prop("string", "工作 id,例如 VJ-3")], required: [], readOnly: true),
-        Tool(name: "ops_site_visitors", title: "網站訪客統計",
+        Tool(name: "site_visitors", title: "網站訪客統計",
              description: "讀 evoleap 網站的會員與訪客統計(後台「會員」頁同一份資料,GET /api/admin/overview):會員數、訪客數、訪客漏斗(打開 → 載入完成 → 有播放,和後台一樣不含登入門檻與一般頁面)、各課概況、登入門檻、裝置/來源/載入錯誤、從首頁進來的路徑、首頁停留、登入頁、最近沒播放的造訪足跡。需要 omixor 已登入該連線。",
              properties: [
                  "range": prop("string", "時間範圍,預設 1d", enum: ["all", "30m", "12h", "1d", "7d"]),
                  "connection": prop("string", "連線 id,預設 omixor 網站訪客頁選的那個(evoleap)"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_issue_create", title: "建立 Issue",
-             description: "把發現的問題或待辦存成 Issue(omixor 的真實資料,存在本機,重開 app 也還在;出現在 開發 › Issue)。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 ops_issues 搜尋,避免重複。",
+        Tool(name: "issue_create", title: "建立 Issue",
+             description: "把發現的問題或待辦存成 Issue(omixor 的真實資料,存在本機,重開 app 也還在;出現在 開發 › Issue)。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 issues 搜尋,避免重複。",
              properties: [
                  "title": prop("string", "標題,一句話說明問題"),
                  "body": prop("string", "內文(Markdown)"),
@@ -294,7 +399,7 @@ final class MCPHandler {
                  "agent": prop("string", "以虛擬角色身分工作時填角色 id 或名稱,Issue 會署名該角色"),
                  "assignee": prop("string", "指派給的虛擬角色 id;連 omixor server 時伺服器會自動替它排任務(角色必須存在)"),
              ], required: ["title"]),
-        Tool(name: "ops_issue_update", title: "更新 Issue",
+        Tool(name: "issue_update", title: "更新 Issue",
              description: "更新 Issue:改標題、內文、優先度、標籤、指派,加留言,或關閉/重新打開。只給要改的欄位。",
              properties: [
                  "id": prop("string", "Issue id,例如 ISS-3"),
@@ -309,7 +414,7 @@ final class MCPHandler {
                  "agent": prop("string", "以虛擬角色身分工作時填角色 id 或名稱,留言與變更會署名該角色"),
                  "assignee": prop("string", "改指派給的角色 id(空字串 = 取消指派);連 omixor server 時會自動替新角色排任務、取消舊角色還沒領取的任務"),
              ], required: ["id"]),
-        Tool(name: "ops_issues", title: "查 Issue",
+        Tool(name: "issues", title: "查 Issue",
              description: "給 id 回傳完整內容(含留言);不給 id 則列出符合條件的 Issue(預設只列未解決,依優先度與時間排序)。",
              properties: [
                  "id": prop("string", "Issue id"),
@@ -318,16 +423,16 @@ final class MCPHandler {
                  "query": prop("string", "標題、內文或留言包含這段文字"),
                  "limit": prop("integer", "最多幾筆,預設 30"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_agents", title: "列出虛擬角色",
+        Tool(name: "agents", title: "列出虛擬角色",
              description: "列出 omixor 的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。以角色身分工作前先讀它的 instructions。",
              properties: ["id": prop("string", "只看這個角色")], required: [], readOnly: true),
-        Tool(name: "ops_agent_context", title: "角色能讀取的資訊",
+        Tool(name: "agent_context", title: "角色能讀取的資訊",
              description: "用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與頁籤(read / write),能讀的文件清單,以及頻道裡提到它的未讀訊息與它所在頻道的未讀數(mentions)。include_bodies 為 true 時附上文件全文(最多 20 份,其餘只列清單)。文件權限依角色的 docAccess;Issue、範例資料等其他工具不分角色。",
              properties: [
                  "agent": prop("string", "角色 id 或名稱"),
                  "include_bodies": prop("boolean", "附上文件全文,預設 false"),
              ], required: ["agent"], readOnly: true),
-        Tool(name: "ops_agent_tasks", title: "查角色任務",
+        Tool(name: "agent_tasks", title: "查角色任務",
              description: "給 id 回傳任務完整內容;否則列出任務(預設未完成的:待領取、進行中、需要協助)。",
              properties: [
                  "id": prop("string", "任務 id,例如 T-3"),
@@ -335,13 +440,13 @@ final class MCPHandler {
                  "status": prop("string", "open(預設)、all 或單一狀態",
                                 enum: ["open", "all"] + cases(AgentTaskStatus.self)),
              ], required: [], readOnly: true),
-        Tool(name: "ops_agent_task_claim", title: "以角色身分領取任務",
-             description: "以某個虛擬角色的身分領取任務(狀態改成進行中)。給 id 就領那筆;不給就領該角色最優先的待領取任務。回傳角色設定與任務說明,照著做,做完用 ops_agent_task_report 回報。沒有任務時 task 為 null。連 omixor server 時另外回傳 credential(agentId、taskId、secret、expiresAt、endpoint):綁這筆任務的角色憑證,secret 只給這一次,不要寫進 Issue、留言或檔案。",
+        Tool(name: "agent_task_claim", title: "以角色身分領取任務",
+             description: "以某個虛擬角色的身分領取任務(狀態改成進行中)。給 id 就領那筆;不給就領該角色最優先的待領取任務。回傳角色設定與任務說明,照著做,做完用 agent_task_report 回報。沒有任務時 task 為 null。連 omixor server 時另外回傳 credential(agentId、taskId、secret、expiresAt、endpoint):綁這筆任務的角色憑證,secret 只給這一次,不要寫進 Issue、留言或檔案。",
              properties: [
                  "agent": prop("string", "角色 id 或名稱"),
                  "id": prop("string", "任務 id(選填)"),
              ], required: ["agent"]),
-        Tool(name: "ops_agent_task_report", title: "回報任務",
+        Tool(name: "agent_task_report", title: "回報任務",
              description: "回報任務進度或結果。note 是過程紀錄;result 是最終結果(Markdown);做完設 status=done,卡住需要人決定設 blocked 並在 note 說明。",
              properties: [
                  "id": prop("string", "任務 id"),
@@ -350,7 +455,7 @@ final class MCPHandler {
                  "result": prop("string", "結果(Markdown)"),
                  "links": strings("相關的 Issue id 或網址"),
              ], required: ["id"]),
-        Tool(name: "ops_agent_upsert", title: "新增或修改角色",
+        Tool(name: "agent_upsert", title: "新增或修改角色",
              description: "新增虛擬角色,或修改既有角色(給 id 或名稱)。只給要改的欄位。routines 會取代全部例行任務;add_routines 是加在後面。例行任務格式:{title, instructions, kind: daily|weekly|hourly, hour, minute, weekday(1=週日…7=週六), every_hours, enabled}。",
              properties: [
                  "id": prop("string", "要修改的角色 id 或名稱;新增時可指定英文 id(例如 product-manager),不給就自動產生"),
@@ -365,16 +470,16 @@ final class MCPHandler {
                  "doc_access": ["type": "object", "additionalProperties": ["type": "string", "enum": cases(DocAccess.self)],
                                 "description": "文件櫃存取範圍,會合併進現有設定:key 是區塊 id(levels、dev、ideas、docs、overview、todo、members、tools)或頁籤網址(例如 /studio/tools、/docs/course-goals),值是 read、write 或 none(移除)。頁籤的設定優先於區塊。"],
              ], required: []),
-        Tool(name: "ops_server", title: "伺服器與連線資訊",
+        Tool(name: "server", title: "伺服器與連線資訊",
              description: "目前連線資訊與版本:模式(本機/遠端)、遠端 server 名稱(不含網址)、登入狀態(帳號、角色、token 到期時間)與目前組織,以及 omixor app 與遠端 server 的版本(version、commit、buildTime)。不會顯示任何密鑰。",
              properties: [:], required: [], readOnly: true),
-        Tool(name: "ops_orgs", title: "組織",
+        Tool(name: "orgs", title: "組織",
              description: "列出 omixor 的組織與目前使用中的組織。Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織;切換組織只能由人在 app 裡做。",
              properties: [:], required: [], readOnly: true),
-        Tool(name: "ops_cabinet", title: "文件櫃結構",
+        Tool(name: "cabinet", title: "文件櫃結構",
              description: "列出文件櫃的區塊與頁籤(對應 evoleap 研發基地 /studio 的區塊),以及各處有幾份文件。給 agent 時只列該角色能存取的位置並標出權限(read / write)。",
              properties: ["agent": prop("string", "以角色身分查看時填角色 id 或名稱")], required: [], readOnly: true),
-        Tool(name: "ops_docs", title: "查文件",
+        Tool(name: "docs", title: "查文件",
              description: "給 id 回傳文件全文;否則依區塊、頁籤、關鍵字列出文件。給 agent 時只看得到該角色有權限的文件。",
              properties: [
                  "id": prop("string", "文件 id,例如 DOC-3"),
@@ -383,7 +488,7 @@ final class MCPHandler {
                  "query": prop("string", "標題、內文或標籤包含這段文字"),
                  "agent": prop("string", "以角色身分查看時填角色 id 或名稱"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_doc_save", title: "存文件到文件櫃",
+        Tool(name: "doc_save", title: "存文件到文件櫃",
              description: "新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在研發基地對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置。文件存在本機,重開 omixor 也還在。內文開頭可以有欄位(--- 之間一行一個 key: value),kind 是文件類型:有對應範本(kind: template、for: <類型> 的文件,內含 ```html 版面與 ```css 樣式)時,畫面依範本顯示,存檔前也會檢查範本的 required 欄位。要新增一種類型,存一份範本文件就好。",
              properties: [
                  "id": prop("string", "要修改的文件 id;新增時不給"),
@@ -395,7 +500,7 @@ final class MCPHandler {
                  "tags": strings("標籤"),
                  "agent": prop("string", "以角色身分工作時填角色 id 或名稱"),
              ], required: []),
-        Tool(name: "ops_agent_task_create", title: "指派任務給角色",
+        Tool(name: "agent_task_create", title: "指派任務給角色",
              description: "建立一筆任務指派給虛擬角色,等它被領取。assign_to 是接任務的角色;agent 是你自己正在扮演的角色(用來署名,和其他工具的 agent 意思一樣)。",
              properties: [
                  "assign_to": prop("string", "接這個任務的角色 id 或名稱"),
@@ -404,18 +509,18 @@ final class MCPHandler {
                  "instructions": prop("string", "任務說明(Markdown)"),
                  "priority": prop("string", "優先度,預設 normal", enum: cases(IssuePriority.self)),
              ], required: ["assign_to", "title"]),
-        Tool(name: "ops_chain", title: "組織鏈",
+        Tool(name: "chain", title: "組織鏈",
              description: "列出組織鏈(資訊流動方向):每條邊 from → to 表示 from 可以派工作給 to(label 例如 目標、任務;空白 = 任務),to 做完回報給 from。節點是 agent:<角色 id> 或 user:<email>;fromName、toName 是顯示名稱。",
              properties: [:], required: [], readOnly: true),
-        Tool(name: "ops_chain_save", title: "修改組織鏈",
+        Tool(name: "chain_save", title: "修改組織鏈",
              description: "修改組織鏈(組織管理員)。edges 取代全部邊;或用 add 加上(同 from、to 的會被取代)、remove 拿掉(依 from、to)。每條邊 {from, to, label}:節點寫 agent:<角色 id> 或 user:<email>,label 例如 目標、任務(空白 = 任務)。不能指向自己、不能重複、不能有循環,節點要存在(角色存在、人是組織成員)。",
              properties: [
                  "edges": ["type": "array", "items": ["type": "object"], "description": "取代全部邊:[{from, to, label}]"],
                  "add": ["type": "array", "items": ["type": "object"], "description": "加上的邊:[{from, to, label}]"],
                  "remove": ["type": "array", "items": ["type": "object"], "description": "拿掉的邊:[{from, to}]"],
              ], required: []),
-        Tool(name: "ops_agent_task_delegate", title: "依組織鏈委派任務",
-             description: "以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 ops_agent_context 的 chain.downstream。",
+        Tool(name: "agent_task_delegate", title: "依組織鏈委派任務",
+             description: "以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 agent_context 的 chain.downstream。",
              properties: [
                  "agent": prop("string", "你自己正在扮演的角色 id 或名稱(委派者)"),
                  "to": prop("string", "接任務的角色 id 或名稱(要是鏈上的下游)"),
@@ -424,14 +529,14 @@ final class MCPHandler {
                  "priority": prop("string", "優先度,預設 normal", enum: cases(IssuePriority.self)),
                  "task": prop("string", "委派它的來源任務 id(選填;不給就用你的角色進行中的任務)"),
              ], required: ["agent", "to", "title"]),
-        Tool(name: "ops_github", title: "GitHub 概況",
+        Tool(name: "github", title: "GitHub 概況",
              description: "列出 omixor 追蹤的 GitHub repo(目前組織的)、開著的 PR(含檢查結果)與最近的 Actions 執行。資料是 omixor 最近一次讀到的(約 5 分鐘更新一次);refresh=true 先重新讀。只讀。需要人先在 omixor 的 開發進度 › GitHub 登入。",
              properties: [
                  "refresh": prop("boolean", "先向 GitHub 重新讀一次"),
                  "repo": prop("string", "只看這個 repo(owner/name)"),
                  "limit": prop("integer", "每個 repo 最多幾筆執行,預設 10"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_github_runs", title: "查 GitHub Actions 執行",
+        Tool(name: "github_runs", title: "查 GitHub Actions 執行",
              description: "直接向 GitHub 查某個 repo 的 Actions 執行紀錄,可依分支、狀態、workflow 篩選。只讀。",
              properties: [
                  "repo": prop("string", "owner/name;只追蹤一個 repo 時可省略"),
@@ -439,28 +544,28 @@ final class MCPHandler {
                  "status": prop("string", "狀態篩選", enum: ["failure", "success", "in_progress", "queued", "completed", "cancelled"]),
                  "limit": prop("integer", "筆數,預設 20,最多 100"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_github_run", title: "GitHub Actions 執行詳情",
+        Tool(name: "github_run", title: "GitHub Actions 執行詳情",
              description: "一筆 Actions 執行的工作與步驟;log=true 時附上失敗工作紀錄的最後幾行(找失敗原因用)。只讀。",
              properties: [
-                 "id": prop("integer", "執行 id(ops_github / ops_github_runs 的 id)"),
+                 "id": prop("integer", "執行 id(github / github_runs 的 id)"),
                  "repo": prop("string", "owner/name;只追蹤一個 repo 時可省略"),
                  "log": prop("boolean", "附上失敗工作紀錄的最後幾行"),
                  "lines": prop("integer", "紀錄行數,預設 80,最多 400"),
              ], required: ["id"], readOnly: true),
-        Tool(name: "ops_github_pull", title: "GitHub PR 詳情",
+        Tool(name: "github_pull", title: "GitHub PR 詳情",
              description: "一個 PR 的說明、分支、檢查結果與變更的檔案清單。只讀;要改程式請照工程師角色的流程,在新分支做並等人核准。",
              properties: [
                  "number": prop("integer", "PR 編號"),
                  "repo": prop("string", "owner/name;只追蹤一個 repo 時可省略"),
              ], required: ["number"], readOnly: true),
-        Tool(name: "ops_gcp", title: "GCP 概況",
+        Tool(name: "gcp", title: "GCP 概況",
              description: "列出 omixor 設定的 GCP 專案(目前組織的)裡 Cloud Run 服務的狀態、目前版本、流量、網址,以及 Cloud Run Job 最近一次執行。給 service 時另外回傳最近的版本;給 job 時回傳最近的執行。只讀。需要人先在 omixor 的 伺服器與服務 › GCP 登入。",
              properties: [
                  "refresh": prop("boolean", "先重新讀一次"),
                  "service": prop("string", "Cloud Run 服務名稱,例如 shuttle-server"),
                  "job": prop("string", "Cloud Run Job 名稱,例如 shuttle-course-sync"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_gcp_logs", title: "查 GCP 日誌",
+        Tool(name: "gcp_logs", title: "查 GCP 日誌",
              description: "從 Cloud Logging 讀 Cloud Run 服務或 Job 的日誌(新的在前)。預設只看 ERROR 以上、最近 24 小時。只讀。",
              properties: [
                  "service": prop("string", "Cloud Run 服務名稱"),
@@ -470,16 +575,16 @@ final class MCPHandler {
                  "contains": prop("string", "日誌內容要包含的文字"),
                  "limit": prop("integer", "筆數,預設 50,最多 500"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_gcp_metrics", title: "GCP 服務指標",
+        Tool(name: "gcp_metrics", title: "GCP 服務指標",
              description: "從 Cloud Monitoring 讀 Cloud Run 服務的請求量(依 2xx/4xx/5xx)、p95 延遲與執行個體數,含總數與時間序列。只讀。",
              properties: [
                  "service": prop("string", "Cloud Run 服務名稱;只有一個服務時可省略"),
                  "hours": prop("integer", "往前幾小時,預設 24,最多 720"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_fb_pages", title: "Facebook 粉絲專頁",
+        Tool(name: "fb_pages", title: "Facebook 粉絲專頁",
              description: "列出 omixor 連上的 Facebook 粉絲專頁:id、名稱、分類、網址、按讚數、追蹤數、是否在 omixor 管理中、有沒有權杖。只讀。需要人先在 omixor 的 AI 自動化 › 粉絲專頁 設定連線。",
              properties: ["refresh": prop("boolean", "先向 Facebook 重新讀一次專頁資料")], required: [], readOnly: true),
-        Tool(name: "ops_fb_posts", title: "Facebook 貼文與成效",
+        Tool(name: "fb_posts", title: "Facebook 貼文與成效",
              description: "管理中粉絲專頁的最近貼文(新的在前)與已排程貼文。每篇含心情、留言、分享數與互動合計;insights=true 時附上前 10 篇的觸及、點擊與心情分類(Meta 已淘汰或取不到的指標 status 是 deprecated / unavailable)。只讀。",
              properties: [
                  "page": prop("string", "專頁 id 或名稱;不給就是全部管理中的專頁"),
@@ -487,14 +592,14 @@ final class MCPHandler {
                  "insights": prop("boolean", "附上每篇的成效指標,預設 true"),
                  "scheduled": prop("boolean", "附上已排程貼文,預設 true"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_fb_insights", title: "Facebook 專頁成效",
+        Tool(name: "fb_insights", title: "Facebook 專頁成效",
              description: "粉絲專頁的成效:觸及人數、瀏覽次數、貼文互動、追蹤數、新增追蹤,含期間合計與每期的時間序列。Meta 淘汰或取不到的指標 status 是 deprecated / unavailable,total 為 null。只讀。",
              properties: [
                  "page": prop("string", "專頁 id 或名稱;不給就是全部管理中的專頁"),
                  "period": prop("string", "每個資料點的期間,預設 day", enum: FB.periods),
                  "days": prop("integer", "往前幾天,預設 28,1–90"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_fb_drafts", title: "Facebook 草稿",
+        Tool(name: "fb_drafts", title: "Facebook 草稿",
              description: "給 id 回傳一份貼文草稿;不給則列出草稿(預設只列還沒發佈的,新的在前)。只讀。",
              properties: [
                  "id": prop("string", "草稿 id,例如 FD-3"),
@@ -502,7 +607,7 @@ final class MCPHandler {
                  "page": prop("string", "只列這個專頁(id 或名稱)的草稿"),
                  "limit": prop("integer", "最多幾筆,預設 30"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_fb_draft_save", title: "存 Facebook 草稿",
+        Tool(name: "fb_draft_save", title: "存 Facebook 草稿",
              description: "新增或修改 Facebook 貼文草稿(不給 id 是新增)。只存草稿,不會發佈:發佈與排程只能由人在 omixor 的 AI 自動化 › 粉絲專頁 按。已排程或已發佈的草稿不能修改。以角色身分工作時帶 agent,草稿會署名該角色。",
              properties: [
                  "id": prop("string", "要修改的草稿 id;不給就是新增"),
@@ -520,57 +625,57 @@ final class MCPHandler {
 
     private func call(_ name: String, _ a: MCPArgs) async throws -> Any {
         switch name {
-        case "ops_overview": return overview()
-        case "ops_list": return try list(a)
-        case "ops_get": return try get(a)
-        case "ops_navigate": return try navigate(a)
-        case "ops_alert_update": return try alertUpdate(a)
-        case "ops_alert_create": return try alertCreate(a)
-        case "ops_incident_declare": return try incidentDeclare(a)
-        case "ops_incident_update": return try incidentUpdate(a)
-        case "ops_work_item_create": return try workItemCreate(a)
-        case "ops_work_item_move": return try workItemMove(a)
-        case "ops_pipeline_update": return try pipelineUpdate(a)
-        case "ops_request_approval": return try requestApproval(a)
-        case "ops_log_append": return try logAppend(a)
-        case "ops_activity_post": return try activityPost(a)
-        case "ops_voice_submit": return try await voiceSubmit(a)
-        case "ops_voice_jobs": return try voiceJobs(a)
-        case "ops_site_visitors": return try await siteVisitors(a)
-        case "ops_issue_create": return try issueCreate(a)
-        case "ops_issue_update": return try issueUpdate(a)
-        case "ops_issues": return try issuesQuery(a)
-        case "ops_agents": return try agentsList(a)
-        case "ops_agent_context": return try agentContext(a)
-        case "ops_agent_tasks": return try agentTasks(a)
-        case "ops_agent_task_claim": return try agentClaim(a)
-        case "ops_agent_task_report": return try agentReport(a)
-        case "ops_agent_task_create": return try agentCreate(a)
-        case "ops_agent_upsert": return try agentUpsert(a)
-        case "ops_chain": return chainList()
-        case "ops_chain_save": return try chainSave(a)
-        case "ops_agent_task_delegate": return try agentDelegate(a)
-        case "ops_channels": return try channelsList(a)
-        case "ops_channel_create": return try channelCreate(a)
-        case "ops_channel_messages": return try channelMessages(a)
-        case "ops_channel_post": return try channelPost(a)
-        case "ops_orgs": return orgsInfo()
-        case "ops_server": return serverInfo()
-        case "ops_cabinet": return try cabinet(a)
-        case "ops_docs": return try docs(a)
-        case "ops_doc_save": return try docSave(a)
-        case "ops_github": return try await githubSummary(a)
-        case "ops_github_runs": return try await githubRuns(a)
-        case "ops_github_run": return try await githubRun(a)
-        case "ops_github_pull": return try await githubPull(a)
-        case "ops_gcp": return try await gcpSummary(a)
-        case "ops_gcp_logs": return try await gcpLogs(a)
-        case "ops_gcp_metrics": return try await gcpMetrics(a)
-        case "ops_fb_pages": return try await fbPages(a)
-        case "ops_fb_posts": return try await fbPosts(a)
-        case "ops_fb_insights": return try await fbInsights(a)
-        case "ops_fb_drafts": return try fbDrafts(a)
-        case "ops_fb_draft_save": return try fbDraftSave(a)
+        case "overview": return overview()
+        case "list": return try list(a)
+        case "get": return try get(a)
+        case "navigate": return try navigate(a)
+        case "alert_update": return try alertUpdate(a)
+        case "alert_create": return try alertCreate(a)
+        case "incident_declare": return try incidentDeclare(a)
+        case "incident_update": return try incidentUpdate(a)
+        case "work_item_create": return try workItemCreate(a)
+        case "work_item_move": return try workItemMove(a)
+        case "pipeline_update": return try pipelineUpdate(a)
+        case "request_approval": return try requestApproval(a)
+        case "log_append": return try logAppend(a)
+        case "activity_post": return try activityPost(a)
+        case "voice_submit": return try await voiceSubmit(a)
+        case "voice_jobs": return try voiceJobs(a)
+        case "site_visitors": return try await siteVisitors(a)
+        case "issue_create": return try issueCreate(a)
+        case "issue_update": return try issueUpdate(a)
+        case "issues": return try issuesQuery(a)
+        case "agents": return try agentsList(a)
+        case "agent_context": return try agentContext(a)
+        case "agent_tasks": return try agentTasks(a)
+        case "agent_task_claim": return try agentClaim(a)
+        case "agent_task_report": return try agentReport(a)
+        case "agent_task_create": return try agentCreate(a)
+        case "agent_upsert": return try agentUpsert(a)
+        case "chain": return chainList()
+        case "chain_save": return try chainSave(a)
+        case "agent_task_delegate": return try agentDelegate(a)
+        case "channels": return try channelsList(a)
+        case "channel_create": return try channelCreate(a)
+        case "channel_messages": return try channelMessages(a)
+        case "channel_post": return try channelPost(a)
+        case "orgs": return orgsInfo()
+        case "server": return serverInfo()
+        case "cabinet": return try cabinet(a)
+        case "docs": return try docs(a)
+        case "doc_save": return try docSave(a)
+        case "github": return try await githubSummary(a)
+        case "github_runs": return try await githubRuns(a)
+        case "github_run": return try await githubRun(a)
+        case "github_pull": return try await githubPull(a)
+        case "gcp": return try await gcpSummary(a)
+        case "gcp_logs": return try await gcpLogs(a)
+        case "gcp_metrics": return try await gcpMetrics(a)
+        case "fb_pages": return try await fbPages(a)
+        case "fb_posts": return try await fbPosts(a)
+        case "fb_insights": return try await fbInsights(a)
+        case "fb_drafts": return try fbDrafts(a)
+        case "fb_draft_save": return try fbDraftSave(a)
         default: throw MCPToolError("沒有這個工具:\(name)")
         }
     }
@@ -674,13 +779,17 @@ final class MCPHandler {
     private func navigate(_ a: MCPArgs) throws -> Any {
         if let env = try a.optionalEnum("env", DeployEnv.self) { app.env = env }
         if let range = try a.optionalEnum("time_range", TimeRange.self) { app.timeRange = range }
+        var notice: String?
         if let section = try a.optionalEnum("section", AppSection.self) {
-            app.go(section, focus: a.string("focus_id"))
+            // 系統設定關掉的頁面:改去總覽(回傳 notice 說明)
+            if !app.go(section, focus: a.string("focus_id")) { notice = "「\(section.title)」在系統設定裡關閉了,已改去總覽" }
         } else if let focus = a.string("focus_id") {
             app.focusId = focus
         }
-        return ["section": app.section.rawValue, "focusId": app.focusId as Any? ?? NSNull(),
-                "env": app.env.rawValue, "timeRange": app.timeRange.rawValue]
+        var out: [String: Any] = ["section": app.section.rawValue, "focusId": app.focusId as Any? ?? NSNull(),
+                                  "env": app.env.rawValue, "timeRange": app.timeRange.rawValue]
+        if let notice { out["notice"] = notice }
+        return out
     }
 
     private func alertUpdate(_ a: MCPArgs) throws -> Any {
@@ -711,6 +820,7 @@ final class MCPHandler {
         return MCPJSON.object(alert)
     }
 
+    /// 連 server 時這兩個工具會轉給 server 的核心實作;這裡是 server 工具清單讀不到時的後備,一樣透過 IncidentStore 寫(連線能用就寫進 core server)
     private func incidentDeclare(_ a: MCPArgs) throws -> Any {
         let title = try a.require("title")
         let sev = try a.requireInt("sev")
@@ -720,45 +830,32 @@ final class MCPHandler {
         guard app.person(commander) != nil else { throw MCPToolError("找不到 person \(commander)") }
         let alertIds = a.strings("alert_ids") ?? []
         for id in alertIds where !app.alerts.contains(where: { $0.id == id }) { throw MCPToolError("找不到告警 \(id)") }
-
-        let num = (app.incidents.compactMap { Int($0.id.filter(\.isNumber)) }.max() ?? 2000) + 1
-        let id = "INC-\(num)"
-        var timeline = [IncidentEvent(id: UUID(), date: .now, actor: .mcp, kind: .status,
-                                      text: "宣告 SEV\(sev) 事件,指揮官:\(app.person(commander)?.name ?? commander)")]
-        for alertId in alertIds {
-            if let i = app.alerts.firstIndex(where: { $0.id == alertId }) {
-                app.alerts[i].incidentId = id
-                timeline.append(IncidentEvent(id: UUID(), date: .now, actor: .mcp, kind: .alert, text: "關聯告警「\(app.alerts[i].title)」"))
-            }
-        }
-        let inc = Incident(id: id, title: title, sev: sev, status: .investigating, services: services, commander: commander,
-                           startedAt: .now, resolvedAt: nil, impact: try a.require("impact"), timeline: timeline,
-                           aiSummary: nil, followUps: [])
-        app.incidents.insert(inc, at: 0)
-        app.log(.mcp, "flame.fill", "宣告 SEV\(sev) 事件 \(id)「\(title)」", .incidents)
+        let impact = try a.require("impact")
+        let inc: Incident
+        do {
+            inc = try app.startIncidents().declare(title: title, sev: sev, services: services, commander: commander,
+                                                   impact: impact, alertIds: alertIds, by: .mcp)
+        } catch { throw MCPToolError("事件沒有存起來:\(error.localizedDescription)") }
+        app.log(.mcp, "flame.fill", "宣告 SEV\(sev) 事件 \(inc.id)「\(title)」", .incidents)
         return MCPJSON.object(inc)
     }
 
     private func incidentUpdate(_ a: MCPArgs) throws -> Any {
         let id = try a.require("incident_id")
-        guard let i = app.incidents.firstIndex(where: { $0.id == id }) else { throw MCPToolError("找不到事件 \(id)") }
+        guard app.incidents.contains(where: { $0.id == id }) else { throw MCPToolError("找不到事件 \(id)") }
         let status = try a.optionalEnum("status", IncidentStatus.self)
         let note = a.string("note"), finding = a.string("finding")
         let summary = a.string("ai_summary"), impact = a.string("impact")
         if status == nil && note == nil && finding == nil && summary == nil && impact == nil {
             throw MCPToolError("status、note、finding、ai_summary、impact 至少要給一項")
         }
-        if let status {
-            app.updateIncident(id: id, status: status, note: note, by: .mcp)
-        } else if let note {
-            app.addIncidentNote(id: id, text: note, by: .mcp)
-        }
-        if let finding {
-            app.incidents[i].timeline.append(IncidentEvent(id: UUID(), date: .now, actor: .mcp, kind: .aiFinding, text: finding))
-        }
-        if let summary { app.incidents[i].aiSummary = summary }
-        if let impact { app.incidents[i].impact = impact }
-        return MCPJSON.object(app.incidents[i])
+        let inc: Incident
+        do {
+            inc = try app.startIncidents().update(id: id, status: status, note: note, finding: finding,
+                                                  aiSummary: summary, impact: impact, by: .mcp)
+        } catch { throw MCPToolError("事件沒有改成:\(error.localizedDescription)") }
+        if let status { app.log(.mcp, "flame", "\(inc.id) 狀態改為\(status.label)", .incidents) }
+        return MCPJSON.object(inc)
     }
 
     private func workItemCreate(_ a: MCPArgs) throws -> Any {
@@ -778,8 +875,13 @@ final class MCPHandler {
                             assignee: assignee.map { .person($0) }, points: a.int("points") ?? 3,
                             service: service, createdByAI: true)
         app.workItems.append(item)
-        if let i = incidentIndex { app.incidents[i].followUps.append(item.id) }
         app.log(.mcp, "checklist", "建立 \(item.id)「\(title)」", .development)
+        if let i = incidentIndex {
+            let incId = app.incidents[i].id
+            do { _ = try app.startIncidents().update(id: incId, addFollowUps: [item.id], by: .mcp) } catch {
+                throw MCPToolError("已建立 \(item.id),但沒有關聯到事件 \(incId):\(error.localizedDescription)")
+            }
+        }
         return MCPJSON.object(item)
     }
 
@@ -854,7 +956,7 @@ final class MCPHandler {
             let ahead = app.voiceJobs.filter { $0.state == .queued && $0.id != job.id }.count
                 + app.voiceJobs.filter(\.state.holdsBatch).count
             return ["job": voiceJSON(job, full: false),
-                    "note": ahead > 0 ? "前面還有 \(ahead) 批,輪到時自動送出" : "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 ops_voice_jobs 查進度"]
+                    "note": ahead > 0 ? "前面還有 \(ahead) 批,輪到時自動送出" : "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 voice_jobs 查進度"]
         } catch {
             throw MCPToolError(error.localizedDescription)
         }
@@ -950,11 +1052,11 @@ final class MCPHandler {
         let g = agentStore.agent(ag) ?? c.agent
         var out: [String: Any] = ["agent": g.map(agentJSON) ?? [:], "task": t.map { taskJSON($0) as Any } ?? NSNull(),
                                   "message": t == nil ? "\(g?.name ?? ag) 目前沒有待領取的任務"
-                                      : "已領取,做完用 ops_agent_task_report 回報。開 Issue 或留言時帶 agent: \"\(g?.id ?? ag)\",才會署名這個角色"]
+                                      : "已領取,做完用 agent_task_report 回報。開 Issue 或留言時帶 agent: \"\(g?.id ?? ag)\",才會署名這個角色"]
         if let cr = c.credential {
             out["credential"] = ["agentId": cr.agentId, "taskId": cr.taskId, "secret": cr.secret,
                                  "expiresAt": cr.expiresAt, "endpoint": cr.endpoint]
-            out["message"] = "已領取。用 credential 連角色端點(\(cr.endpoint),HTTP 標頭 Authorization: Bearer <agentId>:<secret>)以角色身分工作;secret 只給這一次,不要寫進 Issue、留言、任務結果或檔案。至少每小時用 ops_agent_task_report status=inProgress 回報以續約,做完回報 done、需要人決定回報 blocked(之後憑證失效)。"
+            out["message"] = "已領取。用 credential 連角色端點(\(cr.endpoint),HTTP 標頭 Authorization: Bearer <agentId>:<secret>)以角色身分工作;secret 只給這一次,不要寫進 Issue、留言、任務結果或檔案。至少每小時用 agent_task_report status=inProgress 回報以續約,做完回報 done、需要人決定回報 blocked(之後憑證失效)。"
         }
         return out
     }
@@ -1051,7 +1153,7 @@ final class MCPHandler {
 
     private func chainList() -> Any {
         let store = agentStore
-        if store.isRemote { store.loadChain() }
+        store.loadChain()
         var out: [String: Any] = ["edges": app.orgChain.edges.map(chainEdgeJSON)]
         if let u = app.orgChain.updatedAt { out["updatedAt"] = ISO8601DateFormatter().string(from: u) }
         if let e = app.orgChainError { out["error"] = e }
@@ -1070,7 +1172,7 @@ final class MCPHandler {
         let add = try chainEdges(a.raw["add"], "add")
         let remove = try chainEdges(a.raw["remove"], "remove")
         guard replace != nil || add != nil || remove != nil else { throw MCPToolError("要給 edges(取代全部)或 add / remove") }
-        if store.isRemote { store.loadChain() }
+        store.loadChain()
         // 比對 add、remove 前先把節點正規化(沒有前綴的 agent 名稱、email 大小寫)
         func key(_ raw: String) -> String {
             let s = raw.trimmingCharacters(in: .whitespaces)
@@ -1105,7 +1207,7 @@ final class MCPHandler {
         } catch let e as MCPToolError { throw e } catch { throw MCPToolError(error.localizedDescription) }
     }
 
-    /// ops_agent_context 的 chain:上游(回報給誰)與下游(可以派給誰)
+    /// agent_context 的 chain:上游(回報給誰)與下游(可以派給誰)
     private func chainContext(_ g: Agent) -> [String: Any] {
         let node = ChainNode.agent(g.id)
         func row(_ n: String, _ label: String) -> [String: Any] { ["node": n, "name": agentStore.chainName(n), "label": label] }
@@ -1115,7 +1217,7 @@ final class MCPHandler {
 
     // MARK: 組織
 
-    /// ops_server:連線資訊與版本(對應 web 的 internal/mcp/tools_server.go;不含網址與密鑰)
+    /// server:連線資訊與版本(對應 web 的 internal/mcp/tools_server.go;不含網址與密鑰)
     private func serverInfo() -> Any {
         var out: [String: Any] = ["mode": app.mode.mode, "org": ["id": app.currentOrgId, "name": app.currentOrg?.name ?? ""]]
         var ver: [String: Any] = ["app": ["version": Self.serverVersion]]

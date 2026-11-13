@@ -5,7 +5,8 @@ import { createContext, useContext, useEffect, useRef, useState, type CSSPropert
 import * as L from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { action, useView } from "../api";
+import { useView } from "../api";
+import { guardedNavigate, useFeatures } from "../features";
 import { Icon } from "./Icon";
 import { color, Modal, Pill } from "./ui";
 import type { Actor, Nav, SectionId } from "../types";
@@ -218,6 +219,8 @@ type Shared = {
   service: (id: string) => Service | undefined;
   name: (a?: Actor | null) => string;
   go: (section: SectionId, focusId?: string | null) => void;
+  /** 能不能跳到這個頁面(系統設定關掉的頁面,連結與按鈕不顯示) */
+  canGo: (section: SectionId) => boolean;
 };
 const SharedCtx = createContext<Shared | null>(null);
 
@@ -230,6 +233,7 @@ export function OpsProvider({ children }: { children: ReactNode }) {
   const [repos] = useView<Repository[]>("repos");
   const [me] = useView<{ id: string; name: string }>("me");
   const [nav] = useView<Nav>("nav");
+  const flags = useFeatures();
   const ppl = Array.isArray(people) ? people : [];
   const autos = Array.isArray(automations) ? automations : [];
   const agents = Array.isArray(agentsView?.agents) ? agentsView!.agents : [];
@@ -245,7 +249,8 @@ export function OpsProvider({ children }: { children: ReactNode }) {
       if (a.kind === "ai") return autos.find((x) => x.id === a.id)?.name ?? agents.find((x) => x.id === a.id)?.name ?? (a.id === "mcp" ? "MCP 用戶端" : "AI");
       return "系統";
     },
-    go: (section, focusId) => { action("navigate", { section, focusId: focusId ?? "" }).catch(() => undefined); },
+    go: (section, focusId) => { guardedNavigate(section, focusId).catch(() => undefined); },
+    canGo: flags.visible,
   };
   return <SharedCtx.Provider value={value}>{children}</SharedCtx.Provider>;
 }

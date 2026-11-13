@@ -5,8 +5,8 @@ import Foundation
 //   - 範本本身也是文件櫃裡的文件:kind: template、for: <套用的 kind>、required: <必填欄位,逗號分隔>,
 //     內文放一個 ```html 區塊(版面,{{…}} 填欄位)與一個 ```css 區塊(樣式)
 //   - 有對應範本的文件,畫面用網頁顯示(轉換器是 templates/doc/docrender.js,兩版共用);沒有就照舊顯示 Markdown
-//   - ops_doc_save 存檔前依範本檢查必填欄位
-// 範本是資料:AI 用 ops_doc_save 就能新增或修改,不用改程式。
+//   - doc_save 存檔前依範本檢查必填欄位
+// 範本是資料:AI 用 doc_save 就能新增或修改,不用改程式。
 
 struct DocTemplate: Equatable {
     var docId: String

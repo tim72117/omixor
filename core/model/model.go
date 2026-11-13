@@ -71,10 +71,10 @@ type Issue struct {
 	Priority  string    `json:"priority"`
 	Source    string    `json:"source"`
 	// Assignee 指派給的虛擬角色 id(空 = 未指派);指派時會自動替該角色排任務(見 service/agents.go)
-	Assignee  string    `json:"assignee,omitempty"`
-	Status    string    `json:"status"`
-	Title     string    `json:"title"`
-	UpdatedAt Time      `json:"updatedAt"`
+	Assignee  string `json:"assignee,omitempty"`
+	Status    string `json:"status"`
+	Title     string `json:"title"`
+	UpdatedAt Time   `json:"updatedAt"`
 }
 
 // Number ISS-12 → 12(格式不對回傳 0)

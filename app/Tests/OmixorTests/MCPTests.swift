@@ -10,6 +10,7 @@ final class MCPTests: XCTestCase {
     private var dataDir: URL!
 
     override func setUp() async throws {
+        try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
         TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-mcp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
@@ -80,10 +81,21 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual((obj?["error"] as? [String: Any])?["code"] as? Int, -32700)
     }
 
+    /// 工具名稱拿掉 ops_ 前綴:tools/list 只列新名稱,舊名稱還能呼叫
+    func testLegacyToolNames() async throws {
+        XCTAssertFalse(MCPHandler.tools.contains { $0.name.hasPrefix("ops_") })
+        XCTAssertEqual(MCPHandler.legacyToolName("ops_overview"), "overview")
+        XCTAssertEqual(MCPHandler.legacyToolName("ops_nope"), "ops_nope")
+        _ = try await ok("ops_overview")
+    }
+
     func testToolsListHasSchemas() async throws {
         let r = try await rpc("tools/list")
         let tools = try XCTUnwrap((r["result"] as? [String: Any])?["tools"] as? [[String: Any]])
-        XCTAssertEqual(tools.count, MCPHandler.tools.count)
+        // App 的工具都在;server 可能多提供核心才有的工具(例如 incidents)
+        let names = Set(tools.compactMap { $0["name"] as? String })
+        XCTAssertTrue(names.isSuperset(of: MCPHandler.tools.map(\.name)), "\(Set(MCPHandler.tools.map(\.name)).subtracting(names))")
+        XCTAssertEqual(names.count, tools.count, "工具名稱不能重複")
         for t in tools {
             let schema = try XCTUnwrap(t["inputSchema"] as? [String: Any], "\(t["name"] ?? "")")
             XCTAssertEqual(schema["type"] as? String, "object")
@@ -98,7 +110,7 @@ final class MCPTests: XCTestCase {
     // MARK: - 讀取
 
     func testOverview() async throws {
-        let o = try await ok("ops_overview")
+        let o = try await ok("overview")
         let counts = try XCTUnwrap(o["counts"] as? [String: Any])
         XCTAssertEqual(counts["firingAlerts"] as? Int, app.firingAlerts.count)
         XCTAssertEqual((o["services"] as? [Any])?.count, app.services.count)
@@ -106,44 +118,44 @@ final class MCPTests: XCTestCase {
 
     func testEveryCollectionEncodes() async throws {
         for c in MCPHandler.collections {
-            let out = try await ok("ops_list", ["collection": c, "limit": 200])
+            let out = try await ok("list", ["collection": c, "limit": 200])
             XCTAssertGreaterThan(out["total"] as? Int ?? 0, 0, c)
         }
     }
 
     func testListWhereAndSearch() async throws {
-        let firing = try await ok("ops_list", ["collection": "alerts", "where": ["state": "firing"]])
+        let firing = try await ok("list", ["collection": "alerts", "where": ["state": "firing"]])
         XCTAssertEqual(firing["total"] as? Int, app.alerts.filter { $0.state == .firing }.count)
 
         let svc = app.services[0]
-        let byService = try await ok("ops_list", ["collection": "services", "search": svc.name.uppercased()])
+        let byService = try await ok("list", ["collection": "services", "search": svc.name.uppercased()])
         XCTAssertGreaterThanOrEqual(byService["total"] as? Int ?? 0, 1)
 
         // 執行者欄位比對 id
         let author = try XCTUnwrap(app.pullRequests.first { if case .ai = $0.author { return true }; return false })
         guard case .ai(let aiId) = author.author else { return XCTFail() }
-        let prs = try await ok("ops_list", ["collection": "pull_requests", "where": ["author": aiId]])
+        let prs = try await ok("list", ["collection": "pull_requests", "where": ["author": aiId]])
         XCTAssertGreaterThanOrEqual(prs["total"] as? Int ?? 0, 1)
     }
 
     func testListCompactsSeriesButGetIsFull() async throws {
-        let list = try await ok("ops_list", ["collection": "servers", "limit": 1])
+        let list = try await ok("list", ["collection": "servers", "limit": 1])
         let first = try XCTUnwrap((list["items"] as? [[String: Any]])?.first)
         XCTAssertLessThanOrEqual((first["cpuSeries"] as? [Any])?.count ?? 0, 3)
 
         let id = app.servers[0].id
-        let full = try await ok("ops_get", ["collection": "servers", "id": id])
+        let full = try await ok("get", ["collection": "servers", "id": id])
         XCTAssertEqual((full["cpuSeries"] as? [Any])?.count, app.servers[0].cpuSeries.count)
         // 以列舉為 key 的字典要編成物件
-        let svc = try await ok("ops_get", ["collection": "services", "id": app.services[0].id])
+        let svc = try await ok("get", ["collection": "services", "id": app.services[0].id])
         XCTAssertNotNil(svc["versions"] as? [String: Any])
     }
 
     func testGetPipelineRunByNumber() async throws {
         let run = app.pipelineRuns[0]
-        let out = try await ok("ops_get", ["collection": "pipeline_runs", "id": "\(run.id)"])
+        let out = try await ok("get", ["collection": "pipeline_runs", "id": "\(run.id)"])
         XCTAssertEqual(out["id"] as? Int, run.id)
-        let (msg, isError) = try await tool("ops_get", ["collection": "alerts", "id": "NOPE-1"])
+        let (msg, isError) = try await tool("get", ["collection": "alerts", "id": "NOPE-1"])
         XCTAssertTrue(isError)
         XCTAssertTrue("\(msg)".contains("找不到"))
     }
@@ -152,7 +164,7 @@ final class MCPTests: XCTestCase {
 
     func testAcknowledgeAlertUpdatesAppAndActivity() async throws {
         let alert = try XCTUnwrap(app.alerts.first { $0.state == .firing })
-        let out = try await ok("ops_alert_update", ["alert_id": alert.id, "action": "acknowledge", "ai_note": "看起來是 DB 鎖"])
+        let out = try await ok("alert_update", ["alert_id": alert.id, "action": "acknowledge", "ai_note": "看起來是 DB 鎖"])
         XCTAssertEqual(out["state"] as? String, "acknowledged")
         let updated = try XCTUnwrap(app.alerts.first { $0.id == alert.id })
         XCTAssertEqual(updated.state, .acknowledged)
@@ -164,51 +176,52 @@ final class MCPTests: XCTestCase {
 
     func testCreateAlertAndDeclareIncident() async throws {
         let svc = app.services[0].id
-        let alert = try await ok("ops_alert_create", ["title": "測試告警", "severity": "critical", "service": svc,
+        let alert = try await ok("alert_create", ["title": "測試告警", "severity": "critical", "service": svc,
                                                 "rule": "x > 1", "value": "2"])
         let alertId = try XCTUnwrap(alert["id"] as? String)
         XCTAssertEqual(app.alerts.first?.id, alertId)
 
+        app.startIncidents()   // 同 App 啟動:事件存在 core server(本機服務的預設組織第一次會匯入範例資料)
         let before = app.incidents.count
-        let inc = try await ok("ops_incident_declare", ["title": "測試事件", "sev": 2, "services": [svc],
+        let inc = try await ok("incident_declare", ["title": "測試事件", "sev": 2, "services": [svc],
                                                   "impact": "部分使用者無法登入", "alert_ids": [alertId]])
         let incId = try XCTUnwrap(inc["id"] as? String)
         XCTAssertEqual(app.incidents.count, before + 1)
         XCTAssertEqual(app.alerts.first { $0.id == alertId }?.incidentId, incId)
 
-        _ = try await ok("ops_incident_update", ["incident_id": incId, "status": "identified", "note": "找到原因",
+        _ = try await ok("incident_update", ["incident_id": incId, "status": "identified", "note": "找到原因",
                                            "finding": "連線池耗盡", "ai_summary": "摘要"])
         let i = try XCTUnwrap(app.incident(incId))
         XCTAssertEqual(i.status, .identified)
         XCTAssertEqual(i.aiSummary, "摘要")
         XCTAssertTrue(i.timeline.contains { $0.kind == .aiFinding && $0.text == "連線池耗盡" })
 
-        let wi = try await ok("ops_work_item_create", ["title": "加大連線池", "type": "incident", "incident_id": incId])
+        let wi = try await ok("work_item_create", ["title": "加大連線池", "type": "incident", "incident_id": incId])
         let wid = try XCTUnwrap(wi["id"] as? String)
         XCTAssertTrue(app.incident(incId)!.followUps.contains(wid))
-        _ = try await ok("ops_work_item_move", ["id": wid, "status": "inProgress"])
+        _ = try await ok("work_item_move", ["id": wid, "status": "inProgress"])
         XCTAssertEqual(app.workItems.first { $0.id == wid }?.status, .inProgress)
     }
 
     func testValidationErrors() async throws {
-        var (msg, isError) = try await tool("ops_alert_create", ["title": "x", "severity": "huge", "service": app.services[0].id,
+        var (msg, isError) = try await tool("alert_create", ["title": "x", "severity": "huge", "service": app.services[0].id,
                                                           "rule": "r", "value": "v"])
         XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("severity"))
-        (msg, isError) = try await tool("ops_incident_declare", ["title": "x", "sev": 9, "impact": "y"])
+        (msg, isError) = try await tool("incident_declare", ["title": "x", "sev": 9, "impact": "y"])
         XCTAssertTrue(isError)
-        (msg, isError) = try await tool("ops_alert_create", ["title": "x", "severity": "info", "service": "nope", "rule": "r", "value": "v"])
+        (msg, isError) = try await tool("alert_create", ["title": "x", "severity": "info", "service": "nope", "rule": "r", "value": "v"])
         XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("找不到服務"))
     }
 
     func testRetryPipelineAndRequestApproval() async throws {
         let run = app.pipelineRuns[0]
-        let out = try await ok("ops_pipeline_update", ["run_id": run.id, "action": "retry"])
+        let out = try await ok("pipeline_update", ["run_id": run.id, "action": "retry"])
         let newRun = try XCTUnwrap(out["newRun"] as? [String: Any])
         XCTAssertEqual(newRun["status"] as? String, "running")
         XCTAssertEqual(app.pipelineRuns[0].triggeredBy, .mcp)
 
         let pending = app.pendingApprovals.count
-        let req = try await ok("ops_request_approval", ["title": "擴容", "action": "kubectl scale ...", "rationale": "佇列積壓",
+        let req = try await ok("request_approval", ["title": "擴容", "action": "kubectl scale ...", "rationale": "佇列積壓",
                                                   "rollback_plan": "縮回 4", "risk": "medium", "evidence": ["queue=1200"]])
         XCTAssertEqual(req["state"] as? String, "pending")
         XCTAssertEqual(app.pendingApprovals.count, pending + 1)
@@ -216,7 +229,7 @@ final class MCPTests: XCTestCase {
 
     func testNavigate() async throws {
         let inc = app.incidents[0].id
-        _ = try await ok("ops_navigate", ["section": "incidents", "focus_id": inc, "env": "staging"])
+        _ = try await ok("navigate", ["section": "incidents", "focus_id": inc, "env": "staging"])
         XCTAssertEqual(app.section, .incidents)
         XCTAssertEqual(app.focusId, inc)
         XCTAssertEqual(app.env, .staging)

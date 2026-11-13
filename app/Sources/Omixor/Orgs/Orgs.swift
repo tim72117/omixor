@@ -6,7 +6,8 @@ import AppKit
 // 第一次啟動時,舊版直接放在 <資料夾> 的 issues.json 等檔案會複製到預設組織(原檔保留不動)。
 // 旁白批次(voice-jobs.json)是全部組織共用的。
 // 畫面上的範例資料與動態牆分組織(OrgMock.swift):預設組織用範例資料,其他組織從空的開始。
-// 本機模式:組織清單在 orgs.json。遠端模式(OmixorMode.swift):組織的全部資訊(名稱、圖示、顏色、備註)以 omixor server 為準,
+// 本機模式:組織清單在 orgs.json(新增、修改時同步到本機守護服務,見 LocalCore.swift);組織裡的 Issue、角色與任務、組織鏈、
+// 頻道、文件櫃存在本機守護服務,組織資料夾裡舊的 issues.json 等只在第一次匯入時讀(留著當備份)。遠端模式(OmixorMode.swift):組織的全部資訊(名稱、圖示、顏色、備註)以 omixor server 為準,
 // 這裡只存快取 orgs-remote.json;id 加 "~" 前綴,資料夾是 orgs/~<伺服器的組織 id>/(角色、文件櫃、連線等還是存在這台 Mac)。
 
 struct Organization: Codable, Hashable, Identifiable {
@@ -147,6 +148,12 @@ extension AppState {
         if OmixorMode.isRemoteOrg(currentOrgId) { OrgFiles.saveRemoteIndex(idx) } else { OrgFiles.saveIndex(idx) }
     }
 
+    /// 本機組織清單改了內容(新增、改名稱圖示):同步到本機守護服務(背景;切換組織時會先等它做完)
+    private func saveLocalOrgs() {
+        saveOrgs()
+        syncLocalCoreOrgs()
+    }
+
     /// 遠端模式:組織清單換成這台伺服器的(目前的組織還在就不動,不在就選第一個)。回傳目前的組織有沒有換
     @discardableResult
     func applyRemoteOrgs(_ list: [ServerOrg], server: URL) -> Bool {
@@ -225,7 +232,7 @@ extension AppState {
         let org = Organization(id: newOrgId(for: name), name: name, symbol: symbol, color: color)
         writeOrgTemplate(org.id, template)
         orgs.append(org)
-        saveOrgs()
+        saveLocalOrgs()
         log(.person(me), "building.2", "建立組織「\(name)」", .settings)
         return org
     }
@@ -233,14 +240,18 @@ extension AppState {
     func updateOrg(_ org: Organization) {
         guard let i = orgs.firstIndex(where: { $0.id == org.id }) else { return }
         orgs[i] = org
-        saveOrgs()
+        saveLocalOrgs()
     }
 
-    /// 刪除組織:資料夾移到垃圾桶(可以從垃圾桶救回);不能刪目前的組織
-    func deleteOrg(_ id: String) throws {
+    /// 刪除組織:本機模式先請本機守護服務刪掉這個組織的資料(Issue、角色與任務、頻道、文件櫃、事件與匯入紀錄;
+    /// 不刪的話之後建同名組織,舊資料會回來),守護服務刪失敗就整個不刪並丟出原因。
+    /// 之後組織資料夾移到垃圾桶(可以從垃圾桶救回)、清掉鑰匙圈裡的登入;不能刪目前的組織
+    func deleteOrg(_ id: String) async throws {
         guard !OmixorMode.isRemoteOrg(id) else { throw CabinetError("遠端的組織由 omixor server 管理,不能在 app 刪除") }
         guard id != currentOrgId else { throw CabinetError("不能刪除目前使用中的組織,先切換到別的組織") }
         guard orgs.count > 1 else { throw CabinetError("至少要留一個組織") }
+        if mode.mode == OmixorMode.local { try await deleteLocalCoreOrg(id) }
+        guard orgs.contains(where: { $0.id == id }), id != currentOrgId else { return }   // 等待期間被別的動作改了
         let d = OrgFiles.root.appendingPathComponent("orgs/\(id)", isDirectory: true)
         // 資料夾移走前先記下連線與專頁,才能清掉鑰匙圈裡的登入與專頁權杖
         let fbPages = (try? OrgFiles.decoder().decode(FBSettings.self, from: Data(contentsOf: d.appendingPathComponent("facebook.json"))))?.pages ?? []
@@ -268,40 +279,76 @@ extension AppState {
         log(.person(me), "trash", "刪除組織「\(name)」(資料夾已移到垃圾桶)", .settings)
     }
 
-    /// 切換組織:各功能重新讀這個組織的資料
-    func switchOrg(_ id: String) {
-        ensureOrgs()
-        guard id != currentOrgId, orgs.contains(where: { $0.id == id }) else { return }
-        currentOrgId = id
-        saveOrgs()
-        reloadOrgData()
-        log(.person(me), "arrow.left.arrow.right", "切換到組織「\(currentOrg?.name ?? id)」", .settings)
+    /// 本機模式:請本機守護服務刪掉組織的全部資料與匯入紀錄(DELETE /local/orgs/{org});失敗丟出原因(不會靜默略過)
+    func deleteLocalCoreOrg(_ id: String) async throws {
+        await localOrgSync?.value   // 先等還在送的組織清單同步,免得刪掉後又被建回來
+        let cfg = IssueServerConfig.current
+        if let why = cfg.unavailable { throw CabinetError("本機服務現在不能用,組織沒有刪除:\(why)") }
+        guard cfg.localCore else { return }
+        do {
+            try await IssueRemote.run(cfg) { try $0.deleteLocalOrg(id) }
+        } catch {
+            throw CabinetError("本機服務沒有刪掉組織的資料,組織沒有刪除:\(error.localizedDescription)")
+        }
     }
 
-    /// 組織或模式換了之後,各功能重新讀目前組織的資料
-    func reloadOrgData() {
+    /// 切換組織:各功能在背景重新讀這個組織的資料(回傳那個工作;畫面不用等,測試可以 await)
+    @discardableResult
+    func switchOrg(_ id: String) -> Task<Void, Never> {
+        ensureOrgs()
+        guard id != currentOrgId, orgs.contains(where: { $0.id == id }) else { return orgReload ?? Task {} }
+        currentOrgId = id
+        saveOrgs()
+        let t = reloadOrgData()
+        log(.person(me), "arrow.left.arrow.right", "切換到組織「\(currentOrg?.name ?? id)」", .settings)
+        return t
+    }
+
+    /// 組織或模式換了之後,各功能重新讀目前組織的資料。
+    /// 本機檔案(連線、GCP、LINE、粉絲專頁)直接讀;core server 的資料先清掉上一個組織的,再在背景同時讀,
+    /// 每一項讀到就更新畫面(主執行緒不等網路)。回傳背景讀的工作(畫面不用等,測試可以 await)
+    @discardableResult
+    func reloadOrgData() -> Task<Void, Never> {
         TokenVault.scope = currentOrgId == OrgFiles.defaultId ? "" : "\(currentOrgId)/"
         switchMock()
-        issueStore?.load()
-        agentStore?.load()
-        channelStore?.load()
+        issueStore?.clearForOrgChange()
+        agentStore?.clearForOrgChange()
+        channelStore?.clearForOrgChange()
         cabinetLoaded = false
-        Cabinet.load(self)
+        Cabinet.begin(self)
         connectionStates = [:]
         connStore?.load()
-        ghStore?.load()
-        if ghStore?.isLoggedIn == true { Task { await ghStore?.refresh() } }
         gcpStore?.load()
         lineStore?.orgChanged()
         fbStore?.load()
         if gcpStore?.isLoggedIn == true, gcpStore?.isConfigured == true { Task { await gcpStore?.refresh() } }
         focusId = nil
+        let pending = localOrgSync
+        let t = Task { @MainActor [weak self] in
+            await pending?.value   // 新組織還在同步到本機服務:等它好了再讀
+            guard let self else { return }
+            let system = self.systemStore, issues = self.issueStore, agents = self.agentStore
+            let channels = self.channelStore, incidents = self.incidentStore, gh = self.ghStore
+            await withTaskGroup(of: Void.self) { g in
+                if let system { g.addTask { await system.reload() } }
+                if let issues { g.addTask { await issues.reload() } }
+                if let agents { g.addTask { await agents.reload() } }
+                if let channels { g.addTask { await channels.reload() } }
+                if let incidents { g.addTask { await incidents.reload() } }
+                g.addTask { await Cabinet.reload(self) }
+                if let gh { g.addTask { await gh.reload() } }
+            }
+            if let gh, gh.isLoggedIn { Task { await gh.refresh() } }
+        }
+        orgReload = t
+        return t
     }
 
     /// 換模式(本機 ⇄ 遠端)後重讀組織清單與各功能的資料
-    func reloadOrgsForMode() {
+    @discardableResult
+    func reloadOrgsForMode() -> Task<Void, Never> {
         orgsLoaded = false
         ensureOrgs()
-        reloadOrgData()
+        return reloadOrgData()
     }
 }

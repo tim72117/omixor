@@ -13,6 +13,7 @@ let package = Package(
     targets: [
         .executableTarget(name: "Ops", path: "Sources/Omixor"),
         .executableTarget(name: "OpsMCP", path: "Sources/OmixorMCP"),
-        .testTarget(name: "OpsTests", dependencies: ["Ops"], path: "Tests/OmixorTests"),
+        // Fixtures:測試用的假 MCP 伺服器腳本(不編譯)
+        .testTarget(name: "OpsTests", dependencies: ["Ops"], path: "Tests/OmixorTests", exclude: ["Fixtures"]),
     ]
 )

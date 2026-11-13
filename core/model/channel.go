@@ -9,7 +9,7 @@ import (
 
 // 訊息頻道:把需要合作的人(組織成員)與虛擬角色拉進同一個頻道對話。頻道可以自由建立,也可以綁一個 Issue。
 // 成員是節點(同組織鏈):"agent:<角色 id>" 或 "user:<email 小寫>"。@ 一個角色只通知、不排任務:
-// 角色下次執行(ops_agent_context)時看得到提到它的未讀訊息。規則(權限、@ 解析、未讀)在 service/channel.go。
+// 角色下次執行(agent_context)時看得到提到它的未讀訊息。規則(權限、@ 解析、未讀)在 service/channel.go。
 
 // ChannelPrefix 頻道 id 的前綴(CH-<n>,一個組織一起編號)
 const ChannelPrefix = "CH-"

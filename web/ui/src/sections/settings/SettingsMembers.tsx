@@ -51,7 +51,7 @@ export function SettingsMembers() {
       ))}
       {canEdit && !v.error && (
         <Row>
-          <input className="input grow" type="email" placeholder="新成員的 email" value={email} disabled={busy} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+          <input className="input grow" type="email" placeholder="新成員的 email" value={email} disabled={busy} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && add()} />
           <select className="select" style={{ minWidth: 100 }} value={role} onChange={(e) => setRole(e.target.value)}>
             {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
           </select>

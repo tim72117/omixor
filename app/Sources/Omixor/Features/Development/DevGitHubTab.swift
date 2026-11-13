@@ -41,9 +41,11 @@ struct DevGitHubTab: View {
     private var main: some View {
         VStack(spacing: 0) {
             toolbar
-            if !app.github.errors.isEmpty || app.github.error != nil {
+            if !app.github.errors.isEmpty || app.github.error != nil || app.github.settingsError != nil {
                 VStack(alignment: .leading, spacing: 4) {
                     if let e = app.github.error { Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                    // 追蹤的 repo 是組織的設定(存在 omixor server);讀寫不到時顯示原因
+                    if let e = app.github.settingsError { Label("組織設定:\(e)", systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
                     ForEach(app.github.errors.sorted(by: { $0.key < $1.key }), id: \.key) { r, e in
                         Label("\(r):\(e)", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     }
@@ -85,7 +87,7 @@ struct DevGitHubTab: View {
             ForEach(app.githubSettings.repos, id: \.self) { r in
                 Menu {
                     if let u = URL(string: "https://github.com/\(r)") { Button("在 GitHub 打開") { NSWorkspace.shared.open(u) } }
-                    Button("停止追蹤", role: .destructive) { store.removeRepo(r); if repoFilter == r { repoFilter = nil } }
+                    Button("停止追蹤", role: .destructive) { removeRepo(r) }
                 } label: { Label(r, systemImage: "shippingbox") }
                 .menuStyle(.borderlessButton).fixedSize()
             }
@@ -102,6 +104,15 @@ struct DevGitHubTab: View {
                 .help("重新整理").disabled(app.github.busy)
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
+    }
+
+    /// 停止追蹤(存到組織的設定,要組織管理員)
+    private func removeRepo(_ r: String) {
+        do {
+            try store.removeRepo(r)
+            repoError = nil
+            if repoFilter == r { repoFilter = nil }
+        } catch { repoError = error.localizedDescription }
     }
 
     private func addRepo() {
@@ -486,7 +497,10 @@ struct GitHubSetupView: View {
                     Button("用瀏覽器登入") { Task { await app.connStore?.login(c.id) } }
                         .buttonStyle(.borderedProminent)
                         .disabled(state?.busy == true)
-                    if state?.busy == true { ProgressView().controlSize(.small); Text("等瀏覽器授權…").font(.caption) }
+                    if state?.busy == true {
+                        ProgressView().controlSize(.small); Text("等瀏覽器授權…").font(.caption)
+                        Button("取消") { app.connStore?.cancelLogin(c.id) }
+                    }
                     Spacer()
                     Button("重新設定 OAuth App") {
                         var n = c; n.oauth.clientId = ""

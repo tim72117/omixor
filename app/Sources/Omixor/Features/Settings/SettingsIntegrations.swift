@@ -45,6 +45,7 @@ struct SettingsIntegrationsPane: View {
             }
 
             MCPServerSection()
+            MCPGatewaySection()
 
             if app.integrations.isEmpty {
                 Section {

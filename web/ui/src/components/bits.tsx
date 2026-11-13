@@ -1,6 +1,7 @@
 // 監控、事件、AI 自動化、文件櫃、設定、助理共用的小元件(對應 Swift 版 Components.swift 裡 ui.tsx 沒有的部分)
 import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { action, useView } from "../api";
+import { useView } from "../api";
+import { guardedNavigate } from "../features";
 import type { Actor, SectionId } from "../types";
 import { Icon } from "./Icon";
 import { color, Pill } from "./ui";
@@ -449,5 +450,5 @@ export function useStored<T>(key: string, initial: T): [T, (v: T) => void] {
   return [v, set];
 }
 
-/** 跳到別頁並選中項目(Swift 的 app.go) */
-export const go = (section: SectionId, focusId?: string) => action("navigate", { section, focusId: focusId ?? "" });
+/** 跳到別頁並選中項目(Swift 的 app.go);系統設定關掉的頁面不跳,改在畫面上方提示 */
+export const go = (section: SectionId, focusId?: string) => guardedNavigate(section, focusId);

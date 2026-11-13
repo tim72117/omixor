@@ -12,6 +12,7 @@ import { DashboardsTab } from "./DashboardsTab";
 import { LogsTab } from "./LogsTab";
 import { RulesTab } from "./RulesTab";
 import { VisitorsTab } from "./VisitorsTab";
+import { useFeatureTabs } from "../../features";
 
 type MonTab = "alerts" | "dashboards" | "logs" | "rules" | "visitors";
 const TABS: { id: MonTab; title: string; icon: string }[] = [
@@ -32,7 +33,9 @@ export function useTimeRange(): { key: string; label: string; seconds: number } 
 }
 
 export default function MonitoringView({ focusId, clearFocus }: SectionProps) {
-  const [tab, setTab] = useState<MonTab>("alerts");
+  const [rawTab, setRawTab] = useState<MonTab>("alerts");
+  const tabs = useFeatureTabs(TABS.map((x) => x.id), rawTab, setRawTab, (x) => `monitoring.${x}`);
+  const tab = tabs.shown, setTab = tabs.select;
   const [alertId, setAlertId] = useState<string>();
   const [dashId, setDashId] = useState<string>();
   const [ruleId, setRuleId] = useState<string>();
@@ -69,7 +72,7 @@ export default function MonitoringView({ focusId, clearFocus }: SectionProps) {
           <Segmented
             value={tab}
             onChange={setTab}
-            options={TABS.map((t) => ({ value: t.id, label: <span className="row gap4"><Icon name={t.icon} size={12} />{t.title}</span> }))}
+            options={TABS.filter((t) => tabs.on(t.id)).map((t) => ({ value: t.id, label: <span className="row gap4"><Icon name={t.icon} size={12} />{t.title}</span> }))}
           />
         }
       />

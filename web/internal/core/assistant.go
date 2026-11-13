@@ -47,18 +47,18 @@ type AssistReply struct {
 	Text    string         `json:"text"`
 }
 
-var assistSections = []string{"overview", "development", "pipelines", "infrastructure", "monitoring", "incidents", "automation", "cabinet", "settings", "channels"}
+var assistSections = []string{"overview", "development", "pipelines", "infrastructure", "monitoring", "incidents", "automation", "cabinet", "settings", "channels", "system"}
 
 var assistSectionTitle = map[string]string{
 	"overview": "總覽", "development": "開發進度", "pipelines": "CI/CD", "infrastructure": "伺服器與服務",
 	"monitoring": "監控與告警", "incidents": "事件", "automation": "AI 自動化", "cabinet": "文件櫃", "settings": "設定",
-	"channels": "對話",
+	"channels": "對話", "system": "系統",
 }
 
 var assistSectionIcon = map[string]string{
 	"overview": "square.grid.2x2", "development": "hammer", "pipelines": "arrow.triangle.branch", "infrastructure": "server.rack",
 	"monitoring": "waveform.path.ecg", "incidents": "flame", "automation": "sparkles", "cabinet": "archivebox", "settings": "gearshape",
-	"channels": "bubble.left.and.bubble.right",
+	"channels": "bubble.left.and.bubble.right", "system": "switch.2",
 }
 
 // MARK: - 動作
@@ -1355,6 +1355,24 @@ type AssistReplyResult struct {
 	Section  string `json:"section"`
 }
 
+// assistVisibleOnly 拿掉「前往」系統設定裡關掉的頁面的按鈕(同 App 的 AssistResponder 依開關)。要拿著 Mu
+func assistVisibleOnly(a *App, r AssistReply) AssistReply {
+	if len(r.Actions) == 0 {
+		return r
+	}
+	out := make([]AssistAction, 0, len(r.Actions))
+	for _, x := range r.Actions {
+		if k, _ := x["kind"].(string); k == "go" {
+			if s, _ := x["section"].(string); s != "" && !a.SectionVisible(s) {
+				continue
+			}
+		}
+		out = append(out, x)
+	}
+	r.Actions = out
+	return r
+}
+
 func assistSection(a *App, args map[string]any) (string, error) {
 	s, _ := args["section"].(string)
 	s = strings.TrimSpace(s)
@@ -1393,6 +1411,6 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		return AssistReplyResult{AssistReply: NewAssistResponder(a, sec).Reply(q), Question: q, Section: sec}, nil
+		return AssistReplyResult{AssistReply: assistVisibleOnly(a, NewAssistResponder(a, sec).Reply(q)), Question: q, Section: sec}, nil
 	})
 }

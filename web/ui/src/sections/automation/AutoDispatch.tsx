@@ -7,10 +7,12 @@ import { Card, EmptyState, Pill, color } from "../../components/ui";
 import { relative } from "../../fmt";
 import { AgentRunnerCard } from "./AutoRunner";
 import { useAuto } from "./autoShared";
+import { canGo, useFeatures } from "../../features";
 
 type Scope = "open" | "all";
 
 export function AutoDispatch({ openTask }: { openTask: (task: AgentTask) => void }) {
+  const runnerOn = useFeatures().enabled("automation.runner"); // 系統設定 › AI 自動化 › 自動執行
   const d = useAuto();
   const dir = useDirectory();
   const [scope, setScope] = useState<Scope>("open");
@@ -28,7 +30,7 @@ export function AutoDispatch({ openTask }: { openTask: (task: AgentTask) => void
 
   return (
     <div className="col gap12" style={{ padding: 16, overflowY: "auto", flex: 1, minHeight: 0 }}>
-      <AgentRunnerCard openTask={(id) => { const t = tasks.find((x) => x.id === id); if (t) openTask(t); }} />
+      {runnerOn && <AgentRunnerCard openTask={(id) => { const t = tasks.find((x) => x.id === id); if (t) openTask(t); }} />}
       <Card title="各角色目前的派發" subtitle="點角色可只看他被派的任務">
         {agents.length === 0 && <span className="muted">還沒有角色</span>}
         <div className="col">
@@ -74,7 +76,7 @@ export function AutoDispatch({ openTask }: { openTask: (task: AgentTask) => void
                 <span className="ellipsis grow" style={{ textAlign: "left", color: taskOpen(t.status) ? undefined : "var(--fg2)" }}>{t.title}</span>
                 {leaseLabel(t) && <span className="caption muted ellipsis" title="領取租約:鎖定期間不能被其他人領取">{leaseLabel(t)}</span>}
               </button>
-              {iss && <button className="btn link" onClick={() => go("development", iss)}>{iss}</button>}
+              {iss && canGo("development") && <button className="btn link" onClick={() => go("development", iss)}>{iss}</button>}
               {(t.priority === "urgent" || t.priority === "high") && <Pill text={PRIORITY_LABEL[t.priority]} color={PRIORITY_COLOR[t.priority]} />}
               <Pill text={TASK_LABEL[t.status]} color={TASK_COLOR[t.status]} />
               <span className="caption muted ellipsis" style={{ width: 110 }} title="派發者">{dir.authorName(t.createdBy)}</span>

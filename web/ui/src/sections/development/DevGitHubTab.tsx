@@ -19,6 +19,8 @@ type GitHubView = {
   settings: { repos: string[]; connection: string };
   snapshot: { repos: unknown[]; pulls: GHPull[]; runs: GHRun[]; fetchedAt?: string | null; busy: boolean; errors: Record<string, string>; error?: string | null };
   connection: Connection | null; loggedIn: boolean; state: ConnState | null;
+  /** 讀寫組織設定(核心)的錯誤;追蹤的 repo 是組織的設定,token 留在這台 */
+  settingsError?: string;
 };
 
 const HOMEPAGE = "http://127.0.0.1";
@@ -125,9 +127,10 @@ function GitHubMain({ gh }: { gh: GitHubView }) {
             { label: "停止追蹤", danger: true, onClick: () => { run(() => action("github_remove_repo", { repo: r })); if (repoFilter === r) setRepoFilter(""); } },
           ]} />
         ))}
-        <input className="input" style={{ width: 160 }} placeholder="owner/name" value={newRepo} onChange={(e) => setNewRepo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && newRepo.trim() && addRepo()} />
+        <input className="input" style={{ width: 160 }} placeholder="owner/name" value={newRepo} onChange={(e) => setNewRepo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && newRepo.trim() && addRepo()} />
         <button className="btn" disabled={!newRepo.trim()} onClick={addRepo}>加入</button>
         {repoError && <span className="caption ellipsis" style={{ color: "var(--red)" }}>{repoError}</span>}
+        {!repoError && gh.settingsError && <span className="caption ellipsis" style={{ color: "var(--orange)" }} title={gh.settingsError}>組織設定:{gh.settingsError}</span>}
         <span className="grow" />
         {snap.fetchedAt && <span className="caption muted">更新於 {relative(snap.fetchedAt)}</span>}
         {snap.busy && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}

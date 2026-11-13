@@ -45,7 +45,7 @@ struct DevIssuesTab: View {
                 Divider()
                 if list.isEmpty {
                     EmptyStateView(title: app.issues.isEmpty ? "還沒有 Issue" : "沒有符合的 Issue", icon: "exclamationmark.bubble",
-                                   message: app.issues.isEmpty ? "按 + 新增,或讓 AI 透過 MCP 的 ops_issue_create 存進來。" : nil)
+                                   message: app.issues.isEmpty ? "按 + 新增,或讓 AI 透過 MCP 的 issue_create 存進來。" : nil)
                 } else {
                     List(selection: $model.selectedIssue) {
                         ForEach(list) { IssueRow(issue: $0).tag($0.id) }
@@ -204,7 +204,7 @@ private struct IssueDetail: View {
                     })) {
                         ForEach(IssuePriority.allCases) { Text($0.label).tag($0) }
                     }
-                    if store.isRemote { assigneeMenu }
+                    assigneeMenu
                     Divider()
                     Button("編輯…") { startEdit() }
                     Button("刪除…", role: .destructive) { confirmDelete = true }
@@ -228,7 +228,7 @@ private struct IssueDetail: View {
                 if let e = store.remoteError { Text(e).font(.caption).foregroundStyle(.orange).lineLimit(2) }
                 if let e = channelError { Text(e).font(.caption).foregroundStyle(.red).lineLimit(2) }
             }
-            if store.isRemote, let a = issue.assignedAgent {
+            if let a = issue.assignedAgent {
                 let ts = app.agentTasks.filter { $0.agentId == a && $0.links.contains { $0.caseInsensitiveCompare(issue.id) == .orderedSame } }
                 if let t = ts.first(where: { $0.status.isOpen }) ?? ts.first {
                     Button { app.go(.automation, focus: t.id) } label: {

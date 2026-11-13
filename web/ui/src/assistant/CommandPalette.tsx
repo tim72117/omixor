@@ -4,9 +4,11 @@ import { useView } from "../api";
 import { go } from "../components/bits";
 import { Icon } from "../components/Icon";
 import { arr, type Automation, type Incident, type Server, type Service } from "../components/models";
+import { useFeatures } from "../features";
 import { SECTIONS, type SectionId } from "../types";
 
-type Entry = { id: string; title: string; detail: string; icon: string; section: SectionId; focus?: string };
+// feature:這個項目所在的分頁(系統設定關掉的不列;所屬頁面關了也不列)
+type Entry = { id: string; title: string; detail: string; icon: string; section: SectionId; focus?: string; feature?: string };
 
 export function CommandPalette({ onClose }: { onClose: () => void }) {
   const [services] = useView<Service[]>("services");
@@ -16,13 +18,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
-  const all: Entry[] = [
+  const flags = useFeatures();
+  const all: Entry[] = ([
     ...SECTIONS.map((s) => ({ id: `s-${s.id}`, title: s.title, detail: "頁面", icon: s.icon, section: s.id })),
-    ...arr<Service>(services).map((s) => ({ id: `svc-${s.id}`, title: s.name, detail: "服務", icon: "shippingbox", section: "infrastructure" as SectionId, focus: s.id })),
-    ...arr<Server>(servers).map((s) => ({ id: `srv-${s.id}`, title: s.name, detail: `伺服器 · ${s.region}`, icon: "server.rack", section: "infrastructure" as SectionId, focus: s.id })),
-    ...arr<Incident>(incidents).map((i) => ({ id: `inc-${i.id}`, title: `${i.id} ${i.title}`, detail: "事件", icon: "flame", section: "incidents" as SectionId, focus: i.id })),
-    ...arr<Automation>(autos).map((a) => ({ id: `ai-${a.id}`, title: a.name, detail: "AI 自動化", icon: a.icon, section: "automation" as SectionId, focus: a.id })),
-  ];
+    ...arr<Service>(services).map((s) => ({ id: `svc-${s.id}`, title: s.name, detail: "服務", icon: "shippingbox", section: "infrastructure" as SectionId, focus: s.id, feature: "infrastructure.services" })),
+    ...arr<Server>(servers).map((s) => ({ id: `srv-${s.id}`, title: s.name, detail: `伺服器 · ${s.region}`, icon: "server.rack", section: "infrastructure" as SectionId, focus: s.id, feature: "infrastructure.servers" })),
+    ...arr<Incident>(incidents).map((i) => ({ id: `inc-${i.id}`, title: `${i.id} ${i.title}`, detail: "事件", icon: "flame", section: "incidents" as SectionId, focus: i.id, feature: "incidents.list" })),
+    ...arr<Automation>(autos).map((a) => ({ id: `ai-${a.id}`, title: a.name, detail: "AI 自動化", icon: a.icon, section: "automation" as SectionId, focus: a.id, feature: "automation.flows" })),
+  ] as Entry[]).filter((e) => flags.visible(e.section) && (!e.feature || flags.enabled(e.feature)));
   const q = query.trim().toLowerCase();
   const entries = (q ? all.filter((e) => e.title.toLowerCase().includes(q) || e.detail.toLowerCase().includes(q)) : all).slice(0, 40);
   useEffect(() => setSel(0), [query]);

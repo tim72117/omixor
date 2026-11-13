@@ -312,7 +312,7 @@ struct Sprint: Hashable, Encodable {
     var burndown: [MetricPoint]  // 剩餘點數
     var idealBurndown: [MetricPoint]
 
-    /// 新組織沒有 sprint:名稱空白、起訖相同(MCP 的 ops_list sprint 回傳空物件)
+    /// 新組織沒有 sprint:名稱空白、起訖相同(MCP 的 list sprint 回傳空物件)
     static let empty = Sprint(name: "", start: Date(timeIntervalSince1970: 0), end: Date(timeIntervalSince1970: 0),
                               goal: "", burndown: [], idealBurndown: [])
     var isEmpty: Bool { name.isEmpty && burndown.isEmpty && idealBurndown.isEmpty }
@@ -684,9 +684,11 @@ struct Integration: Identifiable, Hashable, Encodable {
 // MARK: - 導覽
 
 enum AppSection: String, CaseIterable, Identifiable, Hashable, Encodable {
-    // channels 放最後:⌘1…⌘9 的快速鍵維持原本的頁面
-    case overview, development, pipelines, infrastructure, monitoring, incidents, automation, cabinet, settings, channels
+    // channels、help、system 放最後:⌘1…⌘9 的快速鍵維持原本的頁面
+    case overview, development, pipelines, infrastructure, monitoring, incidents, automation, cabinet, settings, channels, help, system
     var id: String { rawValue }
+    /// 永遠開著、不能在系統設定關掉(關掉的功能跳過去時改去總覽)
+    var alwaysOn: Bool { self == .overview || self == .settings || self == .system }
     var title: String {
         switch self {
         case .overview: return "總覽"
@@ -699,6 +701,8 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable, Encodable {
         case .cabinet: return "文件櫃"
         case .settings: return "設定"
         case .channels: return "對話"
+        case .help: return "需要協助"
+        case .system: return "系統"
         }
     }
     var icon: String {
@@ -713,6 +717,8 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable, Encodable {
         case .cabinet: return "archivebox"
         case .settings: return "gearshape"
         case .channels: return "bubble.left.and.bubble.right"
+        case .help: return "hand.raised"
+        case .system: return "switch.2"
         }
     }
 }

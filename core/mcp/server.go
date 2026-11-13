@@ -13,6 +13,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 )
 
 var SupportedVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
@@ -235,6 +236,7 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		if !ok {
 			return errorResponse(id, -32602, "缺少工具名稱")
 		}
+		name = LegacyToolName(name, s.toolNames)
 		if !slices.Contains(s.toolNames, name) || (h.Allow != nil && !h.Allow(name)) {
 			return errorResponse(id, -32602, "沒有這個工具:"+name)
 		}
@@ -293,4 +295,16 @@ func normalizeNumbers(v any) any {
 		return f
 	}
 	return v
+}
+
+// LegacyToolName 舊的工具名稱(ops_ 開頭,例如 issues)換成現在的名稱(issues):
+// 工具改名後過渡用,tools/list 只列新名稱,舊名稱還能呼叫。現在有這個名稱(或沒有對應的新名稱)就原樣回傳。
+func LegacyToolName(name string, names []string) string {
+	if slices.Contains(names, name) || !strings.HasPrefix(name, "ops_") {
+		return name
+	}
+	if n := strings.TrimPrefix(name, "ops_"); slices.Contains(names, n) {
+		return n
+	}
+	return name
 }

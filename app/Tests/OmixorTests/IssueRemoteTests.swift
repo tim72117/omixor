@@ -29,6 +29,14 @@ final class FakeIssueServer: URLProtocol {
         }
         let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let path = request.url!.path
+        // 這個假伺服器只有 REST;管理用 MCP(/mcp/org/…)回 404,App 內建 MCP 就改用自己的實作(測的是那一份)
+        if path.hasPrefix("/mcp/") {
+            let resp = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data())
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         Self.requests.append((request.httpMethod ?? "GET", path, body, request.value(forHTTPHeaderField: "Authorization")))
         // 核心的新路徑 api/orgs/<org>/issues[/id[/delete]] 換成舊的 api/issues/<org>[/id[/delete]] 再處理
         var parts = path.split(separator: "/").map(String.init)
@@ -140,13 +148,14 @@ final class IssueRemoteTests: XCTestCase {
         IssueServerConfig.testOverride = nil
         OmixorMode.testServers = []
         defer { OmixorMode.testServers = nil }
-        XCTAssertNil(IssueServerConfig.current, "本機模式:存檔案")
+        XCTAssertNotNil(IssueServerConfig.current.unavailable, "本機模式:連本機守護服務(測試裡沒有啟動 → 不能用,不會退回本機檔案)")
         let srv = OmixorMode.Server(id: "prod", name: "正式站", url: URL(string: "http://127.0.0.1:5191")!, auth: [])
         OmixorMode.testServers = [srv]
         OmixorMode.save(OmixorMode.File(mode: OmixorMode.remote, server: "prod"))
-        XCTAssertEqual(IssueServerConfig.current?.url, srv.url, "遠端模式:連設定裡的 server")
+        XCTAssertEqual(IssueServerConfig.current.url, srv.url, "遠端模式:連設定裡的 server")
+        XCTAssertNil(IssueServerConfig.current.unavailable)
         OmixorMode.testServers = []
-        XCTAssertNil(IssueServerConfig.current, "上次的遠端不在設定裡就回本機")
+        XCTAssertTrue(IssueServerConfig.current.unavailable != nil && IssueServerConfig.current.url != srv.url, "上次的遠端不在設定裡就回本機")
         OmixorMode.save(OmixorMode.File(mode: OmixorMode.local))
     }
 
@@ -158,81 +167,69 @@ final class IssueRemoteTests: XCTestCase {
         XCTAssertEqual(FakeIssueServer.requests.last?.path, "/api/orgs/default/issues")
     }
 
-    /// MCP 工具與本機模式的行為一樣,只是資料在伺服器
+    /// MCP 的 Issue 工具轉給 core server 的管理端點(這裡連真的本機守護服務);改了之後 App 馬上重讀
     func testMCPToolsGoThroughServer() async throws {
+        IssueRemote.protocolClasses = []
+        try TestCore.start(self)
+        let app = AppState()
+        let mcp = MCPHandler(app: app)
+        var (obj, text, isError) = try await call(mcp, "issue_create", [
+            "title": "首頁播放率低", "priority": "high", "labels": ["evoleap", "訪客", "evoleap"], "source": "網站訪客 7d",
+        ])
+        XCTAssertFalse(isError, text)
+        var d = try XCTUnwrap(obj as? [String: Any], text)
+        XCTAssertEqual(d["id"] as? String, "ISS-1", "編號由伺服器決定")
+        XCTAssertEqual(d["labels"] as? [String], ["evoleap", "訪客"])
+        XCTAssertEqual(d["createdBy"] as? String, "mcp")
+        XCTAssertEqual(app.issues.first?.id, "ISS-1")
+
+        (obj, text, isError) = try await call(mcp, "issue_update", ["id": "iss-1", "comment": "再看一次", "status": "closed", "add_labels": ["播放率"]])
+        XCTAssertFalse(isError, text)
+        d = try XCTUnwrap(obj as? [String: Any], text)
+        XCTAssertEqual(d["status"] as? String, "closed")
+        XCTAssertNotNil(d["closedAt"])
+        XCTAssertEqual(d["labels"] as? [String], ["evoleap", "訪客", "播放率"])
+        XCTAssertEqual(app.issues.first?.status, .closed)
+        (obj, _, _) = try await call(mcp, "issues", ["status": "all"])
+        XCTAssertEqual((obj as? [String: Any])?["total"] as? Int, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: issuesFile.path), "不寫本機 issues.json")
+    }
+
+    /// 伺服器上的留言 id 不是 UUID(例如從 Jira 匯入的):App 改了送回去時保持原本的 id;刪除送到伺服器
+    func testForeignCommentIdsKept() throws {
         FakeIssueServer.orgs["default"] = [[
             "id": "ISS-4", "title": "伺服器上的", "body": "", "status": "open", "priority": "low", "labels": ["x"],
             "source": "", "link": "", "createdBy": "tim", "createdAt": "2026-11-10T00:00:00Z", "updatedAt": "2026-11-10T00:00:00Z",
             "comments": [["id": "jira-77", "author": "tim", "text": "從 Jira 來的", "at": "2026-11-10T00:00:01Z"]],
         ]]
         let app = AppState()
-        let mcp = MCPHandler(app: app)
-
-        var (obj, text, isError) = try await call(mcp, "ops_issues", ["status": "all"])
-        XCTAssertFalse(isError, text)
-        XCTAssertEqual((obj as? [String: Any])?["total"] as? Int, 1)
-
-        (obj, text, isError) = try await call(mcp, "ops_issue_create", [
-            "title": "首頁播放率低", "priority": "high", "labels": ["evoleap", "訪客", "evoleap"], "source": "網站訪客 7d",
-        ])
-        XCTAssertFalse(isError, text)
-        var d = try XCTUnwrap(obj as? [String: Any])
-        XCTAssertEqual(d["id"] as? String, "ISS-5", "編號由伺服器決定")
-        XCTAssertEqual(d["labels"] as? [String], ["evoleap", "訪客"])
-        XCTAssertEqual(d["createdBy"] as? String, "MCP 用戶端")
-        let create = try XCTUnwrap(FakeIssueServer.requests.last)
-        XCTAssertEqual(create.method, "POST")
-        XCTAssertEqual(create.path, "/api/orgs/default/issues", "走核心的組織路徑")
-        XCTAssertEqual(create.body["author"] as? String, "mcp")
-        XCTAssertEqual(create.auth, "Bearer tok-123")
-        XCTAssertEqual(app.issues.first?.id, "ISS-5")
-        XCTAssertEqual(app.activity.first?.text, "建立 ISS-5「首頁播放率低」")
-
-        (obj, text, isError) = try await call(mcp, "ops_issue_update", ["id": "iss-5", "comment": "再看一次", "status": "closed", "add_labels": ["播放率"]])
-        XCTAssertFalse(isError, text)
-        d = try XCTUnwrap(obj as? [String: Any])
-        XCTAssertEqual(d["status"] as? String, "closed")
-        XCTAssertNotNil(d["closedAt"])
-        XCTAssertEqual(d["labels"] as? [String], ["evoleap", "訪客", "播放率"])
-        XCTAssertEqual((d["comments"] as? [[String: Any]])?.first?["text"] as? String, "再看一次")
-        let srv = try XCTUnwrap(FakeIssueServer.orgs["default"]?.first { $0["id"] as? String == "ISS-5" })
-        XCTAssertEqual(srv["status"] as? String, "closed")
-        XCTAssertEqual((srv["comments"] as? [[String: Any]])?.first?["author"] as? String, "mcp")
-        XCTAssertTrue(app.activity.contains { $0.text == "關閉 ISS-5「首頁播放率低」" })
-
-        // 伺服器上別人(網頁)改的,下次讀就看得到
-        FakeIssueServer.orgs["default"]![0]["title"] = "網頁上改的標題"
-        (obj, _, _) = try await call(mcp, "ops_issues", ["id": "ISS-5"])
-        XCTAssertEqual((obj as? [String: Any])?["title"] as? String, "網頁上改的標題")
-
-        // 不是 UUID 的留言 id:送回去時保持原本的 id
-        (_, text, isError) = try await call(mcp, "ops_issue_update", ["id": "ISS-4", "comment": "第二則"])
-        XCTAssertFalse(isError, text)
+        let store = app.startIssues()
+        XCTAssertNotNil(store.comment("ISS-4", "第二則", by: "tim"))
         let ids = (FakeIssueServer.orgs["default"]?.first { $0["id"] as? String == "ISS-4" }?["comments"] as? [[String: Any]])?.compactMap { $0["id"] as? String }
         XCTAssertEqual(ids?.first, "jira-77")
         XCTAssertEqual(ids?.count, 2)
-
-        // 刪除
-        app.startIssues().delete("ISS-4")
-        XCTAssertEqual(FakeIssueServer.orgs["default"]?.count, 1)
+        // 伺服器上別人(網頁)改的,下次讀就看得到
+        FakeIssueServer.orgs["default"]![0]["title"] = "網頁上改的標題"
+        XCTAssertEqual(store.issue("ISS-4")?.title, "網頁上改的標題")
+        store.delete("ISS-4")
+        XCTAssertEqual(FakeIssueServer.orgs["default"]?.count, 0)
         XCTAssertFalse(app.issues.contains { $0.id == "ISS-4" })
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: issuesFile.path), "伺服器模式不寫本機 issues.json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: issuesFile.path), "不寫本機 issues.json")
     }
 
     /// 切換組織:讀那個組織的 Issue
-    func testOrgsAreSeparate() throws {
+    func testOrgsAreSeparate() async throws {
         FakeIssueServer.orgs["default"] = []
         let app = AppState()
         let store = app.startIssues()
         store.create(title: "預設組織的", by: "tim")
         let org = app.createOrg(name: "Lab", symbol: "flask", color: "blue", template: .blank)
-        app.switchOrg(org.id)
+        await app.switchOrg(org.id).value
         XCTAssertTrue(app.issues.isEmpty)
         store.create(title: "Lab 的", by: "tim")
         XCTAssertEqual(FakeIssueServer.orgs[org.id]?.count, 1)
         XCTAssertEqual(FakeIssueServer.orgs["default"]?.count, 1)
-        app.switchOrg(OrgFiles.defaultId)
+        await app.switchOrg(OrgFiles.defaultId).value
         XCTAssertEqual(app.issues.map(\.title), ["預設組織的"])
     }
 
@@ -254,18 +251,16 @@ final class IssueRemoteTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: issuesFile.path))
     }
 
-    /// 伺服器連不上時,MCP 的建立與修改要回錯誤,不能假裝成功(同 Go 版)
+    /// 伺服器連不上時,MCP 的建立與修改要回錯誤,不能假裝成功,也不改用本機檔案
     func testMCPReportsServerDown() async throws {
-        FakeIssueServer.orgs["default"] = []
+        FakeIssueServer.down = true
         let app = AppState()
         let mcp = MCPHandler(app: app)
-        var (_, text, err) = try await call(mcp, "ops_issue_create", ["title": "a"])
-        XCTAssertFalse(err, text)
-        FakeIssueServer.down = true
-        (_, text, err) = try await call(mcp, "ops_issue_create", ["title": "b"])
-        XCTAssertTrue(err); XCTAssertTrue(text.hasPrefix("Issue 沒有存起來:"), text)
-        (_, text, err) = try await call(mcp, "ops_issue_update", ["id": "ISS-1", "title": "改"])
-        XCTAssertTrue(err); XCTAssertTrue(text.hasPrefix("Issue 沒有改成:"), text)
+        var (_, text, err) = try await call(mcp, "issue_create", ["title": "b"])
+        XCTAssertTrue(err); XCTAssertTrue(text.contains("core server"), text)
+        (_, text, err) = try await call(mcp, "issue_update", ["id": "ISS-1", "title": "改"])
+        XCTAssertTrue(err); XCTAssertTrue(text.contains("core server"), text)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: issuesFile.path))
     }
 
     /// omixor 自己的授權:沒有 omixor token 時用 evoleap 連線換一個;被撤銷(401)時自動再換;沒登入 evoleap 時講清楚
@@ -293,7 +288,7 @@ final class IssueRemoteTests: XCTestCase {
         XCTAssertTrue(store2.remoteError?.contains("evoleap 連線") == true, store2.remoteError ?? "")
     }
 
-    /// 關掉伺服器設定:回到本機 issues.json
+    /// 關掉伺服器設定(本機模式):連本機守護服務;它還沒啟動時回錯誤,不退回本機 issues.json
     func testTurningOffUsesLocalFile() throws {
         FakeIssueServer.orgs["default"] = []
         let app = AppState()
@@ -301,9 +296,9 @@ final class IssueRemoteTests: XCTestCase {
         store.create(title: "伺服器的", by: "tim")
         IssueServerConfig.testOverride = nil
         store.load()
-        XCTAssertTrue(app.issues.isEmpty)
-        store.create(title: "本機的", by: "tim")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: issuesFile.path))
+        XCTAssertEqual(store.create(title: "本機的", by: "tim").id, "", "沒有存起來")
+        XCTAssertNotNil(store.remoteError)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: issuesFile.path))
         XCTAssertEqual(FakeIssueServer.orgs["default"]?.count, 1)
     }
 }

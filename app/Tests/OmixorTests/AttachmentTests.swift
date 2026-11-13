@@ -7,6 +7,7 @@ import AppKit
 final class AttachmentTests: XCTestCase {
     var dataDir: URL!
     override func setUp() async throws {
+        try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-att-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         setenv("OPS_DATA_DIR", dataDir.path, 1)

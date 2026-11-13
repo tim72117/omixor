@@ -40,7 +40,7 @@ func ghRepoArg(c *Call) (string, error) {
 func ghError(err error) error { return ToolError{Message: "GitHub 回應錯誤:" + err.Error()} }
 
 func init() {
-	Register("ops_github", func(c *Call) (any, error) {
+	Register("github", func(c *Call) (any, error) {
 		if err := ghReady(c); err != nil {
 			return nil, err
 		}
@@ -121,7 +121,7 @@ func init() {
 		return map[string]any{"account": account, "fetchedAt": fetchedAt, "repos": repos}, nil
 	})
 
-	Register("ops_github_runs", func(c *Call) (any, error) {
+	Register("github_runs", func(c *Call) (any, error) {
 		if err := ghReady(c); err != nil {
 			return nil, err
 		}
@@ -163,7 +163,7 @@ func init() {
 		return map[string]any{"repo": repo, "total": total, "runs": runs}, nil
 	})
 
-	Register("ops_github_run", func(c *Call) (any, error) {
+	Register("github_run", func(c *Call) (any, error) {
 		if err := ghReady(c); err != nil {
 			return nil, err
 		}
@@ -241,7 +241,7 @@ func init() {
 		return out, nil
 	})
 
-	Register("ops_github_pull", func(c *Call) (any, error) {
+	Register("github_pull", func(c *Call) (any, error) {
 		if err := ghReady(c); err != nil {
 			return nil, err
 		}

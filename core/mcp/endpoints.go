@@ -30,23 +30,27 @@ func unauthorized(w http.ResponseWriter, realm string) {
 
 // ================= 角色端點 =================
 
-// AgentToolAllow 角色端點開放的核心工具(tools/list 也只列這些;額外掛上來的工具另外算)
-var AgentToolAllow = map[string]bool{
-	"ops_agent_context":     true,
-	"ops_agent_tasks":       true,
-	"ops_agent_task_report": true,
-	"ops_issues":            true,
-	"ops_issue_create":      true,
-	"ops_issue_update":      true,
-	"ops_cabinet":           true,
-	"ops_docs":              true,
-	"ops_doc_save":          true,
-	// 依組織鏈委派給下游角色(service 依憑證身分強制)
-	"ops_agent_task_delegate": true,
-	// 訊息頻道:只看與發自己是成員的頻道(service 依憑證身分強制;不能建頻道、不能改成員)
-	"ops_channels":         true,
-	"ops_channel_messages": true,
-	"ops_channel_post":     true,
+// AgentToolAllow 角色端點可能開放的核心工具(登記表 model.CoreTools 的 Agent;實際列哪些再依角色設定,見 service.AgentToolSet)
+var AgentToolAllow = model.CoreToolSet(func(t model.CoreTool) bool { return t.Agent })
+
+// agentToolsContext agent_context 的 tools:能用的工具(含額外掛上來的)與不能用的工具和原因
+func agentToolsContext(svc *service.Service, org string, g model.Agent, extra []string) map[string]any {
+	can, cannot := []any{}, []any{}
+	for _, t := range svc.AgentToolsOf(org, g) {
+		if t.Available {
+			can = append(can, map[string]any{"name": t.Name, "label": t.Label})
+		} else {
+			cannot = append(cannot, map[string]any{"name": t.Name, "label": t.Label, "reason": t.Reason})
+		}
+	}
+	for _, n := range extra {
+		can = append(can, map[string]any{"name": n})
+	}
+	return map[string]any{
+		"available":   can,
+		"unavailable": cannot,
+		"note":        "只有 available 的工具能用;unavailable 要由人改角色設定才會開放,需要時回報 blocked 說明缺什麼",
+	}
 }
 
 // AgentEndpointConfig 角色端點的設定
@@ -58,9 +62,9 @@ type AgentEndpointConfig struct {
 	// Filter 每次工具呼叫前額外的限制(核心的工具與額外的工具都會經過);回傳錯誤就拒絕。
 	// args 已經強制帶上憑證的角色(args["agent"])
 	Filter func(role Role, tool string, args map[string]any) error
-	// ContextExtra 附加到 ops_agent_context 輸出的欄位(文件櫃的 cabinet、docs 核心已經附上)
+	// ContextExtra 附加到 agent_context 輸出的欄位(文件櫃的 cabinet、docs 核心已經附上)
 	ContextExtra func(role Role, g model.Agent, includeBodies bool) map[string]any
-	// Decorate 改寫角色的輸出(ops_agents、ops_agent_context 的 agent 欄位);docAccess 核心已經換成看得懂的文件櫃範圍
+	// Decorate 改寫角色的輸出(agents、agent_context 的 agent 欄位);docAccess 核心已經換成看得懂的文件櫃範圍
 	Decorate func(role Role, g model.Agent, out map[string]any)
 	// Instructions initialize 回傳的說明;空 = 預設
 	Instructions string
@@ -70,11 +74,11 @@ type AgentEndpointConfig struct {
 }
 
 const agentInstructions = "這是 omixor 的角色端點:你正以虛擬角色的身分工作,身分由憑證決定。" +
-	"先用 ops_agent_context 取得角色設定與任務,照任務說明完成,過程與結果用 ops_agent_task_report 回報(做完 done、卡住 blocked,回報後憑證立刻失效)。" +
-	"組織鏈上有下游角色時,可以用 ops_agent_task_delegate 把工作委派出去(可以派給誰見 ops_agent_context 的 chain.downstream),對方做完會自動回報給你。" +
-	"可以讀 Issue(ops_issues)、建立 Issue(ops_issue_create)、對 Issue 留言與改狀態(ops_issue_update);" +
-	"文件櫃(ops_cabinet、ops_docs、ops_doc_save)只能讀寫角色 docAccess 範圍內的位置。" +
-	"訊息頻道:ops_agent_context 的 mentions 是提到你的未讀訊息(只是通知,不是任務,自己決定要不要回);ops_channels 看你所在的頻道,ops_channel_messages 讀(讀了算已讀),ops_channel_post 回覆。署名一律是你的角色。"
+	"先用 agent_context 取得角色設定與任務,照任務說明完成,過程與結果用 agent_task_report 回報(做完 done、卡住 blocked,回報後憑證立刻失效)。" +
+	"組織鏈上有下游角色時,可以用 agent_task_delegate 把工作委派出去(可以派給誰見 agent_context 的 chain.downstream),對方做完會自動回報給你。" +
+	"可以讀 Issue(issues)、建立 Issue(issue_create)、對 Issue 留言與改狀態(issue_update);" +
+	"文件櫃(cabinet、docs、doc_save)只能讀寫角色 docAccess 範圍內的位置。" +
+	"訊息頻道:agent_context 的 mentions 是提到你的未讀訊息(只是通知,不是任務,自己決定要不要回);channels 看你所在的頻道,channel_messages 讀(讀了算已讀),channel_post 回覆。署名一律是你的角色。"
 
 // AgentEndpoint 角色端點的 http.Handler(掛在 /mcp/agent):
 //
@@ -92,9 +96,14 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 	for k := range AgentToolAllow {
 		allow[k] = true
 	}
+	extra := map[string]bool{}
+	extraNames := []string{}
 	for _, t := range cfg.Tools {
 		srv.Add(t)
-		allow[t.Def["name"].(string)] = true
+		n := t.Def["name"].(string)
+		allow[n] = true
+		extra[n] = true
+		extraNames = append(extraNames, n)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := service.ClientIP(r)
@@ -119,6 +128,8 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 			return
 		}
 		role := &Role{Org: p.Agent.Org, AgentID: p.Agent.AgentID, TaskID: p.Agent.TaskID}
+		// 依角色目前的設定決定列哪些核心工具(沒有文件權限就不列文件櫃工具…);額外掛上來的工具一律列
+		avail := cfg.Svc.AgentToolSet(role.Org, role.AgentID)
 		sess := &Session{
 			B: &backend.Local{Svc: cfg.Svc, P: p}, OrgID: role.Org, Identity: role,
 			OrgNameFn: func() string {
@@ -135,8 +146,15 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 				return id
 			},
 		}
-		if cfg.ContextExtra != nil {
-			sess.Extra = func(g model.Agent, inc bool) map[string]any { return cfg.ContextExtra(*role, g, inc) }
+		sess.Extra = func(g model.Agent, inc bool) map[string]any {
+			out := map[string]any{}
+			if cfg.ContextExtra != nil {
+				for k, v := range cfg.ContextExtra(*role, g, inc) {
+					out[k] = v
+				}
+			}
+			out["tools"] = agentToolsContext(cfg.Svc, role.Org, g, extraNames)
+			return out
 		}
 		if cfg.Decorate != nil {
 			sess.Decorate = func(g model.Agent, out map[string]any) { cfg.Decorate(*role, g, out) }
@@ -145,7 +163,7 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 			Ctx:   sess,
 			Begin: cfg.Begin,
 			Tool:  cfg.Tool,
-			Allow: func(name string) bool { return allow[name] },
+			Allow: func(name string) bool { return allow[name] && (extra[name] || avail[name]) },
 			Guard: func(name string, args map[string]any) error {
 				// 呼叫端自帶的 agent 參數不算數:不能指定其他角色,一律強制成憑證的角色
 				if v, ok := args["agent"]; ok {
@@ -155,10 +173,10 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 					}
 				}
 				args["agent"] = role.AgentID
-				if name == "ops_agent_task_delegate" { // 來源任務一律是憑證綁定的那一筆(service 也會強制)
+				if name == "agent_task_delegate" { // 來源任務一律是憑證綁定的那一筆(service 也會強制)
 					delete(args, "task")
 				}
-				if name == "ops_agent_task_report" {
+				if name == "agent_task_report" {
 					id, _ := args["id"].(string)
 					if strings.TrimSpace(id) == "" {
 						args["id"] = role.TaskID
@@ -178,31 +196,8 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 
 // ================= 管理端點 =================
 
-// AdminToolAllow 管理端點開放的核心工具
-var AdminToolAllow = map[string]bool{
-	"ops_orgs":              true,
-	"ops_issues":            true,
-	"ops_issue_create":      true,
-	"ops_issue_update":      true,
-	"ops_agents":            true,
-	"ops_agent_context":     true,
-	"ops_agent_tasks":       true,
-	"ops_agent_task_claim":  true,
-	"ops_agent_task_report": true,
-	"ops_agent_upsert":      true,
-	"ops_agent_task_create": true,
-	"ops_cabinet":           true,
-	"ops_docs":              true,
-	"ops_doc_save":          true,
-	// 組織鏈:讀(成員)、改(組織管理員)
-	"ops_chain":      true,
-	"ops_chain_save": true,
-	// 訊息頻道
-	"ops_channels":         true,
-	"ops_channel_create":   true,
-	"ops_channel_messages": true,
-	"ops_channel_post":     true,
-}
+// AdminToolAllow 管理端點開放的核心工具(登記表 model.CoreTools 的 Admin)
+var AdminToolAllow = model.CoreToolSet(func(t model.CoreTool) bool { return t.Admin })
 
 // AdminEndpointConfig 管理端點的設定
 type AdminEndpointConfig struct {
@@ -217,10 +212,10 @@ type AdminEndpointConfig struct {
 }
 
 const adminInstructions = "這是 omixor 的 MCP 端點,操作目前組織的 Issue、虛擬角色與任務,權限同你登入的 omixor 帳號。" +
-	"虛擬角色:ops_agents 看角色,ops_agent_task_claim 領任務(回傳一組綁定該任務的角色憑證,用它連角色端點以該角色身分工作)," +
-	"ops_agent_task_report 回報。ops_issue_create / ops_issue_update 的 assignee 指派 Issue 給角色,會自動替它排任務。" +
-	"文件櫃:ops_cabinet 看結構、ops_docs 查文件、ops_doc_save 新增或修改(以角色身分工作時帶 agent,只能讀寫該角色 docAccess 範圍內的文件)。" +
-	"訊息頻道:ops_channels 列我的頻道(含未讀數)、ops_channel_create 建立、ops_channel_messages 讀(讀了算已讀)、ops_channel_post 發訊息;@ 角色只通知、不排任務。"
+	"虛擬角色:agents 看角色,agent_task_claim 領任務(回傳一組綁定該任務的角色憑證,用它連角色端點以該角色身分工作)," +
+	"agent_task_report 回報。issue_create / issue_update 的 assignee 指派 Issue 給角色,會自動替它排任務。" +
+	"文件櫃:cabinet 看結構、docs 查文件、doc_save 新增或修改(以角色身分工作時帶 agent,只能讀寫該角色 docAccess 範圍內的文件)。" +
+	"訊息頻道:channels 列我的頻道(含未讀數)、channel_create 建立、channel_messages 讀(讀了算已讀)、channel_post 發訊息;@ 角色只通知、不排任務。"
 
 // AdminEndpoint 管理用 MCP 的 http.Handler(雲端掛在 /mcp/org/{org},用 omixor token 認證)
 func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
@@ -233,9 +228,14 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 	for k := range AdminToolAllow {
 		allow[k] = true
 	}
+	extra := map[string]bool{}
+	extraNames := []string{}
 	for _, t := range cfg.Tools {
 		srv.Add(t)
-		allow[t.Def["name"].(string)] = true
+		n := t.Def["name"].(string)
+		allow[n] = true
+		extra[n] = true
+		extraNames = append(extraNames, n)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bk, org, err := cfg.Resolve(r)

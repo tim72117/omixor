@@ -31,7 +31,7 @@ func optArg(c *Call, k string) *string {
 }
 
 func init() {
-	Register("ops_gcp", func(c *Call) (any, error) {
+	Register("gcp", func(c *Call) (any, error) {
 		if err := gcpReady(c); err != nil {
 			return nil, err
 		}
@@ -94,7 +94,7 @@ func init() {
 		return out, nil
 	})
 
-	Register("ops_gcp_logs", func(c *Call) (any, error) {
+	Register("gcp_logs", func(c *Call) (any, error) {
 		if err := gcpReady(c); err != nil {
 			return nil, err
 		}
@@ -126,7 +126,7 @@ func init() {
 		return map[string]any{"count": len(logs), "hours": hours, "severity": sev, "entries": core.Object(logs)}, nil
 	})
 
-	Register("ops_gcp_metrics", func(c *Call) (any, error) {
+	Register("gcp_metrics", func(c *Call) (any, error) {
 		if err := gcpReady(c); err != nil {
 			return nil, err
 		}

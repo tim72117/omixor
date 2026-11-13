@@ -221,26 +221,26 @@ final class GCPTests: XCTestCase {
     }
 
     func testMCPTools() async throws {
-        XCTAssertEqual(MCPHandler.tools.filter { $0.name.hasPrefix("ops_gcp") }.count, 3)
-        let (msg, isErr) = try await tool("ops_gcp")
+        XCTAssertEqual(MCPHandler.tools.filter { $0.name.hasPrefix("gcp") }.count, 3)
+        let (msg, isErr) = try await tool("gcp")
         XCTAssertTrue(isErr)
         XCTAssertTrue("\(msg)".contains("還沒登入 Google Cloud"))
 
         await login()
-        let sumOut = try await tool("ops_gcp", ["refresh": true, "service": "shuttle-server", "job": "shuttle-course-sync"]).0
+        let sumOut = try await tool("gcp", ["refresh": true, "service": "shuttle-server", "job": "shuttle-course-sync"]).0
         let sum = try XCTUnwrap(sumOut as? [String: Any], "\(sumOut)")
         XCTAssertEqual(sum["account"] as? String, "tim@example.com")
         XCTAssertEqual((sum["services"] as? [[String: Any]])?.first?["state"] as? String, "正常")
         XCTAssertEqual((sum["revisions"] as? [Any])?.count, 2)
         XCTAssertEqual((sum["executions"] as? [[String: Any]])?.first?["status"] as? String, "失敗")
 
-        let logsOut = try await tool("ops_gcp_logs", ["service": "shuttle-server"]).0
+        let logsOut = try await tool("gcp_logs", ["service": "shuttle-server"]).0
         XCTAssertEqual((logsOut as? [String: Any])?["count"] as? Int, 3)
-        let (bad, badErr) = try await tool("ops_gcp_logs", ["severity": "LOUD"])
+        let (bad, badErr) = try await tool("gcp_logs", ["severity": "LOUD"])
         XCTAssertTrue(badErr, "\(bad)")
 
         // 只有一個服務時可以省略 service
-        let mOut = try await tool("ops_gcp_metrics").0
+        let mOut = try await tool("gcp_metrics").0
         let totals = try XCTUnwrap((mOut as? [String: Any])?["totals"] as? [String: Any], "\(mOut)")
         XCTAssertEqual(totals["5xx"] as? Int, 3)
         XCTAssertEqual(totals["requests"] as? Int, 153)

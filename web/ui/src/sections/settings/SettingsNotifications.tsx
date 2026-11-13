@@ -35,7 +35,7 @@ export function SettingsNotifications({ setPane }: { setPane: (p: Pane) => void 
   );
   const sendTest = () => {
     const chans = CHANNELS.filter((c) => matrix.critical.has(c.id)).map((c) => c.label).sort().join("、");
-    tool("ops_activity_post", { icon: "bell.and.waves.left.and.right", text: `傳送測試通知到 ${chans || "(未選擇管道)"}`, section: "settings" }).catch(() => undefined);
+    tool("activity_post", { icon: "bell.and.waves.left.and.right", text: `傳送測試通知到 ${chans || "(未選擇管道)"}`, section: "settings" }).catch(() => undefined);
     setLastTest(new Date().toISOString());
   };
   return (

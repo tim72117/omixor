@@ -268,3 +268,40 @@ func TestEnsureOrgsForIssues(t *testing.T) {
 		t.Fatal(l)
 	}
 }
+
+func TestPairHTTP(t *testing.T) {
+	e := newEnv(t)
+	boss := e.login("evo-boss")
+	// 沒登入不能產生
+	if _, err := client.New(e.srv.URL).CreatePairCode(); status(err) != 401 {
+		t.Fatal("要登入", err)
+	}
+	pc, err := boss.CreatePairCode()
+	if err != nil || len(pc.Code) != service.PairCodeLength || pc.ExpiresAt.IsZero() {
+		t.Fatalf("%+v %v", pc, err)
+	}
+	phone := client.New(e.srv.URL)
+	r, err := phone.ClaimPairCode(pc.Code, "iPhone")
+	if err != nil || r.User.Email != "boss@example.com" || r.TokenID == "" || r.Token == "" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	tok := r.Token
+	phone.Token = func() string { return tok }
+	me, err := phone.Me()
+	if err != nil || me.Token.Device != "iPhone" {
+		t.Fatalf("%+v %v", me, err)
+	}
+	if _, err := client.New(e.srv.URL).ClaimPairCode(pc.Code, "x"); status(err) != 401 {
+		t.Fatal("用過要 401", err)
+	}
+	// 管理員可以個別撤銷手機的 token
+	if err := boss.RevokeToken(r.TokenID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := phone.Me(); status(err) != 401 {
+		t.Fatal("撤銷後失效", err)
+	}
+	if _, err := boss.Me(); err != nil {
+		t.Fatal(err)
+	}
+}

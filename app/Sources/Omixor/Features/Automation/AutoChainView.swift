@@ -41,29 +41,19 @@ struct AutoChainView: View {
     private func agentOf(_ node: String) -> Agent? { ChainNode.agentId(node).flatMap { store.agent($0) } }
 
     private func reload() {
-        if store.isRemote {
-            store.loadChain()
-            if let r = store.remote {
-                members = (try? r.listMembers(org: app.currentOrgId)) ?? []
-                canEdit = ((try? r.myRole(org: app.currentOrgId)) ?? nil) == "admin" || app.omixorLogin.account?.role == "admin"
-                reported = (try? r.reportedTasks(org: app.currentOrgId, reportTo: "me")) ?? []
-            }
-        } else {
-            canEdit = true
-            reported = store.tasksReported(to: ChainNode.user(app.me))
-        }
+        store.loadChain()
+        let r = store.remote
+        members = (try? r.listMembers(org: app.currentOrgId)) ?? []
+        canEdit = ((try? r.myRole(org: app.currentOrgId)) ?? nil) == "admin" || app.omixorLogin.account?.role == "admin"
+        reported = (try? r.reportedTasks(org: app.currentOrgId, reportTo: "me")) ?? []
         draft = app.orgChain.edges
         dirty = false
     }
 
-    /// 可以選的節點:角色、組織成員(遠端)或 app 的人員(本機),加上鏈上已經有的
+    /// 可以選的節點:角色、組織成員(server 上的),加上鏈上已經有的
     private var nodeOptions: [String] {
         var out = app.agents.map { ChainNode.agent($0.id) }
-        if store.isRemote {
-            out += members.map { ChainNode.user($0.email) }
-        } else {
-            out += [ChainNode.user(app.me)] + app.people.map { ChainNode.user($0.id) }
-        }
+        out += members.map { ChainNode.user($0.email) }
         out += draft.flatMap { [$0.from, $0.to] }
         var seen = Set<String>()
         return out.filter { seen.insert($0).inserted }

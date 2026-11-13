@@ -1,5 +1,5 @@
 // CI/CD › 旁白發佈:送出旁白語音批次、等它完成、試聽、按下發佈到 evoleap(Swift 的 PipeVoiceTab.swift)。
-// 送出/試算走 MCP 工具 ops_voice_submit;發佈只能由人按(action voice_publish)。
+// 送出/試算走 MCP 工具 voice_submit;發佈只能由人按(action voice_publish)。
 import { useRef, useState } from "react";
 import { action, tool, useView } from "../../api";
 import { Card, EmptyState, Modal, Pill } from "../../components/ui";
@@ -61,7 +61,7 @@ export function PipeVoiceTab() {
         {err && jobs.length === 0 ? (
           <Card><div style={{ minHeight: 160, display: "flex" }}><EmptyState title="讀不到旁白批次" icon="waveform" message={err} /></div></Card>
         ) : jobs.length === 0 ? (
-          <Card><div style={{ minHeight: 160, display: "flex" }}><EmptyState title="還沒有旁白批次" icon="waveform" message="在上面送出批次,或讓 AI 透過 MCP 的 ops_voice_submit 分派過來。" /></div></Card>
+          <Card><div style={{ minHeight: 160, display: "flex" }}><EmptyState title="還沒有旁白批次" icon="waveform" message="在上面送出批次,或讓 AI 透過 MCP 的 voice_submit 分派過來。" /></div></Card>
         ) : jobs.map((j) => <VoiceJobCard key={j.id} job={j} target={target} loggedIn={!!tstate?.account || !!settings?.hasToken} playing={playing} toggle={toggle} />)}
       </div>
     </div>
@@ -110,13 +110,13 @@ function NewBatchCard() {
   const [dryRunning, setDryRunning] = useState(false);
   const args = () => ({ ...(all ? { all: true } : { scripts: scripts.split(/[\s,]+/).filter(Boolean) }), ...(limit > 0 ? { limit } : {}) });
   const submit = async () => {
-    try { await tool("ops_voice_submit", args()); setFormError(undefined); setScripts(""); }
+    try { await tool("voice_submit", args()); setFormError(undefined); setScripts(""); }
     catch (e: any) { setFormError(String(e?.message ?? e)); }
   };
   const dryRun = async () => {
     setDryRunning(true);
     try {
-      const r: any = await tool("ops_voice_submit", { ...args(), dry_run: true });
+      const r: any = await tool("voice_submit", { ...args(), dry_run: true });
       setDry(typeof r === "string" ? r : r?.output ?? JSON.stringify(r, null, 2));
       setFormError(undefined);
     } catch (e: any) { setFormError(String(e?.message ?? e)); }

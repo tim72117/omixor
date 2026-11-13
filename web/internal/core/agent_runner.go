@@ -532,10 +532,10 @@ func runnerSystemPrompt(g Agent, c AgentRunConfig) string {
 		b.WriteString("\n## 角色設定\n\n" + s + "\n")
 	}
 	b.WriteString("\n## 規則\n\n")
-	b.WriteString("1. 先用 ops_agent_context 讀角色設定與任務。\n")
+	b.WriteString("1. 先用 agent_context 讀角色設定與任務。\n")
 	b.WriteString("2. 照任務說明完成。\n")
-	b.WriteString("3. 需要在 Issue 說明時,用 ops_issue_update 留言。\n")
-	b.WriteString("4. 做完用 ops_agent_task_report 回報 status=done,在 result 寫結果;需要人決定時回報 status=blocked,在 note 寫要問的問題,然後結束。\n")
+	b.WriteString("3. 需要在 Issue 說明時,用 issue_update 留言。\n")
+	b.WriteString("4. 做完用 agent_task_report 回報 status=done,在 result 寫結果;需要人決定時回報 status=blocked,在 note 寫要問的問題,然後結束。\n")
 	b.WriteString("5. 不要把任何憑證、密碼、token 或金鑰寫進 Issue、留言、文件或回報。\n")
 	if c.Workdir != "" {
 		fmt.Fprintf(&b, "6. 工作資料夾是 %s,檔案只在這個資料夾裡讀寫。\n", c.Workdir)
@@ -554,7 +554,7 @@ func runnerPrompt(t AgentTask) string {
 	if len(t.Links) > 0 {
 		b.WriteString("\n相關連結:" + strings.Join(t.Links, "、") + "\n")
 	}
-	b.WriteString("\n完成後用 ops_agent_task_report 回報。")
+	b.WriteString("\n完成後用 agent_task_report 回報。")
 	return b.String()
 }
 

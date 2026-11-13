@@ -94,7 +94,7 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
           })()}
           <SearchField value={query} onChange={setQuery} placeholder="搜尋標題、內文" />
         </div>
-        {list.length === 0 ? <EmptyState title="沒有文件" icon="doc" message="按 + 新增,或讓有權限的角色用 MCP 的 ops_doc_save 寫進來。" /> : list.map((d) => (
+        {list.length === 0 ? <EmptyState title="沒有文件" icon="doc" message="按 + 新增,或讓有權限的角色用 MCP 的 doc_save 寫進來。" /> : list.map((d) => (
           <div key={d.id} className={"list-item" + (selectedDoc === d.id ? " on" : "")} onClick={() => setSelectedDoc(d.id)}>
             <span>{d.title}</span>
             <span className="row gap6 caption">
@@ -160,7 +160,7 @@ function DocDetail({ doc, layout, version, onDeleted }: { doc: CabinetDoc; layou
   const [body, setBody] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
   const { busy, error, run } = useRun();
-  const save = () => run(async () => { await tool("ops_doc_save", { id: doc.id, title, body }); setEditing(false); });
+  const save = () => run(async () => { await tool("doc_save", { id: doc.id, title, body }); setEditing(false); });
   const del = () => run(async () => { await action("cabinet_doc_delete", { id: doc.id }); onDeleted(); });
   return (
     <div className="page-inner" style={{ maxWidth: 820, gap: 12 }}>
@@ -211,7 +211,7 @@ function NewDocSheet({ section, tab, onClose, onCreated }: { section: CabinetSec
   const [body, setBody] = useState("");
   const { busy, error, run } = useRun();
   const create = () => run(async () => {
-    const r = await tool<{ id?: string; doc?: { id?: string } }>("ops_doc_save", { section: section.id, ...(tab ? { tab: tab.path } : {}), title: title.trim(), body });
+    const r = await tool<{ id?: string; doc?: { id?: string } }>("doc_save", { section: section.id, ...(tab ? { tab: tab.path } : {}), title: title.trim(), body });
     const id = r?.id ?? r?.doc?.id;
     if (id) onCreated(id);
     onClose();

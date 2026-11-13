@@ -6,8 +6,10 @@ import { InfraServicesTab } from "./InfraServicesTab";
 import { InfraServersTab } from "./InfraServersTab";
 import { InfraMapTab } from "./InfraMapTab";
 import { InfraGCPTab } from "./InfraGCPTab";
+import { useFeatureTabs } from "../../features";
 
 type Tab = "services" | "servers" | "map" | "gcp";
+const TABS: { value: Tab; label: string }[] = [{ value: "services", label: "服務" }, { value: "servers", label: "伺服器" }, { value: "map", label: "服務地圖" }, { value: "gcp", label: "GCP" }];
 
 export default function InfrastructureView(props: SectionProps) {
   return <OpsProvider><Infrastructure {...props} /></OpsProvider>;
@@ -16,7 +18,9 @@ export default function InfrastructureView(props: SectionProps) {
 function Infrastructure({ focusId, clearFocus }: SectionProps) {
   const o = useOps();
   const [servers, , serversReady] = useList<Server>("servers");
-  const [tab, setTab] = useState<Tab>("services");
+  const [rawTab, setRawTab] = useState<Tab>("services");
+  const tabs = useFeatureTabs(TABS.map((x) => x.value), rawTab, setRawTab, (x) => `infrastructure.${x}`);
+  const tab = tabs.shown, setTab = tabs.select;
   const [selectedService, setSelectedService] = useState<string>();
   const [selectedServer, setSelectedServer] = useState<string>();
   const openServer = (id: string) => { setSelectedServer(id); setTab("servers"); };
@@ -47,7 +51,7 @@ function Infrastructure({ focusId, clearFocus }: SectionProps) {
         </div>
         <span className="grow" />
         <div style={{ width: 340, flex: "none" }}>
-          <Seg value={tab} onChange={setTab} options={[{ value: "services", label: "服務" }, { value: "servers", label: "伺服器" }, { value: "map", label: "服務地圖" }, { value: "gcp", label: "GCP" }]} />
+          <Seg value={tab} onChange={setTab} options={TABS.filter((x) => tabs.on(x.value))} />
         </div>
       </div>
       <div className="ops-page">

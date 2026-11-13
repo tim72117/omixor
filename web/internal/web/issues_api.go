@@ -17,7 +17,7 @@ import (
 //	GET  /api/issues/{org}                全部 Issue(新的在前)
 //	POST /api/issues/{org}                建立 {title, body, priority, labels, source, link, author} → Issue
 //	POST /api/issues/{org}/{id}           修改 {author, title, body, status, priority, labels, source, link, comments}
-//	                                      (給的欄位整個取代;狀態變了會記關閉時間,同 ops_issue_update)→ Issue
+//	                                      (給的欄位整個取代;狀態變了會記關閉時間,同 issue_update)→ Issue
 //	POST /api/issues/{org}/{id}/delete    刪除
 //
 // {org} 是組織 id;是 omixor-web 目前的組織時,變更會出現在畫面與動態牆,其他組織只改資料。

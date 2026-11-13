@@ -1,8 +1,8 @@
 package mcp
 
-// RegisterOrgTools 登記組織工具:ops_orgs
+// RegisterOrgTools 登記組織工具:orgs
 func RegisterOrgTools(s *Server) {
-	s.Register("ops_orgs", func(c *Call) (any, error) {
+	s.Register("orgs", func(c *Call) (any, error) {
 		e := env(c)
 		e.Lock()
 		defer e.Unlock()

@@ -1,18 +1,18 @@
 import Foundation
 
-// MCP 的訊息頻道工具(名稱與參數同核心):ops_channels、ops_channel_create、ops_channel_messages、ops_channel_post,
-// 以及 ops_agent_context 的 mentions。帶 agent 時以該角色身分(角色要存在;看、發都要是頻道成員),
+// MCP 的訊息頻道工具(名稱與參數同核心):channels、channel_create、channel_messages、channel_post,
+// 以及 agent_context 的 mentions。帶 agent 時以該角色身分(角色要存在;看、發都要是頻道成員),
 // 沒帶時是 app 的使用者(本機等同組織管理員;遠端是登入的人)。規則見 Channels/Channels.swift。
 
 extension MCPHandler {
     static let channelTools: [Tool] = [
-        Tool(name: "ops_channels", title: "列出對話頻道",
+        Tool(name: "channels", title: "列出對話頻道",
              description: "列出我(或 agent 角色)看得到的訊息頻道:id、名稱、主題、綁的 Issue、成員(node 與顯示名稱)、未讀數與最後一則訊息的時間。頻道把人與虛擬角色拉進同一個對話;@ 角色只通知、不排任務。給 issue 只找綁該 Issue 的頻道。",
              properties: [
                  "agent": prop("string", "以角色身分查看時填角色 id 或名稱(只列它是成員的頻道,未讀數是它的)"),
                  "issue": prop("string", "只找綁這個 Issue 的頻道,例如 ISS-3"),
              ], required: [], readOnly: true),
-        Tool(name: "ops_channel_create", title: "建立對話頻道",
+        Tool(name: "channel_create", title: "建立對話頻道",
              description: "建立訊息頻道(角色身分不能建)。建立者自動是成員;members 可以給 agent:<角色 id 或名稱>、user:<email>、純 email、純角色 id 或名稱。給 issue 會綁該 Issue:同一個 Issue 只能有一個頻道,已有而且看得到時直接回傳那個(created = false)。",
              properties: [
                  "name": prop("string", "頻道名稱(最多 80 字)"),
@@ -20,7 +20,7 @@ extension MCPHandler {
                  "issue": prop("string", "綁的 Issue id(選填)"),
                  "members": strings("成員,例如 [\"agent:marketing\", \"pm@example.com\"]"),
              ], required: ["name"]),
-        Tool(name: "ops_channel_messages", title: "讀頻道訊息",
+        Tool(name: "channel_messages", title: "讀頻道訊息",
              description: "讀頻道訊息(依時間由舊到新)。給 since(訊息 id M-n 或時間)回傳之後最早的 limit 筆;沒給回傳最新的 limit 筆。hasMore 表示還有更多。讀了算已讀(標到回傳的最後一則)。帶 agent 時以該角色身分讀(要是頻道成員)。",
              properties: [
                  "channel": prop("string", "頻道 id(CH-n)或名稱"),
@@ -28,8 +28,8 @@ extension MCPHandler {
                  "limit": prop("integer", "最多幾筆,預設 50、最多 200"),
                  "agent": prop("string", "以角色身分讀時填角色 id 或名稱"),
              ], required: ["channel"]),
-        Tool(name: "ops_channel_post", title: "在頻道發訊息",
-             description: "在頻道發一則訊息(Markdown,最多 8000 字;要是頻道成員)。用 @角色名稱、@角色 id 或 @email 提到頻道成員:只通知對方(角色下次執行時在 ops_agent_context 的 mentions 看得到),不會排任務。帶 agent 時以該角色署名(角色要是頻道成員)。",
+        Tool(name: "channel_post", title: "在頻道發訊息",
+             description: "在頻道發一則訊息(Markdown,最多 8000 字;要是頻道成員)。用 @角色名稱、@角色 id 或 @email 提到頻道成員:只通知對方(角色下次執行時在 agent_context 的 mentions 看得到),不會排任務。帶 agent 時以該角色署名(角色要是頻道成員)。",
              properties: [
                  "channel": prop("string", "頻道 id(CH-n)或名稱"),
                  "text": prop("string", "訊息內容(Markdown)"),
@@ -112,7 +112,7 @@ extension MCPHandler {
         }
     }
 
-    /// ops_agent_context 的 mentions:提到這個角色的未讀訊息(最多 20 則)與它所在頻道的未讀數
+    /// agent_context 的 mentions:提到這個角色的未讀訊息(最多 20 則)與它所在頻道的未讀數
     func channelMentions(_ g: Agent) -> [String: Any] {
         let store = channelStore
         do {

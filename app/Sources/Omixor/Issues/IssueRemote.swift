@@ -1,19 +1,25 @@
 import CryptoKit
 import Foundation
 
-// 遠端模式(OmixorMode.swift)時 Issue 不讀寫本機的 issues.json,改透過 omixor server(core)的
-// /api/orgs/<組織>/issues 讀寫。本機模式一律存在這台 Mac 的 issues.json。
+// Issue 一律透過 core server 的 /api/orgs/<組織>/issues 讀寫(遠端是設定裡的 omixor server,本機是 App 啟動的本機守護服務,
+// 見 IssueServerConfig.current 與 LocalCore.swift)。App 不再讀寫本機的 issues.json。
 //
-//   網址:目前連的遠端 omixor(啟動設定裡的,見 OmixorMode.servers)
+//   網址:IssueServerConfig.current(遠端:啟動設定裡的 omixor,見 OmixorMode.servers;本機:127.0.0.1 的守護服務)
 //   token:環境變數 OPS_ISSUE_SERVER_TOKEN(固定的,開發用);沒設時用 omixor 自己的 token(omx_…,
 //          鑰匙圈的 remote/<伺服器>/omixor-issues,每台伺服器各一把,登入時存的):沒有或被拒絕(401)時,拿 evoleap 連線登入後的 token
 //          去 /api/auth/evoleap 換一個(evoleap 只證明身分,能不能用由 omixor 的使用者名單決定),再重送一次
 //
 // IssueStore 的介面是同步的(畫面與 MCP 工具直接拿回傳值),所以這裡用同步請求(有逾時)。
+// 主執行緒不要直接呼叫同步請求:定時重讀、切換組織、MCP 轉送、按鈕等改用 run { … }(在背景執行緒做同步請求,
+// 呼叫端 await 後回到 MainActor 更新畫面)。
 
 struct IssueServerConfig: Equatable {
     var url: URL
     var token: String?
+    /// 不是 nil:這台 server 現在不能用(例如本機守護服務還沒啟動),每個請求直接回這個錯誤
+    var unavailable: String? = nil
+    /// 這是 App 啟動的本機守護服務(LocalCore.swift;本機模式才會同步組織清單與匯入舊資料)
+    var localCore = false
 
     static let defaultsKey = "issueServerURL"
     /// 換 omixor token 時用來證明身分的連線(evoleap 正式站)
@@ -24,21 +30,29 @@ struct IssueServerConfig: Equatable {
     /// 測試用:非 nil 時取代環境變數與設定
     nonisolated(unsafe) static var testOverride: IssueServerConfig?
 
-    static var current: IssueServerConfig? {
+    /// 目前連的 core server(唯一決定「連哪台、用哪把 token」的地方;各 Store 與 MCP 轉送都從這裡拿):
+    ///   遠端模式:設定裡的 omixor server(token 用鑰匙圈的 omixor token,或開發用的 OPS_ISSUE_SERVER_TOKEN)
+    ///   本機模式:App 啟動的本機守護服務(LocalCore.swift,127.0.0.1 + 這次啟動的 token);還沒好時是 unavailable 的連線
+    static var current: IssueServerConfig {
         if let o = testOverride { return o }
-        guard let srv = OmixorMode.remoteServer else { return nil }
-        let tok = ProcessInfo.processInfo.environment["OPS_ISSUE_SERVER_TOKEN"].flatMap { $0.isEmpty ? nil : $0 }
-        return IssueServerConfig(url: srv.url, token: tok)
+        if let srv = OmixorMode.remoteServer {
+            let tok = ProcessInfo.processInfo.environment["OPS_ISSUE_SERVER_TOKEN"].flatMap { $0.isEmpty ? nil : $0 }
+            return IssueServerConfig(url: srv.url, token: tok)
+        }
+        return LocalCore.shared.config ?? LocalCore.shared.unavailableConfig
     }
 }
 
 struct IssueRemoteError: LocalizedError {
     var message: String
+    /// 伺服器回的 HTTP 狀態(0 = 沒連上或不是伺服器回的錯)
+    var status = 0
     var errorDescription: String? { message }
 }
 
-/// omixor server(core)/api/orgs/<組織>/issues 的用戶端
-final class IssueRemote {
+/// omixor server(core)/api/orgs/<組織>/issues 的用戶端。
+/// 可以在任何執行緒用(run 會在背景執行緒呼叫同步方法);可變的狀態(留言 id 對照)有鎖保護
+final class IssueRemote: @unchecked Sendable {
     let config: IssueServerConfig
     let session: URLSession
     var timeout: TimeInterval = 8
@@ -81,6 +95,7 @@ final class IssueRemote {
 
     /// 同步送出一個請求,回傳 (HTTP 狀態, 內容)
     func perform(_ req: URLRequest) throws -> (Int, Data) {
+        if let m = config.unavailable { throw IssueRemoteError(message: m) }
         final class Box: @unchecked Sendable { var data: Data?; var resp: URLResponse?; var err: Error? }
         let box = Box()
         let sem = DispatchSemaphore(value: 0)
@@ -136,10 +151,22 @@ final class IssueRemote {
         return tok
     }
 
+    /// 帶 omixor token 送出(同步):沒設固定 token 時用鑰匙圈的;沒有或被拒絕(401)就換一個新的再送一次
+    private func authorized(_ make: (String?) -> URLRequest) throws -> (Int, Data) {
+        if let m = config.unavailable { throw IssueRemoteError(message: m) }
+        if let fixed = config.token { return try perform(make(fixed)) }
+        let saved = vaultGet(IssueServerConfig.omixorTokenId)
+        var (status, data) = try perform(make(saved ?? (try exchangeToken())))
+        if status == 401, saved != nil {
+            vaultSet(IssueServerConfig.omixorTokenId, nil, expires: nil)
+            (status, data) = try perform(make(try exchangeToken()))
+        }
+        return (status, data)
+    }
+
     /// 送出請求、等回應(同步),回傳 {"result": …} 的 result(JSON)。
-    /// 沒設固定 token 時帶 omixor token;沒有或被拒絕(401)就換一個新的再送一次
     func send(_ method: String, _ url: URL, _ body: Data?) throws -> Data {
-        func request(_ token: String?) -> URLRequest {
+        let (status, data) = try authorized { token in
             var req = URLRequest(url: url, timeoutInterval: timeout)
             req.httpMethod = method
             req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -150,36 +177,59 @@ final class IssueRemote {
             if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
             return req
         }
-        var status: Int, data: Data
-        if let fixed = config.token {
-            (status, data) = try perform(request(fixed))
-        } else {
-            let saved = vaultGet(IssueServerConfig.omixorTokenId)
-            (status, data) = try perform(request(saved ?? (try exchangeToken())))
-            if status == 401, saved != nil {
-                vaultSet(IssueServerConfig.omixorTokenId, nil, expires: nil)
-                (status, data) = try perform(request(try exchangeToken()))
-            }
-        }
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        if let e = obj?["error"] as? String { throw IssueRemoteError(message: e) }
+        if let e = obj?["error"] as? String { throw IssueRemoteError(message: e, status: status) }
         guard (200..<300).contains(status), let obj, let result = obj["result"] else {
             throw IssueRemoteError(message: "Issue 伺服器回應不對(HTTP \(status))")
         }
         return try JSONSerialization.data(withJSONObject: result, options: .fragmentsAllowed)
     }
 
+    /// 伺服器的管理用 MCP(/mcp/org/<組織>):送一則 JSON-RPC,回傳 result(權限同登入的帳號)。
+    /// App 內建 MCP 連 server 時,核心工具(Issue、角色、文件櫃、組織鏈、頻道)轉給這裡,工具定義與行為只有核心一份
+    func mcp(org: String, method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+        let url = config.url.appendingPathComponent("mcp").appendingPathComponent("org")
+            .appendingPathComponent(OmixorMode.serverOrgId(org))
+        let body = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": method, "params": params])
+        let (status, data) = try authorized { token in
+            var req = URLRequest(url: url, timeoutInterval: timeout)
+            req.httpMethod = "POST"
+            req.httpBody = body
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
+            if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+            return req
+        }
+        guard (200..<300).contains(status) else { throw IssueRemoteError(message: "omixor server 的 MCP 回應不對(HTTP \(status))") }
+        let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        if let e = obj?["error"] as? [String: Any] { throw IssueRemoteError(message: e["message"] as? String ?? "MCP 錯誤") }
+        guard let r = obj?["result"] as? [String: Any] else { throw IssueRemoteError(message: "omixor server 的 MCP 回應不對") }
+        return r
+    }
+
     func json(_ dict: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: dict) }
+
+    /// 送 JSON、回傳 result(已解析)
+    func sendJSON(_ method: String, _ url: URL, _ body: [String: Any]?) throws -> Any {
+        let data = try send(method, url, try body.map { try json($0) })
+        return try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
+    }
 
     /// 留言 id 不是 UUID 的(例如 Go 版從 Jira 匯入的 jira-123):換成固定的 UUID 給 app 用,送回去時換回原本的 id
     private var foreignIds: [String: String] = [:]
+    private let idLock = NSLock()
+
+    private func originalId(_ u: String) -> String? {
+        idLock.lock(); defer { idLock.unlock() }
+        return foreignIds[u]
+    }
 
     private func uuidFor(_ id: String) -> String {
         var b = Array(SHA256.hash(data: Data(id.utf8)).prefix(16))
         b[6] = b[6] & 0x0f | 0x50
         b[8] = b[8] & 0x3f | 0x80
         let u = UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15])).uuidString
-        foreignIds[u] = id
+        idLock.lock(); foreignIds[u] = id; idLock.unlock()
         return u
     }
 
@@ -229,7 +279,7 @@ final class IssueRemote {
         if let cs = d["comments"] as? [[String: Any]] {
             d["comments"] = cs.map { c -> [String: Any] in
                 var c = c
-                if let id = c["id"] as? String, let orig = foreignIds[id] { c["id"] = orig }
+                if let id = c["id"] as? String, let orig = originalId(id) { c["id"] = orig }
                 return c
             }
         }
@@ -239,5 +289,26 @@ final class IssueRemote {
 
     func delete(org: String, id: String) throws {
         _ = try send("POST", url(org, [id, "delete"]), try json([:]))
+    }
+}
+
+// MARK: - 背景執行(不擋主執行緒)
+
+extension IssueRemote {
+    /// 同步請求放在這裡跑(可同時跑多個;每個請求自己有逾時)
+    private static let background = DispatchQueue(label: "omixor.core-remote", qos: .userInitiated, attributes: .concurrent)
+
+    /// 在背景執行緒做同步請求,回傳結果(呼叫端 await 後回到原本的 actor,例如 MainActor 再更新畫面)
+    func run<T>(_ work: @escaping (IssueRemote) throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, Error>) in
+            Self.background.async {
+                do { cont.resume(returning: try work(self)) } catch { cont.resume(throwing: error) }
+            }
+        }
+    }
+
+    /// 同 run,但連線用指定的設定(一次性的用戶端)
+    static func run<T>(_ config: IssueServerConfig, _ work: @escaping (IssueRemote) throws -> T) async throws -> T {
+        try await IssueRemote(config: config).run(work)
     }
 }

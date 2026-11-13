@@ -90,7 +90,7 @@ final class SiteVisitorsTests: XCTestCase {
         defer { TokenVault.removeAll("evoleap") }
         let mcp = MCPHandler(app: app)
         func call(_ args: [String: Any]) async throws -> (String, Bool) {
-            let msg: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": "ops_site_visitors", "arguments": args]]
+            let msg: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": "site_visitors", "arguments": args]]
             let raw = await mcp.handle(try JSONSerialization.data(withJSONObject: msg))
             let r = try XCTUnwrap((try JSONSerialization.jsonObject(with: try XCTUnwrap(raw)) as? [String: Any])?["result"] as? [String: Any])
             return (((r["content"] as? [[String: Any]])?.first?["text"] as? String) ?? "", r["isError"] as? Bool ?? false)

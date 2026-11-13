@@ -54,19 +54,16 @@ struct ChannelsView: View {
         }
         .onAppear {
             app.startIssues()
-            store.refresh()
             consumeFocus()
+            if selected == nil { selected = app.channels.first?.id }
+        }
+        // 打開頁面時在背景重讀一次;之後的定時重讀由 ChannelStore 自己做(這裡不另外輪詢)
+        .task {
+            await store.reload()
             if selected == nil { selected = app.channels.first?.id }
         }
         .onChange(of: app.focusId) { consumeFocus() }
         .onChange(of: app.currentOrgId) { selected = app.channels.first?.id }
-        .task {
-            // 遠端:每 5 秒重新讀頻道清單(本機的變動會直接更新畫面)
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
-                if store.isRemote { store.refresh() }
-            }
-        }
         .sheet(isPresented: $creating) {
             NewChannelSheet { selected = $0 }
         }
@@ -75,7 +72,7 @@ struct ChannelsView: View {
     /// 其他頁跳過來時:focusId 是頻道 id(CH-n)
     private func consumeFocus() {
         guard let f = app.focusId, f.uppercased().hasPrefix("CH-") else { return }
-        if !app.channels.contains(where: { $0.id == f }) { store.refresh() }
+        if !app.channels.contains(where: { $0.id == f }) { Task { await store.reload() } }
         selected = app.channels.first { $0.id.caseInsensitiveCompare(f) == .orderedSame }?.id ?? f
         app.focusId = nil
     }
@@ -162,10 +159,10 @@ private struct ChannelDetail: View {
         .onAppear { reload(); composerFocused = true }
         .onChange(of: app.channelsVersion) { reload() }
         .task(id: summary.id) {
-            // 遠端:每 5 秒讀新訊息(本機有變動時 channelsVersion 會變)
+            // 每 5 秒讀新訊息(core server)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
-                if store.isRemote { reload() }
+                reload()
             }
         }
         .sheet(isPresented: $showSettings) { ChannelSettingsSheet(summary: summary) }
@@ -261,6 +258,8 @@ private struct ChannelDetail: View {
                         .padding(8)
                         .background(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
                         .onKeyPress(.return, phases: .down) { press in
+                            // 注音等輸入法選字中(還有組字中的文字):Enter 是確認選字,交給輸入法,不送出也不換行
+                            if Self.isComposing { return .ignored }
                             if press.modifiers.contains(.shift) || press.modifiers.contains(.option) {
                                 draft += "\n"
                                 return .handled
@@ -273,7 +272,7 @@ private struct ChannelDetail: View {
                             insertMention(first)
                             return .handled
                         }
-                        .onSubmit(send)
+                        .onSubmit { if !Self.isComposing { send() } }
                     Button("送出", action: send)
                         .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -283,6 +282,11 @@ private struct ChannelDetail: View {
             }
         }
         .padding(12)
+    }
+
+    /// 輸入框正在用輸入法組字(注音、拼音選字中):這時的 Enter 是確認選字
+    static var isComposing: Bool {
+        (NSApp.keyWindow?.firstResponder as? NSTextView)?.hasMarkedText() ?? false
     }
 
     // MARK: 讀寫
@@ -362,15 +366,11 @@ private struct MessageRow: View {
 
 // MARK: - 成員選項
 
-/// 可以加進頻道的節點:角色與人(遠端是組織成員,本機是 app 的人員與自己)
+/// 可以加進頻道的節點:角色與組織成員(server 上的)
 @MainActor
 private func memberOptions(_ app: AppState, remote members: [RemoteMember]) -> [String] {
     var out = app.agents.filter(\.active).map { ChainNode.agent($0.id) }
-    if app.channelStore?.isRemote == true {
-        out += members.map { ChainNode.user($0.email) }
-    } else {
-        out += [ChainNode.user(app.me)] + app.people.map { ChainNode.user($0.id) }
-    }
+    out += members.map { ChainNode.user($0.email) }
     var seen = Set<String>()
     return out.filter { seen.insert($0).inserted }
 }
@@ -494,11 +494,9 @@ private struct ChannelSettingsSheet: View {
                 Button("加入") {
                     let s = extra.trimmingCharacters(in: .whitespaces)
                     guard !s.isEmpty else { return }
-                    do {
-                        picked.insert(store.isRemote ? (s.contains("@") && !s.contains(":") ? ChainNode.user(s) : s) : try store.normalizeMember(s))
-                        extra = ""
-                        error = nil
-                    } catch { self.error = error.localizedDescription }
+                    picked.insert(ChannelStore.memberInput(s))
+                    extra = ""
+                    error = nil
                 }
             }
             if let e = error { Text(e).font(.caption).foregroundStyle(.red) }

@@ -404,7 +404,7 @@ func (s *Service) chainReport(p *model.Principal, org string, t *model.AgentTask
 				}
 				b.WriteString("需要協助:\n\n" + truncRunes(q, 4000))
 			}
-			fmt.Fprintf(&b, "\n\n用 ops_agent_tasks(id: %s)看完整內容與備註;檢視後決定是否結案、補充說明或再委派,再回報這筆任務。", t.ID)
+			fmt.Fprintf(&b, "\n\n用 agent_tasks(id: %s)看完整內容與備註;檢視後決定是否結案、補充說明或再委派,再回報這筆任務。", t.ID)
 			links := append([]string{t.ID}, t.Links...)
 			nt, err := s.insertTask(org, &g, "檢視回報:"+t.Title, b.String(), t.Priority, model.ChainAuthor, links)
 			if err != nil {

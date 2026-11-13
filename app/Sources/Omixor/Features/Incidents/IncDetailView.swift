@@ -253,8 +253,11 @@ struct IncAISummaryCard: View {
                 Spacer()
                 Text("由 AI 依時間軸整理").font(.caption).foregroundStyle(.purple.opacity(0.8))
                 Button {
-                    guard let i = app.incidents.firstIndex(where: { $0.id == incident.id }) else { return }
-                    withAnimation { app.incidents[i].aiSummary = IncAI.summary(app.incidents[i], app: app) }
+                    guard let cur = app.incident(incident.id) else { return }
+                    let summary = IncAI.summary(cur, app: app)
+                    do { _ = try withAnimation { try app.startIncidents().update(id: cur.id, aiSummary: summary, by: .person(app.me)) } } catch {
+                        app.errorNotice = "AI 摘要沒有存起來:\(error.localizedDescription)"
+                    }
                 } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.borderless)
                 .help("依最新時間軸重新整理")
@@ -401,7 +404,10 @@ struct IncFollowUpsCard: View {
         let id = "OPS-\(maxNum + 1)"
         app.workItems.append(WorkItem(id: id, title: t, type: .incident, status: .todo, assignee: .person(app.me),
                                       points: 2, service: incident.services.first, createdByAI: false))
-        app.incidents[i].followUps.append(id)
+        _ = i
+        do { _ = try app.startIncidents().update(id: incident.id, addFollowUps: [id], by: .person(app.me)) } catch {
+            app.errorNotice = "\(id) 沒有關聯到 \(incident.id):\(error.localizedDescription)"
+        }
         app.log(.person(app.me), "plus.circle", "為 \(incident.id) 建立後續工作 \(id)", .incidents)
         newTitle = ""
         adding = false

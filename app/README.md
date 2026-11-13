@@ -35,6 +35,20 @@ swift run
 
 需要 macOS 14 以上與 Swift 6 工具鏈。
 
+### 版本(正式版/開發版)
+
+編譯時決定這次的 App 有哪些功能(清單與版本在 `core/model/features.go`、`core/model/edition.go`):
+
+```bash
+bash scripts/build-app.sh                      # 正式版(預設):只有已實作的功能
+OMIXOR_EDITION=dev bash scripts/build-app.sh   # 開發版:再加上實驗功能(範例資料)與家庭助理等框架階段的功能
+swift build -Xswiftc -DOMIXOR_DEV              # 開發版的 debug build;測試:swift test -Xswiftc -DOMIXOR_DEV
+```
+
+App 的編譯條件是 `OMIXOR_DEV`(`AppEdition`),包進去的 omixor-local 用相同的版本(`go build -tags dev`)。
+功能要「server 的版本有」(`/system` 只列它編進去的)、「App 的版本有」、「組織開著」三者都成立才顯示。
+`OMIXOR_APP=<路徑>/omixor.app` 可以把 App 打包到別的位置。
+
 ## MCP 伺服器
 
 app 開著時會在 `http://127.0.0.1:3765/mcp` 提供 MCP 伺服器(Streamable HTTP,只接受本機連線)。MCP 用戶端可以讀取 app 裡的即時資料,也能寫回去,變更立刻出現在畫面上,並以「MCP 用戶端」記在動態牆與事件時間軸。狀態與連線指令在 設定 › 整合 最上方。
@@ -59,31 +73,31 @@ swift build -c release --product omixor-mcp   # 產生 .build/release/omixor-mcp
 
 | 工具 | 作用 |
 |---|---|
-| `ops_overview` | 整體狀況:服務健康、觸發中的告警、進行中的事件、CI/CD、待核准請求、值班、最近動態 |
-| `ops_list` | 列出任一資料集合,可用 `where` 依欄位篩選、`search` 全文搜尋、分頁 |
-| `ops_get` | 依 id 取得完整一筆(含時間序列、工作日誌、事件時間軸) |
-| `ops_navigate` | 切換 app 的頁面、選中項目、環境與時間範圍 |
-| `ops_alert_update` / `ops_alert_create` | 確認、解除、靜音告警或寫入 AI 判讀;從外部送進新告警 |
-| `ops_incident_declare` / `ops_incident_update` | 宣告事件(可關聯告警);改狀態、加註記與 AI 發現、寫入摘要 |
-| `ops_work_item_create` / `ops_work_item_move` | 建立工作項目(可掛到事件後續);移動看板欄位 |
-| `ops_pipeline_update` | 重新執行、取消 run,或寫入 AI 失敗診斷 |
-| `ops_request_approval` | 送出待人核准的請求 |
-| `ops_log_append` / `ops_activity_post` | 寫日誌、發動態 |
-| `ops_voice_submit` / `ops_voice_jobs` | 分派旁白語音批次、查批次狀態(發佈只能由人在 app 裡按) |
-| `ops_site_visitors` | 讀 evoleap 網站的會員與訪客統計 |
-| `ops_issue_create` / `ops_issue_update` / `ops_issues` | 存入、更新、查詢 Issue |
-| `ops_agents` / `ops_agent_upsert` | 列出虛擬角色;新增或修改角色與例行任務 |
-| `ops_agent_task_create` / `ops_agent_tasks` | 指派任務給角色、查任務 |
-| `ops_agent_context` | 用角色 id 或名稱取得它能讀取的資訊:角色設定、未完成的任務、文件櫃權限與能讀的文件(`include_bodies` 附全文) |
-| `ops_agent_task_claim` / `ops_agent_task_report` | 以角色身分領取任務、回報進度與結果 |
-| `ops_orgs` | 列出組織與目前使用中的組織 |
-| `ops_gcp` / `ops_gcp_logs` / `ops_gcp_metrics` | Cloud Run 服務與 Job 狀態、版本、執行;Cloud Logging 日誌;Cloud Monitoring 請求量、5xx、p95 延遲(只讀) |
-| `ops_github` / `ops_github_runs` / `ops_github_run` / `ops_github_pull` | GitHub 概況、Actions 執行、執行的工作步驟與失敗紀錄、PR 詳情(只讀) |
-| `ops_cabinet` / `ops_docs` / `ops_doc_save` | 文件櫃結構、查文件、存文件(帶 agent 時依角色的存取範圍把關) |
-| `ops_fb_pages` / `ops_fb_posts` / `ops_fb_insights` / `ops_fb_drafts` | Facebook 粉絲專頁清單、最近與已排程貼文(含成效)、專頁成效、貼文草稿(只讀) |
-| `ops_fb_draft_save` | 新增或修改貼文草稿(帶 agent 時署名該角色);發佈與排程只能由人在 app 裡按 |
+| `overview` | 整體狀況:服務健康、觸發中的告警、進行中的事件、CI/CD、待核准請求、值班、最近動態 |
+| `list` | 列出任一資料集合,可用 `where` 依欄位篩選、`search` 全文搜尋、分頁 |
+| `get` | 依 id 取得完整一筆(含時間序列、工作日誌、事件時間軸) |
+| `navigate` | 切換 app 的頁面、選中項目、環境與時間範圍 |
+| `alert_update` / `alert_create` | 確認、解除、靜音告警或寫入 AI 判讀;從外部送進新告警 |
+| `incident_declare` / `incident_update` | 宣告事件(可關聯告警);改狀態、加註記與 AI 發現、寫入摘要 |
+| `work_item_create` / `work_item_move` | 建立工作項目(可掛到事件後續);移動看板欄位 |
+| `pipeline_update` | 重新執行、取消 run,或寫入 AI 失敗診斷 |
+| `request_approval` | 送出待人核准的請求 |
+| `log_append` / `activity_post` | 寫日誌、發動態 |
+| `voice_submit` / `voice_jobs` | 分派旁白語音批次、查批次狀態(發佈只能由人在 app 裡按) |
+| `site_visitors` | 讀 evoleap 網站的會員與訪客統計 |
+| `issue_create` / `issue_update` / `issues` | 存入、更新、查詢 Issue |
+| `agents` / `agent_upsert` | 列出虛擬角色;新增或修改角色與例行任務 |
+| `agent_task_create` / `agent_tasks` | 指派任務給角色、查任務 |
+| `agent_context` | 用角色 id 或名稱取得它能讀取的資訊:角色設定、未完成的任務、文件櫃權限與能讀的文件(`include_bodies` 附全文) |
+| `agent_task_claim` / `agent_task_report` | 以角色身分領取任務、回報進度與結果 |
+| `orgs` | 列出組織與目前使用中的組織 |
+| `gcp` / `gcp_logs` / `gcp_metrics` | Cloud Run 服務與 Job 狀態、版本、執行;Cloud Logging 日誌;Cloud Monitoring 請求量、5xx、p95 延遲(只讀) |
+| `github` / `github_runs` / `github_run` / `github_pull` | GitHub 概況、Actions 執行、執行的工作步驟與失敗紀錄、PR 詳情(只讀) |
+| `cabinet` / `docs` / `doc_save` | 文件櫃結構、查文件、存文件(帶 agent 時依角色的存取範圍把關) |
+| `fb_pages` / `fb_posts` / `fb_insights` / `fb_drafts` | Facebook 粉絲專頁清單、最近與已排程貼文(含成效)、專頁成效、貼文草稿(只讀) |
+| `fb_draft_save` | 新增或修改貼文草稿(帶 agent 時署名該角色);發佈與排程只能由人在 app 裡按 |
 
-依 AI 治理原則,**核准 AI 請求、核准部署、回滾、調整自動化自主程度、切換整合、發佈 Facebook 貼文**只能由人在 app 裡做。MCP 用戶端需要這類變更時,用 `ops_request_approval` 送出請求,之後用 `ops_get approvals` 查結果。
+依 AI 治理原則,**核准 AI 請求、核准部署、回滾、調整自動化自主程度、切換整合、發佈 Facebook 貼文**只能由人在 app 裡做。MCP 用戶端需要這類變更時,用 `request_approval` 送出請求,之後用 `get approvals` 查結果。
 
 程式在 `Sources/Omixor/MCP/`:`MCPHandler` 是協定與工具(直接讀寫 `AppState`),`MCPServer` 是 HTTP 傳輸;`Sources/OmixorMCP/` 是 stdio 轉接。測試:`swift test`。
 
@@ -102,25 +116,25 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 
 ## 旁白發佈(CI/CD › 旁白發佈)
 
-把 shuttle 專案的旁白語音批次接進 Ops:送出(`npm run voice -- <腳本> --batch`)→ 每 10 分鐘 `--collect` → 收完列出變動的 `.voice.json`、可試聽 → 人按發佈(Touch ID)→ 透過選定的連線 `PUT /api/admin/scripts/<路徑>`,再用 API 讀回比對。不修改 shuttle 的程式,也不直連資料庫。AI 可以用 MCP 的 `ops_voice_submit`、`ops_voice_jobs` 分派與查詢,發佈沒有 MCP 工具。工作紀錄存在 `~/Library/Application Support/Ops/voice-jobs.json`。
+把 shuttle 專案的旁白語音批次接進 Ops:送出(`npm run voice -- <腳本> --batch`)→ 每 10 分鐘 `--collect` → 收完列出變動的 `.voice.json`、可試聽 → 人按發佈(Touch ID)→ 透過選定的連線 `PUT /api/admin/scripts/<路徑>`,再用 API 讀回比對。不修改 shuttle 的程式,也不直連資料庫。AI 可以用 MCP 的 `voice_submit`、`voice_jobs` 分派與查詢,發佈沒有 MCP 工具。工作紀錄存在 `~/Library/Application Support/Ops/voice-jobs.json`。
 
 ## 網站訪客(監控與告警 › 網站訪客)
 
-透過連線(預設 evoleap 正式站)以管理員身分讀 `GET /api/admin/overview?range=…`,也就是 evoleap 後台「會員」頁那份資料:會員數、訪客漏斗(打開 → 載入完成 → 有播放)、各課概況、裝置／來源／載入錯誤、從首頁進來的路徑、首頁停留、登入頁、最近沒播放的造訪足跡。可選全部／30 分鐘／12 小時／1 天／7 天,開著時每 60 秒更新。AI 可用 MCP 的 `ops_site_visitors` 讀同一份資料。不改 evoleap、不連資料庫。
+透過連線(預設 evoleap 正式站)以管理員身分讀 `GET /api/admin/overview?range=…`,也就是 evoleap 後台「會員」頁那份資料:會員數、訪客漏斗(打開 → 載入完成 → 有播放)、各課概況、裝置／來源／載入錯誤、從首頁進來的路徑、首頁停留、登入頁、最近沒播放的造訪足跡。可選全部／30 分鐘／12 小時／1 天／7 天,開著時每 60 秒更新。AI 可用 MCP 的 `site_visitors` 讀同一份資料。不改 evoleap、不連資料庫。
 
 ## Issue(開發 › Issue)
 
 要追蹤的問題或待辦,存在 `~/Library/Application Support/Ops/issues.json`(真實資料,重開 app 也還在;看板上的工作項目則是範例資料)。人可以在畫面上新增、編輯、留言、關閉;AI 透過 MCP 存入:
 
-- `ops_issue_create`:標題、Markdown 內文、優先度(urgent / high / normal / low)、標籤、來源、網址
-- `ops_issue_update`:改欄位、`append_body` 補內文、`comment` 留言、`status` 關閉或重新打開
-- `ops_issues`:給 id 看完整內容;不給則依狀態、標籤、關鍵字列出
+- `issue_create`:標題、Markdown 內文、優先度(urgent / high / normal / low)、標籤、來源、網址
+- `issue_update`:改欄位、`append_body` 補內文、`comment` 留言、`status` 關閉或重新打開
+- `issues`:給 id 看完整內容;不給則依狀態、標籤、關鍵字列出
 
 緊急與高優先度的未解決 Issue 會算進側邊欄「開發進度」的徽章。
 
 ## 虛擬角色(AI 自動化 › 虛擬角色)
 
-每個角色有職責、角色設定(給 AI 的說明)與例行任務,存在 `agents.json`。Ops 不自己跑 AI:任務(人在畫面上指派、例行任務到時間自動排,或 AI 用 `ops_agent_task_create` 指派)排著等領取;在 Claude Code 貼上「複製給 Claude Code」的那段話,AI 就會以角色身分用 `ops_agent_task_claim` 領取、照角色設定做,用 `ops_agent_task_report` 回報過程與結果,需要人決定時標成「需要協助」。角色可在畫面上按「新增角色」,或請 AI 用 `ops_agent_upsert` 隨時新增或修改。預設角色:訪客分析師、旁白製作、Issue 整理員、課程開發、行銷。
+每個角色有職責、角色設定(給 AI 的說明)與例行任務,存在 `agents.json`。Ops 不自己跑 AI:任務(人在畫面上指派、例行任務到時間自動排,或 AI 用 `agent_task_create` 指派)排著等領取;在 Claude Code 貼上「複製給 Claude Code」的那段話,AI 就會以角色身分用 `agent_task_claim` 領取、照角色設定做,用 `agent_task_report` 回報過程與結果,需要人決定時標成「需要協助」。角色可在畫面上按「新增角色」,或請 AI 用 `agent_upsert` 隨時新增或修改。預設角色:訪客分析師、旁白製作、Issue 整理員、課程開發、行銷。
 
 ## 組織(側邊欄最上方 / 設定 › 組織)
 
@@ -129,7 +143,7 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 - 側邊欄最上方切換組織;設定 › 組織 可以新增(全新空白,或複製目前組織的角色、文件櫃結構與連線設定)、改名、換圖示、刪除(資料夾移到垃圾桶)。
 - 目前組織的工作空間都能重新設定:虛擬角色、文件櫃結構(區塊與頁籤可新增、改名、排序、刪除,有文件的不能刪)、連線、Issue。
 - 舊版直接放在資料夾根目錄的檔案,第一次啟動時會複製到預設組織「evoleap」(原檔保留)。
-- MCP 一律作用在目前的組織,`ops_orgs` 看是哪一個;切換組織只能由人在 app 裡做。
+- MCP 一律作用在目前的組織,`orgs` 看是哪一個;切換組織只能由人在 app 裡做。
 - 跑測試卻沒指定 `OPS_DATA_DIR` 時,資料夾會改用暫存資料夾,不會碰到真正的資料。
 
 ## GitHub(開發進度 › GitHub)
@@ -150,12 +164,12 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 
 ## 文件櫃(側邊欄 › 文件櫃)
 
-純文字(Markdown)文件,預設組織依 evoleap 研發基地 `/studio` 的區塊(總覽、待辦、會員、課程、開發、構想、文件、工具)與頁籤分類;結構照 shuttle 的 `web/src/studio/proposal/ProposalLayout.tsx` 與 `studio/articles/registry.ts`,研發基地改版時要改 `Sources/Omixor/Cabinet/Cabinet.swift`。每個角色在「編輯…」設定文件櫃存取範圍(區塊或頁籤,可讀/可讀寫;頁籤優先於區塊),也可用 `ops_agent_upsert` 的 `doc_access` 調整。AI 以角色身分讀寫文件時帶 `agent`,超出範圍會被拒絕;不帶 `agent` 視為 MCP 用戶端,全部可讀寫。結構可在文件櫃左下「編輯結構」修改(每個組織各自一份 `cabinet-layout.json`)。文件存在組織資料夾的 `cabinet.json`;檔案讀不出來時會改名保留(`cabinet.unreadable-*.json`),不會被覆蓋。
+純文字(Markdown)文件,預設組織依 evoleap 研發基地 `/studio` 的區塊(總覽、待辦、會員、課程、開發、構想、文件、工具)與頁籤分類;結構照 shuttle 的 `web/src/studio/proposal/ProposalLayout.tsx` 與 `studio/articles/registry.ts`,研發基地改版時要改 `Sources/Omixor/Cabinet/Cabinet.swift`。每個角色在「編輯…」設定文件櫃存取範圍(區塊或頁籤,可讀/可讀寫;頁籤優先於區塊),也可用 `agent_upsert` 的 `doc_access` 調整。AI 以角色身分讀寫文件時帶 `agent`,超出範圍會被拒絕;不帶 `agent` 視為 MCP 用戶端,全部可讀寫。結構可在文件櫃左下「編輯結構」修改(每個組織各自一份 `cabinet-layout.json`)。文件存在組織資料夾的 `cabinet.json`;檔案讀不出來時會改名保留(`cabinet.unreadable-*.json`),不會被覆蓋。
 
 
 ## Facebook 粉絲專頁(AI 自動化 › 粉絲專頁)
 
-用 Meta Graph API(預設 `v24.0`,存在 `facebook.json` 的 `apiVersion`,可改成更新的版本)管理粉絲專頁:撰寫、預覽、立即發佈或排程、取消排程、看貼文與專頁成效。放在 AI 自動化而不是另開一頁:草稿多半由行銷角色寫好、人在這裡把關後發佈,和「待核准」同一種流程;另開側邊欄頁面也會改到 `ops_navigate` 的頁面列舉與 ⌘1–⌘9。
+用 Meta Graph API(預設 `v24.0`,存在 `facebook.json` 的 `apiVersion`,可改成更新的版本)管理粉絲專頁:撰寫、預覽、立即發佈或排程、取消排程、看貼文與專頁成效。放在 AI 自動化而不是另開一頁:草稿多半由行銷角色寫好、人在這裡把關後發佈,和「待核准」同一種流程;另開側邊欄頁面也會改到 `navigate` 的頁面列舉與 ⌘1–⌘9。
 
 連線(擇一,分頁上有引導):
 
@@ -163,10 +177,10 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 2. **直接貼權杖**:在 Graph API Explorer 取得 Page access token(或使用者權杖,Ops 會讀出它管理的專頁),建議先在存取權杖偵錯工具延長成長期權杖。
 
 - 權杖(使用者權杖、各專頁權杖、App secret)存在鑰匙圈,依組織分開;`facebook.json` 只有專頁清單、要管理哪些專頁與草稿。權杖放在 `Authorization: Bearer` 標頭,只送到 `graph.facebook.com`,`paging.next` 也只跟同一台主機。
-- 草稿可從文件櫃的文件或行銷角色的任務結果帶入,也可以由角色用 MCP 的 `ops_fb_draft_save` 寫好。發佈與排程要先確認、再過 Touch ID(和旁白發佈一樣),動態牆以人署名,註明草稿是誰寫的。
+- 草稿可從文件櫃的文件或行銷角色的任務結果帶入,也可以由角色用 MCP 的 `fb_draft_save` 寫好。發佈與排程要先確認、再過 Touch ID(和旁白發佈一樣),動態牆以人署名,註明草稿是誰寫的。
 - 排程:`published=false` + `scheduled_publish_time`,限制 10 分鐘到 30 天後,時間一律用台北時間。
 - 成效:專頁的觸及、瀏覽、貼文互動、追蹤數與新增追蹤(趨勢);每篇的觸及、點擊、心情分類,以及心情 / 留言 / 分享與互動合計。Meta 2025 年起淘汰了部分 insights 指標:Ops 先一次問全部候選指標,收到「不是有效的指標」(code 100)就逐一問、改用替代指標,取不到的顯示「已淘汰」或「無資料」,不會整頁壞掉。權杖過期(code 190)會提示重新連線。
-- AI 透過 MCP 只能讀與存草稿(`ops_fb_pages`、`ops_fb_posts`、`ops_fb_insights`、`ops_fb_drafts`、`ops_fb_draft_save`),沒有發佈工具。
+- AI 透過 MCP 只能讀與存草稿(`fb_pages`、`fb_posts`、`fb_insights`、`fb_drafts`、`fb_draft_save`),沒有發佈工具。
 
 程式在 `Sources/Omixor/Facebook/`,畫面在 `Features/Automation/AutoFacebookView.swift`,測試 `Tests/OmixorTests/FacebookTests.swift`(URLProtocol 攔截,不會連到 Meta)。
 

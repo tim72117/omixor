@@ -149,7 +149,7 @@ struct CabinetView: View {
             .padding(10)
             Divider()
             if docs.isEmpty {
-                EmptyStateView(title: "沒有文件", icon: "doc", message: "按 + 新增,或讓有權限的角色用 MCP 的 ops_doc_save 寫進來。")
+                EmptyStateView(title: "沒有文件", icon: "doc", message: "按 + 新增,或讓有權限的角色用 MCP 的 doc_save 寫進來。")
                     .frame(maxHeight: .infinity)
             } else {
                 List(selection: $selectedDoc) {

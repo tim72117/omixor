@@ -7,25 +7,25 @@ import (
 	"omixor-core/service"
 )
 
-// 組織鏈工具:ops_chain(讀)、ops_chain_save(組織管理員)、ops_agent_task_delegate(角色依鏈委派)。
+// 組織鏈工具:chain(讀)、chain_save(組織管理員)、agent_task_delegate(角色依鏈委派)。
 // 規則都在 service/chain.go(透過 Backend);名稱、參數同 Swift 版 MCPHandler。
 
 // ChainToolDefs 組織鏈工具的規格(接在 CoreToolDefs 後面)
 func ChainToolDefs() []any {
 	prio := []string{"urgent", "high", "normal", "low"}
 	return []any{
-		ToolDef("ops_chain", "組織鏈",
+		coreDef("chain",
 			"列出組織鏈(資訊流動方向):每條邊 from → to 表示 from 可以派工作給 to(label 例如 目標、任務;空白 = 任務),to 做完回報給 from。節點是 agent:<角色 id> 或 user:<email>;fromName、toName 是顯示名稱。", true,
 			obj(map[string]any{})),
-		ToolDef("ops_chain_save", "修改組織鏈",
+		coreDef("chain_save",
 			"修改組織鏈(組織管理員)。edges 取代全部邊;或用 add 加上(同 from、to 的會被取代)、remove 拿掉(依 from、to)。每條邊 {from, to, label}:節點寫 agent:<角色 id> 或 user:<email>,label 例如 目標、任務(空白 = 任務)。不能指向自己、不能重複、不能有循環,節點要存在(角色存在、人是組織成員)。", false,
 			obj(map[string]any{
 				"edges":  pObjs("取代全部邊:[{from, to, label}]"),
 				"add":    pObjs("加上的邊:[{from, to, label}]"),
 				"remove": pObjs("拿掉的邊:[{from, to}]"),
 			})),
-		ToolDef("ops_agent_task_delegate", "依組織鏈委派任務",
-			"以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 ops_agent_context 的 chain.downstream。", false,
+		coreDef("agent_task_delegate",
+			"以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 agent_context 的 chain.downstream。", false,
 			obj(map[string]any{
 				"agent":        pStr("你自己正在扮演的角色 id 或名稱(委派者)"),
 				"to":           pStr("接任務的角色 id 或名稱(要是鏈上的下游)"),
@@ -111,7 +111,7 @@ func parseEdges(v any, key string) ([]model.ChainEdge, bool, error) {
 
 // RegisterChainTools 登記組織鏈工具。執行環境(Call.Ctx)要實作 AgentEnv
 func RegisterChainTools(s *Server) {
-	s.Register("ops_chain", func(c *Call) (any, error) {
+	s.Register("chain", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		ch, err := e.Backend().GetChain(e.Org())
 		if err != nil {
@@ -120,7 +120,7 @@ func RegisterChainTools(s *Server) {
 		return chainJSON(e, *ch), nil
 	})
 
-	s.Register("ops_chain_save", func(c *Call) (any, error) {
+	s.Register("chain_save", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		bk, org := e.Backend(), e.Org()
 		edges, hasEdges, err := parseEdges(c.Args.Raw["edges"], "edges")
@@ -169,7 +169,7 @@ func RegisterChainTools(s *Server) {
 		return chainJSON(e, *saved), nil
 	})
 
-	s.Register("ops_agent_task_delegate", func(c *Call) (any, error) {
+	s.Register("agent_task_delegate", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		from, err := c.Args.Require("agent")
 		if err != nil {

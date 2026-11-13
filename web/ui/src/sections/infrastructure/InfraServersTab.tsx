@@ -105,7 +105,7 @@ function ServerDetail({ s, drained, setDrained, onClose, onOpenService }: { s: S
   const [dlg, ask] = useConfirm();
   const { run, toast, toastEl } = useAct();
   const ssh = `ssh ops@${s.ip}`;
-  const post = (icon: string, text: string) => tool("ops_activity_post", { icon, text, section: "infrastructure" });
+  const post = (icon: string, text: string) => tool("activity_post", { icon, text, section: "infrastructure" });
   const list = o.services.filter((x) => x.hostIds.includes(s.id));
   const liveStat = (title: string, v: string, c: string) => (
     <div className="col" style={{ gap: 1 }}><span className="row gap4 caption muted"><span className="dot" style={{ width: 6, height: 6, background: color(c) }} />{title}</span><span className="num" style={{ fontSize: 15, fontWeight: 500 }}>{v}</span></div>

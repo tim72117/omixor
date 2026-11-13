@@ -28,7 +28,7 @@ import (
 //     (寫 cabinet-imported.json 當記號;舊檔案不刪)
 //   - 範本:沒存過結構的組織,開了範本(OMIXOR_TEMPLATES)時用 templates/cabinet/ 的結構;新組織用空白結構或複製目前的
 //
-// MCP 工具(ops_cabinet、ops_docs、ops_doc_save)在核心(omixor-core/mcp),透過 backend 操作。
+// MCP 工具(cabinet、docs、doc_save)在核心(omixor-core/mcp),透過 backend 操作。
 
 type (
 	CabinetTab     = model.CabinetTab

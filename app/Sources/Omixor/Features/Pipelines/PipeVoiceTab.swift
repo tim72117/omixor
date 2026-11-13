@@ -20,7 +20,7 @@ struct PipeVoiceTab: View {
             newBatchCard
             if app.voiceJobs.isEmpty {
                 Card { EmptyStateView(title: "還沒有旁白批次", icon: "waveform",
-                                      message: "在上面送出批次,或讓 AI 透過 MCP 的 ops_voice_submit 分派過來。").frame(minHeight: 160) }
+                                      message: "在上面送出批次,或讓 AI 透過 MCP 的 voice_submit 分派過來。").frame(minHeight: 160) }
             } else {
                 ForEach(app.voiceJobs) { job in
                     VoiceJobCard(job: job, player: player)
@@ -59,6 +59,7 @@ struct PipeVoiceTab: View {
                     if state?.busy == true {
                         ProgressView().controlSize(.small)
                         Text(target.auth == .approval ? "請在瀏覽器以管理員身分按「核准」" : "請在瀏覽器完成登入").font(.callout).foregroundStyle(.secondary)
+                        Button("取消") { app.connStore?.cancelLogin(target.id) }
                     } else if let account = state?.account {
                         Pill(text: account, color: .green, icon: "person.crop.circle.badge.checkmark")
                         Button("登出") { Task { await app.connStore?.logout(target.id) } }

@@ -3,7 +3,7 @@ export type Actor = { kind: "person" | "ai" | "system"; id?: string };
 
 export type SectionId =
   | "overview" | "development" | "pipelines" | "infrastructure" | "monitoring"
-  | "incidents" | "automation" | "cabinet" | "settings" | "channels";
+  | "incidents" | "automation" | "cabinet" | "settings" | "channels" | "system";
 
 export const SECTIONS: { id: SectionId; title: string; icon: string; group: "main" | "auto" | "end" }[] = [
   { id: "overview", title: "總覽", icon: "square.grid.2x2", group: "main" },
@@ -16,6 +16,7 @@ export const SECTIONS: { id: SectionId; title: string; icon: string; group: "mai
   { id: "channels", title: "對話", icon: "bubble.left.and.bubble.right", group: "auto" },
   { id: "cabinet", title: "文件櫃", icon: "archivebox", group: "auto" },
   { id: "settings", title: "設定", icon: "gearshape", group: "end" },
+  { id: "system", title: "系統", icon: "switch.2", group: "end" },
 ];
 
 export type Nav = { section: SectionId; focusId?: string; env: string; timeRange: string };

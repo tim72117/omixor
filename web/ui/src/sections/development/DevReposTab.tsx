@@ -4,6 +4,7 @@ import { Card, color, EmptyState, Pill } from "../../components/ui";
 import { Seg, SIcon, Sparkline, t, useContextMenu, useList, useOps, type MenuItem, type PullRequest, type Repository, type Service } from "../../components/opsKit";
 import { relative } from "../../fmt";
 import { CoverageBar, isActivePR, useDev, VulnLabel } from "./devShared";
+import { canGo } from "../../features";
 
 type SortKey = "lastCommit" | "name" | "coverage" | "openPRs" | "vulnerabilities" | "language";
 
@@ -28,7 +29,7 @@ export function DevReposTab() {
   const vulns = repos.reduce((a, r) => a + r.vulnerabilities, 0);
   const repoMenu = (id: string): MenuItem[] => [
     { label: "查看 Pull Requests", onClick: () => dev.showRepoPRs(id) },
-    { label: "前往 CI/CD", onClick: () => o.go("pipelines", id) },
+    ...(canGo("pipelines") ? [{ label: "前往 CI/CD", onClick: () => o.go("pipelines", id) }] : []),
   ];
   const th = (label: string, key?: SortKey, width?: number) => (
     <th style={{ width }} onClick={key ? () => setSort((s) => (s.key === key ? { key, asc: !s.asc } : { key, asc: key === "name" || key === "language" })) : undefined}>
@@ -122,7 +123,7 @@ function RepoCard({ repo, prs, services, onContextMenu }: { repo: Repository; pr
             <div className="row gap6 wrap">
               <span className="caption muted">部署為</span>
               {svcs.slice(0, 3).map((s) => (
-                <button key={s.id} className="ops-chip" style={{ fontSize: 11.5, padding: "2px 6px" }} title={`前往服務 ${s.name}`} onClick={() => o.go("infrastructure", s.id)}>
+                <button key={s.id} className="ops-chip" style={{ fontSize: 11.5, padding: "2px 6px" }} title={`前往服務 ${s.name}`} onClick={canGo("infrastructure") ? () => o.go("infrastructure", s.id) : undefined}>
                   <span className="dot" style={{ width: 6, height: 6, background: color(s.health === "healthy" ? "green" : s.health === "degraded" ? "orange" : s.health === "down" ? "red" : s.health === "maintenance" ? "blue" : "gray") }} />{s.name}
                 </button>
               ))}

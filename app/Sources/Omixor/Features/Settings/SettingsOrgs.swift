@@ -11,6 +11,8 @@ struct SettingsOrgsPane: View {
     @State private var deleting: Organization?
     @State private var editingLayout = false
     @State private var error: String?
+    /// 正在刪除的組織(等本機服務回應;期間刪除按鈕停用)
+    @State private var removing: String?
     /// 遠端 omixor 的版本(GET /api/version)
     @State private var serverVersion: String?
 
@@ -37,8 +39,12 @@ struct SettingsOrgsPane: View {
                         }
                         if canEditOrgs { Button("編輯…") { editing = o } }
                         if o.id != app.currentOrgId, remote == nil {
-                            Button(role: .destructive) { deleting = o } label: { Image(systemName: "trash") }
-                                .buttonStyle(.borderless)
+                            if removing == o.id {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Button(role: .destructive) { deleting = o } label: { Image(systemName: "trash") }
+                                    .buttonStyle(.borderless).disabled(removing != nil)
+                            }
                         }
                     }
                     .padding(.vertical, 2)
@@ -68,6 +74,8 @@ struct SettingsOrgsPane: View {
                 setupRow("連線", "key.horizontal", "\(app.connections.count) 個連線;外部服務的網址與登入") {
                     pane = .connections
                 }
+                // 組織樣板(例如家庭助理;功能開關關閉時伺服器不列,這裡就不顯示)
+                OrgTemplatesRows()
                 setupRow("Issue", "exclamationmark.bubble", "\(app.issues.filter { $0.status == .open }.count) 件未解決") {
                     app.go(.development, focus: "issues")
                 }
@@ -89,11 +97,17 @@ struct SettingsOrgsPane: View {
         .sheet(isPresented: $editingLayout) { CabinetLayoutEditor() }
         .confirmationDialog("刪除組織「\(deleting?.name ?? "")」?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             presenting: deleting) { o in
-            Button("刪除(資料夾移到垃圾桶)", role: .destructive) {
-                do { try app.deleteOrg(o.id); error = nil } catch { self.error = error.localizedDescription }
+            Button("刪除", role: .destructive) {
+                guard removing == nil else { return }
+                removing = o.id
+                error = nil
+                Task {
+                    do { try await app.deleteOrg(o.id) } catch { self.error = error.localizedDescription }
+                    removing = nil
+                }
             }
         } message: { _ in
-            Text("這個組織的 Issue、角色、任務、文件與連線設定會一起移到垃圾桶,鑰匙圈裡的登入會刪除。")
+            Text("本機服務裡這個組織的 Issue、角色與任務、頻道、文件櫃、事件會永久刪除;組織資料夾(連線設定等)移到垃圾桶,鑰匙圈裡的登入會刪除。")
         }
     }
 
@@ -136,7 +150,12 @@ struct SettingsOrgsPane: View {
                 }
                 .disabled(app.connecting != nil)
             }
-            if let name = app.connecting { Text("請在瀏覽器完成 \(name) 的核准…").font(.caption).foregroundStyle(.secondary) }
+            if let name = app.connecting {
+                HStack {
+                    Text("請在瀏覽器完成 \(name) 的核准…").font(.caption).foregroundStyle(.secondary)
+                    Button("取消") { app.cancelConnect() }.buttonStyle(.link).font(.caption)
+                }
+            }
             if let e = app.connectError { Text(e).font(.caption).foregroundStyle(.orange) }
         } header: {
             Text("連接對象")

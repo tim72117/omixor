@@ -21,6 +21,7 @@ final class FacebookTests: XCTestCase {
     static let longUser = "EAAG-long-user"
 
     override func setUp() async throws {
+        try TestCore.start(self)   // 角色等核心資料在 core server:每個測試一個新的本機守護服務
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-fb-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         setenv("OPS_DATA_DIR", dataDir.path, 1)
@@ -431,31 +432,31 @@ final class FacebookTests: XCTestCase {
     func testMCPToolDefinitionsHaveNoPublish() async throws {
         let r = try await rpc("tools/list")
         let tools = try XCTUnwrap((r["result"] as? [String: Any])?["tools"] as? [[String: Any]])
-        let fbTools = tools.filter { ($0["name"] as? String)?.hasPrefix("ops_fb_") == true }
+        let fbTools = tools.filter { ($0["name"] as? String)?.hasPrefix("fb_") == true }
         XCTAssertEqual(fbTools.compactMap { $0["name"] as? String }.sorted(),
-                       ["ops_fb_draft_save", "ops_fb_drafts", "ops_fb_insights", "ops_fb_pages", "ops_fb_posts"])
+                       ["fb_draft_save", "fb_drafts", "fb_insights", "fb_pages", "fb_posts"])
         for t in fbTools {
             let ro = (t["annotations"] as? [String: Any])?["readOnlyHint"] as? Bool
-            XCTAssertEqual(ro, t["name"] as? String != "ops_fb_draft_save", "\(t["name"]!)")
+            XCTAssertEqual(ro, t["name"] as? String != "fb_draft_save", "\(t["name"]!)")
         }
         XCTAssertFalse(tools.contains { ($0["name"] as? String ?? "").contains("fb_publish") || ($0["name"] as? String ?? "").contains("fb_schedule") })
-        XCTAssertTrue(MCPHandler.instructions.contains("ops_fb_draft_save"))
+        XCTAssertTrue(MCPHandler.instructions.contains("fb_draft_save"))
     }
 
     func testMCPNotConnectedErrors() async throws {
-        for name in ["ops_fb_pages", "ops_fb_posts", "ops_fb_insights"] {
+        for name in ["fb_pages", "fb_posts", "fb_insights"] {
             let (out, isError) = try await tool(name)
             XCTAssertTrue(isError, name)
             XCTAssertTrue((out as? String)?.contains("AI 自動化 › 粉絲專頁") == true, name)
         }
         // 草稿是本機資料,沒連線也能用
-        let (_, isError) = try await tool("ops_fb_drafts")
+        let (_, isError) = try await tool("fb_drafts")
         XCTAssertFalse(isError)
     }
 
     func testMCPReadTools() async throws {
         try await connect()
-        let pages = try await ok("ops_fb_pages")
+        let pages = try await ok("fb_pages")
         XCTAssertEqual(pages["connected"] as? Bool, true)
         XCTAssertEqual(pages["mode"] as? String, "page_token")
         let p = try XCTUnwrap((pages["pages"] as? [[String: Any]])?.first)
@@ -465,7 +466,7 @@ final class FacebookTests: XCTestCase {
         XCTAssertNil(p["accessToken"])
         XCTAssertFalse(MCPJSON.string(pages).contains("EAAG"))
 
-        let posts = try await ok("ops_fb_posts", ["page": "evoleap", "limit": 2])
+        let posts = try await ok("fb_posts", ["page": "evoleap", "limit": 2])
         let pp = try XCTUnwrap((posts["pages"] as? [[String: Any]])?.first)
         let list = try XCTUnwrap(pp["posts"] as? [[String: Any]])
         XCTAssertEqual(list.count, 2)
@@ -474,21 +475,21 @@ final class FacebookTests: XCTestCase {
         XCTAssertEqual(ins.first { $0["key"] as? String == "reach" }?["status"] as? String, "ok")
         XCTAssertEqual((pp["scheduled"] as? [[String: Any]])?.first?["scheduledTime"] as? String, "2027-01-15T08:00:00Z")
 
-        let insights = try await ok("ops_fb_insights", ["period": "day", "days": 7])
+        let insights = try await ok("fb_insights", ["period": "day", "days": 7])
         let ip = try XCTUnwrap((insights["pages"] as? [[String: Any]])?.first)
         let metrics = try XCTUnwrap(ip["metrics"] as? [[String: Any]])
         let eng = try XCTUnwrap(metrics.first { $0["key"] as? String == "engagement" })
         XCTAssertEqual(eng["status"] as? String, "deprecated")
         XCTAssertTrue(eng["total"] is NSNull)
         XCTAssertEqual(metrics.first { $0["key"] as? String == "reach" }?["total"] as? Double, 60)
-        let (bad, isError) = try await tool("ops_fb_insights", ["period": "month"])
+        let (bad, isError) = try await tool("fb_insights", ["period": "month"])
         XCTAssertTrue(isError, "\(bad)")
         XCTAssertTrue(graphPosts.isEmpty, "讀取工具不會送出 POST")
     }
 
     func testMCPDraftSaveSignsAgentAndCannotPublish() async throws {
         try await connect()
-        let d = try await ok("ops_fb_draft_save", ["message": "週末限定", "link": "https://evoleap.io",
+        let d = try await ok("fb_draft_save", ["message": "週末限定", "link": "https://evoleap.io",
                                                     "proposed_time": "2026-11-20T20:00:00+08:00", "agent": "marketing"])
         let id = try XCTUnwrap(d["id"] as? String)
         XCTAssertEqual(d["author"] as? String, "agent:marketing")
@@ -501,33 +502,33 @@ final class FacebookTests: XCTestCase {
         XCTAssertTrue(app.activity[0].text.contains("新增 Facebook 草稿"))
 
         // 修改
-        let u = try await ok("ops_fb_draft_save", ["id": id, "message": "週末限定!"])
+        let u = try await ok("fb_draft_save", ["id": id, "message": "週末限定!"])
         XCTAssertEqual(u["message"] as? String, "週末限定!")
         XCTAssertEqual(u["author"] as? String, "agent:marketing", "修改不換撰寫者")
 
         // 沒帶 agent 署名 MCP 用戶端
-        let m = try await ok("ops_fb_draft_save", ["message": "另一篇"])
+        let m = try await ok("fb_draft_save", ["message": "另一篇"])
         XCTAssertEqual(m["author"] as? String, "mcp")
 
         // 錯誤:未知角色、空白、壞網址、已發佈的不能改
-        var (out, isError) = try await tool("ops_fb_draft_save", ["message": "x", "agent": "nobody"])
+        var (out, isError) = try await tool("fb_draft_save", ["message": "x", "agent": "nobody"])
         XCTAssertTrue(isError); XCTAssertTrue((out as? String)?.contains("找不到角色") == true)
-        (out, isError) = try await tool("ops_fb_draft_save", [:])
+        (out, isError) = try await tool("fb_draft_save", [:])
         XCTAssertTrue(isError)
-        (out, isError) = try await tool("ops_fb_draft_save", ["message": "x", "link": "javascript:alert(1)"])
+        (out, isError) = try await tool("fb_draft_save", ["message": "x", "link": "javascript:alert(1)"])
         XCTAssertTrue(isError)
         _ = try await fb.publish(id)
-        (out, isError) = try await tool("ops_fb_draft_save", ["id": id, "message": "改"])
+        (out, isError) = try await tool("fb_draft_save", ["id": id, "message": "改"])
         XCTAssertTrue(isError); XCTAssertTrue((out as? String)?.contains("不能修改") == true)
 
         // MCP 存草稿不會碰 Graph API 的寫入
         XCTAssertEqual(graphPosts.count, 1, "只有人按的那一次發佈")
 
-        let list = try await ok("ops_fb_drafts")
+        let list = try await ok("fb_drafts")
         XCTAssertEqual(list["total"] as? Int, 1)
-        let all = try await ok("ops_fb_drafts", ["status": "all"])
+        let all = try await ok("fb_drafts", ["status": "all"])
         XCTAssertEqual(all["total"] as? Int, 2)
-        let one = try await ok("ops_fb_drafts", ["id": id])
+        let one = try await ok("fb_drafts", ["id": id])
         XCTAssertEqual(one["status"] as? String, "published")
         XCTAssertEqual(one["postId"] as? String, "1001_555")
     }

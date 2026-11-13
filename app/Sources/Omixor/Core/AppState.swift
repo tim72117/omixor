@@ -19,13 +19,36 @@ final class AppState: ObservableObject {
     @Published var connectChosen = false
     /// 正在連接的對象(等瀏覽器核准時顯示)
     @Published var connecting: String?
+    /// 正在等瀏覽器核准的登入(可以取消)
+    var connectLogin: Task<OmixorAccount, Error>?
     @Published var connectError: String?
     /// 登入遠端成功、但伺服器上還沒有我能用的組織:先顯示「還沒有組織」(管理員可以建立;成員等被加入),有了組織才進入遠端模式
     @Published var noOrgsServer: (server: OmixorMode.Server, account: OmixorAccount)?
     var remoteRefreshStarted = false
+    /// 本機模式的守護服務(Orgs/LocalCore.swift):沒好之前畫面停在 LocalCoreGate
+    @Published var localCore: LocalCoreState = .idle
+    /// 第一次匯入本機資料時的問題(空 = 都好)
+    @Published var localCoreProblems: [String] = []
+    /// 守護服務意外結束與自動重啟的說明(等待畫面顯示;正常時 nil)
+    @Published var localCoreNotice: String?
+    /// 自動重啟:這一輪試了幾次、上次可用的時間、排定的重啟
+    var localCoreRestarts = 0
+    var localCoreReadyAt: Date?
+    var localCoreRestartTask: Task<Void, Never>?
+    /// 切換組織後在背景重讀各功能資料的工作(Orgs.swift 的 reloadOrgData)
+    var orgReload: Task<Void, Never>?
+    /// 本機模式:組織清單同步到守護服務的背景工作(LocalCore.swift 的 syncLocalCoreOrgs;切換組織、刪除組織前先等它)
+    var localOrgSync: Task<Void, Never>?
     @Published var showCommandPalette = false
     /// 跨頁跳轉時要選中的項目(例如從總覽點告警 → 監控頁選中該告警)
     @Published var focusId: String?
+    /// 系統設定的功能開關(System/SystemSettings.swift;core 讀不到前是保守預設:已實作的開、實驗的關)
+    @Published var features = FeatureFlags() { didSet { if features != oldValue { featuresChanged() } } }
+    /// 跳到關掉的功能時的提示(畫面上方顯示一下)
+    @Published var featureNotice: String?
+    /// 動作失敗的提示(畫面上方顯示,例如事件沒有存起來、刪除組織時本機服務沒有回應;按掉或幾秒後消失)
+    @Published var errorNotice: String?
+    var systemStore: SystemStore?
 
     // 資料
     @Published var people: [Person]
@@ -79,6 +102,8 @@ final class AppState: ObservableObject {
     private(set) var agentStore: AgentStore?
     /// 角色自動執行(AgentRunner/AgentRunner.swift):開了「自動執行」的角色,派給它的任務由這台 Mac 的 Claude Code 處理
     lazy var agentRunner = AgentRunner(app: self)
+    /// 外部 MCP 閘道(MCP/Gateway):依 core 的登記連外部 MCP 伺服器,把工具依權限掛到 App 的 MCP 端點
+    lazy var mcpGateway = MCPGateway(app: self)
 
     @discardableResult
     func startAgents(timer: Bool = true) -> AgentStore {
@@ -94,7 +119,11 @@ final class AppState: ObservableObject {
     @Published var channels: [ChannelSummary] = []
     /// 頻道或訊息有變動就加一(畫面重新讀訊息)
     @Published var channelsVersion = 0
+    /// 提到我的未讀訊息(「需要協助」區塊與徽章用;ChannelStore 更新)
+    @Published var myMentions: [ChannelInbox.Mention] = []
     private(set) var channelStore: ChannelStore?
+    /// 事件(Incidents/IncidentStore.swift):存在 core server,incidents 是副本;startIncidents() 開啟
+    var incidentStore: IncidentStore?
 
     @discardableResult
     func startChannels() -> ChannelStore {
@@ -199,6 +228,20 @@ final class AppState: ObservableObject {
         return s
     }
 
+    /// App 啟動時開啟各功能(Issue、角色與任務、頻道、事件、文件櫃、系統設定、GitHub):先建立、開始定時重讀,
+    /// 資料在背景讀(Orgs.swift 的 reloadOrgData;不擋主執行緒)。本機模式守護服務還沒好時讀會失敗,好了之後會再重讀
+    func startCoreStores() {
+        ensureOrgs()
+        if issueStore == nil { issueStore = IssueStore(app: self) }
+        if agentStore == nil { let s = AgentStore(app: self); agentStore = s; s.start(timer: true) }
+        if channelStore == nil { let s = ChannelStore(app: self); channelStore = s; s.start() }
+        if incidentStore == nil { let s = IncidentStore(app: self); incidentStore = s; s.start() }
+        if systemStore == nil { systemStore = SystemStore(app: self) }
+        startConnections()
+        if ghStore == nil { let s = GitHubStore(app: self); ghStore = s; s.start(timer: true) }
+        reloadOrgData()
+    }
+
     func startVoice(timer: Bool = true) {
         guard voice == nil else { return }
         startConnections()
@@ -260,14 +303,21 @@ final class AppState: ObservableObject {
 
     /// 側邊欄徽章數字
     func badge(for section: AppSection) -> Int? {
+        guard isVisible(section) else { return nil }
+        // 只算開著的分頁(關掉的實驗功能不算)
+        func on(_ key: String) -> Bool { isFeatureEnabled(key) }
         let n: Int
         switch section {
-        case .monitoring: n = firingAlerts.count
-        case .incidents: n = openIncidents.count
-        case .automation: n = pendingApprovals.count + agentTasks.filter { $0.status == .blocked }.count
-        case .pipelines: n = runningPipelines.count + voiceJobs.filter { $0.state == .ready }.count
-        case .development: n = issues.filter { $0.status == .open && $0.priority <= .high }.count
+        case .monitoring: n = on("monitoring.alerts") ? firingAlerts.count : 0
+        case .incidents: n = on("incidents.list") ? openIncidents.count : 0
+        case .automation:
+            n = (on("automation.inbox") ? pendingApprovals.count : 0)
+                + (on("automation.agents") || on("automation.dispatch") ? agentTasks.filter { $0.status == .blocked }.count : 0)
+        case .pipelines:
+            n = (on("pipelines.runs") ? runningPipelines.count : 0) + (on("pipelines.voice") ? voiceJobs.filter { $0.state == .ready }.count : 0)
+        case .development: n = on("development.issues") ? issues.filter { $0.status == .open && $0.priority <= .high }.count : 0
         case .channels: n = channels.reduce(0) { $0 + $1.unread }
+        case .help: n = agentTasks.filter { $0.status == .blocked }.count + myMentions.count
         default: n = 0
         }
         return n > 0 ? n : nil
@@ -275,9 +325,18 @@ final class AppState: ObservableObject {
 
     // MARK: - 導覽
 
-    func go(_ section: AppSection, focus id: String? = nil) {
+    /// 跳到某一頁;那一頁在系統設定關掉了就改去總覽並提示(回傳 false)
+    @discardableResult
+    func go(_ section: AppSection, focus id: String? = nil) -> Bool {
+        guard isVisible(section) else {
+            featureNotice = "「\(section.title)」在系統設定裡關閉了"
+            self.section = .overview
+            focusId = nil
+            return false
+        }
         self.section = section
         focusId = id
+        return true
     }
 
     // MARK: - 動作(目前只改本機狀態,並寫進動態牆)
@@ -369,20 +428,23 @@ final class AppState: ObservableObject {
         log(.person(me), "arrow.uturn.backward", "回滾 \(d.service) 到 \(d.previousVersion)", .pipelines)
     }
 
+    /// 改事件狀態(透過 IncidentStore 寫進 core server;連線不能用或失敗時不改畫面,原因顯示在 errorNotice)
     func updateIncident(id: String, status: IncidentStatus, note: String? = nil, by actor: Actor? = nil) {
         let who = actor ?? .person(me)
-        guard let i = incidents.firstIndex(where: { $0.id == id }) else { return }
-        incidents[i].status = status
-        if status == .resolved { incidents[i].resolvedAt = .now }
-        incidents[i].timeline.append(IncidentEvent(id: UUID(), date: .now, actor: who, kind: .status,
-                                                   text: note ?? "狀態改為「\(status.label)」"))
-        log(who, "flame", "\(incidents[i].id) 狀態改為\(status.label)", .incidents)
+        do {
+            let inc = try startIncidents().update(id: id, status: status, note: note, by: who)
+            log(who, "flame", "\(inc.id) 狀態改為\(status.label)", .incidents)
+        } catch {
+            errorNotice = "\(id) 狀態沒有改成:\(error.localizedDescription)"
+        }
     }
 
     func addIncidentNote(id: String, text: String, by actor: Actor? = nil) {
         let who = actor ?? .person(me)
-        guard let i = incidents.firstIndex(where: { $0.id == id }), !text.isEmpty else { return }
-        incidents[i].timeline.append(IncidentEvent(id: UUID(), date: .now, actor: who, kind: .note, text: text))
+        guard !text.isEmpty else { return }
+        do { _ = try startIncidents().update(id: id, note: text, by: who) } catch {
+            errorNotice = "\(id) 的備註沒有存起來:\(error.localizedDescription)"
+        }
     }
 
     func moveWorkItem(id: String, to status: WorkStatus, by actor: Actor? = nil) {

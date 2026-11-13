@@ -78,10 +78,15 @@ func init() {
 	}
 	RegisterAction("navigate", func(a *App, args map[string]any) (any, error) {
 		a.Mu.Lock()
+		f, _ := args["focusId"].(string)
+		notice := ""
 		if s, ok := args["section"].(string); ok && s != "" {
+			// 系統設定關掉的頁面:改去總覽(提示放在 system view 的 notice,畫面上方會顯示)
+			if to, n := a.GuardSection(s); n != "" {
+				s, f, notice = to, "", n
+			}
 			a.Nav.Section = s
 		}
-		f, _ := args["focusId"].(string)
 		a.Nav.FocusID = f
 		if s, ok := args["env"].(string); ok && s != "" {
 			a.Nav.Env = s
@@ -91,6 +96,10 @@ func init() {
 		}
 		nav := a.Nav
 		a.Mu.Unlock()
+		if notice != "" {
+			a.Changed("nav", "system")
+			return map[string]any{"section": nav.Section, "focusId": nav.FocusID, "env": nav.Env, "timeRange": nav.TimeRange, "notice": notice}, nil
+		}
 		a.Changed("nav")
 		return nav, nil
 	})

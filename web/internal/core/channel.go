@@ -13,7 +13,7 @@ import (
 //
 //	本機模式:內建核心 + 本機 PostgreSQL(omixor_channels 等);遠端模式:omixor server 的 /api/orgs/{org}/channels
 //
-// 這裡是轉接層:AgentOps 的頻道部分(MCP 的 ops_channels、ops_channel_*、ops_agent_context 的 mentions 用),
+// 這裡是轉接層:AgentOps 的頻道部分(MCP 的 channels、channel_*、agent_context 的 mentions 用),
 // 以及畫面的視圖 channels、動作 channel_*。寫入成功後通知畫面(主題 channels)、寫動態牆(建立頻道、@ 角色)。
 //
 // 身分:本機模式是內建核心的 ops-web(伺服器管理員,節點 user:ops-web);遠端模式是登入雲端的帳號(user:<email>)。

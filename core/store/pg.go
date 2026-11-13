@@ -29,6 +29,9 @@ import (
 //	omixor_channels                               訊息頻道(主鍵 (org, id) = CH-<n>;members 是 jsonb 節點;同組織的 issue_id 不重複)
 //	omixor_channel_messages                       頻道訊息(主鍵 (org, channel_id, id) = M-<n>,每個頻道各自編號;mentions 是 jsonb)
 //	omixor_channel_reads                          已讀(主鍵 (org, channel_id, member);last_read 是讀到的訊息號碼)
+//	omixor_incidents                              事件(主鍵 (org, id) = INC-<n>;pos 大的在前;整筆事件存在 data jsonb,方法在 pg_incident.go)
+//	omixor_org_integrations                       組織的 GitHub、GitLab 設定與外部 MCP 登記(主鍵 (org, kind),kind 是 github、gitlab、mcp;設定存在 data jsonb,方法在 pg_integration.go、pg_mcp.go)
+//	omixor_org_system                             組織的系統設定(功能開關;主鍵 org;有改過的開關存在 features jsonb,方法在 pg_system.go)
 const pgSchema = `
 create table if not exists omixor_users (
   id text primary key,
@@ -218,6 +221,31 @@ create table if not exists omixor_channel_reads (
   last_read integer not null default 0,
   at timestamptz not null,
   primary key (org, channel_id, member)
+);
+create table if not exists omixor_incidents (
+  org text not null,
+  id text not null,
+  number integer not null,
+  pos bigint not null,
+  status text not null,
+  started_at timestamptz not null,
+  data jsonb not null,
+  primary key (org, id)
+);
+create index if not exists omixor_incidents_org_pos on omixor_incidents (org, pos desc);
+create table if not exists omixor_org_integrations (
+  org text not null,
+  kind text not null,
+  data jsonb not null,
+  updated_at timestamptz not null,
+  updated_by text not null default '',
+  primary key (org, kind)
+);
+create table if not exists omixor_org_system (
+  org text primary key,
+  features jsonb not null,
+  updated_at timestamptz not null,
+  updated_by text not null default ''
 );
 `
 
@@ -536,6 +564,9 @@ func (p *PG) DeleteOrg(id string) error {
 		`delete from omixor_channel_reads where org = $1`,
 		`delete from omixor_channel_messages where org = $1`,
 		`delete from omixor_channels where org = $1`,
+		`delete from omixor_incidents where org = $1`,
+		`delete from omixor_org_integrations where org = $1`,
+		`delete from omixor_org_system where org = $1`,
 		`delete from omixor_org_members where org = $1`,
 	} {
 		if _, err := tx.Exec(c, q, id); err != nil {

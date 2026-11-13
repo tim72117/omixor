@@ -42,7 +42,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .mcp-status { display: flex; align-items: center; gap: 6px; padding: 6px 8px; color: var(--fg2); }
 .dot { width: 7px; height: 7px; border-radius: 7px; display: inline-block; }
 
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
 .toolbar { height: 44px; flex: none; display: flex; align-items: center; justify-content: center; gap: 10px; border-bottom: 1px solid var(--line); background: var(--bg); }
 /* 內頁字大一號:基準 13px → 14px,等比放大(字級多為各處寫死的 px,用 zoom 一次調整) */
 .content { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; zoom: 1.077; }
@@ -133,3 +133,12 @@ table.table { width: 100%; border-collapse: collapse; }
 .account-logout { display: flex; align-items: center; justify-content: center; gap: 6px; width: calc(100% - 16px); margin: 2px 8px 4px; padding: 4px 8px; background: none; border: 1px solid var(--line); border-radius: 6px; color: inherit; cursor: pointer; font-size: 12.5px; }
 .account-logout:hover:not(:disabled) { background: var(--bg3); }
 .account-logout:disabled { opacity: .45; }
+
+/* 功能開關的提示(跳到關掉的功能、所在頁被關掉;App 的 FeatureNoticeBanner) */
+.feature-notice { position: absolute; top: 52px; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 999px; background: var(--bg2); border: 1px solid var(--line); box-shadow: 0 6px 18px rgba(0,0,0,.16); font-size: 13px; max-width: calc(100% - 32px); }
+/* 系統頁 */
+.sys-row { display: flex; align-items: flex-start; gap: 12px; }
+.sys-row .grow { min-width: 0; }
+.sys-kids { display: flex; flex-direction: column; gap: 10px; padding-left: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+.sys-collapsed { font-size: 12px; color: var(--fg2); display: flex; align-items: center; gap: 6px; }

@@ -165,7 +165,7 @@ func TestLDAPLoginFlowAndAttribution(t *testing.T) {
 	app.Mu.Lock()
 	alert := app.C["alerts"][0]["id"].(string)
 	app.Mu.Unlock()
-	_, out = c.do("POST", "/api/tool/ops_alert_update", map[string]any{"alert_id": alert, "action": "acknowledge"}, nil)
+	_, out = c.do("POST", "/api/tool/alert_update", map[string]any{"alert_id": alert, "action": "acknowledge"}, nil)
 	if out["error"] != nil {
 		t.Fatal(out)
 	}

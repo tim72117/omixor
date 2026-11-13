@@ -8,6 +8,7 @@ final class AgentRunnerTests: XCTestCase {
     let org = "~omixor"
 
     override func setUp() async throws {
+        try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
         TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-runner-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
@@ -126,7 +127,7 @@ final class AgentRunnerTests: XCTestCase {
     }
 
     /// 開了 @ 自動回覆:被 @ 就排一筆「回覆頻道」任務;同一則不重複;沒開的角色不排
-    func testMentionCreatesReplyTask() throws {
+    func testMentionCreatesReplyTask() async throws {
         FakeOmixorServer.inbox = [["channelId": "CH-1", "channelName": "動態牆討論", "id": "M-1", "author": "user:tim@example.com",
                                    "text": "@程式設計師 可以看一下嗎?", "at": "2026-11-12T14:33:38Z"]]
         let a = app()
@@ -135,18 +136,30 @@ final class AgentRunnerTests: XCTestCase {
         c.autoRun = true
         c.autoReply = true
         try r.save("programmer", c)   // save 會 tick 一次(會檢查 @)
-        r.checkMentions()
+        await r.checkMentions()
         let replies = FakeOmixorServer.tasks.filter { ($0["title"] as? String ?? "").hasPrefix("回覆「動態牆討論」") }
         XCTAssertEqual(replies.count, 1, "同一則 @ 只排一次")
         XCTAssertEqual(replies.first?["agentId"] as? String, "programmer")
         XCTAssertEqual(replies.first?["links"] as? [String], ["CH-1", "M-1"])
         let body = FakeOmixorServer.requests.last { $0.path.hasSuffix("/agent-tasks") && $0.method == "POST" }?.body
-        XCTAssertTrue((body?["instructions"] as? String ?? "").contains("ops_channel_post"))
+        XCTAssertTrue((body?["instructions"] as? String ?? "").contains("channel_post"))
 
         // 沒開自動執行就不能開自動回覆
         var off = RunnerConfig()
         off.autoReply = true
         try r.save("tester", off)
         XCTAssertFalse(r.config("tester").autoReply)
+    }
+
+    /// 防止角色互相 @ 的迴圈
+    func testReplyLoopGuard() {
+        func m(_ author: String) -> ChannelInbox.Mention { .init(channelId: "CH-1", channelName: "x", id: "M-9", author: author, text: "@x", at: .now) }
+        XCTAssertNil(AgentRunner.replyBlocked(mentions: [m("user:tim@x")], recent: ["agent:a", "agent:b", "agent:a"], repliesLastHour: 0),
+                     "人的 @ 一律可以回")
+        XCTAssertNil(AgentRunner.replyBlocked(mentions: [m("agent:a")], recent: ["user:tim@x", "agent:a"], repliesLastHour: 0),
+                     "角色接著人的話 @ 一次可以")
+        XCTAssertNotNil(AgentRunner.replyBlocked(mentions: [m("agent:a")], recent: ["user:tim@x", "agent:b", "agent:a"], repliesLastHour: 0),
+                        "角色之間連續兩則以上就不再觸發")
+        XCTAssertNotNil(AgentRunner.replyBlocked(mentions: [m("user:tim@x")], recent: [], repliesLastHour: 6), "一小時上限")
     }
 }

@@ -2,7 +2,8 @@ import Foundation
 
 // 兩種資料來源,完全切開(同 Go 版 web/internal/core/mode.go):
 //
-//   本機:組織與 Issue 等都存在這台 Mac 的資料夾(orgs.json、orgs/<id>/issues.json…),不用登入
+//   本機:組織清單存在這台 Mac 的 orgs.json,不用登入;Issue、角色與任務、組織鏈、頻道、文件櫃存在 App 啟動的本機守護服務
+//         (LocalCore.swift,127.0.0.1 的 omixor-local),和遠端走同一套用戶端(IssueServerConfig.current 決定連哪台)
 //   遠端:用 evoleap 授權登入 omixor server;組織清單(名稱、圖示、顏色、備註)、成員權限、Issue 都來自伺服器
 //
 // 目前的模式存在資料夾的 mode.json。遠端組織的 id 一律是 "~<伺服器>~<組織>"(本機組織 id 不會有 "~";

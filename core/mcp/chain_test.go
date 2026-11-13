@@ -12,7 +12,7 @@ import (
 	"omixor-core/store"
 )
 
-// 組織鏈工具:管理端點 ops_chain / ops_chain_save、角色端點 ops_agent_task_delegate 與 ops_agent_context 的上下游、
+// 組織鏈工具:管理端點 chain / chain_save、角色端點 agent_task_delegate 與 agent_context 的上下游、
 // 執行者端點 dispatch_delegate 與 dispatch_claim 的 nextSteps
 func TestChainTools(t *testing.T) {
 	st := store.NewMem()
@@ -38,20 +38,20 @@ func TestChainTools(t *testing.T) {
 	}
 	admin, member := endpoint(boss), endpoint(amy)
 
-	fails(t, member, "", "ops_chain_save", map[string]any{"edges": []any{}}, "要組織 lab 的管理員才能做")
-	fails(t, admin, "", "ops_chain_save", map[string]any{"edges": []any{map[string]any{"from": "agent:cto", "to": "agent:cto"}}}, "第 1 條邊 研發長 → 研發長 指向自己")
-	ok(t, admin, "", "ops_chain_save", map[string]any{"edges": []any{
+	fails(t, member, "", "chain_save", map[string]any{"edges": []any{}}, "要組織 lab 的管理員才能做")
+	fails(t, admin, "", "chain_save", map[string]any{"edges": []any{map[string]any{"from": "agent:cto", "to": "agent:cto"}}}, "第 1 條邊 研發長 → 研發長 指向自己")
+	ok(t, admin, "", "chain_save", map[string]any{"edges": []any{
 		map[string]any{"from": "user:boss@x", "to": "agent:cto", "label": "目標"},
 		map[string]any{"from": "agent:cto", "to": "agent:pm"},
 	}})
-	c := ok(t, admin, "", "ops_chain_save", map[string]any{"add": []any{map[string]any{"from": "agent:cto", "to": "agent:designer", "label": "設計"}},
+	c := ok(t, admin, "", "chain_save", map[string]any{"add": []any{map[string]any{"from": "agent:cto", "to": "agent:designer", "label": "設計"}},
 		"remove": []any{map[string]any{"from": "agent:cto", "to": "agent:pm"}}})
 	if es := c["edges"].([]any); len(es) != 2 || es[1].(map[string]any)["toName"] != "設計師" {
 		t.Fatal(c)
 	}
-	fails(t, admin, "", "ops_chain_save", map[string]any{"add": []any{map[string]any{"from": "agent:designer", "to": "user:boss@x"}}}, "組織鏈不能有循環:boss@x → 研發長 → 設計師 → boss@x")
-	ok(t, admin, "", "ops_chain_save", map[string]any{"add": []any{map[string]any{"from": "agent:cto", "to": "agent:pm"}}})
-	if r := ok(t, member, "", "ops_chain", map[string]any{}); len(r["edges"].([]any)) != 3 || r["updatedAt"] == nil {
+	fails(t, admin, "", "chain_save", map[string]any{"add": []any{map[string]any{"from": "agent:designer", "to": "user:boss@x"}}}, "組織鏈不能有循環:boss@x → 研發長 → 設計師 → boss@x")
+	ok(t, admin, "", "chain_save", map[string]any{"add": []any{map[string]any{"from": "agent:cto", "to": "agent:pm"}}})
+	if r := ok(t, member, "", "chain", map[string]any{}); len(r["edges"].([]any)) != 3 || r["updatedAt"] == nil {
 		t.Fatal(r)
 	}
 
@@ -63,7 +63,7 @@ func TestChainTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth := "Bearer cto:" + res.Credential.Secret
-	ctx := ok(t, role, auth, "ops_agent_context", map[string]any{})
+	ctx := ok(t, role, auth, "agent_context", map[string]any{})
 	ch := ctx["chain"].(map[string]any)
 	if up := ch["upstream"].([]any); len(up) != 1 || up[0].(map[string]any)["name"] != "boss@x" || up[0].(map[string]any)["label"] != "目標" {
 		t.Fatal(ch)
@@ -71,11 +71,11 @@ func TestChainTools(t *testing.T) {
 	if down := ch["downstream"].([]any); len(down) != 2 {
 		t.Fatal(ch)
 	}
-	d := ok(t, role, auth, "ops_agent_task_delegate", map[string]any{"to": "設計師", "title": "畫首頁", "instructions": "簡潔", "task": "T-999"})
+	d := ok(t, role, auth, "agent_task_delegate", map[string]any{"to": "設計師", "title": "畫首頁", "instructions": "簡潔", "task": "T-999"})
 	if d["agentId"] != "designer" || d["createdBy"] != "研發長" || d["instructions"] != "【設計】\n\n簡潔" || len(d["links"].([]any)) != 2 {
 		t.Fatal(d)
 	}
-	fails(t, role, auth, "ops_agent_task_delegate", map[string]any{"to": "pm", "title": "x", "agent": "designer"}, "角色端點只能以自己的身分操作,不能指定其他角色")
+	fails(t, role, auth, "agent_task_delegate", map[string]any{"to": "pm", "title": "x", "agent": "designer"}, "角色端點只能以自己的身分操作,不能指定其他角色")
 
 	// 執行者端點
 	worker := mcp.WorkerEndpoint(mcp.WorkerEndpointConfig{Resolve: func(*http.Request) (backend.Backend, string, error) {

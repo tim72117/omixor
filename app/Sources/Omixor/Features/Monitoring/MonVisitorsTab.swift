@@ -60,6 +60,7 @@ struct MonVisitorsTab: View {
                 } else if app.connectionStates[conn.id]?.busy == true {
                     ProgressView().controlSize(.small)
                     Text("請在瀏覽器完成登入").font(.callout).foregroundStyle(.secondary)
+                    Button("取消") { app.connStore?.cancelLogin(conn.id) }
                 } else {
                     Button("登入「\(conn.name)」…") { Task { await app.connStore?.login(conn.id) } }
                 }

@@ -9,7 +9,7 @@ import (
 )
 
 // Issue:同 Swift 版 Issues/Issues.swift。真實資料,存在目前組織資料夾的 issues.json;
-// 設了 OPS_DATABASE_URL 時改存資料庫的 ops_issues / ops_issue_comments 表(store_pg_issues.go)。
+// 設了 OPS_DATABASE_URL 時改存資料庫的 issues / ops_issue_comments 表(store_pg_issues.go)。
 // 作者字串:person id、"mcp" 或 "agent:<角色 id>"。
 
 const (

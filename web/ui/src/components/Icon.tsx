@@ -44,6 +44,7 @@ const MAP: Record<string, LucideIcon> = {
   "bolt": L.Zap, "chevron.down": L.ChevronDown, "chevron.right": L.ChevronRight, "shield": L.Shield, "lock": L.Lock, "link": L.Link, "globe": L.Globe, "cpu": L.Cpu, "memorychip": L.MemoryStick,
   "internaldrive": L.HardDrive, "network": L.Network, "chart.line.uptrend.xyaxis": L.TrendingUp, "text.alignleft": L.AlignLeft,
   "note.text": L.NotebookText, "megaphone": L.Megaphone, "book": L.Book, "eye": L.Eye, "wrench": L.Wrench, "ant": L.Bug,
+  "switch.2": L.ToggleRight, "lock.fill": L.Lock, "flask.fill": L.FlaskConical,
 };
 
 export function Icon({ name, size = 14, className, color }: { name?: string; size?: number; className?: string; color?: string }) {

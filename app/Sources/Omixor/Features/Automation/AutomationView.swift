@@ -9,6 +9,7 @@ struct AutomationView: View {
     @State private var detailAutomation: String?
     @State private var selectedRun: String?
     @State private var selectedAgent: String?
+    @State private var selectedTask: String?
     /// 修改後核准時,記住人改過的指令(模型的 action 是唯讀)
     @State private var editedActions: [String: String] = [:]
 
@@ -24,6 +25,8 @@ struct AutomationView: View {
         }
         .onAppear { consumeFocus() }
         .onChange(of: app.focusId) { consumeFocus() }
+        // 系統設定關掉的分頁:切到第一個開著的並提示(例如從別頁跳過來)
+        .onChange(of: tab) { _, t in if let r = app.redirectTab(t) { tab = r } }
         .sheet(item: Binding(get: { detailAutomation.map(AutoSheetID.init) },
                              set: { detailAutomation = $0?.id })) { item in
             AutoFlowDetailSheet(automationId: item.id) { target in
@@ -39,8 +42,8 @@ struct AutomationView: View {
             PageHeader("AI 自動化", subtitle: "AI 負責分析與執行,人負責把關。調整每個流程的自主程度,並在這裡核准高風險動作。") {
                 summaryPills
             }
-            Picker("分頁", selection: $tab) {
-                ForEach(AutoTab.allCases) { t in
+            Picker("分頁", selection: Binding(get: { app.shownTab(tab) }, set: { tab = $0 })) {
+                ForEach(app.visibleTabs(AutoTab.self)) { t in
                     Text(tabTitle(t)).tag(t)
                 }
             }
@@ -75,7 +78,7 @@ struct AutomationView: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch tab {
+        switch app.shownTab(tab) {
         case .inbox:
             AutoInboxView(focusId: $focusApproval, editedActions: $editedActions,
                           openAutomation: { detailAutomation = $0 },
@@ -83,7 +86,7 @@ struct AutomationView: View {
         case .agents:
             AutoAgentsView(selection: $selectedAgent)
         case .dispatch:
-            AutoDispatchView(openTask: { t in selectedAgent = t.agentId; tab = .agents })
+            AutoDispatchView(selected: $selectedTask)
         case .chain:
             AutoChainView()
         case .runner:
@@ -112,10 +115,11 @@ struct AutomationView: View {
         if id == "agents" { tab = .agents; return true }
         if id == "dispatch" { tab = .dispatch; return true }
         if id == "chain" { tab = .chain; return true }
+        if id == "runner" { tab = .runner; return true }
         if id == "facebook" || app.fbSettings.drafts.contains(where: { $0.id == id }) { tab = .facebook; return true }
         if let a = app.agents.first(where: { $0.id == id }) { selectedAgent = a.id; tab = .agents; return true }
         if let t = app.agentTasks.first(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) {
-            selectedAgent = t.agentId; tab = .agents; return true
+            selectedTask = t.id; tab = .dispatch; return true
         }
         if app.approvals.contains(where: { $0.id == id }) {
             focusApproval = id

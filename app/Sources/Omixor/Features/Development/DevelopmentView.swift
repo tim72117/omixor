@@ -8,8 +8,8 @@ struct DevelopmentView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Picker("分頁", selection: $model.tab) {
-                    ForEach(DevTab.allCases) { tab in
+                Picker("分頁", selection: Binding(get: { app.shownTab(model.tab) }, set: { model.tab = $0 })) {
+                    ForEach(app.visibleTabs(DevTab.self)) { tab in
                         Label(tab.label, systemImage: tab.icon).tag(tab)
                     }
                 }
@@ -23,7 +23,7 @@ struct DevelopmentView: View {
             Divider()
 
             Group {
-                switch model.tab {
+                switch app.shownTab(model.tab) {
                 case .overview: DevOverviewTab()
                 case .board: DevBoardTab()
                 case .issues: DevIssuesTab()
@@ -37,6 +37,8 @@ struct DevelopmentView: View {
         .environmentObject(model)
         .onAppear { applyFocus(app.focusId) }
         .onChange(of: app.focusId) { _, new in applyFocus(new) }
+        // 系統設定關掉的分頁:切到第一個開著的並提示(例如從別頁跳過來)
+        .onChange(of: model.tab) { _, t in if let r = app.redirectTab(t) { model.tab = r } }
     }
 
     /// 其他頁跳過來時:focusId 可能是 PR 編號(可帶 #)、工作項目 id 或 repo id

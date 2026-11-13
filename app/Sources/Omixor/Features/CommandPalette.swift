@@ -16,19 +16,22 @@ struct CommandPalette: View {
     }
 
     private var entries: [Entry] {
-        var out: [Entry] = AppSection.allCases.map { s in
+        // 系統設定關掉的頁面、分頁不列
+        var out: [Entry] = app.visibleSections.map { s in
             Entry(id: "s-\(s.rawValue)", title: s.title, detail: "頁面", icon: s.icon) { app.go(s) }
         }
-        out += app.services.map { s in
+        let svcOn = app.isFeatureEnabled("infrastructure.services")
+        let srvOn = app.isFeatureEnabled("infrastructure.servers")
+        out += (svcOn ? app.services : []).map { s in
             Entry(id: "svc-\(s.id)", title: s.name, detail: "服務", icon: "shippingbox") { app.go(.infrastructure, focus: s.id) }
         }
-        out += app.servers.map { s in
+        out += (srvOn ? app.servers : []).map { s in
             Entry(id: "srv-\(s.id)", title: s.name, detail: "伺服器 · \(s.region)", icon: "server.rack") { app.go(.infrastructure, focus: s.id) }
         }
-        out += app.incidents.map { i in
+        out += (app.isFeatureEnabled("incidents.list") ? app.incidents : []).map { i in
             Entry(id: "inc-\(i.id)", title: "\(i.id) \(i.title)", detail: "事件", icon: "flame") { app.go(.incidents, focus: i.id) }
         }
-        out += app.automations.map { a in
+        out += (app.isFeatureEnabled("automation.flows") ? app.automations : []).map { a in
             Entry(id: "ai-\(a.id)", title: a.name, detail: "AI 自動化", icon: a.icon) { app.go(.automation, focus: a.id) }
         }
         let q = query.lowercased().trimmingCharacters(in: .whitespaces)

@@ -22,11 +22,11 @@ type App struct {
 	Me string
 
 	// 範例資料:和 Swift 版 MockData 一模一樣的 JSON 物件(從 templates/seed/ 載入,時間平移到現在)。
-	// key 是 ops_list 的集合名稱(people、services…);sprint 是單一物件,放在 Sprint。
+	// key 是 list 的集合名稱(people、services…);sprint 是單一物件,放在 Sprint。
 	C      map[string][]map[string]any
 	Sprint map[string]any
 
-	// 導覽狀態(ops_navigate 會改)
+	// 導覽狀態(navigate 會改)
 	Nav Nav
 
 	// MCP 伺服器狀態(設定頁顯示)

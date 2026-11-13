@@ -1,6 +1,6 @@
 // 對話:把組織成員與虛擬角色拉進同一個頻道溝通(核心的訊息頻道,規則見 omixor-core 的 service/channel.go)。
 // 左邊頻道清單(未讀數)、右邊訊息串(Markdown)、下方輸入框(Enter 送出、Shift+Enter 換行、打 @ 選成員)、頻道設定(名稱、主題、成員)。
-// @ 角色只通知、不排任務:角色下次執行時在 ops_agent_context 的 mentions 看得到。
+// @ 角色只通知、不排任務:角色下次執行時在 agent_context 的 mentions 看得到。
 // 更新:每 5 秒,或後端通知 channels 有變動時,讀這個頻道的新訊息;打開頻道、收到新訊息時標已讀。
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { action, useView } from "../../api";
@@ -10,6 +10,7 @@ import type { Agent, Channel, ChannelMessage, ChannelPage, ChannelsView as Chann
 import { EmptyState, ErrorText, Modal, Pill } from "../../components/ui";
 import { relative } from "../../fmt";
 import type { SectionProps } from "../index";
+import { canGo } from "../../features";
 
 const POLL_MS = 5000;
 const PAGE = 50;
@@ -186,7 +187,7 @@ function ChannelPane({ channel, me, dir }: { channel: Channel; me: string; dir: 
           <div className="row gap8" style={{ alignItems: "baseline" }}>
             <span className="h2 ellipsis">{channel.name}</span>
             <span className="mono muted caption">{channel.id}</span>
-            {channel.issueId && <button className="btn" style={{ padding: "0 6px", fontSize: 12 }} title="打開 Issue" onClick={() => go("development", channel.issueId)}><Icon name="link" size={11} /> {channel.issueId}</button>}
+            {channel.issueId && canGo("development") && <button className="btn" style={{ padding: "0 6px", fontSize: 12 }} title="打開 Issue" onClick={() => go("development", channel.issueId)}><Icon name="link" size={11} /> {channel.issueId}</button>}
           </div>
           {channel.topic && <span className="caption muted ellipsis">{channel.topic}</span>}
         </div>

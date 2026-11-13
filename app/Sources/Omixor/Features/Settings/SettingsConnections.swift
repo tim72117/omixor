@@ -144,6 +144,9 @@ private struct ConnectionEditor: View {
             Spacer()
             if state.busy {
                 ProgressView().controlSize(.small)
+                if store?.isLoggingIn(original.id) == true {
+                    Button("取消") { store?.cancelLogin(original.id) }   // 停止等瀏覽器
+                }
             } else {
                 if original.auth == .oauth || original.auth == .approval {
                     if state.account != nil {

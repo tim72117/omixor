@@ -42,7 +42,7 @@ export function SettingsTeam() {
               <span className="caption num muted">{shiftDate(s.start)} – {shiftDate(s.end)}</span>
               <button className="bx-icon-btn" title="換班" onClick={menu.open(dir.people.filter((p) => p.id !== s.person).map((p) => ({
                 label: `與 ${p.name} 換班`,
-                onClick: () => { tool("ops_activity_post", { icon: "arrow.left.arrow.right", text: `提出換班:${name} 與 ${p.name}(${shiftDate(s.start)})`, section: "settings" }).catch(() => undefined); },
+                onClick: () => { tool("activity_post", { icon: "arrow.left.arrow.right", text: `提出換班:${name} 與 ${p.name}(${shiftDate(s.start)})`, section: "settings" }).catch(() => undefined); },
               })))}><Icon name="ellipsis.circle" size={14} /></button>
             </Row>
           );

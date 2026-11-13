@@ -7,7 +7,7 @@
 //
 //	omixor-web import <資料夾>   把資料夾裡的 JSON 檔(例如 Swift 版的 ~/Library/Application Support/Ops)匯入資料庫
 //	omixor-web import-issues [-org <組織>] [-overwrite] <資料夾或 issues.json>
-//	                         只匯入 Issue 到資料庫的 ops_issues 表(只要 OPS_DATABASE_URL)。資料夾是匯入 orgs/<組織>/issues.json;
+//	                         只匯入 Issue 到資料庫的 issues 表(只要 OPS_DATABASE_URL)。資料夾是匯入 orgs/<組織>/issues.json;
 //	                         可以重跑:已經有的 id 略過(-overwrite 改成用檔案覆蓋)
 //
 // Swift 版的 Ops 開著時 3765 會被占用;兩個都要開時,給其中一個設 OPS_MCP_PORT。

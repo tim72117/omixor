@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// ConnectionInfo 目前連線資訊(給 MCP ops_server 用)。只含可以給人看的資訊:
+// ConnectionInfo 目前連線資訊(給 MCP server 用)。只含可以給人看的資訊:
 // 遠端 server 只給名稱不給網址,也不含任何 token / 密鑰。會連資料庫(Ping),呼叫時不要拿著 Mu。
 func (a *App) ConnectionInfo() map[string]any {
 	m := currentMode()

@@ -27,6 +27,11 @@ func (a *API) agentRoutes(mux *http.ServeMux) {
 		g, err := a.Svc.GetAgent(p, r.PathValue("org"), r.PathValue("id"))
 		reply(w, g, err)
 	}))
+	// 角色在角色端點(/mcp/agent)能用的工具與不能用的原因
+	mux.HandleFunc("GET "+ag+"/{id}/tools", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		l, err := a.Svc.AgentTools(p, r.PathValue("org"), r.PathValue("id"))
+		reply(w, l, err)
+	}))
 	mux.HandleFunc("POST "+ag+"/{id}/delete", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		reply(w, true, a.Svc.DeleteAgent(p, r.PathValue("org"), r.PathValue("id")))
 	}))

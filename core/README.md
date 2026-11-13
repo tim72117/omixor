@@ -47,7 +47,7 @@ Markdown 文件依區塊與頁籤分類(同 app 的 Cabinet)。一個組織一�
 - 改結構前檢查(`model.ValidateCabinetLayout`):名稱不空、id 不重複、頁籤用 `/` 開頭、被拿掉的區塊或頁籤裡不能還有文件
 - 存文件前依範本檢查(`model.ValidateDocBody`):內文開頭 `---` 欄位的 `kind` 有對應範本(`kind: template`、`for: <kind>`、`required: …`,內含 ```` ```html ```` 版面)時,必填欄位要有;範本本身要有 `for` 與 html 區塊
 - 顯示用的整頁 HTML 不在核心:介面用核心給的文件與範本自己產生(omixor-web 的 `DocPage`、app 的 `DocTemplates.page`,共用 repo 的 `templates/doc/docrender.js`)
-- 角色的 `docAccess`:key 是區塊 id 或頁籤網址,值 `read`/`write`(頁籤的設定優先於區塊);`ops_agent_upsert` 的 `doc_access` key 也可以給區塊名稱、頁籤名稱或代號,核心依結構換成 id
+- 角色的 `docAccess`:key 是區塊 id 或頁籤網址,值 `read`/`write`(頁籤的設定優先於區塊);`agent_upsert` 的 `doc_access` key 也可以給區塊名稱、頁籤名稱或代號,核心依結構換成 id
 
 API:
 
@@ -60,7 +60,7 @@ API:
 - `POST /api/orgs/{org}/docs/{id}/delete`(成員;角色憑證不行)
 - `POST /api/orgs/{org}/docs/{id}/read`:分段讀(像讀真實檔案,省 agent 的上下文):`{outline}` 大綱(各段 id、標題、行號範圍、字數)、`{section}` 讀一段(id 或標題)、`{from, to}` 讀行號範圍、`{grep, context}` 搜尋;都會回 `version`(內文雜湊)
 - `POST /api/orgs/{org}/docs/{id}/edit`:局部修改(三種擇一):`{edits: [{old, new, all?}]}` 字串取代(old 必須唯一,任何一個失敗都不改)、`{replaceSection, content}` 整段替換(保留標題)、`{appendToSection, content}` 接在段尾(content 自帶標題就是插入新段落);帶 `baseVersion` 時版本不符:字串取代在最新內文上再套一次,其他回 409。只回改到的那幾行與新版本。權限、範本必填欄位同一般修改。段落規則見 `model/docsections.go`
-- MCP:`ops_docs` 給 id 時可帶 `outline`、`part`、`from`/`to`、`grep`/`context`、`full`(超過 6000 字的文件只給 id 時只回大綱與開頭);`ops_doc_save` 可帶 `edits`、`replace_part`、`append_to_part` + `content`、`base_version`
+- MCP:`docs` 給 id 時可帶 `outline`、`part`、`from`/`to`、`grep`/`context`、`full`(超過 6000 字的文件只給 id 時只回大綱與開頭);`doc_save` 可帶 `edits`、`replace_part`、`append_to_part` + `content`、`base_version`
 
 ## 組織鏈
 
@@ -91,13 +91,13 @@ API:
 
 MCP:
 
-- 管理端點:`ops_chain`(讀,邊附 `fromName`、`toName`)、`ops_chain_save`(組織管理員;`edges` 取代全部,或 `add`、`remove`)
-- 角色端點:`ops_agent_task_delegate`(`to`、`title`、`instructions?`、`priority?`;來源任務一律是憑證綁定的那筆);`ops_agent_context` 多 `chain: {upstream, downstream}`(每筆 `{node, name, label}`:上游 = 回報給誰,下游 = 可以派給誰)
+- 管理端點:`chain`(讀,邊附 `fromName`、`toName`)、`chain_save`(組織管理員;`edges` 取代全部,或 `add`、`remove`)
+- 角色端點:`agent_task_delegate`(`to`、`title`、`instructions?`、`priority?`;來源任務一律是憑證綁定的那筆);`agent_context` 多 `chain: {upstream, downstream}`(每筆 `{node, name, label}`:上游 = 回報給誰,下游 = 可以派給誰)
 - 執行者端點:`dispatch_delegate`;`dispatch_claim` 的 `nextSteps` 會列出這個角色依鏈可以委派給誰
 
 ## 訊息頻道
 
-把需要合作的人(組織成員)與虛擬角色拉進同一個頻道對話。頻道可以自由建立,也可以綁一個 Issue。**@ 一個角色只通知、不排任務**:角色下次執行時,`ops_agent_context` 的 `mentions` 看得到提到它的未讀訊息,自己決定要不要回。資料模型在 `model/channel.go`,規則在 `service/channel.go`。
+把需要合作的人(組織成員)與虛擬角色拉進同一個頻道對話。頻道可以自由建立,也可以綁一個 Issue。**@ 一個角色只通知、不排任務**:角色下次執行時,`agent_context` 的 `mentions` 看得到提到它的未讀訊息,自己決定要不要回。資料模型在 `model/channel.go`,規則在 `service/channel.go`。
 
 - 頻道 `{id: "CH-<n>", name, topic, issueId(沒綁是 ""), members: [節點], createdBy, createdAt, updatedAt}`;列表多 `unread`(我的未讀數)、`lastMessageAt`。成員是節點(同組織鏈):`agent:<角色 id>`、`user:<email 小寫>`
 - 訊息 `{id: "M-<n>"(每個頻道各自編號), channelId, author: 節點, text(Markdown), mentions: [節點], at}`
@@ -129,8 +129,8 @@ API(都在 `/api/orgs/{org}` 底下;角色憑證 `Bearer <agentId>:<secret>` 也
 
 MCP:
 
-- 管理端點:`ops_channels`(`agent?`、`issue?`;含未讀數)、`ops_channel_create`(`name`、`topic?`、`issue?`、`members?`;回傳多 `created`)、`ops_channel_messages`(`channel`(id 或名稱)、`since?`、`limit?`(預設 50)、`agent?`;讀了算已讀,標到回傳的最後一則)、`ops_channel_post`(`channel`、`text`、`agent?`)。`agent` 的規則同 Issue:伺服器管理員(本機 web)以該角色署名,一般帳號照樣是自己
-- 角色端點:`ops_channels`、`ops_channel_messages`、`ops_channel_post`(一律以憑證的角色);`ops_agent_context` 多 `mentions: {messages: [{channelId, channelName, id, author, authorName, text, at}](最多 20 則), channels: [{id, name, unread}], hint}`
+- 管理端點:`channels`(`agent?`、`issue?`;含未讀數)、`channel_create`(`name`、`topic?`、`issue?`、`members?`;回傳多 `created`)、`channel_messages`(`channel`(id 或名稱)、`since?`、`limit?`(預設 50)、`agent?`;讀了算已讀,標到回傳的最後一則)、`channel_post`(`channel`、`text`、`agent?`)。`agent` 的規則同 Issue:伺服器管理員(本機 web)以該角色署名,一般帳號照樣是自己
+- 角色端點:`channels`、`channel_messages`、`channel_post`(一律以憑證的角色);`agent_context` 多 `mentions: {messages: [{channelId, channelName, id, author, authorName, text, at}](最多 20 則), channels: [{id, name, unread}], hint}`
 - 執行者端點:沒有頻道工具
 
 ## MCP 端點
@@ -142,7 +142,7 @@ MCP:
 | 給誰 | 人或管理用的 LLM | 領了任務、以虛擬角色工作的 LLM | 領取任務的 LLM(找任務、領取) |
 | 認證 | 雲端 `/mcp/org/{org}`:omixor token;本機 `/mcp`:綁 127.0.0.1 | `Authorization: Bearer <agentId>:<secret>`(領取任務發的憑證,綁一筆任務) | 同管理端點:雲端 `/mcp/worker/{org}` 用 omixor token;本機 `/mcp/worker` 綁 127.0.0.1 |
 | 身分 | 呼叫者本人 | 憑證的角色(署名一律是角色) | 呼叫者本人(組織成員) |
-| 工具 | 組織、Issue、角色(含新增修改)、派任務、領取、回報、文件櫃(`ops_cabinet`、`ops_docs`、`ops_doc_save`;帶 `agent` 時依該角色的 docAccess)、組織鏈(`ops_chain`、`ops_chain_save`)、訊息頻道(`ops_channels`、`ops_channel_create`、`ops_channel_messages`、`ops_channel_post`) | `ops_agent_context`(含能存取的文件櫃區塊與文件、組織鏈的上下游、頻道裡提到它的未讀訊息)、`ops_agent_tasks`、`ops_agent_task_report`、`ops_agent_task_delegate`、Issue 讀/建/留言、文件櫃(依憑證角色的 docAccess)、訊息頻道(`ops_channels`、`ops_channel_messages`、`ops_channel_post`) | `dispatch_queue`、`dispatch_claim`、`dispatch_status`、`dispatch_report`、`dispatch_comment`、`dispatch_delegate`、`dispatch_release` |
+| 工具 | 組織、Issue、角色(含新增修改)、派任務、領取、回報、文件櫃(`cabinet`、`docs`、`doc_save`;帶 `agent` 時依該角色的 docAccess)、組織鏈(`chain`、`chain_save`)、訊息頻道(`channels`、`channel_create`、`channel_messages`、`channel_post`) | `agent_context`(含能存取的文件櫃區塊與文件、組織鏈的上下游、頻道裡提到它的未讀訊息)、`agent_tasks`、`agent_task_report`、`agent_task_delegate`、Issue 讀/建/留言、文件櫃(依憑證角色的 docAccess)、訊息頻道(`channels`、`channel_messages`、`channel_post`) | `dispatch_queue`、`dispatch_claim`、`dispatch_status`、`dispatch_report`、`dispatch_comment`、`dispatch_delegate`、`dispatch_release` |
 | 遠端模式(web) | 轉給雲端 | 一律 401(憑證在雲端,要連雲端的 `/mcp/agent`) | 轉給雲端(`credential.endpoint` 指向雲端 `/mcp/agent`) |
 
 執行者的標準流程:

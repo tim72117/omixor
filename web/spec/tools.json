@@ -13,7 +13,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_overview",
+    "name": "overview",
     "title": "整體狀況"
   },
   {
@@ -23,7 +23,7 @@
       "readOnlyHint": true,
       "title": "列出資料"
     },
-    "description": "列出某個資料集合。where 依欄位篩選(欄位可用 a.b 路徑;陣列欄位只要包含該值即符合;執行者欄位比對 id),search 對整筆資料做不分大小寫的文字搜尋。時間序列與日誌會裁短,完整內容用 ops_get。",
+    "description": "列出某個資料集合。where 依欄位篩選(欄位可用 a.b 路徑;陣列欄位只要包含該值即符合;執行者欄位比對 id),search 對整筆資料做不分大小寫的文字搜尋。時間序列與日誌會裁短,完整內容用 get。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -76,7 +76,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_list",
+    "name": "list",
     "title": "列出資料"
   },
   {
@@ -126,7 +126,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_get",
+    "name": "get",
     "title": "取得一筆資料"
   },
   {
@@ -184,7 +184,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_navigate",
+    "name": "navigate",
     "title": "切換畫面"
   },
   {
@@ -221,7 +221,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_alert_update",
+    "name": "alert_update",
     "title": "處理告警"
   },
   {
@@ -274,7 +274,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_alert_create",
+    "name": "alert_create",
     "title": "建立告警"
   },
   {
@@ -326,7 +326,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_incident_declare",
+    "name": "incident_declare",
     "title": "宣告事件"
   },
   {
@@ -376,7 +376,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_incident_update",
+    "name": "incident_update",
     "title": "更新事件"
   },
   {
@@ -438,7 +438,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_work_item_create",
+    "name": "work_item_create",
     "title": "建立工作項目"
   },
   {
@@ -474,7 +474,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_work_item_move",
+    "name": "work_item_move",
     "title": "移動工作項目"
   },
   {
@@ -510,7 +510,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_pipeline_update",
+    "name": "pipeline_update",
     "title": "操作 CI/CD 執行"
   },
   {
@@ -520,7 +520,7 @@
       "readOnlyHint": false,
       "title": "送出待核准請求"
     },
-    "description": "建立一筆待人核准的 AI 請求(出現在 AI 自動化 › 待核准與總覽)。用在任何需要人決定的變更:擴縮容、回滾、資料庫操作等。回傳請求 id;可之後用 ops_get approvals 查核准結果。",
+    "description": "建立一筆待人核准的 AI 請求(出現在 AI 自動化 › 待核准與總覽)。用在任何需要人決定的變更:擴縮容、回滾、資料庫操作等。回傳請求 id;可之後用 get approvals 查核准結果。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -574,7 +574,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_request_approval",
+    "name": "request_approval",
     "title": "送出待核准請求"
   },
   {
@@ -622,7 +622,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_log_append",
+    "name": "log_append",
     "title": "寫入日誌"
   },
   {
@@ -665,7 +665,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_activity_post",
+    "name": "activity_post",
     "title": "發到動態牆"
   },
   {
@@ -702,7 +702,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_voice_submit",
+    "name": "voice_submit",
     "title": "分派旁白語音批次"
   },
   {
@@ -724,7 +724,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_voice_jobs",
+    "name": "voice_jobs",
     "title": "查旁白批次"
   },
   {
@@ -757,7 +757,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_site_visitors",
+    "name": "site_visitors",
     "title": "網站訪客統計"
   },
   {
@@ -767,7 +767,7 @@
       "readOnlyHint": false,
       "title": "建立 Issue"
     },
-    "description": "把發現的問題或待辦存成 Issue(omixor 的真實資料,存在本機,重開 app 也還在;出現在 開發 › Issue)。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 ops_issues 搜尋,避免重複。",
+    "description": "把發現的問題或待辦存成 Issue(omixor 的真實資料,存在本機,重開 app 也還在;出現在 開發 › Issue)。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 issues 搜尋,避免重複。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -814,7 +814,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_issue_create",
+    "name": "issue_create",
     "title": "建立 Issue"
   },
   {
@@ -890,7 +890,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_issue_update",
+    "name": "issue_update",
     "title": "更新 Issue"
   },
   {
@@ -933,7 +933,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_issues",
+    "name": "issues",
     "title": "查 Issue"
   },
   {
@@ -955,7 +955,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_agents",
+    "name": "agents",
     "title": "列出虛擬角色"
   },
   {
@@ -983,7 +983,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_agent_context",
+    "name": "agent_context",
     "title": "角色能讀取的資訊"
   },
   {
@@ -1022,7 +1022,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_agent_tasks",
+    "name": "agent_tasks",
     "title": "查角色任務"
   },
   {
@@ -1032,7 +1032,7 @@
       "readOnlyHint": false,
       "title": "以角色身分領取任務"
     },
-    "description": "以某個虛擬角色的身分領取任務(狀態改成進行中)。給 id 就領那筆;不給就領該角色最優先的待領取任務。回傳角色設定與任務說明,照著做,做完用 ops_agent_task_report 回報。沒有任務時 task 為 null。",
+    "description": "以某個虛擬角色的身分領取任務(狀態改成進行中)。給 id 就領那筆;不給就領該角色最優先的待領取任務。回傳角色設定與任務說明,照著做,做完用 agent_task_report 回報。沒有任務時 task 為 null。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1050,7 +1050,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_agent_task_claim",
+    "name": "agent_task_claim",
     "title": "以角色身分領取任務"
   },
   {
@@ -1098,7 +1098,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_agent_task_report",
+    "name": "agent_task_report",
     "title": "回報任務"
   },
   {
@@ -1180,7 +1180,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_agent_upsert",
+    "name": "agent_upsert",
     "title": "新增或修改角色"
   },
   {
@@ -1197,7 +1197,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_orgs",
+    "name": "orgs",
     "title": "組織"
   },
   {
@@ -1219,7 +1219,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_cabinet",
+    "name": "cabinet",
     "title": "文件櫃結構"
   },
   {
@@ -1229,7 +1229,7 @@
       "readOnlyHint": true,
       "title": "查文件"
     },
-    "description": "給 id 讀一份文件;否則依區塊、頁籤、關鍵字列出文件。給 agent 時只看得到該角色有權限的文件。讀長文件時建議分段讀,省上下文:先 outline 看大綱(各段的 id、標題、行號範圍、字數),再用 part 讀一段、from/to 讀幾行,或 grep 找關鍵字;回傳的 version 在局部修改(ops_doc_save 的 edits、replace_part、append_to_part)時帶回來。只給 id 時回全文,但超過 6000 字的文件只回大綱與開頭(要全文帶 full)。",
+    "description": "給 id 讀一份文件;否則依區塊、頁籤、關鍵字列出文件。給 agent 時只看得到該角色有權限的文件。讀長文件時建議分段讀,省上下文:先 outline 看大綱(各段的 id、標題、行號範圍、字數),再用 part 讀一段、from/to 讀幾行,或 grep 找關鍵字;回傳的 version 在局部修改(doc_save 的 edits、replace_part、append_to_part)時帶回來。只給 id 時回全文,但超過 6000 字的文件只回大綱與開頭(要全文帶 full)。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1285,7 +1285,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_docs",
+    "name": "docs",
     "title": "查文件"
   },
   {
@@ -1380,7 +1380,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_doc_save",
+    "name": "doc_save",
     "title": "存文件到文件櫃"
   },
   {
@@ -1427,7 +1427,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_agent_task_create",
+    "name": "agent_task_create",
     "title": "指派任務給角色"
   },
   {
@@ -1444,7 +1444,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_chain",
+    "name": "chain",
     "title": "組織鏈"
   },
   {
@@ -1483,7 +1483,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_chain_save",
+    "name": "chain_save",
     "title": "修改組織鏈"
   },
   {
@@ -1493,7 +1493,7 @@
       "readOnlyHint": false,
       "title": "依組織鏈委派任務"
     },
-    "description": "以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 ops_agent_context 的 chain.downstream。",
+    "description": "以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 agent_context 的 chain.downstream。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1535,7 +1535,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_agent_task_delegate",
+    "name": "agent_task_delegate",
     "title": "依組織鏈委派任務"
   },
   {
@@ -1561,7 +1561,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_channels",
+    "name": "channels",
     "title": "列出對話頻道"
   },
   {
@@ -1600,7 +1600,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_channel_create",
+    "name": "channel_create",
     "title": "建立對話頻道"
   },
   {
@@ -1636,7 +1636,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_channel_messages",
+    "name": "channel_messages",
     "title": "讀頻道訊息"
   },
   {
@@ -1646,7 +1646,7 @@
       "readOnlyHint": false,
       "title": "在頻道發訊息"
     },
-    "description": "在頻道發一則訊息(Markdown,最多 8000 字;要是頻道成員)。用 @角色名稱、@角色 id 或 @email 提到頻道成員:只通知對方(角色下次執行時在 ops_agent_context 的 mentions 看得到),不會排任務。帶 agent 時以該角色署名(角色要是頻道成員)。",
+    "description": "在頻道發一則訊息(Markdown,最多 8000 字;要是頻道成員)。用 @角色名稱、@角色 id 或 @email 提到頻道成員:只通知對方(角色下次執行時在 agent_context 的 mentions 看得到),不會排任務。帶 agent 時以該角色署名(角色要是頻道成員)。",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1669,7 +1669,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_channel_post",
+    "name": "channel_post",
     "title": "在頻道發訊息"
   },
   {
@@ -1699,7 +1699,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_github",
+    "name": "github",
     "title": "GitHub 概況"
   },
   {
@@ -1741,7 +1741,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_github_runs",
+    "name": "github_runs",
     "title": "查 GitHub Actions 執行"
   },
   {
@@ -1756,7 +1756,7 @@
       "additionalProperties": false,
       "properties": {
         "id": {
-          "description": "執行 id(ops_github / ops_github_runs 的 id)",
+          "description": "執行 id(github / github_runs 的 id)",
           "type": "integer"
         },
         "lines": {
@@ -1777,7 +1777,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_github_run",
+    "name": "github_run",
     "title": "GitHub Actions 執行詳情"
   },
   {
@@ -1805,7 +1805,7 @@
       ],
       "type": "object"
     },
-    "name": "ops_github_pull",
+    "name": "github_pull",
     "title": "GitHub PR 詳情"
   },
   {
@@ -1835,7 +1835,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_gcp",
+    "name": "gcp",
     "title": "GCP 概況"
   },
   {
@@ -1884,7 +1884,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_gcp_logs",
+    "name": "gcp_logs",
     "title": "查 GCP 日誌"
   },
   {
@@ -1910,7 +1910,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_gcp_metrics",
+    "name": "gcp_metrics",
     "title": "GCP 服務指標"
   },
   {
@@ -1932,7 +1932,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_fb_pages",
+    "name": "fb_pages",
     "title": "Facebook 粉絲專頁"
   },
   {
@@ -1966,7 +1966,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_fb_posts",
+    "name": "fb_posts",
     "title": "Facebook 貼文與成效"
   },
   {
@@ -2001,7 +2001,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_fb_insights",
+    "name": "fb_insights",
     "title": "Facebook 專頁成效"
   },
   {
@@ -2041,7 +2041,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_fb_drafts",
+    "name": "fb_drafts",
     "title": "Facebook 草稿"
   },
   {
@@ -2091,7 +2091,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_fb_draft_save",
+    "name": "fb_draft_save",
     "title": "存 Facebook 草稿"
   },
   {
@@ -2108,7 +2108,7 @@
       "required": [],
       "type": "object"
     },
-    "name": "ops_server",
+    "name": "server",
     "title": "伺服器與連線資訊"
   }
 ]

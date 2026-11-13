@@ -10,7 +10,7 @@ import (
 	"omixor-core/service"
 )
 
-// 文件櫃工具:ops_cabinet、ops_docs、ops_doc_save(名稱、參數、輸出與錯誤訊息同 Swift 版 MCPHandler 與 omixor-web 原本的實作)。
+// 文件櫃工具:cabinet、docs、doc_save(名稱、參數、輸出與錯誤訊息同 Swift 版 MCPHandler 與 omixor-web 原本的實作)。
 // 雲端(server)與 omixor-web 的管理端點、角色端點共用這一份實作;資料操作都透過 Backend(Local / Remote)。
 //
 // 權限:
@@ -145,7 +145,7 @@ func cabinetSections(cab *model.Cabinet, g *model.Agent) []any {
 	return out
 }
 
-// cabinetContext 附加到 ops_agent_context 的欄位:角色能存取的文件櫃區塊,與能讀的文件(依角色的 docAccess)。
+// cabinetContext 附加到 agent_context 的欄位:角色能存取的文件櫃區塊,與能讀的文件(依角色的 docAccess)。
 // 取不到文件櫃(Backend 不支援)回 nil
 func cabinetContext(e Env, g model.Agent, includeBodies bool) map[string]any {
 	cab, err := e.Backend().GetCabinet(e.Org())
@@ -176,9 +176,9 @@ func cabinetContext(e Env, g model.Agent, includeBodies bool) map[string]any {
 	}
 }
 
-// RegisterCabinetTools 登記文件櫃工具:ops_cabinet、ops_docs、ops_doc_save。執行環境(Call.Ctx)要實作 AgentEnv。
+// RegisterCabinetTools 登記文件櫃工具:cabinet、docs、doc_save。執行環境(Call.Ctx)要實作 AgentEnv。
 func RegisterCabinetTools(s *Server) {
-	s.Register("ops_cabinet", func(c *Call) (any, error) {
+	s.Register("cabinet", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		g, err := cabAgent(e, c)
 		if err != nil {
@@ -191,7 +191,7 @@ func RegisterCabinetTools(s *Server) {
 		return map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, g)}, nil
 	})
 
-	s.Register("ops_docs", func(c *Call) (any, error) {
+	s.Register("docs", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		g, err := cabAgent(e, c)
 		if err != nil {
@@ -289,7 +289,7 @@ func RegisterCabinetTools(s *Server) {
 		return map[string]any{"total": len(list), "docs": out}, nil
 	})
 
-	s.Register("ops_doc_save", func(c *Call) (any, error) {
+	s.Register("doc_save", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		bk, org := e.Backend(), e.Org()
 		g, err := cabAgent(e, c)
@@ -392,7 +392,7 @@ func RegisterCabinetTools(s *Server) {
 // docFullLimit 只給 id 時回全文的上限(字);超過只回大綱與開頭
 const docFullLimit = 6000
 
-// docEditArgs ops_doc_save 的局部修改參數(edits、replace_part、append_to_part 三種擇一,不能和 body 等整份修改混用)
+// docEditArgs doc_save 的局部修改參數(edits、replace_part、append_to_part 三種擇一,不能和 body 等整份修改混用)
 func docEditArgs(c *Call) (service.DocEdit, bool, error) {
 	ed := service.DocEdit{BaseVersion: c.Args.Str("base_version"), ReplaceSection: c.Args.Str("replace_part"),
 		AppendToSection: c.Args.Str("append_to_part"), Content: c.Args.Str("content")}

@@ -3,6 +3,8 @@
 //	POST /api/auth/evoleap                     {token, device} → {token, tokenId, expiresAt, user}(不用登入,有頻率限制)
 //	GET  /api/auth/me                          {user, token}
 //	POST /api/auth/logout                      撤銷目前這個 token
+//	POST /api/auth/pair                        已登入的使用者產生手機配對碼 → {code, expiresAt}(一次性、5 分鐘;見 service/pair.go)
+//	POST /api/auth/pair/claim                  {code, device} → 同 /api/auth/evoleap(不用登入,跟登入共用頻率限制;失敗一律 401 同一句話)
 //
 //	GET  /api/orgs                             我能用的組織(伺服器管理員是全部;myRole 是我的角色)
 //	POST /api/orgs                             {id, name, symbol?, color?, note?} 建立組織(伺服器管理員)
@@ -63,6 +65,39 @@
 //	POST /api/orgs/{org}/channels/{id}/messages {text} 發訊息(頻道成員;@ 只算成員)
 //	POST /api/orgs/{org}/channels/{id}/read    {upTo?} 標已讀(沒給 = 最新)
 //	  伺服器管理員可以用 as(或 messages 的 author、read 的 member)以角色或別人的身分操作
+//
+//	GET  /api/orgs/{org}/incidents             事件(新的在前;成員,角色憑證也可以)
+//	POST /api/orgs/{org}/incidents             {title, sev, services?, commander?, commanderName?, impact?, startedAt?, aiSummary?, alertIds?, alertTitles?, timeline?} 宣告 → INC-<n>
+//	GET  /api/orgs/{org}/incidents/{id}
+//	POST /api/orgs/{org}/incidents/{id}        {status?, note?, finding?, aiSummary?, impact?, title?, sev?, services?, commander?, events?, addFollowUps?, addAlertIds?} 更新
+//	POST /api/orgs/{org}/incidents/import      {incidents} 第一次搬資料用(組織管理員;已經有事件就拒絕)
+//	  伺服器管理員可以用 actor({kind, id})或 author 指定執行者(見 service/incident.go)
+//
+//	GET  /api/orgs/{org}/integrations/github   GitHub 設定 {repos, saved, updatedAt?, updatedBy?}(成員;角色憑證也可以;沒存過 saved = false)
+//	POST /api/orgs/{org}/integrations/github   {repos?, add?, remove?} 修改(組織管理員;repos 整份取代,再套用加減;格式不對 400)
+//	POST /api/orgs/{org}/integrations/github/import {repos} 第一次匯入裝置的本機設定(組織管理員;核心存過就不動)→ {imported, skipped, settings}
+//	GET  /api/orgs/{org}/integrations/gitlab   GitLab 設定 {baseUrl, projects, saved, updatedAt?, updatedBy?}
+//	POST /api/orgs/{org}/integrations/gitlab   {baseUrl?, projects?, add?, remove?} 修改(組織管理員)
+//	POST /api/orgs/{org}/integrations/gitlab/import {baseUrl, projects} 第一次匯入(同 GitHub)
+//
+//	外部 MCP 閘道的登記(功能開關 mcpGateway;沒開時 GET 回 enabled = false 與空清單、寫入回 403;規則在 service/mcp.go):
+//	GET  /api/orgs/{org}/mcp-servers           {enabled, note?, servers, grants, canEdit}(成員;角色憑證只看到自己的權限)
+//	POST /api/orgs/{org}/mcp-servers           {id, name?, description?, transport?, command?, args?, cwd?, envNames?, url?, headerNames?, enabled?, toolDefault?}
+//	                                           新增或修改(組織管理員;帶 env、headers、secrets、token 這類密鑰值一律 400:core 只記名稱)
+//	POST /api/orgs/{org}/mcp-servers/{id}/delete   刪除(角色權限裡的這台一併拿掉)
+//	POST /api/orgs/{org}/mcp-servers/{id}/tools    {sync?: [{name, title?, description?}], prune?, rules?: [{name, enabled?, confirm?}]} 同步工具清單、改規則
+//	POST /api/orgs/{org}/mcp-grants            {agentId, grants: [{server, tools}]} 整份取代角色的權限(tools 空 = 這台開著的全部工具)
+//	POST /api/orgs/{org}/mcp-tools/resolve     {agentId?, tools: [{server, name}]} → {enabled, tools: [{server, name, qualified, allowed, confirm, reason?}]}
+//	                                           (成員;App 的閘道列工具、呼叫前用;agentId 空 = 一般成員)
+//	  只存非機密設定;token、CA 憑證檔、不驗證憑證、用哪個本機連線都留在各裝置(見 model/integration.go)
+//
+//	GET  /api/orgs/{org}/system                系統設定(只列這次編譯的版本有的功能) {features: [{key, name, description, parent?, edition, experimental, experimentalNote?, default, required?, enabled, on, changed}], saved, updatedAt?, updatedBy?, edition, canEdit}
+//	                                           (成員;角色憑證也可以;功能清單在 model/features.go,App 與 web 不另外寫)
+//	POST /api/orgs/{org}/system                {features?: {key: bool}, reset?: [key]} 修改功能開關(組織管理員;沒登記的 key、這次編譯沒有的功能、關必要功能 400)
+//
+//	GET  /api/orgs/{org}/templates             可用的組織樣板 [{id, name, description, feature, agents, channels, docs, edges}](成員;功能開關關閉的不列)
+//	GET  /api/orgs/{org}/templates/{id}?scenarios=1 預覽 {template, items: [{kind, name, status: create|skip, detail?}], created, skipped, suggestAutoReply, canApply}
+//	POST /api/orgs/{org}/templates/{id}/apply  {scenarios?: bool} 套用(組織管理員;scenarios = 帶入模擬情境;已存在的略過)→ 同上,status 是 created|skipped|failed;功能開關關閉 403;這次編譯沒有該功能 404
 //
 //	GET  /api/admin/users | POST {email, role?, disabled?}   (伺服器管理員,以下同)
 //	GET  /api/admin/tokens | POST /api/admin/tokens/{id}/revoke
@@ -143,6 +178,26 @@ func (a *API) Handler() http.Handler {
 			return
 		}
 		res, err := a.Svc.LoginWithEvoleap(in.Token, in.Device, service.ClientIP(r))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		writeJSON(w, 200, res)
+	})
+	mux.HandleFunc("POST /api/auth/pair", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		c, err := a.Svc.CreatePairCode(p)
+		reply(w, c, err)
+	}))
+	mux.HandleFunc("POST /api/auth/pair/claim", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Code   string `json:"code"`
+			Device string `json:"device"`
+		}
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		res, err := a.Svc.ClaimPairCode(in.Code, in.Device, service.ClientIP(r))
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -288,6 +343,11 @@ func (a *API) Handler() http.Handler {
 	a.cabinetRoutes(mux)
 	a.chainRoutes(mux)
 	a.channelRoutes(mux)
+	a.incidentRoutes(mux)
+	a.integrationRoutes(mux)
+	a.mcpRoutes(mux)
+	a.systemRoutes(mux)
+	a.templateRoutes(mux)
 
 	// 伺服器管理
 	mux.HandleFunc("GET /api/admin/users", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {

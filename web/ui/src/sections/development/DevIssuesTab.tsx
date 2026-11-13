@@ -1,5 +1,5 @@
 // 開發 › Issue:存在本機的真實 Issue(人或 AI 透過 MCP 建立)。Swift 的 DevIssuesTab.swift。
-// 建立、修改、留言、關閉走 MCP 工具(ops_issue_create / ops_issue_update),刪除是畫面專用的 issue_delete。
+// 建立、修改、留言、關閉走 MCP 工具(issue_create / issue_update),刪除是畫面專用的 issue_delete。
 import { useEffect, useState } from "react";
 import { action, tool } from "../../api";
 import { color, EmptyState, Modal, Pill } from "../../components/ui";
@@ -62,7 +62,7 @@ export function DevIssuesTab() {
         {err && issues.length === 0 ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={err} />
           : list.length === 0 ? (
             <EmptyState title={issues.length === 0 ? "還沒有 Issue" : "沒有符合的 Issue"} icon="exclamationmark.bubble"
-              message={issues.length === 0 ? "按 + 新增、從 Jira 匯入,或讓 AI 透過 MCP 的 ops_issue_create 存進來。" : undefined} />
+              message={issues.length === 0 ? "按 + 新增、從 Jira 匯入,或讓 AI 透過 MCP 的 issue_create 存進來。" : undefined} />
           ) : (
             <div className="ops-list">
               {list.map((i) => <IssueRow key={i.id} issue={i} on={i.id === dev.selectedIssue} onClick={() => dev.setSelectedIssue(i.id)} />)}
@@ -139,7 +139,7 @@ function IssueDetail({ issue }: { issue: OpsIssue }) {
   const [comment, setComment] = useState("");
   const [dlg, ask] = useConfirm();
   const { run, toastEl } = useAct();
-  const upd = (args: Record<string, unknown>) => run(() => tool("ops_issue_update", { id: issue.id, ...args }));
+  const upd = (args: Record<string, unknown>) => run(() => tool("issue_update", { id: issue.id, ...args }));
   const open = issue.status === "open";
   const p = PRIORITY[issue.priority] ?? PRIORITY.normal;
   let linkHost: string | undefined;
@@ -227,7 +227,7 @@ function NewIssue({ onDone }: { onDone: (id?: string) => void }) {
   const [error, setError] = useState<string>();
   const create = async () => {
     try {
-      const r: any = await tool("ops_issue_create", { title: title.trim(), body, priority, labels: splitLabels(labels) });
+      const r: any = await tool("issue_create", { title: title.trim(), body, priority, labels: splitLabels(labels) });
       const id = typeof r === "string" ? (() => { try { return JSON.parse(r)?.id; } catch { return undefined; } })() : r?.id;
       onDone(id);
     } catch (e: any) { setError(String(e?.message ?? e)); }

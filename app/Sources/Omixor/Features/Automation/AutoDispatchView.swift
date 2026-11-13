@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// AI 自動化 › 派發:各角色目前的負載(待領取/進行中/需要協助),以及跨角色的任務總表(對應 web 的 AutoDispatch.tsx)
+/// AI 自動化 › 派發:各角色目前的負載(待領取/進行中/需要協助),以及跨角色的任務總表(對應 web 的 AutoDispatch.tsx)。
+/// 點任務在列下方展開派發細節(AgentTaskDetail)。
 struct AutoDispatchView: View {
     @EnvironmentObject var app: AppState
-    let openTask: (AgentTask) -> Void
+    /// 展開細節的任務(其他頁跳過來時也用這個)
+    @Binding var selected: String?
 
     enum Scope: String, CaseIterable, Identifiable {
         case open, all
@@ -31,24 +33,40 @@ struct AutoDispatchView: View {
         let rows = Self.rows(app.agentTasks, scope: scope, agent: agentId)
         VStack(spacing: 0) {
             if let e = store.remoteError { RemoteErrorBar(message: e) }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    load
-                    Card("派發列表", subtitle: "\(rows.count) 筆") {
-                        filters
-                        if rows.isEmpty { Text("沒有符合的任務").foregroundStyle(.secondary) }
-                        ForEach(rows) { t in
-                            row(t)
-                            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        load
+                        Card("派發列表", subtitle: "\(rows.count) 筆") {
+                            filters
+                            if rows.isEmpty { Text("沒有符合的任務").foregroundStyle(.secondary) }
+                            ForEach(rows) { t in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    row(t)
+                                    if selected == t.id { AgentTaskDetail(task: t) }
+                                }
+                                .id(t.id)
+                                Divider()
+                            }
                         }
                     }
+                    .padding(20)
+                    .frame(maxWidth: 1000, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(20)
-                .frame(maxWidth: 1000, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .onAppear { reveal(proxy) }
+                .onChange(of: selected) { reveal(proxy) }
             }
         }
-        .onAppear { if store.isRemote { store.refresh() } }
+        .task { await store.reload() }   // 背景重讀(不擋主執行緒)
+    }
+
+    /// 從其他頁跳到某筆任務:已完成的要切到「全部」、篩選掉的角色要清掉,再捲過去
+    private func reveal(_ proxy: ScrollViewProxy) {
+        guard let id = selected, let t = app.agentTasks.first(where: { $0.id == id }) else { return }
+        if !t.status.isOpen { scope = .all }
+        if !agentId.isEmpty && agentId != t.agentId { agentId = "" }
+        DispatchQueue.main.async { withAnimation { proxy.scrollTo(id, anchor: .top) } }
     }
 
     private var load: some View {
@@ -103,8 +121,10 @@ struct AutoDispatchView: View {
                 Text(a?.name ?? t.agentId).lineLimit(1)
             }
             .frame(width: 140, alignment: .leading)
-            Button { openTask(t) } label: {
+            Button { selected = selected == t.id ? nil : t.id } label: {
                 HStack(spacing: 6) {
+                    Image(systemName: selected == t.id ? "chevron.down" : "chevron.right")
+                        .font(.caption2).foregroundStyle(.tertiary).frame(width: 10)
                     Image(systemName: t.status.icon).foregroundStyle(t.status.color)
                     Text(t.id).font(.caption.monospaced()).foregroundStyle(.secondary)
                     Text(t.title).lineLimit(1).foregroundStyle(t.status.isOpen ? .primary : .secondary)

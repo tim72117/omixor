@@ -123,4 +123,30 @@ type Store interface {
 	UnreadCounts(org, member string, channelIDs []string) (map[string]int, error)
 	// UnreadMentions 這些頻道裡提到這個成員、還沒讀的訊息(作者不是他),新的在前最多 limit 則
 	UnreadMentions(org, member string, channelIDs []string, limit int) ([]model.ChannelMessage, error)
+
+	// 事件(依組織分;DeleteOrg 一併刪除)。id 比對精確,不分大小寫的查找在 service。
+	ListIncidents(org string) ([]model.Incident, error) // 新的在前
+	GetIncident(org, id string) (*model.Incident, error)
+	// CreateIncident 指定新的 id(INC-<max(最大號碼, model.IncidentNumberBase)+1>)並放在最前面,回傳存好的
+	CreateIncident(org string, i model.Incident) (model.Incident, error)
+	UpdateIncident(org string, i model.Incident) error // 整筆取代(位置不變)
+	// ImportIncidents 第一次搬資料用:保留 id、時間與時間軸;list 是新的在前;組織已經有事件就回錯誤
+	ImportIncidents(org string, list []model.Incident) (int, error)
+
+	// 組織的 GitHub、GitLab 設定(依組織分;DeleteOrg 一併刪除;只有非機密設定,見 model/integration.go)。
+	// Get 沒存過回 ErrNotFound;Save 整份取代(Saved 欄位不用存,讀回時一律是 true)。方法在 *_integration.go
+	GetGitHubSettings(org string) (*model.GitHubSettings, error)
+	SaveGitHubSettings(org string, s model.GitHubSettings) error
+	GetGitLabSettings(org string) (*model.GitLabSettings, error)
+	SaveGitLabSettings(org string, s model.GitLabSettings) error
+
+	// 組織的外部 MCP 登記(伺服器、工具規則、角色權限;依組織分;DeleteOrg 一併刪除;沒有任何密鑰,見 model/mcp.go)。
+	// Get 沒存過回 ErrNotFound;Save 整份取代。方法在 *_mcp.go
+	GetMCPConfig(org string) (*model.OrgMCPConfig, error)
+	SaveMCPConfig(org string, c model.OrgMCPConfig) error
+
+	// 組織的系統設定(功能開關;依組織分;DeleteOrg 一併刪除;見 model/features.go)。
+	// Get 沒存過回 ErrNotFound;Save 整份取代(Saved 不用存,讀回時一律是 true)。方法在 *_system.go
+	GetSystemSettings(org string) (*model.OrgSystemSettings, error)
+	SaveSystemSettings(org string, s model.OrgSystemSettings) error
 }

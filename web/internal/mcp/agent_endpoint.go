@@ -11,7 +11,7 @@ import (
 )
 
 // 角色端點 /mcp/agent:核心的 mcp.AgentEndpoint(驗證、白名單、署名、401/429 規則都在核心;
-// 文件櫃工具與 ops_agent_context 的文件櫃欄位也在核心,依憑證角色的 docAccess),這裡只掛上:
+// 文件櫃工具與 agent_context 的文件櫃欄位也在核心,依憑證角色的 docAccess),這裡只掛上:
 //   - 每個請求的統計(MCP 狀態),與處理完後重讀 Issue、角色資料、文件櫃(核心可能多了 Issue、留言、任務狀態、文件)
 //
 // 憑證在核心的資料庫(本機模式:本機 PostgreSQL)。遠端模式的角色憑證由雲端發、連雲端的 /mcp/agent,這裡一律 401。

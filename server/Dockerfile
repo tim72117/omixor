@@ -10,7 +10,10 @@ RUN go mod download
 ARG VERSION=dev
 ARG COMMIT=dev
 ARG BUILD_TIME=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X omixor-core/version.Version=${VERSION} -X omixor-core/version.Commit=${COMMIT} -X omixor-core/version.BuildTime=${BUILD_TIME}" -o /omixor-server ./cmd/omixor-server
+# 版本(功能集合,見 core/model/edition.go):預設 stable 正式版;開發版 docker build --build-arg EDITION=dev …
+ARG EDITION=stable
+RUN case "$EDITION" in stable) TAGS="" ;; dev) TAGS="dev" ;; *) echo "EDITION 只能是 stable 或 dev" >&2; exit 1 ;; esac && \
+    CGO_ENABLED=0 go build -trimpath -tags "$TAGS" -ldflags="-s -w -X omixor-core/version.Version=${VERSION} -X omixor-core/version.Commit=${COMMIT} -X omixor-core/version.BuildTime=${BUILD_TIME}" -o /omixor-server ./cmd/omixor-server
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /omixor-server /omixor-server

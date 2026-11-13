@@ -99,6 +99,26 @@ type Backend interface {
 	// ChannelInbox 提到 who(me、agent:<id>、user:<email>)的未讀訊息(新的在前最多 20 則)與它所在頻道的未讀數
 	ChannelInbox(org, who string) (*service.ChannelInbox, error)
 
+	// 事件(權限同 service/incident.go:成員看、宣告、更新;匯入要組織管理員)。實作在 incident.go
+	ListIncidents(org string) ([]model.Incident, error)
+	GetIncident(org, id string) (*model.Incident, error) // 不分大小寫
+	DeclareIncident(org string, in service.IncidentInput) (*model.Incident, error)
+	UpdateIncident(org, id string, in service.IncidentPatch) (*model.Incident, error)
+	ImportIncidents(org string, list []model.Incident) (*model.ImportResult, error)
+
+	// 組織的 GitHub、GitLab 設定(權限同 service/integration.go:成員讀、組織管理員改與匯入;只有非機密設定)。實作在 integration.go
+	GetGitHubSettings(org string) (*model.GitHubSettings, error)
+	SaveGitHubSettings(org string, in service.GitHubSettingsInput) (*model.GitHubSettings, error)
+	// ImportGitHubSettings 第一次匯入裝置的本機設定(核心存過就不動,Imported = false)
+	ImportGitHubSettings(org string, in service.GitHubImport) (*service.GitHubImportResult, error)
+	GetGitLabSettings(org string) (*model.GitLabSettings, error)
+	SaveGitLabSettings(org string, in service.GitLabSettingsInput) (*model.GitLabSettings, error)
+	ImportGitLabSettings(org string, in service.GitLabImport) (*service.GitLabImportResult, error)
+
+	// 組織的系統設定(功能開關;權限同 service/system.go:成員讀、組織管理員改)。實作在 system.go
+	GetSystemSettings(org string) (*service.SystemSettingsView, error)
+	SaveSystemSettings(org string, in service.SystemSettingsInput) (*service.SystemSettingsView, error)
+
 	// 附件(圖片)
 	SaveAttachment(org string, data []byte) (id string, err error)
 	GetAttachment(org, id string) (data []byte, mime string, err error)

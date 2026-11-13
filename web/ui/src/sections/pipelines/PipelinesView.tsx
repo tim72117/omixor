@@ -8,6 +8,7 @@ import { PipeRunsTab } from "./PipeRunsTab";
 import { PipeDeploymentsTab } from "./PipeDeploymentsTab";
 import { PipeEnvironmentsTab } from "./PipeEnvironmentsTab";
 import { PipeVoiceTab } from "./PipeVoiceTab";
+import { useFeatureTabs } from "../../features";
 
 type Tab = "runs" | "deployments" | "environments" | "voice";
 const TABS: { value: Tab; label: string }[] = [
@@ -19,7 +20,9 @@ export default function PipelinesView(props: SectionProps) {
 }
 
 function Pipelines({ focusId, clearFocus }: SectionProps) {
-  const [tab, setTab] = useState<Tab>("runs");
+  const [rawTab, setRawTab] = useState<Tab>("runs");
+  const tabs = useFeatureTabs(TABS.map((x) => x.value), rawTab, setRawTab, (x) => `pipelines.${x}`);
+  const tab = tabs.shown, setTab = tabs.select;
   const [selectedRunId, setSelectedRunId] = useState<number>();
   const [highlight, setHighlight] = useState<string>();
   const [runs, , runsReady] = useList<PipelineRun>("pipeline_runs");
@@ -54,7 +57,7 @@ function Pipelines({ focusId, clearFocus }: SectionProps) {
           {waiting > 0 && <Pill text={`待核准 ${waiting}`} color="purple" icon="hand.raised.fill" />}
           {failed > 0 && <Pill text={`24 小時內失敗 ${failed}`} color="red" icon="xmark.circle.fill" />}
         </div>
-        <Seg value={tab} onChange={setTab} options={TABS} />
+        <Seg value={tab} onChange={setTab} options={TABS.filter((x) => tabs.on(x.value))} />
       </div>
       <div className="ops-page">
         {tab === "runs" && <PipeRunsTab selected={selectedRunId} setSelected={setSelectedRunId} />}

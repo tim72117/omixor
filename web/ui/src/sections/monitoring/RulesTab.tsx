@@ -5,6 +5,7 @@ import { SearchField, Switch, copyText, go, useContextMenu } from "../../compone
 import { Icon } from "../../components/Icon";
 import { SEVERITIES, SEV_COLOR, SEV_LABEL, arr, sevRank, type Alert, type AlertRule, type Automation, type Severity } from "../../components/models";
 import { EmptyState, ErrorText, Pill } from "../../components/ui";
+import { canGo } from "../../features";
 
 function channelIcon(ch: string): string {
   const c = ch.toLowerCase();
@@ -95,7 +96,7 @@ export function RulesTab({ highlightedId, setHighlightedId }: { highlightedId?: 
                   onContextMenu={menu.open([
                     { label: r.enabled ? "停用規則" : "啟用規則", onClick: () => setEnabled(r, !r.enabled) },
                     { label: "複製運算式", onClick: () => copyText(r.expression) },
-                    ...(r.autoRemediation ? [{ label: "前往自動修復", onClick: () => go("automation", r.autoRemediation!) }] : []),
+                    ...(r.autoRemediation && canGo("automation") ? [{ label: "前往自動修復", onClick: () => go("automation", r.autoRemediation!) }] : []),
                   ])}
                   style={{ background: highlightedId === r.id ? "color-mix(in srgb, var(--accent) 18%, transparent)" : i % 2 ? "color-mix(in srgb, var(--fg) 2.5%, transparent)" : undefined }}>
                   <td><Switch small on={r.enabled} onChange={(v) => setEnabled(r, v)} /></td>
@@ -114,7 +115,7 @@ export function RulesTab({ highlightedId, setHighlightedId }: { highlightedId?: 
                   </td>
                   <td>
                     {r.autoRemediation && automationName ? (
-                      <button className="bx-row-btn" style={{ padding: 0 }} title={`前往 AI 自動化:${automationName}`} onClick={(e) => { e.stopPropagation(); go("automation", r.autoRemediation!); }}>
+                      <button className="bx-row-btn" style={{ padding: 0 }} title={`前往 AI 自動化:${automationName}`} onClick={canGo("automation") ? (e) => { e.stopPropagation(); go("automation", r.autoRemediation!); } : undefined}>
                         <Icon name="sparkles" size={12} color="var(--purple)" /><span className="ellipsis">{automationName}</span>
                       </button>
                     ) : <span className="faint">無</span>}

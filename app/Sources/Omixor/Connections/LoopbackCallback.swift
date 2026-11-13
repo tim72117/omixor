@@ -53,15 +53,20 @@ final class LoopbackCallback: @unchecked Sendable {
     func stop() { listener.cancel() }
 
     /// 等回呼帶來的 code
+    /// 等瀏覽器帶 code 回來;呼叫端的 Task 被取消(使用者按「取消」)時立刻結束並丟 CancellationError
     func waitForCode(timeout: TimeInterval) async throws -> String {
-        try await withCheckedThrowingContinuation { cont in
-            queue.async {
-                if let r = self.received { cont.resume(with: r); return }
-                self.continuation = cont
-                self.queue.asyncAfter(deadline: .now() + timeout) {
-                    self.finish(.failure(ConnectionError("等太久了(\(Int(timeout / 60)) 分鐘),請重新登入")))
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { cont in
+                queue.async {
+                    if let r = self.received { cont.resume(with: r); return }
+                    self.continuation = cont
+                    self.queue.asyncAfter(deadline: .now() + timeout) {
+                        self.finish(.failure(ConnectionError("等太久了(\(Int(timeout / 60)) 分鐘),請重新登入")))
+                    }
                 }
             }
+        } onCancel: {
+            queue.async { self.finish(.failure(CancellationError())) }
         }
     }
 

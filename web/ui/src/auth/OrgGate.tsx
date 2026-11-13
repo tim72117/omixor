@@ -48,7 +48,7 @@ function NoOrgs({ acc }: { acc: Account }) {
           <>
             <div className="caption">這台伺服器上還沒有任何組織。建立第一個組織後就會進入主畫面,之後可以在「設定 › 組織」加入成員。</div>
             <input className="input" placeholder="組織名稱(例如 evoleap)" value={name} autoFocus
-              onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && name.trim() && !busy) void create(); }} />
+              onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && name.trim() && !busy) void create(); }} />
             <button className="btn primary" disabled={!name.trim() || busy} onClick={() => void create()}>
               {busy ? "建立中…" : "建立組織"}
             </button>

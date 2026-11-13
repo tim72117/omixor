@@ -9,7 +9,7 @@ import Foundation
 // 本機模式的規則(最小可用,行為照核心):
 //   - 驗證:節點存在(角色存在;user 是 app 的人員 id、目前使用者或 email)、不能指向自己、From+To 不重複、不能有循環
 //   - 派工:本機只有一個使用者(擁有者,等同組織管理員),派工照舊不受鏈限制
-//   - 角色委派(ops_agent_task_delegate):鏈上要有 agent:<自己> → agent:<目標>
+//   - 角色委派(agent_task_delegate):鏈上要有 agent:<自己> → agent:<目標>
 //   - 回報:任務變成 done 或 blocked、建立者 → 任務角色 有邊時,建立者是角色就替它排「檢視回報」任務,是人就在原任務留備註
 
 struct ChainEdge: Codable, Hashable, Identifiable {
@@ -235,6 +235,28 @@ extension IssueRemote {
 // MARK: - AgentStore:讀寫、委派、回報
 
 extension AgentStore {
+    /// 讀目前組織的組織鏈(core server)。讀不到不影響角色與任務
+    func loadChain() {
+        do {
+            let c = try remote.getChain(org: app.currentOrgId)
+            app.orgChainError = nil
+            if c != app.orgChain { app.orgChain = c }
+        } catch {
+            app.orgChainError = error.localizedDescription
+        }
+    }
+
+    /// 整份取代組織鏈(要組織管理員;伺服器驗證節點、自環、重複與循環,錯誤原文丟出)
+    @discardableResult
+    func saveChain(_ edges: [ChainEdge]) throws -> OrgChain {
+        let c = try remote.saveChain(org: app.currentOrgId, edges: edges)
+        app.orgChain = c
+        app.orgChainError = nil
+        return c
+    }
+
+#if LEGACY_LOCAL_STORE
+    // ===== 已停用:原本的本機實作(org-chain.json、App 自己驗證與回報);留著備查,不編譯 =====
     private var chainURL: URL { app.dataDir.appendingPathComponent("org-chain.json") }
 
     /// 讀目前組織的組織鏈(本機:org-chain.json;遠端:伺服器)。讀不到不影響角色與任務
@@ -297,6 +319,8 @@ extension AgentStore {
         writeChain()
     }
 
+#endif
+
     /// 節點的顯示名稱:角色名稱或人名 / email
     func chainName(_ node: String) -> String {
         if let id = ChainNode.agentId(node) { return agent(id)?.name ?? id }
@@ -320,15 +344,18 @@ extension AgentStore {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { throw ChainError(message: "要給任務標題") }
         if g.id == target.id { throw ChainError(message: "不能把任務委派給自己(\(g.name))") }
-        if let r = remote {
-            do {
-                let task = try r.delegateTask(org: app.currentOrgId, from: g.id, to: target.id, title: t, instructions: instructions,
-                                              priority: priority, taskId: sourceTask)
-                merge(task)
-                app.log(.ai(g.id), "arrow.triangle.branch", "\(g.name)委派 \(task.id)「\(task.title)」給\(target.name)", .automation)
-                return task
-            } catch { throw ChainError(message: error.localizedDescription) }
-        }
+        do {
+            let task = try remote.delegateTask(org: app.currentOrgId, from: g.id, to: target.id, title: t, instructions: instructions,
+                                               priority: priority, taskId: sourceTask)
+            merge(task)
+            app.log(.ai(g.id), "arrow.triangle.branch", "\(g.name)委派 \(task.id)「\(task.title)」給\(target.name)", .automation)
+            return task
+        } catch { throw ChainError(message: error.localizedDescription) }
+    }
+
+#if LEGACY_LOCAL_STORE
+    // ===== 已停用:本機委派(原本 delegate 的後半段)與回報 =====
+    private func legacyDelegateBody() throws -> AgentTask {
         let fromNode = ChainNode.agent(g.id)
         guard let edge = app.orgChain.edge(from: fromNode, to: ChainNode.agent(target.id)) else {
             throw ChainError(message: "組織鏈上 \(g.name) 不能派工作給 \(target.name);\(downstreamText(fromNode))")
@@ -373,7 +400,7 @@ extension AgentStore {
                 let text = (n?.isEmpty == false ? n : nil) ?? after.notes.last?.text ?? "(沒有說明)"
                 body += "需要協助:\n\(text)"
             }
-            body += "\n\n原任務:\(after.id)。用 ops_agent_tasks(id: \(after.id))看完整內容與備註;需要追加工作可以再委派。"
+            body += "\n\n原任務:\(after.id)。用 agent_tasks(id: \(after.id))看完整內容與備註;需要追加工作可以再委派。"
             if let t = assign(to: g.id, title: reviewTitle, instructions: body, priority: after.priority,
                               links: IssueStore.clean([after.id] + after.links), by: ChainNode.author) {
                 _ = self.note(after.id, "已回報給 \(g.name)(\(t.id))", by: ChainNode.author)
@@ -382,6 +409,8 @@ extension AgentStore {
             _ = self.note(after.id, "已回報給 \(u)", by: ChainNode.author)
         }
     }
+
+#endif
 
     /// 回報給某個人的任務:建立者是他、有 chain 署名的「已回報給」備註(新的在前)
     func tasksReported(to node: String) -> [AgentTask] {

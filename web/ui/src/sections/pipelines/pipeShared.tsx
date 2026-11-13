@@ -24,8 +24,8 @@ export const depIsActive = (d: Deployment) => d.status === "running" || d.status
 export const depIsRollback = (d: Deployment) => d.changes.some((c) => c.includes("回滾"));
 export const CHECK_LABEL: Record<CheckKey, string> = { pending: "等待中", running: "檢查中", passed: "通過", failed: "未通過" };
 
-/** 重新執行 / 取消:ops_pipeline_update */
-export const pipelineUpdate = (runId: number, act: "retry" | "cancel") => tool("ops_pipeline_update", { run_id: runId, action: act });
+/** 重新執行 / 取消:pipeline_update */
+export const pipelineUpdate = (runId: number, act: "retry" | "cancel") => tool("pipeline_update", { run_id: runId, action: act });
 
 /** 即時更新的經過時間 */
 export function ElapsedText({ run }: { run: PipelineRun }) {

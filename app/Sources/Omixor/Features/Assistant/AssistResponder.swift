@@ -80,6 +80,16 @@ struct AssistResponder {
             let unread = app.channels.reduce(0) { $0 + $1.unread }
             return AssistBriefing(headline: "對話", tone: .secondary, lines: [.init(icon: "bubble.left.and.bubble.right", color: .secondary,
                                                             text: "\(app.channels.count) 個頻道" + (unread > 0 ? ",\(unread) 則未讀" : ""))])
+        case .help:
+            let blocked = app.agentTasks.filter { $0.status == .blocked }.count, at = app.myMentions.count
+            return AssistBriefing(headline: "需要協助", tone: blocked + at > 0 ? .orange : .secondary,
+                                  lines: [.init(icon: "hand.raised", color: .secondary, text: "\(blocked) 筆卡住的任務、\(at) 則提到你的訊息")])
+        case .system:
+            let fs = app.features.features
+            let off = fs.filter { !$0.enabled }.count, exp = fs.filter { $0.experimental && $0.enabled }.count
+            var lines: [AssistBriefLine] = [.init(icon: "switch.2", color: .secondary, text: "\(fs.count) 項功能,\(off) 項關閉、\(exp) 項實驗功能開著")]
+            if let e = app.features.error { lines.append(.init(icon: "exclamationmark.triangle", color: .orange, text: "讀不到系統設定:\(e)")) }
+            return AssistBriefing(headline: "系統", tone: app.features.error == nil ? .secondary : .orange, lines: lines)
         }
     }
 
@@ -270,7 +280,31 @@ struct AssistResponder {
 
     // MARK: - 建議問題
 
+    /// 建議問題:系統設定關掉的功能不建議
     func suggestions() -> [String] {
+        allSuggestions().filter { topicFeature($0).map(app.isFeatureEnabled) ?? true }
+    }
+
+    /// 問題講的是哪個功能(對應 reply 的分派順序;nil = 不屬於可以關的功能)
+    func topicFeature(_ raw: String) -> String? {
+        let q = raw.lowercased()
+        func has(_ words: String...) -> Bool { words.contains { q.contains($0) } }
+        if has("延遲", "慢", "latency", "p95", "錯誤率") { return "infrastructure.services" }
+        if has("公告", "草擬", "status page", "對外") { return nil }
+        if has("部署", "deploy", "上線", "release") { return "pipelines.deployments" }
+        if has("核准", "審核", "approval", "決定", "待辦請求") { return "automation.inbox" }
+        if has("失敗", "ci", "pipeline", "建置", "build", "流程") { return has("自動化") ? "automation.runs" : "pipelines.runs" }
+        if has("告警", "alert", "警報") { return "monitoring.alerts" }
+        if has("事件", "incident", "inc-") { return "incidents.list" }
+        if has("伺服器", "server", "cpu", "記憶體", "主機", "容器", "重啟", "資源") { return "infrastructure.servers" }
+        if has("pr", "審查", "review", "合併", "卡住") { return "development.pulls" }
+        if has("sprint", "進度", "衝刺", "工作項目") { return "development.board" }
+        if has("值班", "on-call", "oncall", "on call") { return "incidents.oncall" }
+        if has("自動化", "automation", "省", "ai 任務") { return "automation.flows" }
+        return nil
+    }
+
+    private func allSuggestions() -> [String] {
         let svc = worstLatency?.name ?? "api-server"
         switch app.section {
         case .overview:
@@ -293,12 +327,33 @@ struct AssistResponder {
             return ["哪些整合還沒連接?", "總結目前狀況"]
         case .channels:
             return ["總結目前狀況"]
+        case .help:
+            return ["有什麼需要我決定?", "總結目前狀況"]
+        case .system:
+            return ["總結目前狀況"]
         }
     }
 
     // MARK: - 回答
 
+    /// 回答;問到系統設定關掉的功能時說明,不回範例資料。跳到關掉的頁面的按鈕拿掉
     func reply(to raw: String) -> AssistReply {
+        if let key = topicFeature(raw), !app.isFeatureEnabled(key) {
+            let f = app.features.features.first { $0.key == key }
+            let name = f?.name ?? key
+            let why = f?.experimental == true ? "(實驗功能,目前是範例資料)" : ""
+            return AssistReply(text: "「\(name)」在系統設定裡關閉了\(why)。需要的話請組織管理員在「系統」頁打開。",
+                               actions: [.go(.system, focus: nil, label: "前往系統")])
+        }
+        var r = routedReply(to: raw)
+        r.actions = r.actions.filter { a in
+            if case .go(let s, _, _) = a { return app.isVisible(s) }
+            return true
+        }
+        return r
+    }
+
+    private func routedReply(to raw: String) -> AssistReply {
         let q = raw.lowercased()
         func has(_ words: String...) -> Bool { words.contains { q.contains($0) } }
 

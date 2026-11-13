@@ -142,7 +142,7 @@ final class ChannelRemoteTests: XCTestCase {
     func testStoreUsesServer() throws {
         let app = remoteApp()
         let store = app.startChannels()
-        XCTAssertTrue(store.isRemote)
+        XCTAssertNil(store.remoteError)
         XCTAssertEqual(app.channels.map(\.id), ["CH-1", "CH-2"])
         XCTAssertEqual(app.channels.first?.unread, 2)
         XCTAssertEqual(app.channels.last?.channel.members, [], "members 是 null 也讀得出來")
@@ -198,43 +198,17 @@ final class ChannelRemoteTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("channels.json").path), "遠端不寫本機檔案")
     }
 
-    /// MCP 在遠端模式:agent 參數送 author / member、列表只留角色是成員的、未讀用 inbox;ops_agent_context 的 mentions 來自 inbox
+    /// MCP 的頻道工具一律轉給 core server 的管理端點(agent 參數的行為由 core 決定,見 ChannelTests.testMCPTools 連真的守護服務);
+    /// server 沒有管理端點(這個假的 server 只有 REST)時回錯誤,不改用 App 裡的實作
     func testMCPWithAgent() async throws {
         let app = remoteApp()
         let mcp = MCPHandler(app: app)
-        func call(_ name: String, _ args: [String: Any]) async throws -> ([String: Any], String, Bool) {
-            let msg: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": name, "arguments": args]]
-            let raw = await mcp.handle(try JSONSerialization.data(withJSONObject: msg))
-            let r = try XCTUnwrap((try JSONSerialization.jsonObject(with: try XCTUnwrap(raw)) as? [String: Any])?["result"] as? [String: Any])
-            let text = ((r["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
-            return ((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:], text, r["isError"] as? Bool ?? false)
-        }
-
-        var (o, text, err) = try await call("ops_channels", ["agent": "行銷"])
-        XCTAssertFalse(err, text)
-        let list = try XCTUnwrap(o["channels"] as? [[String: Any]])
-        XCTAssertEqual(list.map { $0["id"] as? String ?? "" }, ["CH-1"], "只留角色是成員的")
-        XCTAssertEqual(list.first?["unread"] as? Int, 3, "未讀數用角色的")
-
-        (o, text, err) = try await call("ops_channel_messages", ["channel": "CH-1", "agent": "marketing"])
-        XCTAssertFalse(err, text)
-        XCTAssertEqual((o["messages"] as? [[String: Any]])?.first?["authorName"] as? String, "行銷")
-        let read = try XCTUnwrap(last("POST", "/channels/CH-1/read"))
-        XCTAssertEqual(read.body["upTo"] as? String, "M-2")
-        XCTAssertEqual(read.body["member"] as? String, "agent:marketing")
-
-        (o, text, err) = try await call("ops_channel_post", ["channel": "上線", "text": "收到", "agent": "marketing"])
-        XCTAssertFalse(err, text)
-        XCTAssertEqual(last("POST", "/channels/CH-1/messages")?.body["author"] as? String, "agent:marketing")
-        XCTAssertEqual(o["author"] as? String, "agent:marketing")
-
-        (_, text, err) = try await call("ops_channel_post", ["channel": "CH-2", "text": "x", "agent": "marketing"])
-        XCTAssertTrue(err, "角色不是成員")
-
-        (o, text, err) = try await call("ops_agent_context", ["agent": "marketing"])
-        XCTAssertFalse(err, text)
-        let mentions = try XCTUnwrap(o["mentions"] as? [String: Any])
-        XCTAssertEqual((mentions["messages"] as? [[String: Any]])?.first?["id"] as? String, "M-4")
-        XCTAssertEqual((mentions["channels"] as? [[String: Any]])?.first?["unread"] as? Int, 3)
+        let msg: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": "channels", "arguments": ["agent": "行銷"]]]
+        let raw = await mcp.handle(try JSONSerialization.data(withJSONObject: msg))
+        let r = try XCTUnwrap((try JSONSerialization.jsonObject(with: try XCTUnwrap(raw)) as? [String: Any])?["result"] as? [String: Any])
+        let text = ((r["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        XCTAssertEqual(r["isError"] as? Bool, true)
+        XCTAssertTrue(text.contains("core server"), text)
+        XCTAssertNil(last("POST", "/channels/CH-1/read"), "沒有改用 App 的實作去讀寫")
     }
 }

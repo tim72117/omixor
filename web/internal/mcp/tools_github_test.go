@@ -217,10 +217,16 @@ func TestGHRefreshReadsPullsChecksAndRuns(t *testing.T) {
 	if !snap.Runs[1].IsFailure() {
 		t.Fatal("run 7 要算失敗")
 	}
-	// 追蹤的 repo 存在目前組織的 github.json
+	// 追蹤的 repo 是組織的設定(存在核心);這台的 github.json 只寫用哪一個連線
+	a.Mu.Lock()
+	cur := strings.Join(core.GHSettingsNow(a).Repos, ",")
+	a.Mu.Unlock()
+	if cur != ghTestRepo {
+		t.Fatal(cur)
+	}
 	b, _ := os.ReadFile(filepath.Join(core.DataRoot(), "orgs", core.DefaultOrgID, "github.json"))
 	var saved core.GHSettings
-	if json.Unmarshal(b, &saved) != nil || strings.Join(saved.Repos, ",") != ghTestRepo || saved.Connection != "github" {
+	if len(b) > 0 && (json.Unmarshal(b, &saved) != nil || len(saved.Repos) != 0 || saved.Connection != "github") {
 		t.Fatalf("%s", b)
 	}
 	// 只送 GET
@@ -280,7 +286,7 @@ func TestGHMCPToolsAreReadOnlyAndWork(t *testing.T) {
 	defer f.Close()
 	n := 0
 	for _, name := range ToolNames() {
-		if strings.HasPrefix(name, "ops_github") {
+		if strings.HasPrefix(name, "github") {
 			n++
 		}
 	}
@@ -289,14 +295,14 @@ func TestGHMCPToolsAreReadOnlyAndWork(t *testing.T) {
 	}
 	// 還沒登入:告訴角色要請人登入
 	want := "omixor 還沒登入 GitHub。請人在 omixor 的 開發進度 › GitHub 設定並登入"
-	for _, name := range []string{"ops_github", "ops_github_runs", "ops_github_run", "ops_github_pull"} {
+	for _, name := range []string{"github", "github_runs", "github_run", "github_pull"} {
 		if msg := extErr(t, a, name, map[string]any{"id": 7, "number": 12}); msg != want {
 			t.Fatalf("%s:%s", name, msg)
 		}
 	}
 
 	ghLogin(t, a)
-	sum := extOK(t, a, "ops_github", map[string]any{"refresh": true})
+	sum := extOK(t, a, "github", map[string]any{"refresh": true})
 	repo := sum["repos"].([]any)[0].(map[string]any)
 	if repo["failedRuns"] != 1.0 || len(repo["openPulls"].([]any)) != 1 || sum["account"] != "tim72117" || repo["error"] != nil {
 		t.Fatalf("%v", sum)
@@ -304,14 +310,14 @@ func TestGHMCPToolsAreReadOnlyAndWork(t *testing.T) {
 	if recent := repo["recentRuns"].([]any)[0].(map[string]any); recent["state"] != "成功" || recent["durationSeconds"] != 591.0 {
 		t.Fatalf("%v", recent)
 	}
-	if lim := extOK(t, a, "ops_github", map[string]any{"limit": 0}); len(lim["repos"].([]any)[0].(map[string]any)["recentRuns"].([]any)) != 1 {
+	if lim := extOK(t, a, "github", map[string]any{"limit": 0}); len(lim["repos"].([]any)[0].(map[string]any)["recentRuns"].([]any)) != 1 {
 		t.Fatal("limit 最少 1")
 	}
-	if msg := extErr(t, a, "ops_github", map[string]any{"repo": "x"}); msg != "repo 要寫成 owner/name" {
+	if msg := extErr(t, a, "github", map[string]any{"repo": "x"}); msg != "repo 要寫成 owner/name" {
 		t.Fatal(msg)
 	}
 
-	runs := extOK(t, a, "ops_github_runs", map[string]any{"status": "failure", "branch": "feat/kids"})
+	runs := extOK(t, a, "github_runs", map[string]any{"status": "failure", "branch": "feat/kids"})
 	if list := runs["runs"].([]any); len(list) != 1 || list[0].(map[string]any)["id"] != 7.0 || runs["total"] != 132.0 || runs["repo"] != ghTestRepo {
 		t.Fatalf("%v", runs)
 	}
@@ -319,7 +325,7 @@ func TestGHMCPToolsAreReadOnlyAndWork(t *testing.T) {
 		t.Fatal(r.URL)
 	}
 
-	run := extOK(t, a, "ops_github_run", map[string]any{"id": 7, "log": true, "lines": 5})
+	run := extOK(t, a, "github_run", map[string]any{"id": 7, "log": true, "lines": 5})
 	if fs := run["failedSteps"].([]any); len(fs) != 1 || fs[0] != "test / test › go test ./..." || run["state"] != "失敗" {
 		t.Fatalf("%v", run)
 	}
@@ -327,28 +333,28 @@ func TestGHMCPToolsAreReadOnlyAndWork(t *testing.T) {
 	if logs["job"] != "test / test" || !strings.HasPrefix(logs["tail"].(string), "line 91\n") || !strings.HasSuffix(logs["tail"].(string), "line 100") {
 		t.Fatalf("紀錄最少 10 行:%v", logs)
 	}
-	if msg := extErr(t, a, "ops_github_run", map[string]any{}); msg != "要給 id" {
+	if msg := extErr(t, a, "github_run", map[string]any{}); msg != "要給 id" {
 		t.Fatal(msg)
 	}
 
-	pull := extOK(t, a, "ops_github_pull", map[string]any{"number": 12})
+	pull := extOK(t, a, "github_pull", map[string]any{"number": 12})
 	if pull["changedFiles"] != 1.0 || pull["files"].([]any)[0].(map[string]any)["filename"] != "web/src/routes.tsx" ||
 		pull["pull"].(map[string]any)["checks"].(map[string]any)["failure"] != 1.0 {
 		t.Fatalf("%v", pull)
 	}
-	if msg := extErr(t, a, "ops_github_pull", map[string]any{}); msg != "要給 number" {
+	if msg := extErr(t, a, "github_pull", map[string]any{}); msg != "要給 number" {
 		t.Fatal(msg)
 	}
-	if msg := extErr(t, a, "ops_github_pull", map[string]any{"number": 99}); msg != "GitHub 回應錯誤:HTTP 404:Not Found" {
+	if msg := extErr(t, a, "github_pull", map[string]any{"number": 99}); msg != "GitHub 回應錯誤:HTTP 404:Not Found" {
 		t.Fatal(msg)
 	}
 
 	// 沒追蹤的 repo 也可以直接查,格式錯誤會擋
-	if msg := extErr(t, a, "ops_github_runs", map[string]any{"repo": "not a repo"}); msg != "repo 要寫成 owner/name" {
+	if msg := extErr(t, a, "github_runs", map[string]any{"repo": "not a repo"}); msg != "repo 要寫成 owner/name" {
 		t.Fatal(msg)
 	}
 	_ = core.GHAddRepo(a, "a/b")
-	if msg := extErr(t, a, "ops_github_runs", map[string]any{}); msg != "請給 repo,目前追蹤:tim72117/evoleap、a/b" {
+	if msg := extErr(t, a, "github_runs", map[string]any{}); msg != "請給 repo,目前追蹤:tim72117/evoleap、a/b" {
 		t.Fatal(msg)
 	}
 	// 只送 GET
@@ -365,10 +371,10 @@ func TestGHNoRepoTracked(t *testing.T) {
 	defer f.Close()
 	core.GHEnsureConnection(a)
 	core.ConnSetBearer(a, core.GHConnectionID, "gho_test")
-	if msg := extErr(t, a, "ops_github_runs", map[string]any{}); msg != "還沒追蹤任何 repo,請給 repo(owner/name)" {
+	if msg := extErr(t, a, "github_runs", map[string]any{}); msg != "還沒追蹤任何 repo,請給 repo(owner/name)" {
 		t.Fatal(msg)
 	}
-	sum := extOK(t, a, "ops_github", nil)
+	sum := extOK(t, a, "github", nil)
 	if len(sum["repos"].([]any)) != 0 || sum["fetchedAt"] == nil {
 		t.Fatalf("%v", sum)
 	}
@@ -379,7 +385,9 @@ func TestGHOrgsKeepSeparateRepos(t *testing.T) {
 	f := core.NewFakeNet(fakeGitHub)
 	defer f.Close()
 	ghLogin(t, a)
+	// 換組織後追蹤的 repo 在背景從核心讀(測試裡沒有背景工作,這裡自己讀一次)
 	repos := func() string {
+		core.GHSyncSettings(a)
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
 		return strings.Join(core.GHSettingsNow(a).Repos, ",")

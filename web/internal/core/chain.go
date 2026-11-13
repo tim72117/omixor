@@ -11,7 +11,7 @@ import (
 //
 //	本機模式:內建核心 + 本機 PostgreSQL(omixor_org_chains);遠端模式:omixor server 的 /api/orgs/{org}/chain
 //
-// 這裡是轉接層:AgentOps 的組織鏈部分(MCP 的 ops_chain、ops_chain_save、ops_agent_task_delegate、dispatch_delegate 用),
+// 這裡是轉接層:AgentOps 的組織鏈部分(MCP 的 chain、chain_save、agent_task_delegate、dispatch_delegate 用),
 // 以及畫面的視圖 org_chain、動作 chain_save。
 
 // OrgChainView 組織鏈視圖:組織鏈、成員(選 user 節點用)、能不能改(同成員視圖:本機一定可以;遠端要是組織管理員)

@@ -6,10 +6,10 @@ import (
 	"omixor-web/internal/core"
 )
 
-// ops_site_visitors,逐行對照 Swift MCPHandler.swift 的 siteVisitors。
+// site_visitors,逐行對照 Swift MCPHandler.swift 的 siteVisitors。
 
 func init() {
-	Register("ops_site_visitors", func(c *Call) (any, error) {
+	Register("site_visitors", func(c *Call) (any, error) {
 		r := "1d"
 		if s, ok := c.Args.String("range"); ok {
 			r = s

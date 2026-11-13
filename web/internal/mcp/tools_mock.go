@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"omixor-core/service"
 	"omixor-web/internal/core"
 )
 
@@ -70,7 +71,7 @@ func nullable(s string) any {
 }
 
 func init() {
-	Register("ops_overview", func(c *Call) (any, error) {
+	Register("overview", func(c *Call) (any, error) {
 		return locked(c, func(a *core.App) (any, error) {
 			now := time.Now()
 			unhealthy, failed := 0, 0
@@ -132,7 +133,7 @@ func init() {
 		})
 	})
 
-	Register("ops_list", func(c *Call) (any, error) {
+	Register("list", func(c *Call) (any, error) {
 		collection, err := c.Args.Require("collection")
 		if err != nil {
 			return nil, err
@@ -186,7 +187,7 @@ func init() {
 		})
 	})
 
-	Register("ops_get", func(c *Call) (any, error) {
+	Register("get", func(c *Call) (any, error) {
 		collection, err := c.Args.Require("collection")
 		if err != nil {
 			return nil, err
@@ -210,7 +211,7 @@ func init() {
 		})
 	})
 
-	Register("ops_navigate", func(c *Call) (any, error) {
+	Register("navigate", func(c *Call) (any, error) {
 		return locked(c, func(a *core.App) (any, error) {
 			env, err := c.Args.OptionalEnum("env", core.DeployEnvs)
 			if err != nil {
@@ -230,17 +231,27 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
+			notice := ""
 			if section != "" {
+				focus := c.Args.Str("focus_id")
+				// 系統設定關掉的頁面:改去總覽,回傳 notice 說明(同 App 的 MCPHandler.navigate)
+				if to, n := a.GuardSection(section); n != "" {
+					section, focus, notice = to, "", n
+				}
 				a.Nav.Section = section
-				a.Nav.FocusID = c.Args.Str("focus_id")
+				a.Nav.FocusID = focus
 			} else if f, ok := c.Args.String("focus_id"); ok {
 				a.Nav.FocusID = f
 			}
-			return map[string]any{"section": a.Nav.Section, "focusId": nullable(a.Nav.FocusID), "env": a.Nav.Env, "timeRange": a.Nav.TimeRange}, nil
-		}, "nav")
+			out := map[string]any{"section": a.Nav.Section, "focusId": nullable(a.Nav.FocusID), "env": a.Nav.Env, "timeRange": a.Nav.TimeRange}
+			if notice != "" {
+				out["notice"] = notice
+			}
+			return out, nil
+		}, "nav", "system")
 	})
 
-	Register("ops_alert_update", func(c *Call) (any, error) {
+	Register("alert_update", func(c *Call) (any, error) {
 		id, err := c.Args.Require("alert_id")
 		if err != nil {
 			return nil, err
@@ -274,7 +285,7 @@ func init() {
 		}, "alerts")
 	})
 
-	Register("ops_alert_create", func(c *Call) (any, error) {
+	Register("alert_create", func(c *Call) (any, error) {
 		return locked(c, func(a *core.App) (any, error) {
 			sid, err := c.Args.Require("service")
 			if err != nil {
@@ -314,123 +325,12 @@ func init() {
 		}, "alerts")
 	})
 
-	Register("ops_incident_declare", func(c *Call) (any, error) {
-		return locked(c, func(a *core.App) (any, error) {
-			title, err := c.Args.Require("title")
-			if err != nil {
-				return nil, err
-			}
-			sev, err := c.Args.RequireInt("sev")
-			if err != nil {
-				return nil, err
-			}
-			if sev < 1 || sev > 4 {
-				return nil, ToolError{Message: "sev 必須是 1–4"}
-			}
-			services := []any{}
-			if list, ok := c.Args.Strings("services"); ok {
-				for _, s := range list {
-					id, err := serviceID(a, s)
-					if err != nil {
-						return nil, err
-					}
-					services = append(services, id)
-				}
-			}
-			commander, ok := c.Args.String("commander")
-			if !ok {
-				commander = a.Me
-				if oc := a.CurrentOnCall(); oc != nil {
-					commander = core.Str(oc, "person")
-				}
-			}
-			_, person := a.Find("people", commander)
-			if person == nil || core.Str(person, "id") != commander {
-				return nil, Errorf("找不到 person %s", commander)
-			}
-			alertIDs, _ := c.Args.Strings("alert_ids")
-			for _, id := range alertIDs {
-				if _, al := a.Find("alerts", id); al == nil || core.Str(al, "id") != id {
-					return nil, Errorf("找不到告警 %s", id)
-				}
-			}
-			num := a.NextNumber("incidents", 2000)
-			id := "INC-" + itoa(num)
-			sevS := itoa(sev)
-			timeline := []any{map[string]any{"id": core.UUID(), "date": core.ISO(time.Now()), "actor": core.Object(c.Actor),
-				"kind": "status", "text": "宣告 SEV" + sevS + " 事件,指揮官:" + core.Str(person, "name")}}
-			changedAlerts := false
-			for _, aid := range alertIDs {
-				if _, al := a.Find("alerts", aid); al != nil {
-					al["incidentId"] = id
-					changedAlerts = true
-					timeline = append(timeline, map[string]any{"id": core.UUID(), "date": core.ISO(time.Now()), "actor": core.Object(c.Actor),
-						"kind": "alert", "text": "關聯告警「" + core.Str(al, "title") + "」"})
-				}
-			}
-			impact, err := c.Args.Require("impact")
-			if err != nil {
-				// Swift 版在這裡才檢查 impact,前面關聯告警的變更已經生效
-				if changedAlerts {
-					go a.Changed("alerts")
-				}
-				return nil, err
-			}
-			inc := map[string]any{
-				"id": id, "title": title, "sev": sev, "status": "investigating", "services": services, "commander": commander,
-				"startedAt": core.ISO(time.Now()), "impact": impact, "timeline": timeline, "followUps": []any{},
-			}
-			a.C["incidents"] = append([]map[string]any{inc}, a.C["incidents"]...)
-			a.Log(c.Actor, "flame.fill", "宣告 SEV"+sevS+" 事件 "+id+"「"+title+"」", "incidents")
-			return inc, nil
-		}, "incidents", "alerts")
-	})
+	// incident_declare、incident_update 由核心提供(omixor-core/mcp 的 tools_incident.go;web 的部分見 tools_incident.go)
 
-	Register("ops_incident_update", func(c *Call) (any, error) {
-		id, err := c.Args.Require("incident_id")
-		if err != nil {
-			return nil, err
-		}
-		return locked(c, func(a *core.App) (any, error) {
-			_, inc := a.Find("incidents", id)
-			if inc == nil || core.Str(inc, "id") != id {
-				return nil, Errorf("找不到事件 %s", id)
-			}
-			status, err := c.Args.OptionalEnum("status", core.IncidentStatuses)
-			if err != nil {
-				return nil, err
-			}
-			note, hasNote := c.Args.String("note")
-			finding, hasFinding := c.Args.String("finding")
-			summary, hasSummary := c.Args.String("ai_summary")
-			impact, hasImpact := c.Args.String("impact")
-			if status == "" && !hasNote && !hasFinding && !hasSummary && !hasImpact {
-				return nil, ToolError{Message: "status、note、finding、ai_summary、impact 至少要給一項"}
-			}
-			if status != "" {
-				var n *string
-				if hasNote {
-					n = &note
-				}
-				a.UpdateIncident(id, status, n, c.Actor)
-			} else if hasNote {
-				a.AddIncidentNote(id, note, c.Actor)
-			}
-			if hasFinding {
-				a.AppendIncidentEvent(inc, c.Actor, "aiFinding", finding)
-			}
-			if hasSummary {
-				inc["aiSummary"] = summary
-			}
-			if hasImpact {
-				inc["impact"] = impact
-			}
-			return inc, nil
-		}, "incidents")
-	})
-
-	Register("ops_work_item_create", func(c *Call) (any, error) {
-		return locked(c, func(a *core.App) (any, error) {
+	Register("work_item_create", func(c *Call) (any, error) {
+		// 事件的後續工作:事件存在核心,建好工作項目後(鎖外)再請核心把它加進 followUps
+		var incID, org string
+		out, err := locked(c, func(a *core.App) (any, error) {
 			title, err := c.Args.Require("title")
 			if err != nil {
 				return nil, err
@@ -460,12 +360,12 @@ func init() {
 					return nil, Errorf("找不到 person %s", assignee)
 				}
 			}
-			var inc map[string]any
-			if incID, ok := c.Args.String("incident_id"); ok {
-				_, inc = a.Find("incidents", incID)
-				if inc == nil || core.Str(inc, "id") != incID {
-					return nil, Errorf("找不到事件 %s", incID)
+			if id, ok := c.Args.String("incident_id"); ok {
+				_, inc := a.Find("incidents", id)
+				if inc == nil || core.Str(inc, "id") != id {
+					return nil, Errorf("找不到事件 %s", id)
 				}
+				incID, org = id, a.CurrentOrgID()
 			}
 			points, ok := c.Args.Int("points")
 			if !ok {
@@ -480,16 +380,21 @@ func init() {
 				item["service"] = *service
 			}
 			a.C["work_items"] = append(a.C["work_items"], item)
-			if inc != nil {
-				f, _ := inc["followUps"].([]any)
-				inc["followUps"] = append(f, id)
-			}
 			a.Log(c.Actor, "checklist", "建立 "+id+"「"+title+"」", "development")
 			return item, nil
-		}, "work_items", "incidents")
+		}, "work_items")
+		if err != nil || incID == "" {
+			return out, err
+		}
+		item, _ := out.(map[string]any)
+		if _, err := c.App.UpdateIncidentCore(org, incID, service.IncidentPatch{AddFollowUps: []string{core.Str(item, "id")},
+			Actor: coreActorOf(c.Actor), Author: core.ActorAuthor(c.Actor)}); err != nil {
+			return nil, Errorf("工作項目 %s 建好了,但沒有加進事件 %s 的後續工作:%s", core.Str(item, "id"), incID, err.Error())
+		}
+		return out, nil
 	})
 
-	Register("ops_work_item_move", func(c *Call) (any, error) {
+	Register("work_item_move", func(c *Call) (any, error) {
 		id, err := c.Args.Require("id")
 		if err != nil {
 			return nil, err
@@ -509,7 +414,7 @@ func init() {
 		}, "work_items")
 	})
 
-	Register("ops_pipeline_update", func(c *Call) (any, error) {
+	Register("pipeline_update", func(c *Call) (any, error) {
 		id, err := c.Args.RequireInt("run_id")
 		if err != nil {
 			return nil, err
@@ -552,7 +457,7 @@ func init() {
 		}, "pipeline_runs")
 	})
 
-	Register("ops_request_approval", func(c *Call) (any, error) {
+	Register("request_approval", func(c *Call) (any, error) {
 		return locked(c, func(a *core.App) (any, error) {
 			automation, ok := c.Args.String("automation")
 			if !ok {
@@ -607,7 +512,7 @@ func init() {
 		}, "approvals")
 	})
 
-	Register("ops_log_append", func(c *Call) (any, error) {
+	Register("log_append", func(c *Call) (any, error) {
 		return locked(c, func(a *core.App) (any, error) {
 			level, err := c.Args.RequireEnum("level", core.LogLevels)
 			if err != nil {
@@ -638,7 +543,7 @@ func init() {
 		}, "logs")
 	})
 
-	Register("ops_activity_post", func(c *Call) (any, error) {
+	Register("activity_post", func(c *Call) (any, error) {
 		return locked(c, func(a *core.App) (any, error) {
 			section, err := c.Args.OptionalEnum("section", core.AppSections)
 			if err != nil {

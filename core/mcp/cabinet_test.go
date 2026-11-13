@@ -90,30 +90,30 @@ func TestCabinetToolsAdminAndRole(t *testing.T) {
 	role := mcp.AgentEndpoint(mcp.AgentEndpointConfig{Svc: svc})
 
 	// 管理端點:doc_access 的 key 可以用名稱與代號
-	g := ok(t, admin, "", "ops_agent_upsert", map[string]any{"id": "writer", "name": "寫手", "doc_access": map[string]any{"L0": "read", "文件": "write"}})
+	g := ok(t, admin, "", "agent_upsert", map[string]any{"id": "writer", "name": "寫手", "doc_access": map[string]any{"L0": "read", "文件": "write"}})
 	if acc := g["docAccess"].([]any); len(acc) != 2 {
 		t.Fatalf("docAccess 要換成看得懂的範圍:%v", g)
 	}
-	fails(t, admin, "", "ops_agent_upsert", map[string]any{"id": "writer", "doc_access": map[string]any{"沒有": "read"}}, "文件櫃沒有「沒有」這個區塊或頁籤")
+	fails(t, admin, "", "agent_upsert", map[string]any{"id": "writer", "doc_access": map[string]any{"沒有": "read"}}, "文件櫃沒有「沒有」這個區塊或頁籤")
 	if a, _ := st.GetAgent("lab", "writer"); a.DocAccess["/studio/l0"] != "read" || a.DocAccess["docs"] != "write" {
 		t.Fatalf("%+v", a.DocAccess)
 	}
 
-	d := ok(t, admin, "", "ops_doc_save", map[string]any{"title": "L0 腳本", "tab": "L0", "body": "你好"})
+	d := ok(t, admin, "", "doc_save", map[string]any{"title": "L0 腳本", "tab": "L0", "body": "你好"})
 	if d["id"] != "DOC-1" || d["location"] != "課程 › L0 AI 工具介紹" || d["chars"].(float64) != 2 || d["author"] != "boss@x" {
 		t.Fatal(d)
 	}
-	ok(t, admin, "", "ops_doc_save", map[string]any{"title": "機密", "section": "機密"})
-	fails(t, admin, "", "ops_doc_save", map[string]any{"title": "x", "section": "nope"}, "要指定區塊(levels、docs、secret)")
-	fails(t, admin, "", "ops_doc_save", map[string]any{"title": "x", "section": "levels", "agent": "writer"}, "寫手沒有權限寫入「課程」;它可以寫的範圍:文件")
-	fails(t, admin, "", "ops_docs", map[string]any{"id": "DOC-2", "agent": "writer"}, "寫手沒有權限讀「機密」的文件")
-	if l := ok(t, admin, "", "ops_docs", map[string]any{"query": "腳本"}); l["total"].(float64) != 1 {
+	ok(t, admin, "", "doc_save", map[string]any{"title": "機密", "section": "機密"})
+	fails(t, admin, "", "doc_save", map[string]any{"title": "x", "section": "nope"}, "要指定區塊(levels、docs、secret)")
+	fails(t, admin, "", "doc_save", map[string]any{"title": "x", "section": "levels", "agent": "writer"}, "寫手沒有權限寫入「課程」;它可以寫的範圍:文件")
+	fails(t, admin, "", "docs", map[string]any{"id": "DOC-2", "agent": "writer"}, "寫手沒有權限讀「機密」的文件")
+	if l := ok(t, admin, "", "docs", map[string]any{"query": "腳本"}); l["total"].(float64) != 1 {
 		t.Fatal(l)
 	}
-	if c := ok(t, admin, "", "ops_cabinet", map[string]any{"agent": "writer"}); c["organization"] != "實驗室" || len(c["sections"].([]any)) != 2 {
+	if c := ok(t, admin, "", "cabinet", map[string]any{"agent": "writer"}); c["organization"] != "實驗室" || len(c["sections"].([]any)) != 2 {
 		t.Fatal(c)
 	}
-	ctx := ok(t, admin, "", "ops_agent_context", map[string]any{"agent": "writer", "include_bodies": true})
+	ctx := ok(t, admin, "", "agent_context", map[string]any{"agent": "writer", "include_bodies": true})
 	if docs := ctx["docs"].(map[string]any); docs["total"].(float64) != 1 || docs["docs"].([]any)[0].(map[string]any)["body"] != "你好" {
 		t.Fatalf("角色能讀的文件:%v", ctx["docs"])
 	}
@@ -127,26 +127,26 @@ func TestCabinetToolsAdminAndRole(t *testing.T) {
 		t.Fatal(res, err)
 	}
 	auth := "Bearer writer:" + res.Credential.Secret
-	l := ok(t, role, auth, "ops_docs", map[string]any{})
+	l := ok(t, role, auth, "docs", map[string]any{})
 	if l["total"].(float64) != 1 {
 		t.Fatalf("角色只看得到能讀的:%v", l)
 	}
-	fails(t, role, auth, "ops_docs", map[string]any{"id": "DOC-2"}, "寫手沒有權限讀「機密」的文件")
-	fails(t, role, auth, "ops_doc_save", map[string]any{"id": "DOC-1", "title": "改"}, "寫手沒有權限寫入「課程 › L0 AI 工具介紹」;它可以寫的範圍:文件")
-	fails(t, role, auth, "ops_doc_save", map[string]any{"title": "x", "section": "docs", "agent": "someone"}, "角色端點只能以自己的身分操作,不能指定其他角色")
-	w := ok(t, role, auth, "ops_doc_save", map[string]any{"title": "行銷筆記", "tab": "行銷手法", "body": "社群"})
+	fails(t, role, auth, "docs", map[string]any{"id": "DOC-2"}, "寫手沒有權限讀「機密」的文件")
+	fails(t, role, auth, "doc_save", map[string]any{"id": "DOC-1", "title": "改"}, "寫手沒有權限寫入「課程 › L0 AI 工具介紹」;它可以寫的範圍:文件")
+	fails(t, role, auth, "doc_save", map[string]any{"title": "x", "section": "docs", "agent": "someone"}, "角色端點只能以自己的身分操作,不能指定其他角色")
+	w := ok(t, role, auth, "doc_save", map[string]any{"title": "行銷筆記", "tab": "行銷手法", "body": "社群"})
 	if w["author"] != "寫手" || w["tab"] != "/docs/m" {
 		t.Fatal(w)
 	}
 	if dd, _ := st.GetDoc("lab", w["id"].(string)); dd.Author != "agent:writer" {
 		t.Fatal(dd.Author)
 	}
-	ok(t, role, auth, "ops_doc_save", map[string]any{"id": w["id"], "append_body": "補充", "tags": []any{"a"}})
-	c := ok(t, role, auth, "ops_cabinet", map[string]any{})
+	ok(t, role, auth, "doc_save", map[string]any{"id": w["id"], "append_body": "補充", "tags": []any{"a"}})
+	c := ok(t, role, auth, "cabinet", map[string]any{})
 	if secs := c["sections"].([]any); len(secs) != 2 {
 		t.Fatalf("角色只列能存取的位置:%v", secs)
 	}
-	ctx = ok(t, role, auth, "ops_agent_context", map[string]any{})
+	ctx = ok(t, role, auth, "agent_context", map[string]any{})
 	if ctx["cabinet"] == nil || ctx["docs"].(map[string]any)["total"].(float64) != 2 {
 		t.Fatalf("%v", ctx)
 	}

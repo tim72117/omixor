@@ -16,7 +16,7 @@ struct MonitoringView: View {
                 .padding(.bottom, 12)
             Divider()
             Group {
-                switch tab {
+                switch app.shownTab(tab) {
                 case .alerts: MonAlertsTab(selectedId: $selectedAlertId)
                 case .dashboards: MonDashboardsTab(selectedId: $selectedDashboardId)
                 case .logs: MonLogsTab()
@@ -28,12 +28,14 @@ struct MonitoringView: View {
         }
         .onAppear { consumeFocus(app.focusId) }
         .onChange(of: app.focusId) { _, id in consumeFocus(id) }
+        // 系統設定關掉的分頁:切到第一個開著的並提示(例如從別頁跳過來)
+        .onChange(of: tab) { _, t in if let r = app.redirectTab(t) { tab = r } }
     }
 
     private var header: some View {
         PageHeader("監控與告警", subtitle: subtitle) {
-            Picker("分頁", selection: $tab) {
-                ForEach(MonTab.allCases) { t in
+            Picker("分頁", selection: Binding(get: { app.shownTab(tab) }, set: { tab = $0 })) {
+                ForEach(app.visibleTabs(MonTab.self)) { t in
                     Label(t.title, systemImage: t.icon).tag(t)
                 }
             }

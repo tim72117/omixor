@@ -52,15 +52,15 @@ func TestMCPFBToolDefinitionsHaveNoPublish(t *testing.T) {
 		if strings.Contains(tl.Name, "fb_publish") || strings.Contains(tl.Name, "fb_schedule") {
 			t.Fatalf("不能有發佈工具:%s", tl.Name)
 		}
-		if strings.HasPrefix(tl.Name, "ops_fb_") {
+		if strings.HasPrefix(tl.Name, "fb_") {
 			names = append(names, tl.Name)
-			if ro, _ := tl.Annotations["readOnlyHint"].(bool); ro != (tl.Name != "ops_fb_draft_save") {
+			if ro, _ := tl.Annotations["readOnlyHint"].(bool); ro != (tl.Name != "fb_draft_save") {
 				t.Fatalf("%s readOnlyHint = %v", tl.Name, ro)
 			}
 		}
 	}
 	sort.Strings(names)
-	if strings.Join(names, ",") != "ops_fb_draft_save,ops_fb_drafts,ops_fb_insights,ops_fb_pages,ops_fb_posts" {
+	if strings.Join(names, ",") != "fb_draft_save,fb_drafts,fb_insights,fb_pages,fb_posts" {
 		t.Fatalf("%v", names)
 	}
 	var init struct {
@@ -69,20 +69,20 @@ func TestMCPFBToolDefinitionsHaveNoPublish(t *testing.T) {
 		} `json:"result"`
 	}
 	_ = json.Unmarshal(h.Handle(core.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": map[string]any{}})), &init)
-	if !strings.Contains(init.Result.Instructions, "ops_fb_draft_save") {
-		t.Fatal("instructions 要提到 ops_fb_draft_save")
+	if !strings.Contains(init.Result.Instructions, "fb_draft_save") {
+		t.Fatal("instructions 要提到 fb_draft_save")
 	}
 }
 
 func TestMCPFBNotConnectedErrors(t *testing.T) {
 	a, f := fbTestApp(t)
-	for _, name := range []string{"ops_fb_pages", "ops_fb_posts", "ops_fb_insights"} {
+	for _, name := range []string{"fb_pages", "fb_posts", "fb_insights"} {
 		if msg := extErr(t, a, name, nil); msg != core.FBNotConnected {
 			t.Fatalf("%s: %s", name, msg)
 		}
 	}
 	// 草稿是本機資料,沒連線也能用
-	if out := extOK(t, a, "ops_fb_drafts", nil); out["total"] != float64(0) {
+	if out := extOK(t, a, "fb_drafts", nil); out["total"] != float64(0) {
 		t.Fatalf("%v", out)
 	}
 	if len(f.Requests()) != 0 {
@@ -95,7 +95,7 @@ func TestMCPFBReadTools(t *testing.T) {
 	if err := core.FBAddToken(a, core.FBFakePageToken, core.Person("tim")); err != nil {
 		t.Fatal(err)
 	}
-	pages := extOK(t, a, "ops_fb_pages", nil)
+	pages := extOK(t, a, "fb_pages", nil)
 	if pages["connected"] != true || pages["mode"] != "page_token" || pages["apiVersion"] != "v24.0" {
 		t.Fatalf("%v", pages)
 	}
@@ -109,12 +109,12 @@ func TestMCPFBReadTools(t *testing.T) {
 	if strings.Contains(string(core.Marshal(pages)), "EAAG") {
 		t.Fatal("輸出不能有權杖")
 	}
-	refreshed := extOK(t, a, "ops_fb_pages", map[string]any{"refresh": true})
+	refreshed := extOK(t, a, "fb_pages", map[string]any{"refresh": true})
 	if rp := refreshed["pages"].([]any)[0].(map[string]any); rp["fanCount"] != float64(120) || rp["error"] != nil {
 		t.Fatalf("%v", rp)
 	}
 
-	posts := extOK(t, a, "ops_fb_posts", map[string]any{"page": "evoleap", "limit": 2})
+	posts := extOK(t, a, "fb_posts", map[string]any{"page": "evoleap", "limit": 2})
 	pp := posts["pages"].([]any)[0].(map[string]any)
 	list := pp["posts"].([]any)
 	if len(list) != 2 || pp["pageName"] != "evoleap" {
@@ -136,13 +136,13 @@ func TestMCPFBReadTools(t *testing.T) {
 	if s := pp["scheduled"].([]any)[0].(map[string]any); s["scheduledTime"] != "2027-01-15T08:00:00Z" || s["isPublished"] != false {
 		t.Fatalf("%v", s)
 	}
-	noExtra := extOK(t, a, "ops_fb_posts", map[string]any{"insights": false, "scheduled": false, "limit": 0})
+	noExtra := extOK(t, a, "fb_posts", map[string]any{"insights": false, "scheduled": false, "limit": 0})
 	np := noExtra["pages"].([]any)[0].(map[string]any)
 	if len(np["posts"].([]any)) != 1 || len(np["scheduled"].([]any)) != 0 || len(np["posts"].([]any)[0].(map[string]any)["insights"].([]any)) != 0 {
 		t.Fatalf("limit 最少 1、不附 insights 與排程:%v", np)
 	}
 
-	insights := extOK(t, a, "ops_fb_insights", map[string]any{"period": "day", "days": 7})
+	insights := extOK(t, a, "fb_insights", map[string]any{"period": "day", "days": 7})
 	ip := insights["pages"].([]any)[0].(map[string]any)
 	if ip["fanCount"] != float64(120) || ip["period"] != "day" || ip["since"] == nil {
 		t.Fatalf("%v", ip)
@@ -160,10 +160,10 @@ func TestMCPFBReadTools(t *testing.T) {
 			}
 		}
 	}
-	if msg := extErr(t, a, "ops_fb_insights", map[string]any{"period": "month"}); msg != "period 必須是 day、week、days_28 之一" {
+	if msg := extErr(t, a, "fb_insights", map[string]any{"period": "month"}); msg != "period 必須是 day、week、days_28 之一" {
 		t.Fatal(msg)
 	}
-	if msg := extErr(t, a, "ops_fb_posts", map[string]any{"page": "nope"}); msg != "找不到專頁 nope。可用:evoleap(1001)" {
+	if msg := extErr(t, a, "fb_posts", map[string]any{"page": "nope"}); msg != "找不到專頁 nope。可用:evoleap(1001)" {
 		t.Fatal(msg)
 	}
 	if fbGraphPosts(f) != 0 {
@@ -173,12 +173,12 @@ func TestMCPFBReadTools(t *testing.T) {
 	// 單一專頁的權杖過期:不讓整個工具失敗,錯誤放在該專頁
 	tok := "EXPIRED"
 	core.FBSetPageToken(a, &tok, core.FBFakePage1)
-	bad := extOK(t, a, "ops_fb_posts", nil)
+	bad := extOK(t, a, "fb_posts", nil)
 	bp := bad["pages"].([]any)[0].(map[string]any)
 	if e, _ := bp["error"].(string); !strings.Contains(e, "重新連線") || len(bp["posts"].([]any)) != 0 {
 		t.Fatalf("%v", bp)
 	}
-	bi := extOK(t, a, "ops_fb_insights", nil)["pages"].([]any)[0].(map[string]any)
+	bi := extOK(t, a, "fb_insights", nil)["pages"].([]any)[0].(map[string]any)
 	if _, ok := bi["since"]; ok || bi["error"] == nil || len(bi["metrics"].([]any)) != 0 {
 		t.Fatalf("%v", bi)
 	}
@@ -189,7 +189,7 @@ func TestMCPFBDraftSaveSignsAgentAndCannotPublish(t *testing.T) {
 	if err := core.FBAddToken(a, core.FBFakePageToken, core.Person("tim")); err != nil {
 		t.Fatal(err)
 	}
-	d := extOK(t, a, "ops_fb_draft_save", map[string]any{"message": "週末限定", "link": "https://evoleap.io",
+	d := extOK(t, a, "fb_draft_save", map[string]any{"message": "週末限定", "link": "https://evoleap.io",
 		"proposed_time": "2026-11-20T20:00:00+08:00", "agent": "marketing"})
 	id := d["id"].(string)
 	if id != "FD-1" || d["author"] != "agent:marketing" || d["authorName"] != "行銷" || d["status"] != "draft" ||
@@ -204,12 +204,12 @@ func TestMCPFBDraftSaveSignsAgentAndCannotPublish(t *testing.T) {
 	}
 
 	// 修改
-	u := extOK(t, a, "ops_fb_draft_save", map[string]any{"id": "fd-1", "message": "週末限定!"})
+	u := extOK(t, a, "fb_draft_save", map[string]any{"id": "fd-1", "message": "週末限定!"})
 	if u["message"] != "週末限定!" || u["author"] != "agent:marketing" {
 		t.Fatalf("修改不換撰寫者:%v", u)
 	}
 	// 沒帶 agent 署名 MCP 用戶端
-	m := extOK(t, a, "ops_fb_draft_save", map[string]any{"message": "另一篇"})
+	m := extOK(t, a, "fb_draft_save", map[string]any{"message": "另一篇"})
 	if m["author"] != "mcp" || m["authorName"] != "MCP 用戶端" || m["id"] != "FD-2" {
 		t.Fatalf("%v", m)
 	}
@@ -228,14 +228,14 @@ func TestMCPFBDraftSaveSignsAgentAndCannotPublish(t *testing.T) {
 		{map[string]any{"message": "x", "page": "nope"}, "找不到專頁 nope。可用:evoleap(1001)"},
 		{map[string]any{"id": "FD-99", "message": "x"}, "找不到草稿 FD-99"},
 	} {
-		if msg := extErr(t, a, "ops_fb_draft_save", c.args); msg != c.want {
+		if msg := extErr(t, a, "fb_draft_save", c.args); msg != c.want {
 			t.Fatalf("%v:%s", c.args, msg)
 		}
 	}
 	if _, err := core.FBPublish(a, id, nil, time.Now(), core.Person("tim")); err != nil {
 		t.Fatal(err)
 	}
-	if msg := extErr(t, a, "ops_fb_draft_save", map[string]any{"id": id, "message": "改"}); msg != "草稿 FD-1 已發佈,不能修改" {
+	if msg := extErr(t, a, "fb_draft_save", map[string]any{"id": id, "message": "改"}); msg != "草稿 FD-1 已發佈,不能修改" {
 		t.Fatal(msg)
 	}
 	// MCP 存草稿不會碰 Graph API 的寫入
@@ -243,24 +243,24 @@ func TestMCPFBDraftSaveSignsAgentAndCannotPublish(t *testing.T) {
 		t.Fatal("只有人按的那一次發佈")
 	}
 
-	if list := extOK(t, a, "ops_fb_drafts", nil); list["total"] != float64(1) {
+	if list := extOK(t, a, "fb_drafts", nil); list["total"] != float64(1) {
 		t.Fatalf("%v", list)
 	}
-	all := extOK(t, a, "ops_fb_drafts", map[string]any{"status": "all", "limit": 1})
+	all := extOK(t, a, "fb_drafts", map[string]any{"status": "all", "limit": 1})
 	if all["total"] != float64(2) || len(all["drafts"].([]any)) != 1 || all["drafts"].([]any)[0].(map[string]any)["id"] != "FD-1" {
 		t.Fatalf("新的在前:%v", all)
 	}
-	one := extOK(t, a, "ops_fb_drafts", map[string]any{"id": id})
+	one := extOK(t, a, "fb_drafts", map[string]any{"id": id})
 	if one["status"] != "published" || one["postId"] != "1001_555" || one["publishedBy"] != "tim" {
 		t.Fatalf("%v", one)
 	}
-	if msg := extErr(t, a, "ops_fb_drafts", map[string]any{"status": "x"}); msg != "status 必須是 draft、scheduled、published、all 之一" {
+	if msg := extErr(t, a, "fb_drafts", map[string]any{"status": "x"}); msg != "status 必須是 draft、scheduled、published、all 之一" {
 		t.Fatal(msg)
 	}
-	if msg := extErr(t, a, "ops_fb_drafts", map[string]any{"page": "nope"}); msg != "找不到專頁 nope" {
+	if msg := extErr(t, a, "fb_drafts", map[string]any{"page": "nope"}); msg != "找不到專頁 nope" {
 		t.Fatal(msg)
 	}
-	if byPage := extOK(t, a, "ops_fb_drafts", map[string]any{"page": "EVOLEAP", "status": "all"}); byPage["total"] != float64(2) {
+	if byPage := extOK(t, a, "fb_drafts", map[string]any{"page": "EVOLEAP", "status": "all"}); byPage["total"] != float64(2) {
 		t.Fatalf("%v", byPage)
 	}
 }

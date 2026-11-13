@@ -8,6 +8,7 @@ import { RISK_COLOR, RISK_LABEL, arr, type Approval } from "../components/models
 import { color } from "../components/ui";
 import { SECTIONS, type Nav, type SectionId } from "../types";
 import { useAssistantVisible } from "./store";
+import { canGo } from "../features";
 
 type Line = { icon: string; color: string; text: string };
 type Briefing = { headline: string; tone: string; lines: Line[]; suggestions: string[]; focusLabel?: string | null; section?: string; sectionTitle?: string };
@@ -97,7 +98,7 @@ export function AssistantPanel() {
     try {
       switch (a.kind) {
         case "acknowledge":
-          await tool("ops_alert_update", { alert_id: a.alertId, action: "acknowledge" });
+          await tool("alert_update", { alert_id: a.alertId, action: "acknowledge" });
           markUsed(m.id, a.key);
           note(`已確認告警「${a.title ?? a.alertId}」,並記錄到動態牆。`);
           break;
@@ -111,7 +112,7 @@ export function AssistantPanel() {
           break;
         }
         case "retry":
-          await tool("ops_pipeline_update", { run_id: a.runId, action: "retry" });
+          await tool("pipeline_update", { run_id: a.runId, action: "retry" });
           markUsed(m.id, a.key);
           note(`已重新執行 #${a.runId},可以到 CI/CD 頁看進度。`);
           break;
@@ -175,10 +176,10 @@ export function AssistantPanel() {
             <span className="row gap4" style={{ fontWeight: 600, color: pending.length ? "var(--purple)" : "var(--fg2)" }}><Icon name="hand.raised.fill" size={12} />待你決定</span>
             {pending.length > 0 && <span className="num" style={{ fontSize: 11, fontWeight: 700, color: "white", background: "var(--purple)", borderRadius: 99, padding: "1px 6px" }}>{pending.length}</span>}
             <div className="grow" />
-            <button className="btn link" style={{ color: "var(--indigo)" }} onClick={() => go("automation")}>全部查看</button>
+            {canGo("automation") && <button className="btn link" style={{ color: "var(--indigo)" }} onClick={() => go("automation")}>全部查看</button>}
           </div>
           {pending.length === 0 ? <span className="muted">沒有等待核准的 AI 請求</span> : pending.slice(0, 3).map((p) => (
-            <button key={p.id} className="bx-row-btn" style={{ padding: "2px 0" }} title={`前往 AI 自動化查看「${p.title}」`} onClick={() => go("automation", p.id)}>
+            <button key={p.id} className="bx-row-btn" style={{ padding: "2px 0" }} title={`前往 AI 自動化查看「${p.title}」`} onClick={canGo("automation") ? () => go("automation", p.id) : undefined}>
               <span className="dot" style={{ width: 6, height: 6, background: color(RISK_COLOR[p.risk]) }} />
               <span className="ellipsis grow">{p.title}</span>
               <span style={{ color: color(RISK_COLOR[p.risk]), flex: "none" }}>{RISK_LABEL[p.risk]}</span>

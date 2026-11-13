@@ -6,6 +6,7 @@ import { AIBadge, ActorAvatar, ActorLabel, Flow, copyText, go, hm, useCopied, us
 import { Icon } from "../../components/Icon";
 import { INC_STATUSES, INC_STATUS_COLOR, INC_STATUS_ICON, INC_STATUS_LABEL, SEV_COLOR, ALERT_STATE_LABEL, WORK_STATUS_LABEL, type Incident, type IncidentEvent, type IncidentStatus } from "../../components/models";
 import { Card, EmptyState, ErrorText, MetricTile, Modal, Pill, Segmented, color } from "../../components/ui";
+import { canGo } from "../../features";
 import {
   KIND_COLOR, KIND_ICON, KIND_LABEL, ServiceChip, SevBadge, StatusPill, ackDelay, aiSummary, durationOf, fmtDateTime, fmtDay, fmtDuration, fmtShort,
   isAI, isActive, isKey, isPerson, nextStatus, postmortem, postmortemMarkdown, sevLabel, sortedTimeline, stepOf, t, useInc,
@@ -80,7 +81,7 @@ function Stepper({ inc }: { inc: Incident }) {
   const confirm = () => run(async () => {
     if (!pending) return;
     const tt = note.trim();
-    await tool("ops_incident_update", { incident_id: inc.id, status: pending, ...(tt ? { note: `狀態改為「${INC_STATUS_LABEL[pending]}」:${tt}` } : {}) });
+    await tool("incident_update", { incident_id: inc.id, status: pending, ...(tt ? { note: `狀態改為「${INC_STATUS_LABEL[pending]}」:${tt}` } : {}) });
     setPending(undefined);
   });
   return (
@@ -110,7 +111,7 @@ function Stepper({ inc }: { inc: Incident }) {
       )}
       <Modal open={!!pending} onClose={() => setPending(undefined)} width={400} title={pending ? `把狀態改為「${INC_STATUS_LABEL[pending]}」?` : ""}>
         <span className="muted">{pending === "resolved" ? "解決後會開始計算 MTTR,並可產生檢討報告。" : "變更會記錄在時間軸上。"}</span>
-        <input className="input" autoFocus placeholder="補充說明(選填)" value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirm()} />
+        <input className="input" autoFocus placeholder="補充說明(選填)" value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && confirm()} />
         <ErrorText>{error}</ErrorText>
         <div className="row gap8" style={{ justifyContent: "flex-end" }}>
           <button className="btn" onClick={() => setPending(undefined)}>取消</button>
@@ -137,7 +138,7 @@ function AISummary({ inc }: { inc: Incident }) {
         <span className="h3" style={{ fontSize: 13.5 }}>AI 摘要</span>
         <div className="grow" />
         <span className="caption" style={{ color: "color-mix(in srgb, var(--purple) 80%, transparent)" }}>由 AI 依時間軸整理</span>
-        <button className="bx-icon-btn" title="依最新時間軸重新整理" onClick={() => run(() => tool("ops_incident_update", { incident_id: inc.id, ai_summary: draft }))}><Icon name="arrow.clockwise" size={13} /></button>
+        <button className="bx-icon-btn" title="依最新時間軸重新整理" onClick={() => run(() => tool("incident_update", { incident_id: inc.id, ai_summary: draft }))}><Icon name="arrow.clockwise" size={13} /></button>
       </div>
       <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, userSelect: "text" }}>{inc.aiSummary ?? draft}</div>
       {!inc.aiSummary && <span className="caption muted">尚未儲存摘要,以上為即時草稿。</span>}
@@ -165,7 +166,7 @@ function RelatedAlerts({ inc }: { inc: Incident }) {
       {list.length === 0 ? <span className="muted">沒有關聯的告警</span> : (
         <div className="col" style={{ gap: 2 }}>
           {list.map((a) => (
-            <button key={a.id} className="bx-row-btn" style={{ alignItems: "flex-start" }} title="到「監控與告警」查看" onClick={() => go("monitoring", a.id)}>
+            <button key={a.id} className="bx-row-btn" style={{ alignItems: "flex-start" }} title="到「監控與告警」查看" onClick={canGo("monitoring") ? () => go("monitoring", a.id) : undefined}>
               <Icon name={a.state === "firing" ? "bell.badge.fill" : "bell"} size={13} color={color(SEV_COLOR[a.severity])} />
               <span className="col grow" style={{ gap: 2 }}>
                 <span>{a.title}</span>
@@ -190,7 +191,7 @@ function FollowUps({ inc }: { inc: Incident }) {
   const add = () => run(async () => {
     const tt = title.trim();
     if (!tt) return;
-    await tool("ops_work_item_create", { title: tt, type: "incident", status: "todo", incident_id: inc.id, points: 2, ...(dir.me ? { assignee: dir.me } : {}), ...(inc.services[0] ? { service: inc.services[0] } : {}) });
+    await tool("work_item_create", { title: tt, type: "incident", status: "todo", incident_id: inc.id, points: 2, ...(dir.me ? { assignee: dir.me } : {}), ...(inc.services[0] ? { service: inc.services[0] } : {}) });
     setTitle(""); setAdding(false);
   });
   return (
@@ -198,7 +199,7 @@ function FollowUps({ inc }: { inc: Incident }) {
       <div className="col gap4">
         {items.length === 0 && !adding && <span className="muted">還沒有後續工作</span>}
         {items.map((w) => (
-          <button key={w.id} className="bx-row-btn" title={`到「開發進度」查看 ${w.id}`} onClick={() => go("development", w.id)}>
+          <button key={w.id} className="bx-row-btn" title={`到「開發進度」查看 ${w.id}`} onClick={canGo("development") ? () => go("development", w.id) : undefined}>
             <Icon name={w.status === "done" ? "checkmark.circle.fill" : "circle"} size={13} color={w.status === "done" ? "var(--green)" : "var(--fg2)"} />
             <span className="col grow" style={{ gap: 1 }}>
               <span style={{ textDecoration: w.status === "done" ? "line-through" : undefined }}>{w.title}</span>
@@ -209,7 +210,7 @@ function FollowUps({ inc }: { inc: Incident }) {
         ))}
         {adding ? (
           <div className="row gap6">
-            <input className="input grow" autoFocus placeholder="工作標題" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+            <input className="input grow" autoFocus placeholder="工作標題" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && add()} />
             <button className="btn small" disabled={!title.trim() || busy} onClick={add}>新增</button>
             <button className="btn small" onClick={() => { setAdding(false); setTitle(""); }}>取消</button>
           </div>
@@ -268,7 +269,7 @@ function Timeline({ inc }: { inc: Incident }) {
         <ActorAvatar actor={{ kind: "person", id: dir.me }} size={24} />
         <textarea className="input grow" rows={1} style={{ resize: "vertical", borderRadius: 8 }} value={draft}
           placeholder="新增備註,例如目前處置或觀察…(⌘↩ 送出)" onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }} />
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }} />
         <button className="btn primary" disabled={!draft.trim() || busy} onClick={submit}><Icon name="paperplane.fill" size={12} />送出</button>
       </div>
       <ErrorText>{error}</ErrorText>
@@ -329,7 +330,7 @@ function PostmortemView({ inc }: { inc: Incident }) {
   const [created, setCreated] = useState<Set<string>>(new Set());
   const { error, run } = useRun();
   const create = (title: string) => run(async () => {
-    await tool("ops_work_item_create", { title, type: "incident", status: "todo", incident_id: inc.id, points: 3, ...(inc.services[0] ? { service: inc.services[0] } : {}) });
+    await tool("work_item_create", { title, type: "incident", status: "todo", incident_id: inc.id, points: 3, ...(inc.services[0] ? { service: inc.services[0] } : {}) });
     setCreated((s) => new Set([...s, title]));
   });
   const section = (title: string, icon: string, body: React.ReactNode) => (

@@ -63,7 +63,7 @@ View 的資料格式 = Swift 模型經 MCPJSON 編出來的 JSON(欄位名看 Sw
 | `gitlab` | `{"settings":{"projects","connection"},"snapshot":{"projects","mrs","pipelines","fetchedAt","busy","errors","error"},"connection","loggedIn","configured","state","baseURL","caCert","insecure","callback","scopes","applicationsURL","tokenURL"}`(Go 版才有,Swift 沒有、也沒有 MCP 工具;元件 web/src/gitlab/GitLabTab.tsx) | 連線 |
 | `voice_jobs` | `[VoiceJob]`(完整內容,含 baseline;最新的在最前面) | 旁白 |
 | `voice_settings` | `{connection, pollMinutes, shuttlePath, target: {id,name,baseURL,production} 或 null, hasToken}`(發佈目的地與輪詢設定,Swift 存在 UserDefaults;Go 存在資料夾根目錄的 voice-settings.json) | 旁白 |
-| `facebook` | `{settings: {apiVersion, mode, pages: [FBPage]}, drafts: [草稿,格式同 ops_fb_drafts 的一筆], snapshot: {posts: {pageId: [貼文]}, scheduled: {pageId: [貼文]}, insights: {pageId: {pageId,period,since,until,metrics}}, errors: {pageId: 訊息}, error, busy, fetchedAt, tokenExpired}, tokens: {pageId: bool}, connected, notConnected, connection: Connection 或 null, hasAppSecret, callback, scopes, periods, minLeadSeconds, maxLeadSeconds}`。貼文 / 指標格式同 ops_fb_posts / ops_fb_insights。設定與草稿存組織資料夾的 facebook.json(格式同 Swift);專頁權杖存 core.Vault,帳號 `<組織前綴>facebook:page:<id>`,Meta 登入的使用者權杖是連線 `facebook` 的 `:token`。tokens 只看鑰匙圈快取 | 粉絲專頁 |
+| `facebook` | `{settings: {apiVersion, mode, pages: [FBPage]}, drafts: [草稿,格式同 fb_drafts 的一筆], snapshot: {posts: {pageId: [貼文]}, scheduled: {pageId: [貼文]}, insights: {pageId: {pageId,period,since,until,metrics}}, errors: {pageId: 訊息}, error, busy, fetchedAt, tokenExpired}, tokens: {pageId: bool}, connected, notConnected, connection: Connection 或 null, hasAppSecret, callback, scopes, periods, minLeadSeconds, maxLeadSeconds}`。貼文 / 指標格式同 fb_posts / fb_insights。設定與草稿存組織資料夾的 facebook.json(格式同 Swift);專頁權杖存 core.Vault,帳號 `<組織前綴>facebook:page:<id>`,Meta 登入的使用者權杖是連線 `facebook` 的 `:token`。tokens 只看鑰匙圈快取 | 粉絲專頁 |
 
 | Action | 參數 → 回傳 | 負責 |
 |---|---|---|
@@ -121,7 +121,7 @@ conformance/stop.sh <埠A> <埠B> <畫面埠>
 改了 Go 程式要重跑 `run_go.sh`(先 stop 再 run),而且 Swift 那邊也要重開(情境會改資料,兩邊要從同樣的起點開始)。
 情境檔寫在 `conformance/scenarios/<功能>.json`,涵蓋每個工具的正常路徑、每個錯誤訊息、邊界參數。會隨時間變動的欄位(例如伺服器 CPU)用 `ignore`。
 
-**安全**:Swift 比對實例用的是正式的鑰匙圈,所以**不要**在比對情境裡呼叫會連外部服務的工具(`ops_site_visitors`、真的送出的 `ops_voice_submit`、登入後的 GitHub/GCP)。這些用 Go 的單元測試(httptest 假伺服器)驗證。
+**安全**:Swift 比對實例用的是正式的鑰匙圈,所以**不要**在比對情境裡呼叫會連外部服務的工具(`site_visitors`、真的送出的 `voice_submit`、登入後的 GitHub/GCP)。這些用 Go 的單元測試(httptest 假伺服器)驗證。
 
 ## 不能做的事
 

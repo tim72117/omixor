@@ -12,12 +12,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"omixor-core/service"
 )
 
 // GitLab(公司自架):用「GitLab」連線(GitLab OAuth + PKCE,或個人存取權杖 read_api)讀追蹤中專案的
 // 開著的 MR(含 head pipeline、核准狀態)與最近的 pipelines、jobs、失敗 job 的紀錄。只讀,v4 API。
 // Swift 版沒有這個功能,也沒有 MCP 工具(spec/tools.json 不變),只給 Web 版畫面用。
-// 追蹤哪些專案存在目前組織的 gitlab.json;GitLab 網址、CA 憑證檔、不驗證憑證存在連線上(connections.json)。
+// 追蹤哪些專案與 GitLab 網址是組織的設定,存在核心(見 integrations.go);CA 憑證檔、不驗證憑證只存在這台的連線上(connections.json),
+// 這台的 gitlab.json 只再寫用哪一個連線。
 // token 只送連線網址那一台主機:API 一律用相對路徑,分頁的下一頁網址也要同一台主機才跟。
 
 const GLConnectionID = "gitlab"
@@ -399,9 +402,14 @@ func glLoad(a *App) {
 		}
 	}
 	s.GLSnap = emptyGLSnapshot()
+	// 網址與追蹤的專案以組織(核心)的為準:先顯示這台檔案裡的,背景從核心讀(見 integrations.go)
+	if BackgroundAccountCheck {
+		go GLSyncSettings(a)
+	}
 }
 
-func glSave(a *App) { _ = WriteJSON(a.glFile(), a.conns().GL) }
+// glSave 只寫這台的 connection(projects 是組織的設定,存在核心;檔案裡原本的 projects 保留,見 integrations.go)
+func glSave(a *App) { glSaveConnection(a) }
 
 func GLSettingsNow(a *App) GLSettings {
 	g := a.conns().GL
@@ -449,8 +457,32 @@ func GLEnsureConnection(a *App, base string) (Connection, error) {
 	return c, nil
 }
 
-// GLSetServer 設定 GitLab 網址、CA 憑證檔、不驗證憑證。網址換了舊的登入作廢(ConnUpsert 會清 token)
+// GLSetServer 設定 GitLab 網址、CA 憑證檔、不驗證憑證。網址是組織的設定(先存核心,要組織管理員);
+// CA 憑證檔、不驗證憑證只存在這台的連線。網址換了舊的登入作廢(ConnUpsert 會清 token)
 func GLSetServer(a *App, base *string, caCert *string, insecure *bool) (Connection, error) {
+	if base != nil {
+		b, err := GLNormalizeBaseURL(*base)
+		if err != nil {
+			return Connection{}, err
+		}
+		// 畫面每次都會帶網址:沒換就不送核心(只改 CA 憑證檔、不驗證憑證不用組織管理員)
+		a.Mu.Lock()
+		cur, ok := GLConnection(a)
+		a.Mu.Unlock()
+		if !ok || cur.BaseURL != b {
+			x, err := glSaveCore(a, service.GitLabSettingsInput{BaseURL: &b})
+			if err != nil {
+				return Connection{}, err
+			}
+			b = x.BaseURL
+		}
+		base = &b
+	}
+	return glSetLocalServer(a, base, caCert, insecure)
+}
+
+// glSetLocalServer 只改這台的連線(網址、CA 憑證檔、不驗證憑證)
+func glSetLocalServer(a *App, base *string, caCert *string, insecure *bool) (Connection, error) {
 	c, err := GLEnsureConnection(a, "")
 	if err != nil {
 		return c, err
@@ -490,34 +522,30 @@ func GLSetServer(a *App, base *string, caCert *string, insecure *bool) (Connecti
 	return n, nil
 }
 
+// GLAddProject 追蹤專案(存到組織的設定,要組織管理員;見 integrations.go)
 func GLAddProject(a *App, p string) error {
 	a.Mu.Lock()
-	defer a.Mu.Unlock()
 	base := ""
 	if c, ok := GLConnection(a); ok {
 		base = c.BaseURL
 	}
+	a.Mu.Unlock()
 	key, ok := GLNormalizeProject(p, base)
 	if !ok {
 		return connErr("專案要寫成 group/project(可以有子群組)、專案 id,或專案網址")
 	}
-	s := a.conns()
-	for _, x := range s.GL.Projects {
-		if strings.EqualFold(x, key) {
-			return nil
-		}
-	}
-	s.GL.Projects = append(s.GL.Projects, key)
-	glSave(a)
-	go a.Changed("gitlab")
-	return nil
+	_, err := glSaveCore(a, service.GitLabSettingsInput{Add: []string{key}})
+	return err
 }
 
-func GLRemoveProject(a *App, key string) {
+// GLRemoveProject 不再追蹤(存到組織的設定);成功後把畫面上這個專案的資料拿掉
+func GLRemoveProject(a *App, key string) error {
+	if _, err := glSaveCore(a, service.GitLabSettingsInput{Remove: []string{key}}); err != nil {
+		return err
+	}
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
 	s := a.conns()
-	s.GL.Projects = filterStrings(s.GL.Projects, func(x string) bool { return x != key })
 	snap := &s.GLSnap
 	projects := []GLProject{}
 	for _, p := range snap.Projects {
@@ -539,8 +567,8 @@ func GLRemoveProject(a *App, key string) {
 	}
 	snap.Projects, snap.MRs, snap.Pipelines = projects, mrs, pls
 	delete(snap.Errors, key)
-	glSave(a)
 	go a.Changed("gitlab")
+	return nil
 }
 
 // MARK: 讀 API(不能拿著鎖)
@@ -723,6 +751,7 @@ func GLFetchProject(a *App, key string) (GLProject, []GLMergeRequest, []GLPipeli
 
 // GLRefresh 重新讀全部追蹤中的專案
 func GLRefresh(a *App) {
+	GLSyncSettings(a) // 網址與追蹤的專案以組織(核心)的為準,每輪先讀一次
 	a.Mu.Lock()
 	s := a.conns()
 	if s.GLSnap.Busy {
@@ -916,7 +945,7 @@ func init() {
 		}
 		snap["mrs"] = mrs
 		out := map[string]any{"settings": s.GL, "snapshot": snap, "connection": nil, "loggedIn": false, "state": nil,
-			"configured": false, "baseURL": "", "caCert": "", "insecure": false, "callback": "http://127.0.0.1/callback",
+			"settingsError": GLSettingsError(a), "configured": false, "baseURL": "", "caCert": "", "insecure": false, "callback": "http://127.0.0.1/callback",
 			"scopes": "read_api read_user openid", "applicationsURL": "", "tokenURL": ""}
 		if c, ok := GLConnection(a); ok {
 			out["connection"] = c
@@ -964,7 +993,9 @@ func init() {
 	})
 	RegisterAction("gitlab_remove_project", func(a *App, args map[string]any) (any, error) {
 		p, _ := args["project"].(string)
-		GLRemoveProject(a, p)
+		if err := GLRemoveProject(a, p); err != nil {
+			return nil, err
+		}
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
 		return GLSettingsNow(a), nil

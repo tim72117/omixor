@@ -5,6 +5,7 @@ import XCTest
 final class OrgTests: XCTestCase {
     var dataDir: URL!
     override func setUp() async throws {
+        try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-orgs-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         setenv("OPS_DATA_DIR", dataDir.path, 1)
@@ -21,6 +22,9 @@ final class OrgTests: XCTestCase {
         let issue = #"[{"id":"ISS-7","title":"舊的","createdBy":"tim","status":"open","priority":"normal","labels":[],"source":"","link":"","body":"","comments":[],"createdAt":"2026-11-10T00:00:00Z","updatedAt":"2026-11-10T00:00:00Z"}]"#
         try Data(issue.utf8).write(to: dataDir.appendingPathComponent("issues.json"))
         let app = AppState()
+        app.ensureOrgs()
+        // 本機守護服務第一次可用時匯入組織資料夾裡的舊資料(LocalCoreImport)
+        XCTAssertEqual(LocalCoreImport.sync(IssueRemote(config: IssueServerConfig.current), orgs: app.orgs), [])
         app.startIssues()
         XCTAssertEqual(app.issues.map(\.id), ["ISS-7"])
         XCTAssertEqual(app.orgs.map(\.name), ["evoleap"])
@@ -29,17 +33,17 @@ final class OrgTests: XCTestCase {
     }
 
     /// 刪除組織時,該組織在鑰匙圈的連線登入要一起清掉(要在資料夾移走前讀連線清單)
-    func testDeleteOrgClearsItsTokens() throws {
+    func testDeleteOrgClearsItsTokens() async throws {
         let app = AppState()
         app.startConnections()
         let other = app.createOrg(name: "Side", template: .copyCurrent)
-        app.switchOrg(other.id)
+        await app.switchOrg(other.id).value
         TokenVault.setTokens(TokenSet(accessToken: "side-token", tokenType: "Bearer"), "evoleap")
-        app.switchOrg(OrgFiles.defaultId)
+        await app.switchOrg(OrgFiles.defaultId).value
         TokenVault.scope = "\(other.id)/"
         XCTAssertEqual(TokenVault.tokens("evoleap")?.accessToken, "side-token")
         TokenVault.scope = ""
-        try app.deleteOrg(other.id)
+        try await app.deleteOrg(other.id)
         TokenVault.scope = "\(other.id)/"
         defer { TokenVault.scope = "" }
         XCTAssertNil(TokenVault.tokens("evoleap"), "刪掉的組織的登入還留在鑰匙圈")
@@ -57,7 +61,7 @@ final class OrgTests: XCTestCase {
         // 空白組織
         let blank = app.createOrg(name: "Lab", template: .blank)
         XCTAssertEqual(blank.id, "lab")
-        app.switchOrg(blank.id)
+        await app.switchOrg(blank.id).value
         XCTAssertEqual(app.currentOrg?.name, "Lab")
         XCTAssertTrue(app.issues.isEmpty)
         XCTAssertTrue(app.agents.isEmpty, "空白組織沒有角色")
@@ -77,7 +81,7 @@ final class OrgTests: XCTestCase {
         XCTAssertNotNil(Cabinet.validate(app, CabinetLayout.blank), "有文件的區塊不能拿掉")
 
         // 切回 evoleap:資料都還在、各自獨立
-        app.switchOrg(OrgFiles.defaultId)
+        await app.switchOrg(OrgFiles.defaultId).value
         XCTAssertEqual(app.issues.map(\.title), ["evoleap 的 Issue"])
         XCTAssertEqual(app.cabinetDocs.map(\.title), ["evoleap 文件"])
         XCTAssertEqual(CabinetLayout.sections.count, 8)
@@ -85,7 +89,7 @@ final class OrgTests: XCTestCase {
 
         // 複製設定的組織:有角色與結構,沒有資料
         let copy = app.createOrg(name: "evoleap 測試", template: .copyCurrent)
-        app.switchOrg(copy.id)
+        await app.switchOrg(copy.id).value
         XCTAssertEqual(app.agents.count, 5)
         XCTAssertTrue(app.agentTasks.isEmpty)
         XCTAssertTrue(app.issues.isEmpty)
@@ -95,18 +99,19 @@ final class OrgTests: XCTestCase {
 
         // MCP 看得到目前組織
         let mcp = MCPHandler(app: app)
-        let msg: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": "ops_orgs", "arguments": [:]]]
+        let msg: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": "orgs", "arguments": [:]]]
         let raw = await mcp.handle(try JSONSerialization.data(withJSONObject: msg))
         XCTAssertTrue(String(decoding: try XCTUnwrap(raw), as: UTF8.self).contains(copy.id))
 
         // 不能刪目前的組織;刪別的會移走資料夾
-        XCTAssertThrowsError(try app.deleteOrg(copy.id))
-        try app.deleteOrg(blank.id)
+        do { try await app.deleteOrg(copy.id); XCTFail("不能刪目前的組織") } catch {}
+        try await app.deleteOrg(blank.id)
         XCTAssertFalse(app.orgs.contains { $0.id == blank.id })
         XCTAssertFalse(FileManager.default.fileExists(atPath: dataDir.appendingPathComponent("orgs/lab").path))
 
         // 重開 app:記得目前的組織
         let app2 = AppState()
+        app2.ensureOrgs()   // App 啟動時先讀組織清單(連線等功能會先用到資料夾),各功能再讀 server
         app2.startIssues()
         XCTAssertEqual(app2.currentOrgId, copy.id)
         XCTAssertEqual(app2.orgs.count, 2)
@@ -154,7 +159,7 @@ final class OrgTests: XCTestCase {
         let h = MCPHandler(app: app)
         func list(_ c: String) async throws -> [[String: Any]] {
             let req = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": ["name": "ops_list", "arguments": ["collection": c, "limit": 200]]])
+                "params": ["name": "list", "arguments": ["collection": c, "limit": 200]]])
             let out = try JSONSerialization.jsonObject(with: await h.handle(req)!) as! [String: Any]
             let text = (((out["result"] as! [String: Any])["content"] as! [[String: Any]])[0]["text"] as! String)
             let obj = try JSONSerialization.jsonObject(with: Data(text.utf8))

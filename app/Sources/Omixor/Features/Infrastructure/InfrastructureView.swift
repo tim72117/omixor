@@ -30,7 +30,7 @@ struct InfrastructureView: View {
                 .padding(.bottom, 12)
             Divider()
             Group {
-                switch tab {
+                switch app.shownTab(tab) {
                 case .services:
                     InfraServicesTab(selection: $selectedService, onOpenServer: openServer)
                 case .servers:
@@ -45,6 +45,8 @@ struct InfrastructureView: View {
         }
         .onAppear { applyFocus(app.focusId) }
         .onChange(of: app.focusId) { _, new in applyFocus(new) }
+        // 系統設定關掉的分頁:切到第一個開著的並提示(例如從別頁跳過來)
+        .onChange(of: tab) { _, t in if let r = app.redirectTab(t) { tab = r } }
     }
 
     private var header: some View {
@@ -54,8 +56,8 @@ struct InfrastructureView: View {
                 summaryLine
             }
             Spacer(minLength: 12)
-            Picker("分頁", selection: $tab) {
-                ForEach(InfraTab.allCases) { Text($0.label).tag($0) }
+            Picker("分頁", selection: Binding(get: { app.shownTab(tab) }, set: { tab = $0 })) {
+                ForEach(app.visibleTabs(InfraTab.self)) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()

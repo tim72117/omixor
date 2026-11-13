@@ -555,7 +555,10 @@ struct GCPSetupView: View {
                 HStack {
                     Button("用瀏覽器登入") { Task { await app.connStore?.login(c.id) } }
                         .buttonStyle(.borderedProminent).disabled(state?.busy == true)
-                    if state?.busy == true { ProgressView().controlSize(.small); Text("等瀏覽器授權…").font(.caption) }
+                    if state?.busy == true {
+                        ProgressView().controlSize(.small); Text("等瀏覽器授權…").font(.caption)
+                        Button("取消") { app.connStore?.cancelLogin(c.id) }
+                    }
                     Spacer()
                     Button("重新設定 OAuth 用戶端") {
                         var n = c; n.oauth.clientId = ""

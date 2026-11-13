@@ -105,22 +105,36 @@ final class ConnectionStore {
 
     // MARK: - 登入
 
+    /// 進行中的瀏覽器登入(連線 id → 等瀏覽器的工作),cancelLogin 用來取消
+    private var loginTasks: [String: Task<(TokenSet, OAuthSettings?)?, Error>] = [:]
+
     func login(_ id: String) async {
-        guard let c = connection(id) else { return }
+        guard let c = connection(id), loginTasks[id] == nil else { return }
         setState(id) { $0.busy = true; $0.error = nil; $0.lastTest = nil }
         defer { setState(id) { $0.busy = false } }
-        do {
+        // 等瀏覽器的部分放在可取消的 Task:使用者按「取消」時 cancelLogin 取消它(LoopbackCallback 停止等回呼、關掉本機的回呼伺服器)
+        let task = Task { () throws -> (TokenSet, OAuthSettings?)? in
             switch c.auth {
             case .oauth:
                 let (tokens, settings) = try await OAuthConnector.login(c)
-                var n = c
-                n.oauth = settings
-                if let i = app.connections.firstIndex(where: { $0.id == id }) { app.connections[i] = n; save() }
-                TokenVault.setTokens(tokens, id)
+                return (tokens, settings)
             case .approval:
-                TokenVault.setTokens(try await ApprovalConnector.login(c), id)
+                return (try await ApprovalConnector.login(c), nil)
             case .bearer, .none:
-                break
+                return nil
+            }
+        }
+        loginTasks[id] = task
+        defer { loginTasks[id] = nil }
+        do {
+            let got: (TokenSet, OAuthSettings?)?
+            do { got = try await task.value } catch where task.isCancelled { return }   // 使用者取消:不顯示錯誤
+            if let (tokens, settings) = got {
+                if let settings, var n = connection(id) {
+                    n.oauth = settings
+                    if let i = app.connections.firstIndex(where: { $0.id == id }) { app.connections[i] = n; save() }
+                }
+                TokenVault.setTokens(tokens, id)
             }
             await refreshAccount(id)
             app.log(.person(app.me), "person.badge.key", "omixor 登入「\(c.name)」" + (app.connectionStates[id]?.account.map { "(\($0))" } ?? ""), .settings)
@@ -128,6 +142,14 @@ final class ConnectionStore {
             setState(id) { $0.error = error.localizedDescription }
         }
     }
+
+    /// 取消等瀏覽器的登入(畫面的「取消」按鈕)
+    func cancelLogin(_ id: String) {
+        loginTasks[id]?.cancel()
+    }
+
+    /// 這個連線正在等瀏覽器登入
+    func isLoggingIn(_ id: String) -> Bool { loginTasks[id] != nil }
 
     func logout(_ id: String) async {
         guard let c = connection(id) else { return }

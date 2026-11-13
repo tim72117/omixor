@@ -3,7 +3,7 @@ import SwiftUI
 
 // AI 自動化 › 粉絲專頁:連線引導、撰寫與排程(由人發佈)、貼文、成效。
 // 放在 AI 自動化:草稿多半由行銷角色(虛擬角色)寫好,人在這裡把關後發佈,和「待核准」是同一種流程;
-// 也不用新增側邊欄頁面(那會改到 ops_navigate 的 section 列舉與 ⌘1–⌘9)。
+// 也不用新增側邊欄頁面(那會改到 navigate 的 section 列舉與 ⌘1–⌘9)。
 
 private enum FBTab: String, CaseIterable, Identifiable {
     case compose, posts, insights
@@ -85,6 +85,8 @@ private struct FBConnectGuide: View {
     @State private var pasted = ""
     @State private var busy = false
     @State private var error: String?
+    /// 進行中的 Meta 瀏覽器登入(按「取消」時取消它,停止等瀏覽器)
+    @State private var metaLogin: Task<Void, Never>?
 
     private var store: FacebookStore { app.startFacebook() }
     private var conn: Connection? { app.connections.first { $0.id == FB.connectionId } }
@@ -111,9 +113,12 @@ private struct FBConnectGuide: View {
                         }
                         .disabled(appId.isEmpty && appSecret.isEmpty)
                     }
-                    Button(busy ? "等待瀏覽器…" : "用瀏覽器登入") { run { try await store.loginWithMeta() } }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(busy || conn?.oauth.clientId.isEmpty != false || conn?.oauth.hasClientSecret != true)
+                    HStack {
+                        Button(metaLogin != nil ? "等待瀏覽器…" : "用瀏覽器登入") { loginWithMeta() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(busy || conn?.oauth.clientId.isEmpty != false || conn?.oauth.hasClientSecret != true)
+                        if metaLogin != nil { Button("取消") { metaLogin?.cancel() } }
+                    }
                     Text("Meta 若要求重新導向網址一定要 https,改用方法二。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -140,6 +145,20 @@ private struct FBConnectGuide: View {
                 }
             }
         }
+    }
+
+    /// Meta 登入:等瀏覽器的工作存在 metaLogin,使用者取消時不顯示錯誤
+    private func loginWithMeta() {
+        busy = true
+        error = nil
+        let t = Task {
+            do { try await store.loginWithMeta() } catch {
+                if !Task.isCancelled { self.error = error.localizedDescription }
+            }
+            busy = false
+            metaLogin = nil
+        }
+        metaLogin = t
     }
 
     private func run(_ work: @escaping () async throws -> Void) {
@@ -254,7 +273,7 @@ private struct FBComposeView: View {
 
     @ViewBuilder private var editor: some View {
         if edit.id.isEmpty {
-            EmptyStateView(title: "選一份草稿", icon: "square.and.pencil", message: "或按「新草稿」。行銷角色也可以用 MCP 的 ops_fb_draft_save 寫好草稿放這裡。")
+            EmptyStateView(title: "選一份草稿", icon: "square.and.pencil", message: "或按「新草稿」。行銷角色也可以用 MCP 的 fb_draft_save 寫好草稿放這裡。")
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {

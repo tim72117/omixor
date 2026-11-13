@@ -1,7 +1,7 @@
 {
  "steps": [
   {
-   "tool": "ops_overview",
+   "tool": "overview",
    "ignore": [
     "activeDeployments",
     "runningPipelines",
@@ -10,70 +10,70 @@
    "note": "一開始的整體狀況"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "people",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "services",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "repos",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pull_requests",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "work_items",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "sprint",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alert_rules",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "dashboards",
     "limit": 200
@@ -83,56 +83,56 @@
    ]
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "incidents",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "on_call",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "automations",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "automation_runs",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "approvals",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "activity",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "integrations",
     "limit": 200
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "servers",
     "limit": 200
@@ -147,7 +147,7 @@
    ]
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pipeline_runs",
     "limit": 200
@@ -159,7 +159,7 @@
    ]
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "deployments",
     "limit": 200
@@ -172,7 +172,7 @@
    ]
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pipeline_runs",
     "where": {
@@ -182,7 +182,7 @@
    "note": "非執行中的 run:日誌裁成 3 行 + logLines"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "dashboards",
     "limit": 1
@@ -193,7 +193,7 @@
    "note": "時間序列裁成 3 點 + pointsCount"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pipeline_runs",
     "where": {
@@ -203,7 +203,7 @@
    "note": "排隊中的不會被 tick 推進"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "deployments",
     "where": {
@@ -213,7 +213,7 @@
    "note": "等待核准的部署不會被 tick 推進"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": {
@@ -222,7 +222,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": {
@@ -232,7 +232,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": {
@@ -242,7 +242,7 @@
    "note": "空路徑 = 整筆,比對 id"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pull_requests",
     "where": {
@@ -251,7 +251,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pull_requests",
     "where": {
@@ -261,7 +261,7 @@
    "note": "空段落略過"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pull_requests",
     "where": {
@@ -271,7 +271,7 @@
    "note": "執行者欄位比對 id"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pull_requests",
     "where": {
@@ -280,7 +280,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pull_requests",
     "where": {
@@ -290,7 +290,7 @@
    "note": "陣列包含"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "incidents",
     "where": {
@@ -299,7 +299,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "incidents",
     "where": {
@@ -308,7 +308,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "incidents",
     "where": {
@@ -317,7 +317,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "incidents",
     "where": {
@@ -326,7 +326,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "services",
     "where": {
@@ -336,7 +336,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "services",
     "where": {
@@ -345,7 +345,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "automations",
     "where": {
@@ -354,7 +354,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "automations",
     "where": {
@@ -363,7 +363,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "automations",
     "where": {
@@ -373,7 +373,7 @@
    "note": "布林欄位不等於 1"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "integrations",
     "where": {
@@ -382,7 +382,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "work_items",
     "where": {
@@ -392,7 +392,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "activity",
     "where": {
@@ -401,7 +401,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": {
@@ -413,7 +413,7 @@
    "note": "非純量的值不符合"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": {
@@ -422,7 +422,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": {
@@ -431,7 +431,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": {
@@ -440,7 +440,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": "state=firing"
@@ -448,21 +448,21 @@
    "note": "where 不是物件就忽略"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "search": "paddle"
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "search": "  PADDLE  "
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "search": "timeout",
@@ -470,7 +470,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "search": "",
@@ -478,7 +478,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "incidents",
     "search": "outbox",
@@ -488,14 +488,14 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "people",
     "search": "庭宇"
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": 5,
@@ -503,14 +503,14 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": 0
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": -5,
@@ -518,14 +518,14 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": 500
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": "4",
@@ -533,14 +533,14 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": "abc"
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": 2.9,
@@ -548,77 +548,77 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "offset": 1000
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": true
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs"
    },
    "note": "預設 30 筆"
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {}
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "   "
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "nope"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "id": "x"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "alerts"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "nope",
     "id": "x"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "alerts",
     "id": "ALT-1"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "sprint",
     "id": "x"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "alerts",
     "id": "alt-5121"
@@ -626,7 +626,7 @@
    "note": "id 不分大小寫"
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "pull_requests",
     "id": 1426
@@ -634,21 +634,21 @@
    "note": "數字 id"
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "pull_requests",
     "id": "1426"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "pipeline_runs",
     "id": 1286
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "dashboards",
     "id": "dash-overview"
@@ -659,21 +659,21 @@
    "note": "Swift 版的儀表板數值依啟動時刻產生,只比結構"
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "logs",
     "id": "0000a11c-0000-4000-8000-000000000096"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "people",
     "id": " TIM "
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "servers",
     "id": "gke-prod-ae1-a1"
@@ -686,18 +686,18 @@
    ]
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {}
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "section": "monitoring",
     "focus_id": "ALT-5121"
    }
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "env": "staging",
     "time_range": "7d"
@@ -708,38 +708,38 @@
    "note": "Swift 的監控頁畫面會把 focusId 吃掉(設成 nil),不比"
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "section": "settings",
     "focus_id": "github"
    }
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "time_range": "1h"
    }
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "focus_id": "ALT-5122"
    }
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "env": "qa"
    }
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "time_range": "2h"
    }
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "env": "development",
     "section": "nope"
@@ -747,14 +747,14 @@
    "note": "env 已先改"
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "section": "incidents"
    },
    "note": "沒給 focus_id 會清掉"
   },
   {
-   "tool": "ops_overview",
+   "tool": "overview",
    "ignore": [
     "activeDeployments",
     "runningPipelines",
@@ -762,7 +762,7 @@
    ]
   },
   {
-   "tool": "ops_navigate",
+   "tool": "navigate",
    "args": {
     "section": "overview",
     "env": "production",
@@ -770,18 +770,18 @@
    }
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {}
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {
     "alert_id": "ALT-1",
     "action": "resolve"
    }
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {
     "alert_id": "alt-5124",
     "action": "resolve"
@@ -789,13 +789,13 @@
    "note": "告警 id 要完全一樣"
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {
     "alert_id": "ALT-5124"
    }
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {
     "alert_id": "ALT-5124",
     "action": "close",
@@ -803,28 +803,28 @@
    }
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {
     "alert_id": "ALT-5124",
     "action": ""
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "alerts",
     "id": "ALT-5124"
    }
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {
     "alert_id": "ALT-5124",
     "action": "acknowledge"
    }
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {
     "alert_id": "ALT-5123",
     "action": "resolve",
@@ -832,21 +832,21 @@
    }
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {
     "alert_id": "ALT-5122",
     "action": "silence"
    }
   },
   {
-   "tool": "ops_alert_update",
+   "tool": "alert_update",
    "args": {
     "alert_id": "ALT-5121",
     "ai_note": "只更新判讀"
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": {
@@ -855,7 +855,7 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "where": {
@@ -864,23 +864,23 @@
    }
   },
   {
-   "tool": "ops_alert_create",
+   "tool": "alert_create",
    "args": {}
   },
   {
-   "tool": "ops_alert_create",
+   "tool": "alert_create",
    "args": {
     "service": "nope"
    }
   },
   {
-   "tool": "ops_alert_create",
+   "tool": "alert_create",
    "args": {
     "service": "payments"
    }
   },
   {
-   "tool": "ops_alert_create",
+   "tool": "alert_create",
    "args": {
     "service": "payments",
     "title": "結帳 5xx",
@@ -888,7 +888,7 @@
    }
   },
   {
-   "tool": "ops_alert_create",
+   "tool": "alert_create",
    "args": {
     "service": "payments",
     "title": "結帳 5xx",
@@ -896,7 +896,7 @@
    }
   },
   {
-   "tool": "ops_alert_create",
+   "tool": "alert_create",
    "args": {
     "service": "payments",
     "title": "結帳 5xx",
@@ -905,7 +905,7 @@
    }
   },
   {
-   "tool": "ops_alert_create",
+   "tool": "alert_create",
    "args": {
     "service": "payments",
     "title": "結帳 5xx",
@@ -916,7 +916,7 @@
    }
   },
   {
-   "tool": "ops_alert_create",
+   "tool": "alert_create",
    "args": {
     "service": "auth",
     "title": "登入延遲",
@@ -926,52 +926,52 @@
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "alerts",
     "id": "ALT-5126"
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "alerts",
     "limit": 3
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {}
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "x"
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "x",
     "sev": "abc"
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "x",
     "sev": 5
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "x",
     "sev": 0
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "x",
     "sev": 2,
@@ -982,7 +982,7 @@
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "x",
     "sev": 2,
@@ -990,7 +990,7 @@
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "x",
     "sev": 2,
@@ -1001,7 +1001,7 @@
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "x",
     "sev": 2,
@@ -1012,14 +1012,14 @@
    "note": "缺 impact:Swift 版關聯告警的變更已生效"
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "alerts",
     "id": "ALT-5108"
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "結帳頁 5xx 升高",
     "sev": 2,
@@ -1035,7 +1035,7 @@
    }
   },
   {
-   "tool": "ops_incident_declare",
+   "tool": "incident_declare",
    "args": {
     "title": "登入變慢",
     "sev": "3",
@@ -1045,58 +1045,58 @@
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "alerts",
     "id": "ALT-5125"
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "incidents",
     "limit": 3
    }
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {}
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {
     "incident_id": "INC-1"
    }
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {
     "incident_id": "INC-2042"
    }
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {
     "incident_id": "INC-2042",
     "status": "fixed"
    }
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {
     "incident_id": "INC-2042",
     "status": "identified"
    }
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {
     "incident_id": "INC-2042",
     "note": "回滾 payments 到 v3.3.6"
    }
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {
     "incident_id": "INC-2042",
     "note": ""
@@ -1104,7 +1104,7 @@
    "note": "空註記不加"
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {
     "incident_id": "INC-2042",
     "finding": "5xx 集中在 /checkout/confirm",
@@ -1113,7 +1113,7 @@
    }
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {
     "incident_id": "INC-2043",
     "status": "resolved",
@@ -1121,7 +1121,7 @@
    }
   },
   {
-   "tool": "ops_incident_update",
+   "tool": "incident_update",
    "args": {
     "incident_id": "INC-2039",
     "status": "monitoring",
@@ -1129,45 +1129,45 @@
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "incidents",
     "id": "INC-2042"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "incidents",
     "id": "INC-2043"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "incidents",
     "id": "INC-2039"
    }
   },
   {
-   "tool": "ops_work_item_create",
+   "tool": "work_item_create",
    "args": {}
   },
   {
-   "tool": "ops_work_item_create",
+   "tool": "work_item_create",
    "args": {
     "title": "x"
    }
   },
   {
-   "tool": "ops_work_item_create",
+   "tool": "work_item_create",
    "args": {
     "title": "x",
     "type": "epic"
    }
   },
   {
-   "tool": "ops_work_item_create",
+   "tool": "work_item_create",
    "args": {
     "title": "x",
     "type": "bug",
@@ -1175,7 +1175,7 @@
    }
   },
   {
-   "tool": "ops_work_item_create",
+   "tool": "work_item_create",
    "args": {
     "title": "x",
     "type": "bug",
@@ -1183,7 +1183,7 @@
    }
   },
   {
-   "tool": "ops_work_item_create",
+   "tool": "work_item_create",
    "args": {
     "title": "x",
     "type": "bug",
@@ -1191,7 +1191,7 @@
    }
   },
   {
-   "tool": "ops_work_item_create",
+   "tool": "work_item_create",
    "args": {
     "title": "x",
     "type": "bug",
@@ -1199,14 +1199,14 @@
    }
   },
   {
-   "tool": "ops_work_item_create",
+   "tool": "work_item_create",
    "args": {
     "title": "補 webhook 重送測試",
     "type": "chore"
    }
   },
   {
-   "tool": "ops_work_item_create",
+   "tool": "work_item_create",
    "args": {
     "title": "結帳確認 API 加逾時",
     "type": "incident",
@@ -1218,59 +1218,59 @@
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "work_items",
     "id": "OPS-157"
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "incidents",
     "id": "INC-2042"
    }
   },
   {
-   "tool": "ops_work_item_move",
+   "tool": "work_item_move",
    "args": {}
   },
   {
-   "tool": "ops_work_item_move",
+   "tool": "work_item_move",
    "args": {
     "id": "OPS-1",
     "status": "done"
    }
   },
   {
-   "tool": "ops_work_item_move",
+   "tool": "work_item_move",
    "args": {
     "id": "OPS-156"
    }
   },
   {
-   "tool": "ops_work_item_move",
+   "tool": "work_item_move",
    "args": {
     "id": "OPS-156",
     "status": "finished"
    }
   },
   {
-   "tool": "ops_work_item_move",
+   "tool": "work_item_move",
    "args": {
     "id": "OPS-156",
     "status": "review"
    }
   },
   {
-   "tool": "ops_work_item_move",
+   "tool": "work_item_move",
    "args": {
     "id": "OPS-151",
     "status": "done"
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "work_items",
     "where": {
@@ -1279,36 +1279,36 @@
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {}
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": "abc"
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": 9999
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": 1286
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": 1286,
     "action": "cancel"
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": 1281,
     "action": "rerun",
@@ -1316,21 +1316,21 @@
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "pipeline_runs",
     "id": 1281
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": 1284,
     "ai_diagnosis": "auth 測試的 redis 沒起來"
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": "1286",
     "action": "retry",
@@ -1341,7 +1341,7 @@
    ]
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "pipeline_runs",
     "id": 1291
@@ -1351,14 +1351,14 @@
    ]
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "pipeline_runs",
     "id": 1286
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": 1291,
     "action": "cancel"
@@ -1368,21 +1368,21 @@
    ]
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": 1287,
     "action": "cancel"
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": 1289,
     "action": "cancel"
    }
   },
   {
-   "tool": "ops_pipeline_update",
+   "tool": "pipeline_update",
    "args": {
     "run_id": 1279,
     "action": "retry"
@@ -1392,7 +1392,7 @@
    ]
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pipeline_runs",
     "limit": 4
@@ -1404,7 +1404,7 @@
    ]
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pipeline_runs",
     "where": {
@@ -1418,7 +1418,7 @@
    ]
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "pipeline_runs",
     "where": {
@@ -1427,43 +1427,43 @@
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "automation": "nope"
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "automation": ""
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {}
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "title": "擴 worker"
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "title": "擴 worker",
     "risk": "extreme"
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "title": "擴 worker",
     "risk": "low"
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "title": "擴 worker",
     "risk": "low",
@@ -1471,7 +1471,7 @@
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "title": "擴 worker",
     "risk": "low",
@@ -1480,7 +1480,7 @@
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "title": "擴 worker",
     "risk": "low",
@@ -1490,7 +1490,7 @@
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "title": "清 idle 連線",
     "risk": "high",
@@ -1507,7 +1507,7 @@
    }
   },
   {
-   "tool": "ops_request_approval",
+   "tool": "request_approval",
    "args": {
     "title": "暫停排程",
     "risk": "medium",
@@ -1519,14 +1519,14 @@
    }
   },
   {
-   "tool": "ops_get",
+   "tool": "get",
    "args": {
     "collection": "approvals",
     "id": "APV-314"
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "approvals",
     "where": {
@@ -1535,37 +1535,37 @@
    }
   },
   {
-   "tool": "ops_log_append",
+   "tool": "log_append",
    "args": {}
   },
   {
-   "tool": "ops_log_append",
+   "tool": "log_append",
    "args": {
     "level": "fatal"
    }
   },
   {
-   "tool": "ops_log_append",
+   "tool": "log_append",
    "args": {
     "level": "error"
    }
   },
   {
-   "tool": "ops_log_append",
+   "tool": "log_append",
    "args": {
     "level": "error",
     "service": "nope"
    }
   },
   {
-   "tool": "ops_log_append",
+   "tool": "log_append",
    "args": {
     "level": "error",
     "service": "payments"
    }
   },
   {
-   "tool": "ops_log_append",
+   "tool": "log_append",
    "args": {
     "level": "error",
     "service": "payments",
@@ -1575,7 +1575,7 @@
    }
   },
   {
-   "tool": "ops_log_append",
+   "tool": "log_append",
    "args": {
     "level": "info",
     "service": "auth",
@@ -1583,14 +1583,14 @@
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "limit": 3
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "logs",
     "where": {
@@ -1599,24 +1599,24 @@
    }
   },
   {
-   "tool": "ops_activity_post",
+   "tool": "activity_post",
    "args": {}
   },
   {
-   "tool": "ops_activity_post",
+   "tool": "activity_post",
    "args": {
     "section": "home",
     "text": "x"
    }
   },
   {
-   "tool": "ops_activity_post",
+   "tool": "activity_post",
    "args": {
     "text": "  巡檢完成,沒有異常  "
    }
   },
   {
-   "tool": "ops_activity_post",
+   "tool": "activity_post",
    "args": {
     "text": "請看事件",
     "section": "incidents",
@@ -1624,21 +1624,21 @@
    }
   },
   {
-   "tool": "ops_activity_post",
+   "tool": "activity_post",
    "args": {
     "text": "空 icon",
     "icon": ""
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "activity",
     "limit": 40
    }
   },
   {
-   "tool": "ops_list",
+   "tool": "list",
    "args": {
     "collection": "activity",
     "where": {
@@ -1648,7 +1648,7 @@
    }
   },
   {
-   "tool": "ops_overview",
+   "tool": "overview",
    "ignore": [
     "activeDeployments",
     "runningPipelines",

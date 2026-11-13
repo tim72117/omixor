@@ -5,7 +5,7 @@
 兩邊都要用全新的暫存資料夾啟動(見 conformance/README.md 的 run_swift.sh / run_go.sh),
 否則既有資料不同,結果一定不同。
 
-情境檔:{"steps": [{"tool": "ops_list", "args": {...}, "ignore": ["services.*.cpu"], "note": "..."}, ...]}
+情境檔:{"steps": [{"tool": "list", "args": {...}, "ignore": ["services.*.cpu"], "note": "..."}, ...]}
   - 也可以寫 {"method": "initialize", "params": {...}} 比對非工具的 JSON-RPC
   - ignore:不比對的路徑(. 分隔,* 代表任一 key / 索引),用在會隨時間變動的數字
 比對前會先正規化:ISO 時間 → <time>、UUID → <uuid>、ISS-12 這類流水號保留(兩邊從同樣的起點開始,應該一樣)。

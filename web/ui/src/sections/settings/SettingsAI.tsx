@@ -8,6 +8,7 @@ import { AUTONOMIES, AUTONOMY_COLOR, AUTONOMY_DETAIL, AUTONOMY_LABEL, arr, type 
 import { ErrorText, Pill, Segmented } from "../../components/ui";
 import { SECTIONS } from "../../types";
 import { Form, Row, Section } from "./form";
+import { canGo } from "../../features";
 
 const rank = (a: Autonomy) => AUTONOMIES.indexOf(a);
 const ENVS = [
@@ -16,7 +17,7 @@ const ENVS = [
   { id: "development", label: "Development", short: "dev", color: "teal", def: "auto" as Autonomy },
 ];
 /** 以目前使用者身分寫一筆動態(Swift 的 app.log(.person(app.me), …)) */
-const log = (icon: string, text: string, section = "automation") => tool("ops_activity_post", { icon, text, section }).catch(() => undefined);
+const log = (icon: string, text: string, section = "automation") => tool("activity_post", { icon, text, section }).catch(() => undefined);
 
 export function SettingsAI() {
   const [autosRaw] = useView<Automation[]>("automations");
@@ -150,7 +151,7 @@ export function SettingsAI() {
           </Row>
         ))}
         <Row>
-          <input className="input mono grow" placeholder="新增禁止的指令或關鍵字" value={newBlocked} onChange={(e) => setNewBlocked(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addBlocked()} />
+          <input className="input mono grow" placeholder="新增禁止的指令或關鍵字" value={newBlocked} onChange={(e) => setNewBlocked(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && addBlocked()} />
           <button className="btn" disabled={!newBlocked.trim()} onClick={addBlocked}>新增</button>
         </Row>
       </Section>
@@ -162,7 +163,7 @@ export function SettingsAI() {
             <option value={15}>15 分鐘</option><option value={30}>30 分鐘</option><option value={60}>1 小時</option><option value={240}>4 小時</option>
           </select>
         </Row>
-        <Row label="等待核准"><button className="btn link" disabled={!pending} onClick={() => go("automation")}>{pending} 項,前往處理</button></Row>
+        <Row label="等待核准">{canGo("automation") && <button className="btn link" disabled={!pending} onClick={() => go("automation")}>{pending} 項,前往處理</button>}</Row>
       </Section>
       <Section header="稽核紀錄" icon="list.bullet.clipboard">
         <Row>

@@ -11,10 +11,13 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"omixor-core/service"
 )
 
 // GitHub:用「GitHub」連線(網頁 OAuth,也可以改貼個人存取權杖)讀追蹤中 repo 的 PR、檢查與 Actions。同 Swift 的 GitHub/GitHub.swift。
-// 只讀不寫:Ops 不會開 PR、留言、重跑 workflow。追蹤哪些 repo 存在目前組織的 github.json。
+// 只讀不寫:Ops 不會開 PR、留言、重跑 workflow。追蹤哪些 repo 是組織的設定,存在核心(見 integrations.go);
+// 這台的 github.json 只再寫用哪一個連線(token 在這台的加密 vault)。
 
 const GHConnectionID = "github"
 
@@ -381,9 +384,14 @@ func ghLoad(a *App) {
 	}
 	s.GHSnap = emptyGHSnapshot()
 	s.GHETags = nil
+	// 追蹤的 repo 以組織(核心)的為準:先顯示這台檔案裡的,背景從核心讀(見 integrations.go)
+	if BackgroundAccountCheck {
+		go GHSyncSettings(a)
+	}
 }
 
-func ghSave(a *App) { _ = WriteJSON(a.ghFile(), a.conns().GH) }
+// ghSave 只寫這台的 connection(repos 是組織的設定,存在核心;檔案裡原本的 repos 保留,見 integrations.go)
+func ghSave(a *App) { ghSaveConnection(a) }
 
 // GHSettingsNow 目前的設定(拿著鎖)
 func GHSettingsNow(a *App) GHSettings {
@@ -430,31 +438,23 @@ func GHEnsureConnection(a *App) Connection {
 	return c
 }
 
-// GHAddRepo 追蹤 repo
+// GHAddRepo 追蹤 repo(存到組織的設定,要組織管理員;見 integrations.go)
 func GHAddRepo(a *App, repo string) error {
 	r, ok := GHNormalizeRepo(repo)
 	if !ok {
 		return connErr("repo 要寫成 owner/name,例如 tim72117/evoleap")
 	}
-	a.Mu.Lock()
-	defer a.Mu.Unlock()
-	s := a.conns()
-	for _, x := range s.GH.Repos {
-		if strings.EqualFold(x, r) {
-			return nil
-		}
-	}
-	s.GH.Repos = append(s.GH.Repos, r)
-	ghSave(a)
-	go a.Changed("github")
-	return nil
+	return ghSaveCore(a, service.GitHubSettingsInput{Add: []string{r}})
 }
 
-func GHRemoveRepo(a *App, r string) {
+// GHRemoveRepo 不再追蹤(存到組織的設定);成功後把畫面上這個 repo 的資料拿掉
+func GHRemoveRepo(a *App, r string) error {
+	if err := ghSaveCore(a, service.GitHubSettingsInput{Remove: []string{r}}); err != nil {
+		return err
+	}
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
 	s := a.conns()
-	s.GH.Repos = filterStrings(s.GH.Repos, func(x string) bool { return x != r })
 	snap := &s.GHSnap
 	repos := snap.Repos[:0:0]
 	for _, x := range snap.Repos {
@@ -478,8 +478,8 @@ func GHRemoveRepo(a *App, r string) {
 	}
 	snap.Runs = runs
 	delete(snap.Errors, r)
-	ghSave(a)
 	go a.Changed("github")
+	return nil
 }
 
 func filterStrings(in []string, keep func(string) bool) []string {
@@ -561,6 +561,7 @@ func ghRepoPath(r string) string { return "/repos/" + EscapePath(r) }
 
 // GHRefresh 重新讀全部追蹤中的 repo
 func GHRefresh(a *App) {
+	GHSyncSettings(a) // 追蹤的 repo 以組織(核心)的為準,每輪先讀一次
 	a.Mu.Lock()
 	s := a.conns()
 	if s.GHSnap.Busy {
@@ -770,7 +771,7 @@ func init() {
 		}
 		snap["pulls"] = pulls
 		out := map[string]any{"settings": s.GH, "snapshot": snap, "connection": nil, "loggedIn": false, "state": nil,
-			"registerURL": GHRegisterURL(), "homepage": "http://127.0.0.1", "callback": "http://127.0.0.1/callback"}
+			"settingsError": GHSettingsError(a), "registerURL": GHRegisterURL(), "homepage": "http://127.0.0.1", "callback": "http://127.0.0.1/callback"}
 		if c, ok := GHConnection(a); ok {
 			out["connection"] = c
 			out["loggedIn"] = connHasTokenCached(a, c)
@@ -793,7 +794,9 @@ func init() {
 	})
 	RegisterAction("github_remove_repo", func(a *App, args map[string]any) (any, error) {
 		r, _ := args["repo"].(string)
-		GHRemoveRepo(a, r)
+		if err := GHRemoveRepo(a, r); err != nil {
+			return nil, err
+		}
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
 		return GHSettingsNow(a), nil

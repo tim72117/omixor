@@ -120,12 +120,12 @@ func objects(v any) ([]map[string]any, bool) {
 	return out, true
 }
 
-// RegisterAgentTools 登記虛擬角色工具:ops_agents、ops_agent_context、ops_agent_tasks、ops_agent_task_claim、
-// ops_agent_task_report、ops_agent_upsert、ops_agent_task_create。
+// RegisterAgentTools 登記虛擬角色工具:agents、agent_context、agent_tasks、agent_task_claim、
+// agent_task_report、agent_upsert、agent_task_create。
 // 執行環境(Call.Ctx)要實作 AgentEnv;可選實作 AgentDecorator、DocAccessResolver(要自己改寫輸出或 docAccess 的 key 時用;
 // 沒實作時依核心的文件櫃結構處理)。
 func RegisterAgentTools(s *Server) {
-	s.Register("ops_agents", func(c *Call) (any, error) {
+	s.Register("agents", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		bk, org := e.Backend(), e.Org()
 		tasks, err := bk.ListAgentTasks(org, service.TaskFilter{Status: "open"})
@@ -152,7 +152,7 @@ func RegisterAgentTools(s *Server) {
 	})
 
 	// 角色能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與能讀的文件(依 docAccess);其他由使用的程式透過 ContextExtra 附加
-	s.Register("ops_agent_context", func(c *Call) (any, error) {
+	s.Register("agent_context", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		bk, org := e.Backend(), e.Org()
 		name, err := c.Args.Require("agent")
@@ -196,7 +196,7 @@ func RegisterAgentTools(s *Server) {
 		return out, nil
 	})
 
-	s.Register("ops_agent_tasks", func(c *Call) (any, error) {
+	s.Register("agent_tasks", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		bk, org := e.Backend(), e.Org()
 		if id := c.Args.Opt("id"); id != nil {
@@ -236,7 +236,7 @@ func RegisterAgentTools(s *Server) {
 		return map[string]any{"total": len(list), "tasks": out}, nil
 	})
 
-	s.Register("ops_agent_task_claim", func(c *Call) (any, error) {
+	s.Register("agent_task_claim", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		ag, err := c.Args.Require("agent")
 		if err != nil {
@@ -274,13 +274,13 @@ func RegisterAgentTools(s *Server) {
 		}
 		lockNote := ""
 		if res.Task.LockedUntil != nil {
-			lockNote = "已鎖定到 " + res.Task.LockedUntil.Time.In(time.Local).Format("15:04") + "(其他人不能再領);長任務請定期用 ops_agent_task_report(status: inProgress)回報進度以續約,逾時未回報會被自動退回待領取。"
+			lockNote = "已鎖定到 " + res.Task.LockedUntil.Time.In(time.Local).Format("15:04") + "(其他人不能再領);長任務請定期用 agent_task_report(status: inProgress)回報進度以續約,逾時未回報會被自動退回待領取。"
 		}
-		out["message"] = "已領取。" + lockNote + "做完用 ops_agent_task_report 回報。開 Issue 或留言時帶 agent: \"" + gid + "\",才會署名這個角色;或改用 credential 連角色端點,署名由憑證決定"
+		out["message"] = "已領取。" + lockNote + "做完用 agent_task_report 回報。開 Issue 或留言時帶 agent: \"" + gid + "\",才會署名這個角色;或改用 credential 連角色端點,署名由憑證決定"
 		return out, nil
 	})
 
-	s.Register("ops_agent_task_report", func(c *Call) (any, error) {
+	s.Register("agent_task_report", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		id, err := c.Args.Require("id")
 		if err != nil {
@@ -303,7 +303,7 @@ func RegisterAgentTools(s *Server) {
 		return taskJSON(e, *t), nil
 	})
 
-	s.Register("ops_agent_upsert", func(c *Call) (any, error) {
+	s.Register("agent_upsert", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		bk, org := e.Backend(), e.Org()
 		var g model.Agent
@@ -417,7 +417,7 @@ func RegisterAgentTools(s *Server) {
 		return agentJSON(e, cabLayout(e), *saved, openTasksOf(e, saved.ID)), nil
 	})
 
-	s.Register("ops_agent_task_create", func(c *Call) (any, error) {
+	s.Register("agent_task_create", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		ag := c.Args.Str("assign_to")
 		if ag == "" {

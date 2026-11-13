@@ -9,6 +9,7 @@ import {
 } from "../../components/opsKit";
 import { relative } from "../../fmt";
 import { age, AvatarStack, ChecksIcon, DetailSection, DiffStat, isActivePR, useDev } from "./devShared";
+import { canGo } from "../../features";
 
 type SortKey = "id" | "title" | "additions" | "createdAt" | "updatedAt";
 
@@ -214,7 +215,7 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
           <ChecksIcon s={pr.checks} showLabel />
           {run && <span className="caption muted ellipsis">{run.pipeline} #{run.id}</span>}
           <span className="grow" />
-          <button className="btn link" onClick={() => o.go("pipelines", run ? String(run.id) : undefined)}>{run ? "查看執行" : "前往 CI/CD"}</button>
+          {canGo("pipelines") && <button className="btn link" onClick={() => o.go("pipelines", run ? String(run.id) : undefined)}>{run ? "查看執行" : "前往 CI/CD"}</button>}
         </div>
         {run && run.stages.length > 0 && (
           <div className="row gap4">

@@ -28,7 +28,7 @@ struct PipelinesView: View {
                 .padding(.bottom, 12)
             Divider()
             Group {
-                switch tab {
+                switch app.shownTab(tab) {
                 case .runs: PipeRunsTab(selectedRunId: $selectedRunId)
                 case .deployments: PipeDeploymentsTab(highlightId: $highlightedDeploymentId)
                 case .environments: PipeEnvironmentsTab(openDeployments: { id in
@@ -42,6 +42,8 @@ struct PipelinesView: View {
         }
         .onAppear(perform: consumeFocus)
         .onChange(of: app.focusId) { consumeFocus() }
+        // 系統設定關掉的分頁:切到第一個開著的並提示(例如從別頁跳過來)
+        .onChange(of: tab) { _, t in if let r = app.redirectTab(t) { tab = r } }
         .onChange(of: app.deployments) { syncServiceVersions() }
     }
 
@@ -83,8 +85,8 @@ struct PipelinesView: View {
     }
 
     private var picker: some View {
-        Picker("分頁", selection: $tab) {
-            ForEach(CICDTab.allCases) { Text($0.label).tag($0) }
+        Picker("分頁", selection: Binding(get: { app.shownTab(tab) }, set: { tab = $0 })) {
+            ForEach(app.visibleTabs(CICDTab.self)) { Text($0.label).tag($0) }
         }
         .pickerStyle(.segmented)
         .labelsHidden()

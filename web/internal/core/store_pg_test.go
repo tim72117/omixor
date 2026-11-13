@@ -227,7 +227,7 @@ func TestPGOrgsAndImport(t *testing.T) {
 	c.Start()
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
-	// Issue 匯入到 ops_issues 表(不放 ops_documents)
+	// Issue 匯入到 issues 表(不放 ops_documents)
 	if issues := c.Issues(); len(issues) != 1 || issues[0].ID != "ISS-9" || issues[0].Priority != "high" {
 		t.Fatalf("匯入的 Issue 讀不到:%v", issues)
 	}

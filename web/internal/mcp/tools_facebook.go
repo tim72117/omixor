@@ -74,7 +74,7 @@ func fbParseISO(s string) (time.Time, bool) {
 }
 
 func init() {
-	Register("ops_fb_pages", func(c *Call) (any, error) {
+	Register("fb_pages", func(c *Call) (any, error) {
 		a := c.App
 		if !core.FBIsConnected(a) {
 			return nil, fbConnected()
@@ -108,7 +108,7 @@ func init() {
 		return map[string]any{"connected": true, "mode": s.Mode, "apiVersion": s.APIVersion, "pages": pages}, nil
 	})
 
-	Register("ops_fb_posts", func(c *Call) (any, error) {
+	Register("fb_posts", func(c *Call) (any, error) {
 		a := c.App
 		if !core.FBIsConnected(a) {
 			return nil, fbConnected()
@@ -169,7 +169,7 @@ func init() {
 		return map[string]any{"pages": out}, nil
 	})
 
-	Register("ops_fb_insights", func(c *Call) (any, error) {
+	Register("fb_insights", func(c *Call) (any, error) {
 		a := c.App
 		if !core.FBIsConnected(a) {
 			return nil, fbConnected()
@@ -212,7 +212,7 @@ func init() {
 		return map[string]any{"pages": out}, nil
 	})
 
-	Register("ops_fb_drafts", func(c *Call) (any, error) {
+	Register("fb_drafts", func(c *Call) (any, error) {
 		a := c.App
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
@@ -265,7 +265,7 @@ func init() {
 		return map[string]any{"drafts": drafts, "total": len(list)}, nil
 	})
 
-	Register("ops_fb_draft_save", func(c *Call) (any, error) {
+	Register("fb_draft_save", func(c *Call) (any, error) {
 		a := c.App
 		a.Mu.Lock()
 		defer a.Mu.Unlock()

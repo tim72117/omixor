@@ -7,20 +7,20 @@ import (
 	"omixor-core/service"
 )
 
-// 訊息頻道工具:ops_channels(列我的頻道,含未讀數)、ops_channel_create(建立;角色端點沒有)、
-// ops_channel_messages(讀,讀了算已讀)、ops_channel_post(發)。規則都在 service/channel.go(透過 Backend);
-// 名稱、參數同 Swift 版 MCPHandler。@ 角色只通知、不排任務:角色在 ops_agent_context 的 mentions 看得到。
+// 訊息頻道工具:channels(列我的頻道,含未讀數)、channel_create(建立;角色端點沒有)、
+// channel_messages(讀,讀了算已讀)、channel_post(發)。規則都在 service/channel.go(透過 Backend);
+// 名稱、參數同 Swift 版 MCPHandler。@ 角色只通知、不排任務:角色在 agent_context 的 mentions 看得到。
 
 // ChannelToolDefs 訊息頻道工具的規格(接在 CoreToolDefs 後面)
 func ChannelToolDefs() []any {
 	return []any{
-		ToolDef("ops_channels", "列出對話頻道",
+		coreDef("channels",
 			"列出我(或 agent 角色)看得到的訊息頻道:id、名稱、主題、綁的 Issue、成員(node 與顯示名稱)、未讀數與最後一則訊息的時間。頻道把人與虛擬角色拉進同一個對話;@ 角色只通知、不排任務。給 issue 只找綁該 Issue 的頻道。", true,
 			obj(map[string]any{
 				"agent": pStr("以角色身分查看時填角色 id 或名稱(只列它是成員的頻道,未讀數是它的)"),
 				"issue": pStr("只找綁這個 Issue 的頻道,例如 ISS-3"),
 			})),
-		ToolDef("ops_channel_create", "建立對話頻道",
+		coreDef("channel_create",
 			"建立訊息頻道(角色身分不能建)。建立者自動是成員;members 可以給 agent:<角色 id 或名稱>、user:<email>、純 email、純角色 id 或名稱。給 issue 會綁該 Issue:同一個 Issue 只能有一個頻道,已有而且看得到時直接回傳那個(created = false)。", false,
 			obj(map[string]any{
 				"name":    pStr("頻道名稱(最多 80 字)"),
@@ -28,7 +28,7 @@ func ChannelToolDefs() []any {
 				"issue":   pStr("綁的 Issue id(選填)"),
 				"members": pStrs("成員,例如 [\"agent:marketing\", \"pm@example.com\"]"),
 			}, "name")),
-		ToolDef("ops_channel_messages", "讀頻道訊息",
+		coreDef("channel_messages",
 			"讀頻道訊息(依時間由舊到新)。給 since(訊息 id M-n 或時間)回傳之後最早的 limit 筆;沒給回傳最新的 limit 筆。hasMore 表示還有更多。讀了算已讀(標到回傳的最後一則)。帶 agent 時以該角色身分讀(要是頻道成員)。", true,
 			obj(map[string]any{
 				"channel": pStr("頻道 id(CH-n)或名稱"),
@@ -36,8 +36,8 @@ func ChannelToolDefs() []any {
 				"limit":   pInt("最多幾筆,預設 50、最多 200"),
 				"agent":   pStr("以角色身分讀時填角色 id 或名稱"),
 			}, "channel")),
-		ToolDef("ops_channel_post", "在頻道發訊息",
-			"在頻道發一則訊息(Markdown,最多 8000 字;要是頻道成員)。用 @角色名稱、@角色 id 或 @email 提到頻道成員:只通知對方(角色下次執行時在 ops_agent_context 的 mentions 看得到),不會排任務。帶 agent 時以該角色署名(角色要是頻道成員)。", false,
+		coreDef("channel_post",
+			"在頻道發一則訊息(Markdown,最多 8000 字;要是頻道成員)。用 @角色名稱、@角色 id 或 @email 提到頻道成員:只通知對方(角色下次執行時在 agent_context 的 mentions 看得到),不會排任務。帶 agent 時以該角色署名(角色要是頻道成員)。", false,
 			obj(map[string]any{
 				"channel": pStr("頻道 id(CH-n)或名稱"),
 				"text":    pStr("訊息內容(Markdown)"),
@@ -98,10 +98,10 @@ func findChannelArg(e AgentEnv, raw, as string) (string, error) {
 			return c.ID, nil
 		}
 	}
-	return "", Errorf("找不到頻道 %s(或你不是成員);用 ops_channels 看有哪些頻道", raw)
+	return "", Errorf("找不到頻道 %s(或你不是成員);用 channels 看有哪些頻道", raw)
 }
 
-// channelMentions ops_agent_context 的 mentions:提到這個角色的未讀訊息(最多 20 則)與它所在頻道的未讀數;取不到回 nil
+// channelMentions agent_context 的 mentions:提到這個角色的未讀訊息(最多 20 則)與它所在頻道的未讀數;取不到回 nil
 func channelMentions(e AgentEnv, agentID string) map[string]any {
 	x, err := e.Backend().ChannelInbox(e.Org(), model.AgentNode(agentID))
 	if err != nil {
@@ -117,12 +117,12 @@ func channelMentions(e AgentEnv, agentID string) map[string]any {
 		chs = append(chs, map[string]any{"id": c.ID, "name": c.Name, "unread": c.Unread})
 	}
 	return map[string]any{"messages": msgs, "channels": chs,
-		"hint": "提到你的訊息只是通知,不是任務;要回覆用 ops_channel_post,讀完整對話用 ops_channel_messages(讀了算已讀)"}
+		"hint": "提到你的訊息只是通知,不是任務;要回覆用 channel_post,讀完整對話用 channel_messages(讀了算已讀)"}
 }
 
 // RegisterChannelTools 登記訊息頻道工具。執行環境(Call.Ctx)要實作 AgentEnv
 func RegisterChannelTools(s *Server) {
-	s.Register("ops_channels", func(c *Call) (any, error) {
+	s.Register("channels", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		as, err := channelAs(e, c)
 		if err != nil {
@@ -139,7 +139,7 @@ func RegisterChannelTools(s *Server) {
 		return map[string]any{"channels": out}, nil
 	})
 
-	s.Register("ops_channel_create", func(c *Call) (any, error) {
+	s.Register("channel_create", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		if e.Role() != nil {
 			return nil, Errorf("角色身分不能建立頻道")
@@ -168,7 +168,7 @@ func RegisterChannelTools(s *Server) {
 		return out, nil
 	})
 
-	s.Register("ops_channel_messages", func(c *Call) (any, error) {
+	s.Register("channel_messages", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		raw, err := c.Args.Require("channel")
 		if err != nil {
@@ -208,7 +208,7 @@ func RegisterChannelTools(s *Server) {
 		}, nil
 	})
 
-	s.Register("ops_channel_post", func(c *Call) (any, error) {
+	s.Register("channel_post", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		raw, err := c.Args.Require("channel")
 		if err != nil {

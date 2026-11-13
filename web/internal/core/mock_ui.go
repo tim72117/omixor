@@ -89,12 +89,5 @@ func init() {
 		id := argString(args, "id")
 		return mockAction(a, args, "integrations", id, func() bool { return a.SetIntegration(id, argBool(args, "connected")) }, "integrations")
 	})
-	RegisterAction("incident_note", func(a *App, args map[string]any) (any, error) {
-		id := argString(args, "id")
-		text := argString(args, "text")
-		if text == "" {
-			return nil, UserError{"註記不能是空的"}
-		}
-		return mockAction(a, args, "incidents", id, func() bool { return a.AddIncidentNote(id, text, a.Actor()) }, "incidents")
-	})
+	// incident_note 改由核心處理(見 incidents.go)
 }

@@ -7,7 +7,7 @@ import (
 	"omixor-web/internal/core"
 )
 
-// 旁白語音批次:ops_voice_submit、ops_voice_jobs(同 Swift MCPHandler 的 voiceSubmit / voiceJobs)。
+// 旁白語音批次:voice_submit、voice_jobs(同 Swift MCPHandler 的 voiceSubmit / voiceJobs)。
 // 發佈沒有 MCP 工具,只能由人在畫面上按。
 
 // rawBool 同 Swift 的 `raw[k] as? Bool`:布林,或 NSNumber 的 0 / 1
@@ -28,7 +28,7 @@ func rawBool(raw map[string]any, k string) (bool, bool) {
 }
 
 func init() {
-	Register("ops_voice_submit", func(c *Call) (any, error) {
+	Register("voice_submit", func(c *Call) (any, error) {
 		voice := core.VoiceOf(c.App)
 		if voice == nil {
 			return nil, ToolError{Message: "旁白功能還沒啟動"}
@@ -61,14 +61,14 @@ func init() {
 				ahead++
 			}
 		}
-		note := "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 ops_voice_jobs 查進度"
+		note := "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 voice_jobs 查進度"
 		if ahead > 0 {
 			note = fmt.Sprintf("前面還有 %d 批,輪到時自動送出", ahead)
 		}
 		return map[string]any{"job": voiceJSON(job, false), "note": note}, nil
 	})
 
-	Register("ops_voice_jobs", func(c *Call) (any, error) {
+	Register("voice_jobs", func(c *Call) (any, error) {
 		voice := core.VoiceOf(c.App)
 		c.App.Mu.Lock()
 		defer c.App.Mu.Unlock()

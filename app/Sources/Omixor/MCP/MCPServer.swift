@@ -32,13 +32,17 @@ final class MCPServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "ops.mcp.server")
     private var listener: NWListener?
     private let handle: @Sendable (Data) async -> Data?
+    /// 外部 MCP 閘道的角色端點 /mcp/gateway(body, Authorization 標頭)→ (HTTP 狀態, 內容);nil = 不開這個端點
+    private let gateway: (@Sendable (Data, String?) async -> (Int, Data?))?
     private let onState: @Sendable (MCPStatus.State) -> Void
 
     init(port: UInt16,
          handle: @escaping @Sendable (Data) async -> Data?,
+         gateway: (@Sendable (Data, String?) async -> (Int, Data?))? = nil,
          onState: @escaping @Sendable (MCPStatus.State) -> Void) {
         self.port = port
         self.handle = handle
+        self.gateway = gateway
         self.onState = onState
     }
 
@@ -115,8 +119,8 @@ final class MCPServer: @unchecked Sendable {
             case .invalid(let status, let msg):
                 self.send(conn, HTTPResponse(status: status, body: Data(msg.utf8), contentType: "text/plain; charset=utf-8"))
             case .complete(let req):
-                Task { [handle] in
-                    let resp = await Self.route(req, handle: handle)
+                Task { [handle, gateway] in
+                    let resp = await Self.route(req, handle: handle, gateway: gateway)
                     self.queue.async { self.send(conn, resp) }
                 }
             }
@@ -129,10 +133,21 @@ final class MCPServer: @unchecked Sendable {
 
     // MARK: - 路由
 
-    static func route(_ req: HTTPRequest, handle: @Sendable (Data) async -> Data?) async -> HTTPResponse {
+    static func route(_ req: HTTPRequest, handle: @Sendable (Data) async -> Data?,
+                      gateway: (@Sendable (Data, String?) async -> (Int, Data?))? = nil) async -> HTTPResponse {
         // 防 DNS rebinding:瀏覽器送來的請求帶 Origin,只接受本機來源
         if let origin = req.headers["origin"], !isLocalOrigin(origin) {
             return HTTPResponse(status: 403, body: Data("Forbidden origin".utf8), contentType: "text/plain")
+        }
+        // 外部 MCP 閘道的角色端點:要帶一次性的閘道 token(驗證在 MCPGatewayEndpoint)
+        if req.path == "/mcp/gateway", let gateway {
+            guard req.method == "POST" else { return HTTPResponse(status: 405, body: Data(), contentType: nil, extra: ["Allow": "POST"]) }
+            let (status, body) = await gateway(req.body, req.headers["authorization"])
+            if status == 401 {
+                return HTTPResponse(status: 401, body: body ?? Data(), contentType: "text/plain", extra: ["WWW-Authenticate": "Bearer realm=\"omixor-gateway\""])
+            }
+            guard let body else { return HTTPResponse(status: 202, body: Data(), contentType: nil) }
+            return HTTPResponse(status: status, body: body, contentType: "application/json")
         }
         guard req.path == "/mcp" else {
             return HTTPResponse(status: 404, body: Data("Not found. MCP endpoint is /mcp".utf8), contentType: "text/plain")
@@ -232,9 +247,11 @@ extension AppState {
         let port = MCPServer.configuredPort
         mcp.port = port
         let handler = MCPHandler(app: self)
+        let gateway = MCPGatewayEndpoint(app: self)
         let server = MCPServer(
             port: port,
             handle: { data in await handler.handle(data) },
+            gateway: { data, auth in await gateway.handle(data, authorization: auth) },
             onState: { [weak self] state in Task { @MainActor in self?.mcp.state = state } }
         )
         server.start()

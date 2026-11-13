@@ -32,13 +32,13 @@ func TestServesCoreHandler(t *testing.T) {
 
 // 雲端預設就有文件櫃工具(核心內建,管理端點與角色端點都開放)
 func TestCabinetToolsAllowed(t *testing.T) {
-	for _, n := range []string{"ops_cabinet", "ops_docs", "ops_doc_save"} {
+	for _, n := range []string{"cabinet", "docs", "doc_save"} {
 		if !mcp.AdminToolAllow[n] || !mcp.AgentToolAllow[n] {
 			t.Fatal("沒開放", n)
 		}
 	}
 	names := mcp.NewCoreServer("").ToolNames()
-	if !strings.Contains(strings.Join(names, ","), "ops_doc_save") || len(mcp.NewCoreServer("").Missing()) != 0 {
+	if !strings.Contains(strings.Join(names, ","), "doc_save") || len(mcp.NewCoreServer("").Missing()) != 0 {
 		t.Fatal(names)
 	}
 }

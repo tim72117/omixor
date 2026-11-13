@@ -282,7 +282,7 @@ func TestGCPMCPTools(t *testing.T) {
 	defer f.Close()
 	n := 0
 	for _, name := range ToolNames() {
-		if strings.HasPrefix(name, "ops_gcp") {
+		if strings.HasPrefix(name, "gcp") {
 			n++
 		}
 	}
@@ -290,7 +290,7 @@ func TestGCPMCPTools(t *testing.T) {
 		t.Fatal(n)
 	}
 	want := "omixor 還沒登入 Google Cloud。請人在 omixor 的 伺服器與服務 › GCP 設定並登入"
-	for _, name := range []string{"ops_gcp", "ops_gcp_logs", "ops_gcp_metrics"} {
+	for _, name := range []string{"gcp", "gcp_logs", "gcp_metrics"} {
 		if msg := extErr(t, a, name, map[string]any{"severity": "LOUD"}); msg != want {
 			t.Fatalf("%s:%s", name, msg)
 		}
@@ -299,12 +299,12 @@ func TestGCPMCPTools(t *testing.T) {
 	core.GCPEnsureConnection(a)
 	core.ConnSetBearer(a, core.GCPConnectionID, "ya29.test")
 	core.GCPUpdate(a, func(s *core.GCPSettings) { s.Region = "" })
-	if msg := extErr(t, a, "ops_gcp", nil); msg != "還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定" {
+	if msg := extErr(t, a, "gcp", nil); msg != "還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定" {
 		t.Fatal(msg)
 	}
 
 	gcpLogin(t, a, []string{"shuttle-server"})
-	sum := extOK(t, a, "ops_gcp", map[string]any{"refresh": true, "service": "shuttle-server", "job": "shuttle-course-sync"})
+	sum := extOK(t, a, "gcp", map[string]any{"refresh": true, "service": "shuttle-server", "job": "shuttle-course-sync"})
 	if sum["account"] != "tim@example.com" || sum["project"] != "shuttle-045094509" || sum["region"] != "asia-east1" {
 		t.Fatalf("%v", sum)
 	}
@@ -322,16 +322,16 @@ func TestGCPMCPTools(t *testing.T) {
 		t.Fatalf("%v", j)
 	}
 
-	logs := extOK(t, a, "ops_gcp_logs", map[string]any{"service": "shuttle-server", "severity": "warning", "hours": 5000})
+	logs := extOK(t, a, "gcp_logs", map[string]any{"service": "shuttle-server", "severity": "warning", "hours": 5000})
 	if logs["count"] != 3.0 || logs["severity"] != "WARNING" || logs["hours"] != 720.0 {
 		t.Fatalf("%v", logs)
 	}
-	if msg := extErr(t, a, "ops_gcp_logs", map[string]any{"severity": "LOUD"}); msg != "severity 必須是 DEFAULT、INFO、WARNING、ERROR、CRITICAL 之一" {
+	if msg := extErr(t, a, "gcp_logs", map[string]any{"severity": "LOUD"}); msg != "severity 必須是 DEFAULT、INFO、WARNING、ERROR、CRITICAL 之一" {
 		t.Fatal(msg)
 	}
 
 	// 只有一個服務時可以省略 service
-	m := extOK(t, a, "ops_gcp_metrics", nil)
+	m := extOK(t, a, "gcp_metrics", nil)
 	totals := m["totals"].(map[string]any)
 	if totals["5xx"] != 3.0 || totals["requests"] != 153.0 || totals["2xx"] != 150.0 || totals["errorRate5xx"] != 0.0196 ||
 		totals["maxP95ms"] != 813.0 || totals["maxInstances"] != 2.0 || m["service"] != "shuttle-server" || m["hours"] != 24.0 {
@@ -342,15 +342,15 @@ func TestGCPMCPTools(t *testing.T) {
 	}
 	// 兩個服務時要給 service
 	core.GCPUpdate(a, func(s *core.GCPSettings) { s.Services = nil })
-	if msg := extErr(t, a, "ops_gcp_metrics", nil); msg != "請給 service,可用:shuttle-server、tripace-server" {
+	if msg := extErr(t, a, "gcp_metrics", nil); msg != "請給 service,可用:shuttle-server、tripace-server" {
 		t.Fatal(msg)
 	}
 	// Google 的錯誤講清楚
 	core.ConnSetBearer(a, core.GCPConnectionID, "expired")
-	if msg := extErr(t, a, "ops_gcp_logs", nil); msg != "GCP 回應錯誤:Google 登入已失效,請重新登入" {
+	if msg := extErr(t, a, "gcp_logs", nil); msg != "GCP 回應錯誤:Google 登入已失效,請重新登入" {
 		t.Fatal(msg)
 	}
-	if msg := extErr(t, a, "ops_gcp", map[string]any{"refresh": true}); msg != "Google 登入已失效,請重新登入" {
+	if msg := extErr(t, a, "gcp", map[string]any{"refresh": true}); msg != "Google 登入已失效,請重新登入" {
 		t.Fatal(msg)
 	}
 	// 只讀:除了 entries:list(讀日誌也是 POST)以外都是 GET

@@ -10,13 +10,17 @@ import { DevPullRequestsTab } from "./DevPullRequestsTab";
 import { DevReposTab } from "./DevReposTab";
 import { DevGitHubTab } from "./DevGitHubTab";
 import { GitLabTab } from "../../gitlab/GitLabTab";
+import { useFeatureTabs } from "../../features";
 
 export default function DevelopmentView(props: SectionProps) {
   return <OpsProvider><Development {...props} /></OpsProvider>;
 }
 
 function Development({ focusId, clearFocus }: SectionProps) {
-  const [tab, setTab] = useState<DevTab>("overview");
+  const [rawTab, setRawTab] = useState<DevTab>("overview");
+  // 分頁依系統設定(GitLab 只有 web 版、核心沒登記,永遠顯示);選的分頁關了就顯示第一個開著的
+  const tabs = useFeatureTabs(DEV_TABS.map((d) => d.id), rawTab, setRawTab, (t) => (t === "gitlab" ? undefined : `development.${t}`));
+  const tab = tabs.shown, setTab = tabs.select;
   const [selectedPR, setSelectedPR] = useState<number>();
   const [prRepoFilter, setPrRepoFilter] = useState<string>();
   const [highlightedItem, setHighlightedItem] = useState<string>();
@@ -56,7 +60,7 @@ function Development({ focusId, clearFocus }: SectionProps) {
     <DevCtx.Provider value={model}>
       <div className="ops-page">
         <div className="ops-tabbar">
-          <Seg value={tab} onChange={setTab} options={DEV_TABS.map((d) => ({ value: d.id, label: <><SIcon name={d.icon} size={12} />{d.label}</> }))} />
+          <Seg value={tab} onChange={setTab} options={DEV_TABS.filter((d) => tabs.on(d.id)).map((d) => ({ value: d.id, label: <><SIcon name={d.icon} size={12} />{d.label}</> }))} />
         </div>
         <div className="ops-page">
           {tab === "overview" && <DevOverviewTab />}

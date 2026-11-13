@@ -585,9 +585,9 @@ func NewRoutine(title string) AgentRoutine {
 // AgentPrompt 給 Claude Code 的一段話(同 Swift 的 prompt)
 func AgentPrompt(g Agent, task *AgentTask) string {
 	if task != nil {
-		return "請以 omixor 的虛擬角色「" + g.Name + "」(id: " + g.ID + ")處理任務 " + task.ID + ":用 ops_agent_task_claim 領取,照角色設定與任務說明完成,過程用 ops_agent_task_report 回報,做完把結果回報成 done;開 Issue 或留言時帶 agent: " + g.ID + "。"
+		return "請以 omixor 的虛擬角色「" + g.Name + "」(id: " + g.ID + ")處理任務 " + task.ID + ":用 agent_task_claim 領取,照角色設定與任務說明完成,過程用 agent_task_report 回報,做完把結果回報成 done;開 Issue 或留言時帶 agent: " + g.ID + "。"
 	}
-	return "請以 omixor 的虛擬角色「" + g.Name + "」(id: " + g.ID + ")工作:用 ops_agent_task_claim 依序領取它的待領取任務,照角色設定與任務說明完成並用 ops_agent_task_report 回報,直到沒有任務為止;開 Issue 或留言時帶 agent: " + g.ID + "。"
+	return "請以 omixor 的虛擬角色「" + g.Name + "」(id: " + g.ID + ")工作:用 agent_task_claim 依序領取它的待領取任務,照角色設定與任務說明完成並用 agent_task_report 回報,直到沒有任務為止;開 Issue 或留言時帶 agent: " + g.ID + "。"
 }
 
 func agentArg(args map[string]any, k string) string {

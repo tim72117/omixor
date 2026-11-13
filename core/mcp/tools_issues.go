@@ -31,9 +31,9 @@ func PriorityRank(p string) int {
 // iso 同 Swift 的 MCPJSON.iso:UTC、到秒
 func iso(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05Z07:00") }
 
-// RegisterIssueTools 登記 Issue 工具:ops_issue_create、ops_issue_update、ops_issues
+// RegisterIssueTools 登記 Issue 工具:issue_create、issue_update、issues
 func RegisterIssueTools(s *Server) {
-	s.Register("ops_issue_create", func(c *Call) (any, error) {
+	s.Register("issue_create", func(c *Call) (any, error) {
 		e := env(c)
 		e.Lock()
 		defer e.Unlock()
@@ -59,7 +59,7 @@ func RegisterIssueTools(s *Server) {
 		return issueJSON(e, *issue), nil
 	})
 
-	s.Register("ops_issue_update", func(c *Call) (any, error) {
+	s.Register("issue_update", func(c *Call) (any, error) {
 		e := env(c)
 		e.Lock()
 		defer e.Unlock()
@@ -146,7 +146,7 @@ func RegisterIssueTools(s *Server) {
 		return issueJSON(e, *updated), nil
 	})
 
-	s.Register("ops_issues", func(c *Call) (any, error) {
+	s.Register("issues", func(c *Call) (any, error) {
 		e := env(c)
 		e.Lock()
 		defer e.Unlock()

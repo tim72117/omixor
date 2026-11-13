@@ -302,6 +302,7 @@ func TestBadges(t *testing.T) {
 }
 
 func TestUIActions(t *testing.T) {
+	t.Setenv("OPS_DATA_DIR", t.TempDir()) // incident_note 寫進核心(測試用記憶體核心,每個資料夾一份)
 	a := New()
 	if _, err := Action(a, "approval_decide", map[string]any{"id": "APV-311", "approve": true}); err != nil {
 		t.Fatal(err)

@@ -210,12 +210,13 @@ final class LineTests: XCTestCase {
                            startedAt: .now, resolvedAt: nil, impact: "部分使用者無法結帳", timeline: [], aiSummary: nil, followUps: [])
         app.incidents.insert(inc, at: 0)
         XCTAssertEqual(line.scan().map(\.key), ["incident:INC-9001:declared"])
-        app.updateIncident(id: "INC-9001", status: .identified)
+        // 事件改狀態(事件存在 core server;這裡沒有 server,直接改畫面上的副本,同 IncidentStore 寫入成功後的結果)
+        app.incidents[0].status = .identified
         XCTAssertEqual(line.scan().map(\.key), ["incident:INC-9001:identified"])
         XCTAssertTrue(line.scan().isEmpty)
         // 已有的事件改狀態也要推
         let old = app.incidents.first { $0.id != "INC-9001" && $0.status != .resolved }!
-        app.updateIncident(id: old.id, status: .resolved)
+        app.incidents[app.incidents.firstIndex { $0.id == old.id }!].status = .resolved
         XCTAssertEqual(line.scan().map(\.key), ["incident:\(old.id):resolved"])
 
         app.voiceJobs.append(VoiceJob(id: "VJ-99", scripts: ["live/a.md"], all: false, limit: nil, state: .processing,

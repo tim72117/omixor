@@ -77,7 +77,7 @@ func voiceCallOK(t *testing.T, a *core.App, name string, args map[string]any) ma
 
 func TestMCPVoiceTools(t *testing.T) {
 	a, r := voiceTestApp(t)
-	dry := voiceCallOK(t, a, "ops_voice_submit", map[string]any{"scripts": []any{"launch/1.1.json"}, "dry_run": true})
+	dry := voiceCallOK(t, a, "voice_submit", map[string]any{"scripts": []any{"launch/1.1.json"}, "dry_run": true})
 	if !strings.Contains(dry["dryRun"].(string), "共 2 段") {
 		t.Fatal(dry)
 	}
@@ -85,19 +85,19 @@ func TestMCPVoiceTools(t *testing.T) {
 		t.Fatal("dry_run 不應該建立工作")
 	}
 
-	sub := voiceCallOK(t, a, "ops_voice_submit", map[string]any{"scripts": []any{"launch/1.1.json"}})
+	sub := voiceCallOK(t, a, "voice_submit", map[string]any{"scripts": []any{"launch/1.1.json"}})
 	id := sub["job"].(map[string]any)["id"].(string)
-	if sub["note"] != "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 ops_voice_jobs 查進度" {
+	if sub["note"] != "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 voice_jobs 查進度" {
 		t.Fatal(sub["note"])
 	}
-	one := voiceCallOK(t, a, "ops_voice_jobs", map[string]any{"id": strings.ToLower(id)})
+	one := voiceCallOK(t, a, "voice_jobs", map[string]any{"id": strings.ToLower(id)})
 	if one["state"] != "queued" || one["stateLabel"] != "排隊中" || one["by"] != "mcp" {
 		t.Fatal(one)
 	}
 	if _, ok := one["baseline"]; ok {
 		t.Fatal("不應該有 baseline")
 	}
-	list := voiceCallOK(t, a, "ops_voice_jobs", map[string]any{})
+	list := voiceCallOK(t, a, "voice_jobs", map[string]any{})
 	if len(list["jobs"].([]any)) != 1 {
 		t.Fatal(list)
 	}
@@ -108,7 +108,7 @@ func TestMCPVoiceTools(t *testing.T) {
 		}
 	}
 	// 排第二批
-	sub2 := voiceCallOK(t, a, "ops_voice_submit", map[string]any{"scripts": "launch/1.1", "limit": 2})
+	sub2 := voiceCallOK(t, a, "voice_submit", map[string]any{"scripts": "launch/1.1", "limit": 2})
 	if sub2["note"] != "前面還有 1 批,輪到時自動送出" {
 		t.Fatal(sub2["note"])
 	}
@@ -128,11 +128,11 @@ func TestMCPVoiceErrors(t *testing.T) {
 		args map[string]any
 		msg  string
 	}{
-		{"ops_voice_submit", map[string]any{}, "至少要指定一份腳本,或選「全部腳本」"},
-		{"ops_voice_submit", map[string]any{"scripts": []any{"launch/nope"}}, "找不到腳本 src/content/live/launch/nope.json"},
-		{"ops_voice_submit", map[string]any{"scripts": []any{"launch/1.1.voice.json"}, "dry_run": true}, "launch/1.1.voice.json 是產生出來的清單,請給腳本本身"},
-		{"ops_voice_submit", map[string]any{"all": "true"}, "至少要指定一份腳本,或選「全部腳本」"}, // 字串 "true" 不算(同 Swift 的 as? Bool)
-		{"ops_voice_jobs", map[string]any{"id": "VJ-9"}, "找不到旁白批次 VJ-9"},
+		{"voice_submit", map[string]any{}, "至少要指定一份腳本,或選「全部腳本」"},
+		{"voice_submit", map[string]any{"scripts": []any{"launch/nope"}}, "找不到腳本 src/content/live/launch/nope.json"},
+		{"voice_submit", map[string]any{"scripts": []any{"launch/1.1.voice.json"}, "dry_run": true}, "launch/1.1.voice.json 是產生出來的清單,請給腳本本身"},
+		{"voice_submit", map[string]any{"all": "true"}, "至少要指定一份腳本,或選「全部腳本」"}, // 字串 "true" 不算(同 Swift 的 as? Bool)
+		{"voice_jobs", map[string]any{"id": "VJ-9"}, "找不到旁白批次 VJ-9"},
 	} {
 		text, isErr := voiceCallTool(t, a, tc.name, tc.args)
 		if !isErr || text != tc.msg {
@@ -143,11 +143,11 @@ func TestMCPVoiceErrors(t *testing.T) {
 		t.Fatal(r.calls)
 	}
 	// all = 1(NSNumber)算 true
-	out := voiceCallOK(t, a, "ops_voice_submit", map[string]any{"all": 1})
+	out := voiceCallOK(t, a, "voice_submit", map[string]any{"all": 1})
 	if out["job"].(map[string]any)["all"] != true {
 		t.Fatal(out)
 	}
-	empty := voiceCallOK(t, a, "ops_voice_jobs", map[string]any{})
+	empty := voiceCallOK(t, a, "voice_jobs", map[string]any{})
 	if len(empty["jobs"].([]any)) != 1 {
 		t.Fatal(empty)
 	}

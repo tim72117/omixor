@@ -146,6 +146,19 @@ func (c *Client) Me() (*Me, error) {
 	return &m, err
 }
 
+// CreatePairCode 產生手機配對碼(已登入)
+func (c *Client) CreatePairCode() (*service.PairCode, error) {
+	var r service.PairCode
+	return &r, c.Do("POST", "/api/auth/pair", map[string]any{}, &r)
+}
+
+// ClaimPairCode 用配對碼換 token(不用登入)
+func (c *Client) ClaimPairCode(code, device string) (*service.LoginResult, error) {
+	var r service.LoginResult
+	err := c.Do("POST", "/api/auth/pair/claim", map[string]any{"code": code, "device": device}, &r)
+	return &r, err
+}
+
 func (c *Client) Logout() error { return c.Do("POST", "/api/auth/logout", map[string]any{}, nil) }
 
 // ---- 組織 ----

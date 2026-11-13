@@ -169,25 +169,28 @@ struct MonAlertsTab: View {
 
     private func createIncident(from a: Alert) {
         guard let i = app.alerts.firstIndex(where: { $0.id == a.id }), app.alerts[i].incidentId == nil else { return }
-        let maxNum = app.incidents.compactMap { Int($0.id.filter(\.isNumber)) }.max() ?? 2000
-        let newId = "INC-\(maxNum + 1)"
         let sev: Int = a.severity == .critical ? 1 : a.severity == .warning ? 2 : 3
         let now = Date()
-        let incident = Incident(
-            id: newId, title: a.title, sev: sev, status: .investigating, services: [a.service],
-            commander: app.me, startedAt: a.startedAt, resolvedAt: nil,
-            impact: "由告警建立,影響範圍評估中。",
+        // 寫進 core server(編號由伺服器決定,關聯告警記在 alertIds);連線不能用或失敗時不建立,原因顯示在畫面上方
+        let incident: Incident
+        do { incident = try app.startIncidents().declare(
+            title: a.title, sev: sev, services: [a.service], commander: app.me,
+            impact: "由告警建立,影響範圍評估中。", startedAt: a.startedAt, aiSummary: a.aiNote ?? analyses[a.id],
+            alertIds: [a.id],
             timeline: [
                 IncidentEvent(id: UUID(), date: a.startedAt, actor: .system, kind: .alert,
                               text: "告警觸發:\(a.title)(\(a.rule),目前 \(a.value))"),
                 IncidentEvent(id: UUID(), date: now, actor: .person(app.me), kind: .status,
                               text: "從告警 \(a.id) 建立事件"),
-            ],
-            aiSummary: a.aiNote ?? analyses[a.id], followUps: [])
-        app.incidents.insert(incident, at: 0)
-        app.alerts[i].incidentId = newId
-        if app.alerts[i].state == .firing { app.acknowledge(alertId: a.id) }
-        app.log(.person(app.me), "flame", "從告警「\(a.title)」建立事件 \(newId)", .incidents)
+            ], by: .person(app.me)) } catch {
+            app.errorNotice = "沒有建立事件:\(error.localizedDescription)"
+            return
+        }
+        if let j = app.alerts.firstIndex(where: { $0.id == a.id }) {
+            app.alerts[j].incidentId = incident.id
+            if app.alerts[j].state == .firing { app.acknowledge(alertId: a.id) }
+        }
+        app.log(.person(app.me), "flame", "從告警「\(a.title)」建立事件 \(incident.id)", .incidents)
     }
 }
 

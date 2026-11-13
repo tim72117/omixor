@@ -188,16 +188,16 @@ final class VoicePipelineTests: XCTestCase {
             let text = try XCTUnwrap((r["content"] as? [[String: Any]])?.first?["text"] as? String)
             return try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         }
-        let dry = try await call("ops_voice_submit", ["scripts": ["launch/1.1.json"], "dry_run": true])
+        let dry = try await call("voice_submit", ["scripts": ["launch/1.1.json"], "dry_run": true])
         XCTAssertTrue((dry["dryRun"] as? String ?? "").contains("共 2 段"))
         XCTAssertTrue(app.voiceJobs.isEmpty)
 
-        let sub = try await call("ops_voice_submit", ["scripts": ["launch/1.1.json"]])
+        let sub = try await call("voice_submit", ["scripts": ["launch/1.1.json"]])
         let id = try XCTUnwrap((sub["job"] as? [String: Any])?["id"] as? String)
-        let one = try await call("ops_voice_jobs", ["id": id])
+        let one = try await call("voice_jobs", ["id": id])
         XCTAssertEqual(one["state"] as? String, "queued")
         XCTAssertNil(one["baseline"])
-        let list = try await call("ops_voice_jobs", [:])
+        let list = try await call("voice_jobs", [:])
         XCTAssertEqual((list["jobs"] as? [Any])?.count, 1)
         // 沒有發佈用的 MCP 工具
         XCTAssertFalse(MCPHandler.tools.contains { $0.name.contains("publish") })

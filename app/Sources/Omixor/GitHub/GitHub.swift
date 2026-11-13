@@ -1,7 +1,10 @@
 import Foundation
 
 // GitHub:用「GitHub」連線(網頁 OAuth,也可以改貼個人存取權杖)讀追蹤中 repo 的 PR、檢查與 Actions。
-// 只讀不寫:Ops 不會開 PR、留言、重跑 workflow。追蹤哪些 repo 存在目前組織的 github.json。
+// 只讀不寫:Ops 不會開 PR、留言、重跑 workflow。
+// 追蹤哪些 repo 是組織的設定,存在 core server(IntegrationRemote.swift;成員讀、組織管理員改)。
+// 這台的 github.json 只再寫用哪一個連線(connection;token 在鑰匙圈);檔案裡原本的 repos 保留不刪,
+// 核心還沒存過時第一次連上會把它匯入(要組織管理員)。讀 PR 與 Actions 仍在這台用鑰匙圈的 token 直接打 GitHub。
 
 struct GHSettings: Codable, Equatable {
     var repos: [String] = []
@@ -149,6 +152,8 @@ struct GHSnapshot: Equatable {
     /// 每個 repo 讀不到時的原因
     var errors: [String: String] = [:]
     var error: String?
+    /// 讀寫組織設定(core server)的錯誤(nil = 正常)
+    var settingsError: String?
 }
 
 enum GitHub {
@@ -288,14 +293,96 @@ final class GitHubStore {
     var connection: Connection? { app.connections.first { $0.id == connectionId } }
     var isLoggedIn: Bool { connection.map { app.connStore?.hasToken($0) == true } ?? false }
 
-    func load() {
-        app.githubSettings = (try? OrgFiles.decoder().decode(GHSettings.self, from: Data(contentsOf: fileURL))) ?? GHSettings()
-        app.github = GHSnapshot()
-        etags = [:]
+    /// 這台的 github.json(connection 與舊版的 repos)
+    private func localFile() -> GHSettings {
+        (try? OrgFiles.decoder().decode(GHSettings.self, from: Data(contentsOf: fileURL))) ?? GHSettings()
     }
 
+    func load() {
+        // 先顯示這台檔案裡的(連不到核心時當唯讀備援),再以組織(核心)的為準
+        app.githubSettings = localFile()
+        app.github = GHSnapshot()
+        etags = [:]
+        syncSettings()
+    }
+
+    /// 只寫這台的 connection;repos 是組織的設定(存在核心),檔案裡原本的 repos 保留
     func save() {
-        if let d = try? OrgFiles.encoder().encode(app.githubSettings) { try? d.write(to: fileURL, options: .atomic) }
+        var f = localFile()
+        guard f.connection != app.githubSettings.connection || !FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        f.connection = app.githubSettings.connection
+        if let d = try? OrgFiles.encoder().encode(f) { try? d.write(to: fileURL, options: .atomic) }
+    }
+
+    // MARK: 組織設定(core server)
+
+    private var remoteClient: IssueRemote?
+    /// 目前連的 core server 的用戶端(和 Issue 同一個;連線換了會換新的)
+    var remote: IssueRemote {
+        let cfg = IssueServerConfig.current
+        if let c = remoteClient, c.config == cfg { return c }
+        let c = IssueRemote(config: cfg)
+        remoteClient = c
+        return c
+    }
+
+    private func setSettingsError(_ msg: String?) {
+        if let msg, msg != app.github.settingsError { NSLog("GitHub 設定(omixor server):%@", msg) }
+        if app.github.settingsError != msg { app.github.settingsError = msg }
+    }
+
+    private func applyCore(_ x: CoreGitHubSettings) {
+        if app.githubSettings.repos != x.repos { app.githubSettings.repos = x.repos }
+    }
+
+    /// 從核心讀組織的 GitHub 設定;核心還沒存過而這台的 github.json 有 repos → 匯入一次(原檔不刪不改)
+    func syncSettings() {
+        let org = app.currentOrgId
+        applySettings(org, Result { try Self.fetchSettings(remote, org: org, legacy: localFile().repos) })
+    }
+
+    /// 同 syncSettings,但請求在背景跑,回主執行緒才更新畫面(不擋主執行緒)
+    func syncSettingsAsync() async {
+        let org = app.currentOrgId, r = remote, legacy = localFile().repos
+        let res: Result<(CoreGitHubSettings, String?), Error>
+        do { res = .success(try await r.run { try Self.fetchSettings($0, org: org, legacy: legacy) }) } catch { res = .failure(error) }
+        applySettings(org, res)
+    }
+
+    /// 換組織:先顯示這台檔案裡的,再在背景讀核心的(同 load,不擋主執行緒)
+    func reload() async {
+        app.githubSettings = localFile()
+        app.github = GHSnapshot()
+        etags = [:]
+        await syncSettingsAsync()
+    }
+
+    /// 讀核心的設定(背景執行緒也可以呼叫);回傳設定與要顯示的問題
+    private static func fetchSettings(_ r: IssueRemote, org: String, legacy: [String]) throws -> (CoreGitHubSettings, String?) {
+        var x = try r.githubSettings(org: org)
+        var problem: String?
+        if !x.saved, !legacy.isEmpty {
+            do {
+                let res = try r.importGitHubSettings(org: org, repos: legacy)
+                x = res.settings
+                if !res.skipped.isEmpty { NSLog("GitHub 設定匯入時略過格式不對的 repo:%@", res.skipped.joined(separator: "、")) }
+            } catch {
+                // 不是組織管理員不能匯入:先照核心的(空的)顯示,等管理員連上時再匯入
+                problem = "這台的舊 GitHub 設定還沒匯入組織(要組織管理員):\(error.localizedDescription)"
+            }
+        }
+        return (x, problem)
+    }
+
+    private func applySettings(_ org: String, _ res: Result<(CoreGitHubSettings, String?), Error>) {
+        switch res {
+        case .success(let (x, problem)):
+            guard app.currentOrgId == org else { return }
+            applyCore(x)
+            setSettingsError(problem)
+        case .failure(let error):
+            setSettingsError(error.localizedDescription)
+        }
     }
 
     func start(timer useTimer: Bool) {
@@ -319,20 +406,23 @@ final class GitHubStore {
         return c
     }
 
+    /// 追蹤 repo(存到組織的設定,要組織管理員)
     func addRepo(_ s: String) throws {
         guard let r = GitHub.normalizeRepo(s) else { throw ConnectionError("repo 要寫成 owner/name,例如 tim72117/evoleap") }
-        guard !app.githubSettings.repos.contains(where: { $0.caseInsensitiveCompare(r) == .orderedSame }) else { return }
-        app.githubSettings.repos.append(r)
-        save()
+        let x = try remote.saveGitHubSettings(org: app.currentOrgId, add: [r])
+        applyCore(x)
+        setSettingsError(nil)
     }
 
-    func removeRepo(_ r: String) {
-        app.githubSettings.repos.removeAll { $0 == r }
+    /// 不再追蹤(存到組織的設定,要組織管理員);成功後把畫面上這個 repo 的資料拿掉
+    func removeRepo(_ r: String) throws {
+        let x = try remote.saveGitHubSettings(org: app.currentOrgId, remove: [r])
+        applyCore(x)
+        setSettingsError(nil)
         app.github.repos.removeAll { $0.id == r }
         app.github.pulls.removeAll { $0.repo == r }
         app.github.runs.removeAll { $0.repo == r }
         app.github.errors[r] = nil
-        save()
     }
 
     // MARK: 讀 API
@@ -371,8 +461,9 @@ final class GitHubStore {
     func refresh() async {
         guard !app.github.busy else { return }
         app.github.busy = true
-        app.github.error = nil
         defer { app.github.busy = false }
+        await syncSettingsAsync()   // 追蹤的 repo 以組織(核心)的為準,每輪先讀一次(背景讀,不擋主執行緒)
+        app.github.error = nil
         guard isLoggedIn else { app.github.error = "還沒登入 GitHub"; return }
         var repos: [GHRepo] = [], pulls: [GHPull] = [], runs: [GHRun] = []
         var errors: [String: String] = [:]
@@ -391,7 +482,7 @@ final class GitHubStore {
         }
         app.github = GHSnapshot(repos: repos, pulls: pulls.sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) },
                                 runs: runs.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) },
-                                fetchedAt: .now, busy: true, errors: errors, error: nil)
+                                fetchedAt: .now, busy: true, errors: errors, error: nil, settingsError: app.github.settingsError)
     }
 
     func fetchRepo(_ r: String) async throws -> (GHRepo, [GHPull], [GHRun]) {

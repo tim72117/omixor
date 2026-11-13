@@ -9,6 +9,7 @@ import {
 } from "../../components/models";
 import { EmptyState, ErrorText, MetricTile, Pill, color } from "../../components/ui";
 import { relative } from "../../fmt";
+import { canGo } from "../../features";
 
 const STATE_ORDER: AlertState[] = ["firing", "acknowledged", "silenced", "resolved"];
 
@@ -57,17 +58,17 @@ export function AlertsTab({ selectedId, setSelectedId }: { selectedId?: string; 
     }, 1200);
   };
 
-  const update = (a: Alert, act: "acknowledge" | "resolve" | "silence") => run(() => tool("ops_alert_update", { alert_id: a.id, action: act }));
+  const update = (a: Alert, act: "acknowledge" | "resolve" | "silence") => run(() => tool("alert_update", { alert_id: a.id, action: act }));
 
   const createIncident = (a: Alert) =>
     run(async () => {
       if (a.incidentId) return;
       const sev = a.severity === "critical" ? 1 : a.severity === "warning" ? 2 : 3;
-      await tool("ops_incident_declare", {
+      await tool("incident_declare", {
         title: a.title, sev, impact: "由告警建立,影響範圍評估中。", services: [a.service], alert_ids: [a.id],
         ...(dir.me ? { commander: dir.me } : {}),
       });
-      if (a.state === "firing") await tool("ops_alert_update", { alert_id: a.id, action: "acknowledge" });
+      if (a.state === "firing") await tool("alert_update", { alert_id: a.id, action: "acknowledge" });
     });
 
   if (err) return <EmptyState title="讀不到告警" icon="exclamationmark.triangle" message={err} />;
@@ -146,10 +147,10 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
         { label: "解除", onClick: () => onUpdate("resolve"), disabled: a.state === "resolved" },
         { label: "靜音", onClick: () => onUpdate("silence"), disabled: a.state === "silenced" || a.state === "resolved" },
         "-",
-        a.incidentId ? { label: `查看事件 ${a.incidentId}`, onClick: () => go("incidents", a.incidentId!) } : { label: "建立事件", onClick: onCreateIncident, disabled: a.state === "resolved" },
+        a.incidentId ? { label: `查看事件 ${a.incidentId}`, onClick: () => go("incidents", a.incidentId!), disabled: !canGo("incidents") } : { label: "建立事件", onClick: onCreateIncident, disabled: a.state === "resolved" },
         { label: "讓 AI 分析", onClick: onAnalyze },
         "-",
-        { label: "前往服務", onClick: () => go("infrastructure", a.service) },
+        ...(canGo("infrastructure") ? [{ label: "前往服務", onClick: () => go("infrastructure", a.service) }] : []),
         { label: "複製告警 ID", onClick: () => copyText(a.id) },
       ])}
       style={{
@@ -183,7 +184,7 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
           {a.acknowledgedBy && a.state === "acknowledged" && <span className="row gap4" style={{ flex: "none" }}>確認者 <ActorLabel actor={a.acknowledgedBy} size={14} /></span>}
           <div className="grow" />
           {a.incidentId && (
-            <button className="btn link caption" title={`前往事件 ${a.incidentId}`} onClick={(e) => { e.stopPropagation(); go("incidents", a.incidentId!); }}>
+            <button className="btn link caption" title={`前往事件 ${a.incidentId}`} onClick={canGo("incidents") ? (e) => { e.stopPropagation(); go("incidents", a.incidentId!); } : undefined}>
               <Icon name="flame.fill" size={11} />{a.incidentId}
             </button>
           )}
@@ -201,7 +202,7 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
             <button className="btn" disabled={a.state === "silenced" || a.state === "resolved"} onClick={() => onUpdate("silence")}><Icon name="bell.slash" size={12} />靜音</button>
             <span style={{ width: 1, height: 16, background: "var(--line)" }} />
             {a.incidentId
-              ? <button className="btn" onClick={() => go("incidents", a.incidentId!)}><Icon name="flame" size={12} />查看事件 {a.incidentId}</button>
+              ? <button className="btn" onClick={canGo("incidents") ? () => go("incidents", a.incidentId!) : undefined}><Icon name="flame" size={12} />查看事件 {a.incidentId}</button>
               : <button className="btn" disabled={a.state === "resolved"} onClick={onCreateIncident}><Icon name="flame" size={12} />建立事件</button>}
             <div className="grow" />
             <button className="btn purple" disabled={analyzing} onClick={onAnalyze}><Icon name="sparkles" size={12} />{analysis ? "重新分析" : "讓 AI 分析"}</button>

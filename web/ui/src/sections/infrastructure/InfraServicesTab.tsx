@@ -9,6 +9,7 @@ import {
 } from "../../components/opsKit";
 import { relative } from "../../fmt";
 import { budgetColor, BudgetBar, Chip, minutes, SectionHeader, synthSeries, TierPill } from "./infraShared";
+import { canGo } from "../../features";
 
 type Sort = "attention" | "tier" | "name" | "traffic";
 const SORTS: { v: Sort; label: string }[] = [{ v: "attention", label: "需要注意的優先" }, { v: "tier", label: "關鍵等級" }, { v: "name", label: "名稱" }, { v: "traffic", label: "流量" }];
@@ -96,7 +97,7 @@ function ServiceDetail({ s, servers, onSelectService, onOpenServer }: { s: Servi
   const err = synthSeries(s.id + "-err", s.errorRate, span, 48, 0.5);
   const rps = synthSeries(s.id + "-rps", s.rps, span, 48, 0.25);
   const meets = s.uptime30d >= s.sloTarget;
-  const post = (icon: string, text: string, ok: string) => run(() => tool("ops_activity_post", { icon, text, section: "infrastructure" }), ok);
+  const post = (icon: string, text: string, ok: string) => run(() => tool("activity_post", { icon, text, section: "infrastructure" }), ok);
 
   const win = 30 * 24 * 60;
   const allowed = ((100 - s.sloTarget) / 100) * win;
@@ -127,7 +128,7 @@ function ServiceDetail({ s, servers, onSelectService, onOpenServer }: { s: Servi
           <span className="row gap4"><SIcon name="person.3" size={12} />{s.team}</span>
           <ActorLabel actor={{ kind: "person", id: s.owner }} />
           <span className="row gap4"><SIcon name="chevron.left.forwardslash.chevron.right" size={12} />{s.language}</span>
-          <button className="btn link row gap4" title="到開發進度查看儲存庫" onClick={() => o.go("development", s.repo)}><SIcon name="book.closed" size={12} />{s.repo}</button>
+          <button className="btn link row gap4" title="到開發進度查看儲存庫" onClick={canGo("development") ? () => o.go("development", s.repo) : undefined}><SIcon name="book.closed" size={12} />{s.repo}</button>
         </div>
         <div className="row wrap" style={{ gap: 10 }}>
           {ENV_ORDER.map((e) => <span key={e} className="row" style={{ gap: 5 }}><EnvBadge env={e} /><span className="mono" style={{ color: e === env ? undefined : "var(--fg2)" }}>{s.versions?.[e] ?? "—"}</span></span>)}
@@ -135,13 +136,13 @@ function ServiceDetail({ s, servers, onSelectService, onOpenServer }: { s: Servi
         </div>
         <div className="divider" />
         <div className="row gap8 wrap">
-          <button className="btn" onClick={() => o.go("monitoring", s.id)}><SIcon name="doc.text.magnifyingglass" size={12} />查看日誌與指標</button>
+          {canGo("monitoring") && <button className="btn" onClick={() => o.go("monitoring", s.id)}><SIcon name="doc.text.magnifyingglass" size={12} />查看日誌與指標</button>}
           <button className="btn" onClick={() => ask({
             title: `要重新啟動 ${s.name} 嗎?`, message: `會逐台重新啟動 ${s.hostIds.length} 台主機上的執行個體,過程中流量會先導到其他主機。`,
             buttons: [{ label: "滾動重新啟動", danger: true, onClick: () => post("arrow.clockwise", `滾動重新啟動 ${s.name}(${s.hostIds.length} 台主機)`, `已送出 ${s.name} 的滾動重新啟動`) }],
           })}><SIcon name="arrow.clockwise" size={12} />重新啟動</button>
           <button className="btn" onClick={() => setShowScale(true)}><SIcon name="arrow.up.left.and.arrow.down.right" size={12} />調整副本數</button>
-          <button className="btn" onClick={() => o.go("pipelines", s.id)}><SIcon name="arrow.triangle.branch" size={12} />部署紀錄</button>
+          {canGo("pipelines") && <button className="btn" onClick={() => o.go("pipelines", s.id)}><SIcon name="arrow.triangle.branch" size={12} />部署紀錄</button>}
         </div>
       </Card>
       <div className="ops-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
@@ -187,7 +188,7 @@ function ServiceDetail({ s, servers, onSelectService, onOpenServer }: { s: Servi
       <Card>
         <SectionHeader title="最近部署" trailing={recent.length ? `最近 ${recent.length} 筆` : undefined} />
         {recent.length === 0 ? <span className="faint">這個服務最近沒有部署</span> : recent.map((d, i) => (
-          <button key={d.id} className="ops-plain col" title="到 CI/CD 查看這次部署" style={{ gap: 5, padding: "4px 0", borderTop: i ? "1px solid var(--line)" : undefined }} onClick={() => o.go("pipelines", d.id)}>
+          <button key={d.id} className="ops-plain col" title="到 CI/CD 查看這次部署" style={{ gap: 5, padding: "4px 0", borderTop: i ? "1px solid var(--line)" : undefined }} onClick={canGo("pipelines") ? () => o.go("pipelines", d.id) : undefined}>
             <div className="row gap8">
               <RunStatusBadge s={d.status} /><EnvBadge env={d.env} />
               <span className="mono ellipsis">{d.previousVersion} → {d.version}</span>
@@ -203,7 +204,7 @@ function ServiceDetail({ s, servers, onSelectService, onOpenServer }: { s: Servi
       <Card>
         <SectionHeader title="相關告警" trailing={svcAlerts.length ? `${svcAlerts.length} 則進行中` : undefined} />
         {svcAlerts.length === 0 ? <span className="row gap4" style={{ color: "var(--green)" }}><SIcon name="checkmark.circle" color="green" />沒有進行中的告警</span> : svcAlerts.map((a, i) => (
-          <button key={a.id} className="ops-plain row gap8" title="到監控與告警查看" style={{ alignItems: "flex-start", padding: "4px 0", borderTop: i ? "1px solid var(--line)" : undefined }} onClick={() => o.go("monitoring", a.id)}>
+          <button key={a.id} className="ops-plain row gap8" title="到監控與告警查看" style={{ alignItems: "flex-start", padding: "4px 0", borderTop: i ? "1px solid var(--line)" : undefined }} onClick={canGo("monitoring") ? () => o.go("monitoring", a.id) : undefined}>
             <Pill text={SEVERITY[a.severity].label} color={SEVERITY[a.severity].color} />
             <div className="col grow" style={{ gap: 2, minWidth: 0 }}><span style={{ fontWeight: 500 }}>{a.title}</span><span className="caption mono muted ellipsis">{a.rule} · 目前 {a.value}</span></div>
             <div className="col" style={{ alignItems: "flex-end", gap: 2 }}>

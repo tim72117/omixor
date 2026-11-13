@@ -2,7 +2,10 @@ module omixor-server
 
 go 1.26
 
-require omixor-core v0.0.0-00010101000000-000000000000
+require (
+	golang.org/x/sys v0.41.0
+	omixor-core v0.0.0-00010101000000-000000000000
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

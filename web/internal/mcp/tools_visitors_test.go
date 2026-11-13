@@ -124,18 +124,18 @@ func TestSiteMCPToolReadsThroughConnection(t *testing.T) {
 	defer f.Close()
 
 	// 還沒登入:回錯誤,不會當機
-	if msg := extErr(t, a, "ops_site_visitors", nil); msg != "讀不到訪客統計:HTTP 401:還沒登入「evoleap 正式站」(請在 omixor 登入對應的連線)" {
+	if msg := extErr(t, a, "site_visitors", nil); msg != "讀不到訪客統計:HTTP 401:還沒登入「evoleap 正式站」(請在 omixor 登入對應的連線)" {
 		t.Fatal(msg)
 	}
 	if len(f.Requests()) != 0 {
 		t.Fatal("沒登入不該送出請求")
 	}
-	if msg := extErr(t, a, "ops_site_visitors", map[string]any{"connection": "nope"}); msg != "讀不到訪客統計:找不到連線 nope(請在 omixor 登入對應的連線)" {
+	if msg := extErr(t, a, "site_visitors", map[string]any{"connection": "nope"}); msg != "讀不到訪客統計:找不到連線 nope(請在 omixor 登入對應的連線)" {
 		t.Fatal(msg)
 	}
 
 	core.ConnSetBearer(a, "evoleap", "admin-token")
-	out := extOK(t, a, "ops_site_visitors", map[string]any{"range": "7d"})
+	out := extOK(t, a, "site_visitors", map[string]any{"range": "7d"})
 	if r, ok := f.Find("/api/admin/overview"); !ok || r.URL != "https://evoleap.io/api/admin/overview?range=7d" {
 		t.Fatalf("%+v", r)
 	}
@@ -156,22 +156,22 @@ func TestSiteMCPToolReadsThroughConnection(t *testing.T) {
 	if gs["homeStaysTotal"] != 1.0 || gs["idleVisitsTotal"] != 1.0 || gs["idleVisits"].([]any)[0].(map[string]any)["openedAt"] != "2026-11-10T08:00:00Z" {
 		t.Fatalf("%v", gs)
 	}
-	if all := extOK(t, a, "ops_site_visitors", map[string]any{"range": "all"}); all["range"] != "all" {
+	if all := extOK(t, a, "site_visitors", map[string]any{"range": "all"}); all["range"] != "all" {
 		t.Fatal(all["range"])
 	}
 	if r, _ := f.Find("/api/admin/overview"); r.URL != "https://evoleap.io/api/admin/overview" {
 		t.Fatal(r.URL)
 	}
-	if def := extOK(t, a, "ops_site_visitors", nil); def["range"] != "1d" {
+	if def := extOK(t, a, "site_visitors", nil); def["range"] != "1d" {
 		t.Fatal(def["range"])
 	}
 
-	if msg := extErr(t, a, "ops_site_visitors", map[string]any{"range": "2y"}); msg != "range 必須是 all、30m、12h、1d、7d 之一" {
+	if msg := extErr(t, a, "site_visitors", map[string]any{"range": "2y"}); msg != "range 必須是 all、30m、12h、1d、7d 之一" {
 		t.Fatal(msg)
 	}
 	// token 失效
 	core.ConnSetBearer(a, "evoleap", "old")
-	if msg := extErr(t, a, "ops_site_visitors", nil); msg != "讀不到訪客統計:HTTP 401:登入已失效,請重新登入(請在 omixor 登入對應的連線)" {
+	if msg := extErr(t, a, "site_visitors", nil); msg != "讀不到訪客統計:HTTP 401:登入已失效,請重新登入(請在 omixor 登入對應的連線)" {
 		t.Fatal(msg)
 	}
 }

@@ -11,6 +11,7 @@ import {
 } from "../../components/opsKit";
 import { relative } from "../../fmt";
 import type { SectionProps } from "..";
+import { canGo } from "../../features";
 
 export default function OverviewView(_: SectionProps) {
   return <OpsProvider><Overview /></OpsProvider>;
@@ -141,11 +142,11 @@ function StatusBanner({ d }: { d: Data }) {
       </div>
       {(level === "major" || level === "degraded") && (
         <>
-          {d.open.length > 0 && <button className="btn" onClick={() => o.go("incidents", d.open[0]?.id)}>查看事件</button>}
-          <button className="btn" style={{ background: col, borderColor: col, color: "white" }} onClick={() => o.go("monitoring", d.firing[0]?.id)}>查看告警</button>
+          {d.open.length > 0 && canGo("incidents") && <button className="btn" onClick={() => o.go("incidents", d.open[0]?.id)}>查看事件</button>}
+          {canGo("monitoring") && <button className="btn" style={{ background: col, borderColor: col, color: "white" }} onClick={() => o.go("monitoring", d.firing[0]?.id)}>查看告警</button>}
         </>
       )}
-      {level === "ok" && <button className="btn" onClick={() => o.go("infrastructure")}>服務列表</button>}
+      {level === "ok" && canGo("infrastructure") && <button className="btn" onClick={() => o.go("infrastructure")}>服務列表</button>}
     </div>
   );
 }
@@ -173,19 +174,19 @@ function KPIRow({ d }: { d: Data }) {
   const minSev = d.open.length ? Math.min(...d.open.map((i) => i.sev)) : undefined;
   return (
     <div className="ops-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
-      <KPITile title="可用性(30 天)" value={avgUptime != null ? pct(avgUptime, 2) : "—"} caption={`SLO ${pct(slo, 2)}`} captionColor={(avgUptime ?? 100) >= slo ? "green" : "red"} icon="checkmark.shield" tint="green" onClick={() => o.go("monitoring")} />
-      <KPITile title="p95 延遲" value={p95 != null ? `${Math.round(p95)} ms` : "—"} caption={p95 != null ? (p95 > 500 ? "高於 500 ms 目標" : "在 500 ms 目標內") : "尚無資料"} captionColor={(p95 ?? 0) > 500 ? "orange" : "secondary"} icon="speedometer" tint="blue" onClick={() => o.go("monitoring")} />
-      <KPITile title="錯誤率" value={err != null ? pct(err, 2) : "—"} caption={err != null ? (err > 1 ? "超過 1% 警戒" : "低於 1% 警戒") : "尚無資料"} captionColor={(err ?? 0) > 1 ? "red" : "secondary"} icon="exclamationmark.bubble" tint="orange" onClick={() => o.go("monitoring")} />
-      <KPITile title="今日部署" value={String(deploysToday.length)} caption={deployCaption} captionColor={failed ? "red" : "secondary"} icon="shippingbox" tint="indigo" onClick={() => o.go("pipelines")} />
-      <KPITile title="進行中事件" value={String(d.open.length)} caption={minSev != null ? `最高 SEV${minSev}` : "目前沒有事件"} captionColor={d.open.length ? "red" : "secondary"} icon="flame" tint={d.open.length ? "red" : "secondary"} onClick={() => o.go("incidents", d.open[0]?.id)} />
-      <KPITile title="AI 今日動作" value={String(aiToday.length)} caption={aiHours > 0 ? `約省下 ${aiHours.toFixed(1)} 小時` : `${d.pending.length} 項等你決定`} captionColor="purple" icon="sparkles" tint="purple" onClick={() => o.go("automation")} />
+      <KPITile title="可用性(30 天)" value={avgUptime != null ? pct(avgUptime, 2) : "—"} caption={`SLO ${pct(slo, 2)}`} captionColor={(avgUptime ?? 100) >= slo ? "green" : "red"} icon="checkmark.shield" tint="green" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
+      <KPITile title="p95 延遲" value={p95 != null ? `${Math.round(p95)} ms` : "—"} caption={p95 != null ? (p95 > 500 ? "高於 500 ms 目標" : "在 500 ms 目標內") : "尚無資料"} captionColor={(p95 ?? 0) > 500 ? "orange" : "secondary"} icon="speedometer" tint="blue" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
+      <KPITile title="錯誤率" value={err != null ? pct(err, 2) : "—"} caption={err != null ? (err > 1 ? "超過 1% 警戒" : "低於 1% 警戒") : "尚無資料"} captionColor={(err ?? 0) > 1 ? "red" : "secondary"} icon="exclamationmark.bubble" tint="orange" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
+      <KPITile title="今日部署" value={String(deploysToday.length)} caption={deployCaption} captionColor={failed ? "red" : "secondary"} icon="shippingbox" tint="indigo" onClick={canGo("pipelines") ? () => o.go("pipelines") : undefined} />
+      <KPITile title="進行中事件" value={String(d.open.length)} caption={minSev != null ? `最高 SEV${minSev}` : "目前沒有事件"} captionColor={d.open.length ? "red" : "secondary"} icon="flame" tint={d.open.length ? "red" : "secondary"} onClick={canGo("incidents") ? () => o.go("incidents", d.open[0]?.id) : undefined} />
+      <KPITile title="AI 今日動作" value={String(aiToday.length)} caption={aiHours > 0 ? `約省下 ${aiHours.toFixed(1)} 小時` : `${d.pending.length} 項等你決定`} captionColor="purple" icon="sparkles" tint="purple" onClick={canGo("automation") ? () => o.go("automation") : undefined} />
     </div>
   );
 }
 
-function KPITile({ title, value, caption, captionColor, icon, tint, onClick }: { title: string; value: string; caption: string; captionColor: string; icon: string; tint: string; onClick: () => void }) {
+function KPITile({ title, value, caption, captionColor, icon, tint, onClick }: { title: string; value: string; caption: string; captionColor: string; icon: string; tint: string; onClick?: () => void }) {
   return (
-    <button className="card ops-tile" style={{ gap: 6 }} onClick={onClick}>
+    <button className="card ops-tile" style={{ gap: 6, cursor: onClick ? undefined : "default" }} onClick={onClick}>
       <div className="row gap6 muted ellipsis" style={{ fontSize: 12.5 }}><SIcon name={icon} color={tint} />{title}</div>
       <div className="num" style={{ fontSize: 26, fontWeight: 600 }}>{value}</div>
       <div className="caption ellipsis" style={{ color: color(captionColor), fontWeight: 500 }}>{caption}</div>
@@ -201,7 +202,7 @@ function ServicesCard({ d }: { d: Data }) {
   const healthy = d.services.filter((s) => s.health === "healthy").length;
   return (
     <Card>
-      <CardHeader title="服務健康" linkTitle="伺服器與服務" onLink={() => o.go("infrastructure")} />
+      <CardHeader title="服務健康" linkTitle="伺服器與服務" onLink={canGo("infrastructure") ? () => o.go("infrastructure") : undefined} />
       {d.services.length === 0 ? <InlineEmpty icon="server.rack" text="尚未登錄任何服務" /> : (
         <>
           <div className="row gap12 caption muted">
@@ -217,7 +218,7 @@ function ServicesCard({ d }: { d: Data }) {
               const c = color(HEALTH[s.health].color);
               const ok = s.health === "healthy";
               return (
-                <button key={s.id} className="ops-tile col gap4" title={`${s.name}:${s.summary}`} onClick={() => o.go("infrastructure", s.id)}
+                <button key={s.id} className="ops-tile col gap4" title={`${s.name}:${s.summary}`} onClick={canGo("infrastructure") ? () => o.go("infrastructure", s.id) : undefined}
                   style={{ padding: 10, borderRadius: 8, background: `color-mix(in srgb, ${c} ${ok ? 5 : 12}%, transparent)`, border: `1px solid color-mix(in srgb, ${c} ${ok ? 12 : 35}%, transparent)` }}>
                   <div className="row gap6" style={{ width: "100%" }}>
                     <SIcon name={HEALTH[s.health].icon} color={HEALTH[s.health].color} />
@@ -243,10 +244,10 @@ function AlertsCard({ d }: { d: Data }) {
   const o = useOps();
   const { run, toastEl } = useAct();
   const menu = useContextMenu();
-  const upd = (id: string, a: string) => run(() => tool("ops_alert_update", { alert_id: id, action: a }));
+  const upd = (id: string, a: string) => run(() => tool("alert_update", { alert_id: id, action: a }));
   return (
     <Card>
-      <CardHeader title="觸發中的告警" count={d.firing.length} countColor={d.firing.some((a) => a.severity === "critical") ? "red" : "orange"} onLink={() => o.go("monitoring")} />
+      <CardHeader title="觸發中的告警" count={d.firing.length} countColor={d.firing.some((a) => a.severity === "critical") ? "red" : "orange"} onLink={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
       {d.firing.length === 0 ? <InlineEmpty icon="bell.slash" text="沒有觸發中的告警" c="green" /> : (
         <>
           <div className="col">
@@ -257,12 +258,12 @@ function AlertsCard({ d }: { d: Data }) {
                   { label: "靜音", onClick: () => upd(a.id, "silence") },
                   { label: "解除", onClick: () => upd(a.id, "resolve") },
                   "sep",
-                  { label: "在監控頁開啟", onClick: () => o.go("monitoring", a.id) },
-                  ...(a.incidentId ? [{ label: `開啟事件 ${a.incidentId}`, onClick: () => o.go("incidents", a.incidentId) }] : []),
+                  ...(canGo("monitoring") ? [{ label: "在監控頁開啟", onClick: () => o.go("monitoring", a.id) }] : []),
+                  ...(a.incidentId && canGo("incidents") ? [{ label: `開啟事件 ${a.incidentId}`, onClick: () => o.go("incidents", a.incidentId) }] : []),
                 ])}>
                 <span style={{ paddingTop: 5 }}><StatusDot c={SEVERITY[a.severity].color} pulsing={a.severity === "critical"} /></span>
                 <div className="col gap4 grow" style={{ minWidth: 0 }}>
-                  <button className="ops-plain" style={{ fontWeight: 500 }} onClick={() => o.go("monitoring", a.id)}>{a.title}</button>
+                  <button className="ops-plain" style={{ fontWeight: 500 }} onClick={canGo("monitoring") ? () => o.go("monitoring", a.id) : undefined}>{a.title}</button>
                   <div className="caption muted ellipsis">{o.service(a.service)?.name ?? a.service} · <span className="num">{a.value}</span> · {relative(a.startedAt)}</div>
                   {a.aiNote && <div className="caption muted row gap4" style={{ alignItems: "flex-start" }}><SIcon name="sparkles" color="purple" size={12} /><span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{a.aiNote}</span></div>}
                 </div>
@@ -285,7 +286,7 @@ function ApprovalsCard({ d }: { d: Data }) {
   const pending = [...d.pending].sort((a, b) => t(a.expiresAt) - t(b.expiresAt));
   return (
     <Card>
-      <CardHeader icon={<SIcon name="sparkles" color="purple" />} title="AI 需要你決定" count={pending.length} countColor="purple" onLink={() => o.go("automation")} />
+      <CardHeader icon={<SIcon name="sparkles" color="purple" />} title="AI 需要你決定" count={pending.length} countColor="purple" onLink={canGo("automation") ? () => o.go("automation") : undefined} />
       {pending.length === 0 ? <InlineEmpty icon="checkmark.seal" text="沒有等待核准的 AI 動作" c="green" /> : (
         <>
           <div className="col gap8" style={{ gap: 10 }}>{pending.slice(0, 3).map((r) => <ApprovalRow key={r.id} r={r} />)}</div>
@@ -352,7 +353,7 @@ function IncidentsCard({ d }: { d: Data }) {
   const lastResolved = d.incidents.map((i) => t(i.resolvedAt)).filter((x) => !isNaN(x)).sort((a, b) => b - a)[0];
   return (
     <Card>
-      <CardHeader title="進行中的事件" count={open.length} countColor={open.length ? "red" : "secondary"} onLink={() => o.go("incidents")} />
+      <CardHeader title="進行中的事件" count={open.length} countColor={open.length ? "red" : "secondary"} onLink={canGo("incidents") ? () => o.go("incidents") : undefined} />
       {open.length === 0 ? (
         <InlineEmpty icon="flame" c="green" text={lastResolved ? `沒有進行中的事件 · 上次結案 ${relative(new Date(lastResolved).toISOString())}` : "沒有進行中的事件"} />
       ) : (
@@ -360,7 +361,7 @@ function IncidentsCard({ d }: { d: Data }) {
           {open.slice(0, 3).map((inc) => {
             const c = color(sevColor(inc.sev));
             return (
-              <button key={inc.id} className="ops-tile col gap6" onClick={() => o.go("incidents", inc.id)}
+              <button key={inc.id} className="ops-tile col gap6" onClick={canGo("incidents") ? () => o.go("incidents", inc.id) : undefined}
                 style={{ padding: 10, borderRadius: 8, background: `color-mix(in srgb, ${c} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${c} 25%, transparent)` }}>
                 <div className="row gap6" style={{ width: "100%" }}>
                   <Pill text={`SEV${inc.sev}`} color={sevColor(inc.sev)} />
@@ -432,7 +433,7 @@ function DeliveryCard({ d }: { d: Data }) {
   const label = (text: string, icon: string) => <div className="row gap4 caption muted" style={{ fontWeight: 600, paddingBottom: 2 }}><SIcon name={icon} size={12} />{text}</div>;
   return (
     <Card>
-      <CardHeader title="CI/CD" count={runningCount} countColor="blue" linkTitle="所有流程" onLink={() => o.go("pipelines")} />
+      <CardHeader title="CI/CD" count={runningCount} countColor="blue" linkTitle="所有流程" onLink={canGo("pipelines") ? () => o.go("pipelines") : undefined} />
       {runs.length === 0 && deps.length === 0 ? <InlineEmpty icon="arrow.triangle.branch" text="最近沒有流程執行或部署" /> : (
         <div className="ops-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
           <div className="col gap4">
@@ -456,9 +457,9 @@ function RunRow({ run, first }: { run: PipelineRun; first: boolean }) {
   const { run: act, toastEl } = useAct();
   const done = run.stages.filter((s) => s.status === "succeeded").length;
   const progress = run.stages.length ? Math.min(1, (done + (run.stages.some((s) => s.status === "running") ? 0.5 : 0)) / run.stages.length) : run.status === "succeeded" ? 1 : 0;
-  const upd = (a: string) => act(() => tool("ops_pipeline_update", { run_id: run.id, action: a }));
+  const upd = (a: string) => act(() => tool("pipeline_update", { run_id: run.id, action: a }));
   return (
-    <div className="col gap4" style={{ padding: "6px 0", borderTop: first ? undefined : "1px solid var(--line)", gap: 5 }} onClick={() => o.go("pipelines", String(run.id))}>
+    <div className="col gap4" style={{ padding: "6px 0", borderTop: first ? undefined : "1px solid var(--line)", gap: 5 }} onClick={canGo("pipelines") ? () => o.go("pipelines", String(run.id)) : undefined}>
       <div className="row gap6">
         <SIcon name={RUN[run.status].icon} color={RUN[run.status].color} className={run.status === "running" ? "ops-pulse" : undefined} />
         <span className="ellipsis" style={{ fontWeight: 500 }}>{run.pipeline}</span>
@@ -488,9 +489,9 @@ function DeployRow({ d, first }: { d: Deployment; first: boolean }) {
   const { run, toastEl } = useAct();
   const menu = useContextMenu();
   return (
-    <div className="col" style={{ padding: "6px 0", gap: 5, borderTop: first ? undefined : "1px solid var(--line)" }} onClick={() => o.go("pipelines", d.id)}
+    <div className="col" style={{ padding: "6px 0", gap: 5, borderTop: first ? undefined : "1px solid var(--line)" }} onClick={canGo("pipelines") ? () => o.go("pipelines", d.id) : undefined}
       onContextMenu={menu.open([
-        { label: "在 CI/CD 開啟", onClick: () => o.go("pipelines", d.id) },
+        ...(canGo("pipelines") ? [{ label: "在 CI/CD 開啟", onClick: () => o.go("pipelines", d.id) }] : []),
         ...(d.status === "succeeded" || d.status === "failed" ? [{ label: `回滾到 ${d.previousVersion}`, onClick: () => run(() => action("deployment_rollback", { id: d.id })) }] : []),
       ])}>
       <div className="row gap6">
@@ -527,7 +528,7 @@ function SprintCard({ d }: { d: Data }) {
   const aiItems = d.work.filter((w) => w.createdByAI).length;
   return (
     <Card>
-      <CardHeader title={sp?.name || "Sprint"} linkTitle="開發進度" onLink={() => o.go("development")} />
+      <CardHeader title={sp?.name || "Sprint"} linkTitle="開發進度" onLink={canGo("development") ? () => o.go("development") : undefined} />
       {d.work.length === 0 ? <InlineEmpty icon="list.bullet.rectangle" text="這個 Sprint 還沒有工作項目" /> : (
         <>
           {sp?.goal && <div className="caption muted" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{sp.goal}</div>}
@@ -573,7 +574,7 @@ function ErrorBudgetCard({ d }: { d: Data }) {
   const R = 37.5, C = 2 * Math.PI * R;
   return (
     <Card>
-      <CardHeader title="錯誤預算" linkTitle="SLO" onLink={() => o.go("monitoring")} />
+      <CardHeader title="錯誤預算" linkTitle="SLO" onLink={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
       {s.length === 0 ? <InlineEmpty icon="gauge.with.dots.needle.33percent" text="沒有設定 SLO 的服務" /> : (
         <>
           <div className="row" style={{ gap: 16 }}>
@@ -595,7 +596,7 @@ function ErrorBudgetCard({ d }: { d: Data }) {
           </div>
           <div className="col gap6">
             {lowest.map((x) => (
-              <button key={x.id} className="ops-plain row gap8" onClick={() => o.go("infrastructure", x.id)}>
+              <button key={x.id} className="ops-plain row gap8" onClick={canGo("infrastructure") ? () => o.go("infrastructure", x.id) : undefined}>
                 <span className="caption ellipsis" style={{ width: 96, flex: "none" }}>{x.name}</span>
                 <Bar value={x.errorBudgetRemaining} c={c(x.errorBudgetRemaining)} />
                 <span className="caption muted num" style={{ width: 36, textAlign: "right", flex: "none" }}>{Math.round(x.errorBudgetRemaining * 100)}%</span>
@@ -631,7 +632,7 @@ function ActivityCard({ d }: { d: Data }) {
               const ai = item.actor.kind === "ai";
               return (
                 <button key={item.id} className="ops-plain row gap8" style={{ alignItems: "flex-start", padding: "7px 0", gap: 10, borderTop: i ? "1px solid var(--line)" : undefined }}
-                  title={`前往「${titles[item.section] ?? item.section}」`} onClick={() => o.go(item.section)}>
+                  title={`前往「${titles[item.section] ?? item.section}」`} onClick={canGo(item.section) ? () => o.go(item.section) : undefined}>
                   <ActorAvatar actor={item.actor} size={24} />
                   <div className="col grow" style={{ gap: 2, minWidth: 0 }}>
                     <div className="row gap6">

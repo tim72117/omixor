@@ -8,6 +8,7 @@ import { ErrorText, Modal, Pill, color } from "../../components/ui";
 import { CabinetLayoutEditor } from "../cabinet/CabinetLayoutEditor";
 import { Form, Row, Section } from "./form";
 import type { Pane } from "./SettingsView";
+import { canGo, featuresNow } from "../../features";
 
 const SYMBOLS = ["building.2", "graduationcap", "briefcase", "storefront", "hammer", "flask", "globe", "heart", "leaf", "star"];
 const COLORS = ["blue", "teal", "green", "orange", "pink", "purple", "indigo", "gray"];
@@ -65,10 +66,10 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
       </Section>
       {error && <ErrorText>{error}</ErrorText>}
       <Section header={`「${cur?.name ?? ""}」的工作空間`}>
-        {setup("虛擬角色", "person.2", `${n(agents?.agents)} 個角色;角色設定、例行任務、文件存取範圍`, () => go("automation", "agents"))}
+        {canGo("automation") && setup("虛擬角色", "person.2", `${n(agents?.agents)} 個角色;角色設定、例行任務、文件存取範圍`, () => go("automation", "agents"))}
         {setup("文件櫃結構", "archivebox", cab ? `${layout.length} 個區塊、${layout.reduce((s, x) => s + x.tabs.length, 0)} 個頁籤` : "—", () => setEditingLayout(true))}
         {setup("連線", "key.horizontal", `${n(conns?.connections)} 個連線;外部服務的網址與登入`, () => setPane("connections"))}
-        {setup("Issue", "exclamationmark.bubble", Array.isArray(issues) ? `${issues.filter((i) => i.status === "open").length} 件未解決` : "—", () => go("development", "issues"))}
+        {canGo("development") && featuresNow().enabled("development.issues") && setup("Issue", "exclamationmark.bubble", Array.isArray(issues) ? `${issues.filter((i) => i.status === "open").length} 件未解決` : "—", () => go("development", "issues"))}
       </Section>
       {creating && <NewOrgSheet onClose={() => setCreating(false)} />}
       {editing && <EditOrgSheet original={editing} onClose={() => setEditing(undefined)} />}
@@ -115,7 +116,7 @@ function NewOrgSheet({ onClose }: { onClose: () => void }) {
   return (
     <Modal open onClose={onClose} width={520}>
       <span className="modal-title">新增組織</span>
-      <label className="bx-field"><span>名稱</span><input className="input" autoFocus placeholder="例如 新產品實驗室" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && name.trim() && create()} /></label>
+      <label className="bx-field"><span>名稱</span><input className="input" autoFocus placeholder="例如 新產品實驗室" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && name.trim() && create()} /></label>
       <SymbolColorPickers symbol={symbol} colorName={col} onSymbol={setSymbol} onColor={setCol} />
       <div className="bx-field"><span>起始設定</span>
         {TEMPLATES.map((t) => <label key={t.id} className="row gap6"><input type="radio" checked={template === t.id} onChange={() => setTemplate(t.id)} />{t.label}</label>)}

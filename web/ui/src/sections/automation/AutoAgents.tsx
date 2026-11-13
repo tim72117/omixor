@@ -11,6 +11,7 @@ import { Card, EmptyState, ErrorText, Modal, Pill, color } from "../../component
 import { relative } from "../../fmt";
 import { AgentAutoRunCard } from "./AutoRunner";
 import { useAuto } from "./autoShared";
+import { canGo, useFeatures } from "../../features";
 
 const PALETTE = ["blue", "teal", "green", "orange", "pink", "purple", "indigo", "gray"];
 const SYMBOLS = ["person.crop.circle", "chart.line.uptrend.xyaxis", "waveform", "tray.full", "magnifyingglass", "wrench.and.screwdriver", "shield.lefthalf.filled", "doc.text", "megaphone", "brain.head.profile"];
@@ -80,6 +81,7 @@ export function AutoAgents({ selection, setSelection }: { selection?: string; se
 }
 
 function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[]; edit: () => void }) {
+  const runnerOn = useFeatures().enabled("automation.runner"); // 系統設定 › AI 自動化 › 自動執行
   const [cab] = useView<CabinetView>("cabinet");
   const dir = useDirectory();
   const [title, setTitle] = useState("");
@@ -95,7 +97,7 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
     copy(key, typeof r === "string" ? r : r?.text ?? "");
   });
   const assign = () => run(async () => {
-    const r = await tool<{ id?: string; task?: { id?: string } }>("ops_agent_task_create", { assign_to: agent.id, title: title.trim(), instructions, priority });
+    const r = await tool<{ id?: string; task?: { id?: string } }>("agent_task_create", { assign_to: agent.id, title: title.trim(), instructions, priority });
     const id = r?.id ?? r?.task?.id;
     if (id) setSelectedTask(id);
     setTitle(""); setInstructions(""); setPriority("normal");
@@ -126,7 +128,7 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
       <Card title="角色設定" subtitle="AI 領取任務時會一起拿到這段">
         {agent.instructions ? <Markdown text={agent.instructions} /> : <span className="muted">還沒寫角色設定</span>}
       </Card>
-      <AgentAutoRunCard agent={agent} />
+      {runnerOn && <AgentAutoRunCard agent={agent} />}
       <Card title="例行任務" subtitle="到時間 omixor 會替角色排一筆任務;上一筆沒做完不會重複排">
         {agent.routines.length === 0 && <span className="muted">沒有例行任務,按「編輯…」新增</span>}
         {agent.routines.map((r) => (
@@ -190,7 +192,7 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
                 )}
                 {(tk.links ?? []).length > 0 && (
                   <div className="row gap8 wrap">
-                    {tk.links.map((l) => /^ISS-\d+$/i.test(l) ? <button key={l} className="btn link" onClick={() => go("development", l)}>{l}</button> : <span key={l} className="caption" style={{ userSelect: "text" }}>{l}</span>)}
+                    {tk.links.map((l) => /^ISS-\d+$/i.test(l) ? <button key={l} className="btn link" onClick={canGo("development") ? () => go("development", l) : undefined}>{l}</button> : <span key={l} className="caption" style={{ userSelect: "text" }}>{l}</span>)}
                   </div>
                 )}
                 <div className="row gap8">

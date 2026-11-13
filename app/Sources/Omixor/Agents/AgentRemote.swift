@@ -41,6 +41,11 @@ extension IssueRemote {
         try decode([Agent].self, try send("GET", orgURL(org, ["agents"]), nil))
     }
 
+    /// 角色在角色端點(/mcp/agent)能用的工具與不能用的原因(依角色設定、組織鏈、頻道成員算)
+    func agentTools(org: String, id: String) throws -> [AgentToolInfo] {
+        try decode([AgentToolInfo].self, try send("GET", orgURL(org, ["agents", id, "tools"]), nil))
+    }
+
     /// 新增或修改(組織管理員);沒給的欄位伺服器用預設值
     func saveAgent(org: String, _ a: Agent) throws -> Agent {
         try decode(Agent.self, try send("POST", orgURL(org, ["agents"]), try Self.encoder().encode(a)))
@@ -117,7 +122,7 @@ extension IssueRemote {
 
     // MARK: 版本
 
-    /// GET /api/version(同步、不用登入;給 MCP 的 ops_server 用)
+    /// GET /api/version(同步、不用登入;給 MCP 的 server 用)
     func version() throws -> ServerVersion {
         var req = URLRequest(url: config.url.appendingPathComponent("api").appendingPathComponent("version"), timeoutInterval: timeout)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -139,4 +144,19 @@ extension IssueRemote {
         guard status == 200 else { throw IssueRemoteError(message: "查不到版本(HTTP \(status))") }
         return try JSONDecoder().decode(ServerVersion.self, from: data)
     }
+}
+
+/// 角色端點的一個工具(GET /api/orgs/{org}/agents/{id}/tools)
+struct AgentToolInfo: Codable, Hashable, Identifiable {
+    var name: String
+    var label: String
+    var group: String
+    var available: Bool
+    var reason: String?
+    /// 外部 MCP 閘道的工具(source = "mcp"):server、tool 是伺服器 id 與原本的工具名;confirm = 呼叫前要人確認
+    var source: String?
+    var server: String?
+    var tool: String?
+    var confirm: Bool?
+    var id: String { name }
 }

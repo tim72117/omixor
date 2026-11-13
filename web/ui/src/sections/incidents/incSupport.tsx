@@ -8,6 +8,7 @@ import {
 } from "../../components/models";
 import { Pill, color } from "../../components/ui";
 import type { Actor } from "../../types";
+import { canGo } from "../../features";
 
 export type IncData = { incidents: Incident[]; alerts: Alert[]; services: Service[]; workItems: WorkItem[]; onCall: OnCallShift[]; loaded: boolean; error?: string };
 export const IncCtx = createContext<IncData>({ incidents: [], alerts: [], services: [], workItems: [], onCall: [], loaded: false });
@@ -83,7 +84,7 @@ export function ServiceChip({ id }: { id: string }) {
   const { services } = useInc();
   const s = services.find((x) => x.id === id);
   return (
-    <button className="bx-chip" title={`到「伺服器與服務」查看 ${s?.name ?? id}`} onClick={() => go("infrastructure", id)}
+    <button className="bx-chip" title={`到「伺服器與服務」查看 ${s?.name ?? id}`} onClick={canGo("infrastructure") ? () => go("infrastructure", id) : undefined}
       style={{ background: "color-mix(in srgb, var(--fg) 6%, transparent)" }}>
       <span className="dot" style={{ background: color(HEALTH_COLOR[s?.health ?? "unknown"]) }} />
       {s?.name ?? id}

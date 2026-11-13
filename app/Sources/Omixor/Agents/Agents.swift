@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 
 // 虛擬角色:每個角色有職責說明(給 AI 的角色設定)、例行任務與被指派的單次任務。
-// Ops 不自己跑 AI:任務排在這裡,由 Claude Code 透過 MCP 以角色身分領取(ops_agent_task_claim)、做完回報(ops_agent_task_report)。
+// Ops 不自己跑 AI:任務排在這裡,由 Claude Code 透過 MCP 以角色身分領取(agent_task_claim)、做完回報(agent_task_report)。
 // 例行任務到時間時,Ops 會替該角色排一筆任務等人叫 AI 來領。
 // 本機模式存在組織資料夾的 agents.json(~/Library/Application Support/Ops/orgs/<id>/,OPS_DATA_DIR 可改);
 // 遠端模式改讀寫 omixor server 的 /agents 與 /agent-tasks(AgentRemote.swift),例行任務由伺服器排,領取時伺服器發角色憑證。
@@ -265,6 +265,319 @@ final class AgentStore {
 
     static let routineAuthor = "routine"
 
+    // MARK: - core server
+    // 角色與任務一律透過 core server(IssueServerConfig.current:遠端 omixor 或本機守護服務);例行任務由 server 排(core 的 StartRoutines)。
+    // 原本的本機實作(agents.json)已停用,程式碼留在下面的 LEGACY_LOCAL_STORE 區塊備查,不編譯也不會被呼叫。
+
+    private var remoteClient: IssueRemote?
+    /// 目前連的 core server 的用戶端(和 Issue 同一個;連線換了會換新的)
+    var remote: IssueRemote {
+        let cfg = IssueServerConfig.current
+        if let c = remoteClient, c.config == cfg { return c }
+        let c = IssueRemote(config: cfg)
+        remoteClient = c
+        return c
+    }
+    /// 最近一次和伺服器溝通的錯誤(nil = 正常)
+    private(set) var remoteError: String?
+    private var poller: Timer?
+    /// 多久重新讀一次(秒);0 = 不定時讀
+    static var pollInterval: TimeInterval = NSClassFromString("XCTestCase") != nil ? 0 : 10
+
+    private func remoteFailed(_ e: Error) {
+        let msg = e.localizedDescription
+        if remoteError != msg { NSLog("虛擬角色(omixor server):%@", msg) }
+        remoteError = msg
+    }
+
+    private func startPolling() {
+        guard poller == nil, Self.pollInterval > 0 else { return }
+        poller = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.poll() }
+        }
+    }
+
+    private var polling = false
+    /// 定時重讀:請求在背景跑,上一輪還沒回來就跳過這一輪
+    private func poll() async {
+        guard !polling else { return }
+        polling = true
+        defer { polling = false }
+        await reload()
+    }
+
+    /// 在背景讀目前組織的角色、任務與組織鏈,回主執行緒才更新畫面(定時重讀、切換組織用;不擋主執行緒)
+    @discardableResult
+    func reload() async -> Bool {
+        let org = app.currentOrgId, r = remote
+        let before = (app.agents, app.agentTasks)
+        do {
+            let (agents, tasks, chain) = try await r.run { r -> ([Agent], [AgentTask], Result<OrgChain, Error>) in
+                let agents = try r.listAgents(org: org)
+                let tasks = try r.listTasks(org: org).sorted { $0.number > $1.number }
+                // 組織鏈另外讀;讀不到不影響角色與任務
+                let chain = Result { try r.getChain(org: org) }
+                return (agents, tasks, chain)
+            }
+            guard app.currentOrgId == org else { return false }
+            remoteError = nil
+            // 讀的期間畫面上的資料被寫入改過:這次讀到的可能比較舊,等下一輪
+            if app.agents == before.0, app.agentTasks == before.1 {
+                if agents != app.agents { app.agents = agents }
+                if tasks != app.agentTasks { app.agentTasks = tasks }
+            }
+            switch chain {
+            case .success(let c):
+                app.orgChainError = nil
+                if c != app.orgChain { app.orgChain = c }
+            case .failure(let e):
+                app.orgChainError = e.localizedDescription
+            }
+            return true
+        } catch {
+            if app.currentOrgId == org { remoteFailed(error) }
+            return false
+        }
+    }
+
+    /// 換組織:先清掉(讀不到也不會顯示別的組織的角色),之後由 reload() 在背景讀
+    func clearForOrgChange() {
+        app.agents = []
+        app.agentTasks = []
+        app.orgChain = OrgChain()
+        startPolling()
+    }
+
+    /// 重新讀目前組織的角色與任務(內容有變才更新畫面)
+    @discardableResult
+    func refresh() -> Bool {
+        do {
+            let org = app.currentOrgId
+            let agents = try remote.listAgents(org: org)
+            let tasks = try remote.listTasks(org: org).sorted { $0.number > $1.number }
+            remoteError = nil
+            if agents != app.agents { app.agents = agents }
+            if tasks != app.agentTasks { app.agentTasks = tasks }
+            loadChain()   // 組織鏈另外讀;讀不到不影響角色與任務
+            return true
+        } catch {
+            remoteFailed(error)
+            return false
+        }
+    }
+
+    /// 把伺服器回傳的任務放進清單(新的放最前面)
+    func merge(_ t: AgentTask) {
+        if let i = app.agentTasks.firstIndex(where: { $0.id == t.id }) { app.agentTasks[i] = t } else { app.agentTasks.insert(t, at: 0) }
+    }
+
+    func load() {
+        // 換組織或剛連上:先清掉,讀不到也不會顯示別的組織的角色
+        app.agents = []
+        app.agentTasks = []
+        app.orgChain = OrgChain()
+        refresh()
+        startPolling()
+    }
+
+    /// 開始定時重讀(例行任務由 server 排,App 不再自己排)
+    func start(timer enabled: Bool = true) {
+        guard enabled else { return }
+        startPolling()
+    }
+
+    // MARK: - 查詢
+
+    func agent(_ id: String) -> Agent? {
+        app.agents.first { $0.id.caseInsensitiveCompare(id) == .orderedSame }
+            ?? app.agents.first { $0.name == id }
+    }
+
+    func task(_ id: String) -> AgentTask? {
+        app.agentTasks.first { $0.id.caseInsensitiveCompare(id) == .orderedSame }
+    }
+
+    func tasks(for agentId: String) -> [AgentTask] { app.agentTasks.filter { $0.agentId == agentId } }
+
+    func authorName(_ author: String) -> String {
+        if author == Self.routineAuthor { return "例行排程" }
+        if author == ChainNode.author { return "組織鏈" }
+        if author.hasPrefix("agent:") { return agent(String(author.dropFirst(6)))?.name ?? author }
+        return app.name(of: author == IssueStore.mcpAuthor ? .mcp : .person(author))
+    }
+
+    // MARK: - 角色
+
+    func upsert(_ a: Agent) {
+        do { try save(agent: a) } catch { remoteFailed(error) }
+    }
+
+    /// 新增或修改角色(送到伺服器,要組織管理員),回傳伺服器存下來的內容
+    @discardableResult
+    func save(agent a: Agent) throws -> Agent {
+        let saved = try remote.saveAgent(org: app.currentOrgId, a)
+        remoteError = nil
+        if let i = app.agents.firstIndex(where: { $0.id == saved.id }) { app.agents[i] = saved } else { app.agents.append(saved) }
+        return saved
+    }
+
+    /// 刪除角色:未完成的任務一併取消(伺服器處理,也會把它從組織鏈與頻道拿掉)
+    func delete(_ id: String) {
+        do {
+            try remote.deleteAgent(org: app.currentOrgId, id: id)
+            remoteError = nil
+            app.agents.removeAll { $0.id == id }
+            refresh()
+        } catch { remoteFailed(error) }
+    }
+
+    func newId(for name: String) -> String {
+        let ascii = name.lowercased().unicodeScalars.map { CharacterSet.alphanumerics.contains($0) && $0.isASCII ? String($0) : "-" }.joined()
+        let base = ascii.split(separator: "-").joined(separator: "-")
+        let root = base.isEmpty ? "agent-\(app.agents.count + 1)" : base
+        var id = root
+        var n = 2
+        while app.agents.contains(where: { $0.id == id }) { id = "\(root)-\(n)"; n += 1 }
+        return id
+    }
+
+    // MARK: - 任務
+
+    @discardableResult
+    func assign(to agentId: String, title: String, instructions: String = "", priority: IssuePriority = .normal,
+                links: [String] = [], by author: String, routineId: String? = nil) -> AgentTask? {
+        guard let agent = agent(agentId) else { return nil }
+        do {
+            let t = try remote.assignTask(org: app.currentOrgId, agent: agent.id, title: title, instructions: instructions,
+                                          priority: priority, links: links, author: author)
+            remoteError = nil
+            merge(t)
+            app.log(IssueStore(app: app).actor(author), "person.badge.clock", "指派 \(t.id)「\(title)」給\(agent.name)", .automation)
+            return t
+        } catch {
+            remoteFailed(error)
+            return nil
+        }
+    }
+
+    /// 不能直接改任務:狀態變更走 cancel、requeue、claim、report(伺服器決定時間與憑證)
+    @discardableResult
+    func update(_ id: String, _ change: (inout AgentTask) -> Void) -> AgentTask? {
+        remoteError = "不能直接改任務,請用取消、退回待領取、領取或回報"
+        return nil
+    }
+
+    /// 在任務留備註(用回報的 note,狀態不變)
+    func note(_ id: String, _ text: String, by author: String) -> AgentTask? {
+        let s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return task(id) }
+        return try? report(id, status: nil, result: nil, note: s, links: nil)
+    }
+
+    /// 取消任務(要組織管理員)
+    @discardableResult
+    func cancel(_ id: String) -> AgentTask? {
+        do {
+            let t = try remote.cancelTask(org: app.currentOrgId, id: id)
+            remoteError = nil
+            merge(t)
+            return t
+        } catch { remoteFailed(error); return nil }
+    }
+
+    /// 退回待領取 / 重新排入(要組織管理員;領取的憑證會失效)
+    @discardableResult
+    func requeue(_ id: String) -> AgentTask? {
+        do {
+            let t = try remote.requeueTask(org: app.currentOrgId, id: id)
+            remoteError = nil
+            merge(t)
+            return t
+        } catch { remoteFailed(error); return nil }
+    }
+
+    /// 同 requeue,但請求在背景跑(畫面按鈕用;不擋主執行緒)
+    func requeueAsync(_ id: String) async -> AgentTask? {
+        let org = app.currentOrgId, r = remote
+        do {
+            let t = try await r.run { try $0.requeueTask(org: org, id: id) }
+            remoteError = nil
+            if app.currentOrgId == org { merge(t) }
+            return t
+        } catch { remoteFailed(error); return nil }
+    }
+
+    /// 在任務留備註(回報的 note,狀態不變);請求在背景跑(畫面按鈕用;不擋主執行緒)
+    func reportAsync(_ id: String, note: String) async throws -> AgentTask? {
+        let org = app.currentOrgId, r = remote
+        do {
+            let t = try await r.run { try $0.reportTask(org: org, id: id, status: nil, result: nil, note: note, links: nil) }
+            remoteError = nil
+            if app.currentOrgId == org { merge(t) }
+            return t
+        } catch {
+            remoteFailed(error)
+            throw MCPToolError(error.localizedDescription)
+        }
+    }
+
+    /// 角色領取任務:給 id 就領那筆,否則領最優先、最早的一筆待領取任務
+    func claim(agent agentId: String, task id: String? = nil) throws -> AgentTask? {
+        try claimWithCredential(agent: agentId, task: id).task
+    }
+
+    /// 同 claim;伺服器另外發一組綁這筆任務的角色憑證(secret 只有這一次,不存檔)
+    func claimWithCredential(agent agentId: String, task id: String? = nil) throws -> AgentClaim {
+        let name = agent(agentId)?.id ?? agentId
+        do {
+            let c = try remote.claimTask(org: app.currentOrgId, agent: name, task: id)
+            remoteError = nil
+            if let t = c.task {
+                merge(t)
+                let a = c.agent ?? agent(t.agentId)
+                app.log(.ai(t.agentId), "figure.walk", "\(a?.name ?? t.agentId)開始處理 \(t.id)「\(t.title)」", .automation)
+            }
+            return c
+        } catch {
+            remoteFailed(error)
+            throw MCPToolError(error.localizedDescription)
+        }
+    }
+
+    func report(_ id: String, status: AgentTaskStatus?, result: String?, note: String?, links: [String]?) throws -> AgentTask? {
+        do {
+            let before = task(id)
+            let t = try remote.reportTask(org: app.currentOrgId, id: id, status: status, result: result, note: note, links: links)
+            remoteError = nil
+            merge(t)
+            if let status, status != before?.status, let a = agent(t.agentId) {
+                switch status {
+                case .done: app.log(.ai(a.id), "checkmark.circle", "\(a.name)完成 \(t.id)「\(t.title)」", .automation)
+                case .blocked: app.log(.ai(a.id), "hand.raised", "\(a.name)在 \(t.id)「\(t.title)」需要協助", .automation)
+                default: break
+                }
+            }
+            // 伺服器可能依組織鏈替建立者排了「檢視回報」任務:重讀一次
+            if let status, status == .done || status == .blocked, status != before?.status { refresh() }
+            return t
+        } catch {
+            remoteFailed(error)
+            throw MCPToolError(error.localizedDescription)
+        }
+    }
+
+    // MARK: - 例行任務
+
+    /// 手動立刻排一筆例行任務
+    func runNow(agent agentId: String, routine routineId: String) {
+        do {
+            merge(try remote.runRoutine(org: app.currentOrgId, agent: agentId, routine: routineId, author: app.me))
+            remoteError = nil
+        } catch { remoteFailed(error) }
+    }
+
+#if LEGACY_LOCAL_STORE
+    // ===== 已停用:原本的本機實作(agents.json、App 自己排例行任務),本機模式改由本機守護服務提供;留著備查,不編譯 =====
     private var fileURL: URL { app.dataDir.appendingPathComponent("agents.json") }
 
     // MARK: - 遠端(omixor server)
@@ -652,11 +965,13 @@ final class AgentStore {
         assign(to: agentId, title: r.title, instructions: r.instructions, priority: r.priority, by: app.me, routineId: r.id)
     }
 
+#endif
+
     /// 給 Claude Code 的一段話:貼到對話裡就會以角色身分領任務
     func prompt(agent: Agent, task: AgentTask? = nil) -> String {
         if let task {
-            return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))處理任務 \(task.id):用 ops_agent_task_claim 領取,照角色設定與任務說明完成,過程用 ops_agent_task_report 回報,做完把結果回報成 done;開 Issue 或留言時帶 agent: \(agent.id)。"
+            return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))處理任務 \(task.id):用 agent_task_claim 領取,照角色設定與任務說明完成,過程用 agent_task_report 回報,做完把結果回報成 done;開 Issue 或留言時帶 agent: \(agent.id)。"
         }
-        return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))工作:用 ops_agent_task_claim 依序領取它的待領取任務,照角色設定與任務說明完成並用 ops_agent_task_report 回報,直到沒有任務為止;開 Issue 或留言時帶 agent: \(agent.id)。"
+        return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))工作:用 agent_task_claim 依序領取它的待領取任務,照角色設定與任務說明完成並用 agent_task_report 回報,直到沒有任務為止;開 Issue 或留言時帶 agent: \(agent.id)。"
     }
 }

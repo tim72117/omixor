@@ -7,6 +7,7 @@ final class ChannelTests: XCTestCase {
     var dataDir: URL!
 
     override func setUp() async throws {
+        try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
         TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-channels-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
@@ -49,8 +50,11 @@ final class ChannelTests: XCTestCase {
         status({ try store.create(name: "x", topic: String(repeating: "t", count: 501)) }, 400)
         status({ try store.create(name: "x", members: ["agent:nobody"]) }, 400)
         status({ try store.create(name: "x", members: ["沒有這個角色"]) }, 400)
-        status({ try store.create(name: "x", as: "agent:marketing") }, 403)
+        status({ try store.create(name: "x", members: ["pm@example.com"]) }, 400)   // 人要是組織成員
         XCTAssertTrue(app.channels.isEmpty, "驗證失敗不能存")
+        // 角色不能建頻道、只能看自己是成員的頻道等權限由 core server 強制(core/service 的測試);這裡是本機使用者(伺服器管理員)
+        let r0 = store.remote
+        _ = try r0.sendJSON("POST", r0.orgURL(app.currentOrgId, ["members"]), ["email": "pm@example.com", "role": "member"])
 
         let r = try store.create(name: "  課程上線  ", topic: "討論上線", members: ["行銷", "agent:course-dev", "PM@Example.com", "narrator", "marketing"])
         XCTAssertTrue(r.created)
@@ -65,7 +69,7 @@ final class ChannelTests: XCTestCase {
         XCTAssertTrue(app.activity.contains { $0.text.contains("建立頻道「課程上線」") && $0.section == .channels })
         XCTAssertEqual(try store.create(name: "第二個").channel.id, "CH-2")
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("channels.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("channels.json").path), "存在 core server,不寫本機檔案")
         let app2 = AppState()
         app2.startTestAgents()
         let store2 = app2.startChannels()
@@ -90,13 +94,10 @@ final class ChannelTests: XCTestCase {
         // 角色:成員可以讀、發;非成員看不到
         XCTAssertEqual(try store.list(as: "agent:marketing").map(\.id), [c.id])
         XCTAssertEqual(try store.list(as: "agent:narrator").map(\.id), [])
-        status({ _ = try store.channel(other.id, as: "agent:marketing") }, 403)
         status({ _ = try store.channel("私人", as: "agent:marketing") }, 404)
-        status({ try store.post(other.id, text: "hi", as: "agent:marketing") }, 403)
+        status({ try store.post(other.id, text: "hi", as: "agent:marketing") }, 404)   // 角色看不到不是成員的頻道
         XCTAssertEqual(try store.post(c.id, text: "收到", as: "agent:marketing").author, "agent:marketing")
-        // 角色不能改成員、名稱
-        status({ try store.changeMembers(c.id, add: ["narrator"], as: "agent:marketing") }, 403)
-        status({ try store.update(c.id, name: "新名稱", as: "agent:marketing") }, 403)
+        // 角色不能改成員、名稱:由 core server 依角色憑證強制(core/service 的測試)
 
         // 管理員把自己拿掉:還看得到、可以改,但不能發
         try store.changeMembers(c.id, add: ["narrator"], remove: [me])
@@ -106,8 +107,6 @@ final class ChannelTests: XCTestCase {
         XCTAssertEqual(try store.update(c.id, name: "行銷", topic: "主題").channel.name, "行銷")
         status({ try store.update(c.id, name: " ") }, 400)
         XCTAssertNoThrow(try store.messages(c.id))
-        // 非成員的一般使用者看不到
-        status({ _ = try store.messages(c.id, as: "user:alice@example.com") }, 403)
         // 訊息驗證
         status({ try store.post(other.id, text: "   ") }, 400)
         status({ try store.post(other.id, text: String(repeating: "a", count: 8001)) }, 400)
@@ -220,12 +219,7 @@ final class ChannelTests: XCTestCase {
         XCTAssertEqual(again.channel.id, opened.id)
         XCTAssertEqual(try store.list(issue: issue.id).map(\.id), [opened.id])
         XCTAssertEqual(app.channels.count, 1)
-
-        // 看不到的人(不是成員、不是管理員)→ 409,說明頻道 id
-        XCTAssertThrowsError(try store.create(name: "y", issueId: issue.id, as: "user:alice@example.com")) { e in
-            XCTAssertEqual((e as? ChannelError)?.status, 409)
-            XCTAssertTrue(e.localizedDescription.contains(opened.id), e.localizedDescription)
-        }
+        // 看不到的人(不是成員、不是管理員)→ 409:由 core server 強制(core/service 的測試)
     }
 
     /// 刪角色時從所有頻道成員拿掉
@@ -243,74 +237,75 @@ final class ChannelTests: XCTestCase {
         XCTAssertEqual(try app2.startChannels().channel(a.id).channel.members, ["user:tim", "agent:narrator"])
     }
 
-    /// MCP:ops_channel_create、ops_channel_post(agent 署名、要是成員)、ops_channels、ops_channel_messages(讀了算已讀)、ops_agent_context 的 mentions
+    /// MCP:channel_create、channel_post(agent 署名、要是成員)、channels、channel_messages(讀了算已讀)、agent_context 的 mentions
     func testMCPTools() async throws {
         let (app, store) = setup()
         let mcp = MCPHandler(app: app)
-        for n in ["ops_channels", "ops_channel_create", "ops_channel_messages", "ops_channel_post"] {
+        for n in ["channels", "channel_create", "channel_messages", "channel_post"] {
             XCTAssertTrue(MCPHandler.tools.contains { $0.name == n }, n)
         }
 
-        var (o, text, err) = try await call(mcp, "ops_channel_create", ["name": "上線", "topic": "週五上線", "members": ["行銷", "narrator"]])
+        var (o, text, err) = try await call(mcp, "channel_create", ["name": "上線", "topic": "週五上線", "members": ["行銷", "narrator"]])
         XCTAssertFalse(err, text)
         XCTAssertEqual(o["id"] as? String, "CH-1")
         XCTAssertEqual(o["created"] as? Bool, true)
-        XCTAssertEqual((o["members"] as? [[String: Any]])?.map { $0["name"] as? String ?? "" }, ["tim", "行銷", "旁白製作"].map { app.person($0)?.name ?? $0 })
-        (_, text, err) = try await call(mcp, "ops_channel_create", ["name": "x", "members": ["nobody"]])
+        // 名稱由 core 決定:人是 email(本機使用者是 App 的使用者 id)
+        XCTAssertEqual((o["members"] as? [[String: Any]])?.map { $0["name"] as? String ?? "" }, ["tim", "行銷", "旁白製作"])
+        (_, text, err) = try await call(mcp, "channel_create", ["name": "x", "members": ["nobody"]])
         XCTAssertTrue(err)
-        XCTAssertTrue(text.contains("找不到角色"), text)
+        XCTAssertTrue(text.contains("nobody"), text)
 
-        (o, text, err) = try await call(mcp, "ops_channel_post", ["channel": "上線", "text": "@行銷 文案好了嗎?"])
+        (o, text, err) = try await call(mcp, "channel_post", ["channel": "上線", "text": "@行銷 文案好了嗎?"])
         XCTAssertFalse(err, text)
         XCTAssertEqual(o["author"] as? String, "user:tim")
         XCTAssertEqual(o["mentions"] as? [String], ["agent:marketing"])
-        (_, text, err) = try await call(mcp, "ops_channel_post", ["channel": "CH-1", "text": "我不是成員", "agent": "course-dev"])
+        (_, text, err) = try await call(mcp, "channel_post", ["channel": "CH-1", "text": "我不是成員", "agent": "course-dev"])
         XCTAssertTrue(err, "角色要是頻道成員")
-        (_, text, err) = try await call(mcp, "ops_channel_post", ["channel": "CH-1", "text": "x", "agent": "nobody"])
+        (_, text, err) = try await call(mcp, "channel_post", ["channel": "CH-1", "text": "x", "agent": "nobody"])
         XCTAssertTrue(err)
         XCTAssertTrue(text.contains("找不到角色"), text)
 
-        // 角色執行時:ops_agent_context 看得到提到它的未讀訊息
-        (o, text, err) = try await call(mcp, "ops_agent_context", ["agent": "marketing"])
+        // 角色執行時:agent_context 看得到提到它的未讀訊息
+        (o, text, err) = try await call(mcp, "agent_context", ["agent": "marketing"])
         XCTAssertFalse(err, text)
         let mentions = try XCTUnwrap(o["mentions"] as? [String: Any])
         let msgs = try XCTUnwrap(mentions["messages"] as? [[String: Any]])
         XCTAssertEqual(msgs.count, 1)
         XCTAssertEqual(msgs.first?["channelName"] as? String, "上線")
-        XCTAssertEqual(msgs.first?["authorName"] as? String, app.person("tim")?.name ?? "tim")
+        XCTAssertEqual(msgs.first?["authorName"] as? String, "tim")
         XCTAssertEqual((mentions["channels"] as? [[String: Any]])?.first?["unread"] as? Int, 1)
 
-        (o, text, err) = try await call(mcp, "ops_channels", ["agent": "marketing"])
+        (o, text, err) = try await call(mcp, "channels", ["agent": "marketing"])
         XCTAssertFalse(err, text)
         XCTAssertEqual((o["channels"] as? [[String: Any]])?.first?["unread"] as? Int, 1)
-        (o, _, _) = try await call(mcp, "ops_channels", ["agent": "course-dev"])
+        (o, _, _) = try await call(mcp, "channels", ["agent": "course-dev"])
         XCTAssertEqual((o["channels"] as? [[String: Any]])?.count, 0)
 
         // 讀了算已讀;以角色身分回覆
-        (o, text, err) = try await call(mcp, "ops_channel_messages", ["channel": "上線", "agent": "marketing"])
+        (o, text, err) = try await call(mcp, "channel_messages", ["channel": "上線", "agent": "marketing"])
         XCTAssertFalse(err, text)
         XCTAssertEqual((o["channel"] as? [String: Any])?["id"] as? String, "CH-1")
         XCTAssertEqual((o["messages"] as? [[String: Any]])?.map { $0["id"] as? String ?? "" }, ["M-1"])
         XCTAssertEqual(o["hasMore"] as? Bool, false)
         XCTAssertEqual(try store.inbox(for: "agent:marketing").mentions.count, 0)
-        (o, text, err) = try await call(mcp, "ops_channel_post", ["channel": "CH-1", "text": "好了,@tim 請看", "agent": "行銷"])
+        (o, text, err) = try await call(mcp, "channel_post", ["channel": "CH-1", "text": "好了,@tim 請看", "agent": "行銷"])
         XCTAssertFalse(err, text)
         XCTAssertEqual(o["author"] as? String, "agent:marketing")
         XCTAssertEqual(o["authorName"] as? String, "行銷")
         XCTAssertEqual(app.channels.first?.unread, 1)
-        (o, _, _) = try await call(mcp, "ops_channel_messages", ["channel": "CH-1", "since": "M-1"])
+        (o, _, _) = try await call(mcp, "channel_messages", ["channel": "CH-1", "since": "M-1"])
         XCTAssertEqual((o["messages"] as? [[String: Any]])?.map { $0["id"] as? String ?? "" }, ["M-2"])
         XCTAssertEqual(app.channels.first?.unread, 0)
 
         // 綁 Issue:重複建立回傳既有的
         let issue = app.startIssues().create(title: "bug", by: "tim")
-        (o, _, _) = try await call(mcp, "ops_channel_create", ["name": "bug", "issue": issue.id])
+        (o, _, _) = try await call(mcp, "channel_create", ["name": "bug", "issue": issue.id])
         XCTAssertEqual(o["created"] as? Bool, true)
         let id = o["id"] as? String
-        (o, _, _) = try await call(mcp, "ops_channel_create", ["name": "bug 2", "issue": issue.id])
+        (o, _, _) = try await call(mcp, "channel_create", ["name": "bug 2", "issue": issue.id])
         XCTAssertEqual(o["created"] as? Bool, false)
         XCTAssertEqual(o["id"] as? String, id)
-        (o, _, _) = try await call(mcp, "ops_channels", ["issue": issue.id])
+        (o, _, _) = try await call(mcp, "channels", ["issue": issue.id])
         XCTAssertEqual((o["channels"] as? [[String: Any]])?.map { $0["id"] as? String ?? "" }, [id ?? ""])
     }
 }

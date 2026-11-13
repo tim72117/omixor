@@ -33,6 +33,8 @@ type GitLabView = {
   snapshot: { projects: GLProject[]; mrs: GLMR[]; pipelines: GLPipeline[]; fetchedAt?: string | null; busy: boolean; errors: Record<string, string>; error?: string | null };
   connection: Connection | null; loggedIn: boolean; state: ConnState | null; configured: boolean;
   baseURL: string; caCert: string; insecure: boolean; callback: string; scopes: string; applicationsURL: string; tokenURL: string;
+  /** 讀寫組織設定(核心)的錯誤;網址與追蹤的專案是組織的設定,token、CA 憑證檔、不驗證憑證留在這台 */
+  settingsError?: string;
 };
 
 const LABELS: Record<string, string> = {
@@ -114,9 +116,10 @@ function GitLabMain({ gl }: { gl: GitLabView }) {
             { label: "停止追蹤", danger: true, onClick: () => { run(() => action("gitlab_remove_project", { project: k })); if (projectFilter === k) setProjectFilter(""); } },
           ]} />
         ))}
-        <input className="input" style={{ width: 180 }} placeholder="group/project 或 id" value={newProject} onChange={(e) => setNewProject(e.target.value)} onKeyDown={(e) => e.key === "Enter" && newProject.trim() && addProject()} />
+        <input className="input" style={{ width: 180 }} placeholder="group/project 或 id" value={newProject} onChange={(e) => setNewProject(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && newProject.trim() && addProject()} />
         <button className="btn" disabled={!newProject.trim()} onClick={addProject}>加入</button>
         {projectError && <span className="caption ellipsis" style={{ color: "var(--red)" }}>{projectError}</span>}
+        {!projectError && gl.settingsError && <span className="caption ellipsis" style={{ color: "var(--orange)" }} title={gl.settingsError}>組織設定:{gl.settingsError}</span>}
         <span className="grow" />
         {snap.fetchedAt && <span className="caption muted">更新於 {relative(snap.fetchedAt)}</span>}
         {snap.busy && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}

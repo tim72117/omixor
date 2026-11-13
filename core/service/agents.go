@@ -1064,7 +1064,7 @@ func (s *Service) syncAssignee(p *model.Principal, org string, issue model.Issue
 			return // 這個 Issue 已經有一筆未結束的任務,不重複排
 		}
 	}
-	instr := fmt.Sprintf("請處理 Issue %s「%s」(優先度 %s)。\n\n%s\n\n用 ops_issues(id: %s)讀完整內容與留言;處理完在 Issue 留言說明結果,再用 ops_agent_task_report 回報這筆任務。",
+	instr := fmt.Sprintf("請處理 Issue %s「%s」(優先度 %s)。\n\n%s\n\n用 issues(id: %s)讀完整內容與留言;處理完在 Issue 留言說明結果,再用 agent_task_report 回報這筆任務。",
 		issue.ID, issue.Title, issue.Priority, truncRunes(strings.TrimSpace(issue.Body), 1000), issue.ID)
 	t, err := s.insertTask(org, g, fmt.Sprintf("處理 %s:%s", issue.ID, issue.Title), instr, issue.Priority, by, []string{issue.ID})
 	if err != nil {

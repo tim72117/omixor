@@ -5,6 +5,7 @@ import XCTest
 final class AgentTests: XCTestCase {
     var dataDir: URL!
     override func setUp() async throws {
+        try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
         TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-agents-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
@@ -39,68 +40,65 @@ final class AgentTests: XCTestCase {
         XCTAssertEqual(app.agents.map(\.id), ["visitor-analyst", "narrator", "triager", "course-dev", "marketing"])
         let mcp = MCPHandler(app: app)
 
-        var (d, err) = try await call(mcp, "ops_agent_task_create", ["assign_to": "訪客分析師", "title": "看 7d 數字", "priority": "high"])
+        var (d, err) = try await call(mcp, "agent_task_create", ["assign_to": "訪客分析師", "title": "看 7d 數字", "priority": "high"])
         XCTAssertFalse(err)
         XCTAssertEqual(d["id"] as? String, "T-1")
         store.assign(to: "visitor-analyst", title: "低優先", priority: .low, by: "tim")
         // 舊的寫法(agent 當成接任務的角色)要被擋下,不能誤派
-        (_, err) = try await call(mcp, "ops_agent_task_create", ["agent": "product-manager", "title": "x"])
+        (_, err) = try await call(mcp, "agent_task_create", ["agent": "product-manager", "title": "x"])
         XCTAssertTrue(err)
-        (_, err) = try await call(mcp, "ops_agent_task_create", ["agent": "course-dev", "assign_to": "course-dev", "title": "x"])
+        (_, err) = try await call(mcp, "agent_task_create", ["agent": "course-dev", "assign_to": "course-dev", "title": "x"])
         XCTAssertTrue(err, "不能派給自己")
-        (d, err) = try await call(mcp, "ops_agent_task_create", ["agent": "course-dev", "assign_to": "marketing", "title": "寫貼文"])
+        (d, err) = try await call(mcp, "agent_task_create", ["agent": "course-dev", "assign_to": "marketing", "title": "寫貼文"])
         XCTAssertFalse(err)
         XCTAssertEqual(d["agentName"] as? String, "行銷")
         XCTAssertEqual(d["createdBy"] as? String, "課程開發")
-        store.update(d["id"] as! String) { $0.status = .canceled }
+        store.cancel(d["id"] as! String)
 
-        (d, err) = try await call(mcp, "ops_agent_task_claim", ["agent": "visitor-analyst"])
+        (d, err) = try await call(mcp, "agent_task_claim", ["agent": "visitor-analyst"])
         XCTAssertFalse(err)
         XCTAssertEqual((d["task"] as? [String: Any])?["id"] as? String, "T-1", "先領優先度高的")
         XCTAssertNotNil((d["agent"] as? [String: Any])?["instructions"])
         XCTAssertEqual(store.task("T-1")?.status, .inProgress)
 
-        (d, err) = try await call(mcp, "ops_agent_task_claim", ["agent": "narrator", "id": "T-2"])
+        (d, err) = try await call(mcp, "agent_task_claim", ["agent": "narrator", "id": "T-2"])
         XCTAssertTrue(err, "不能領別的角色的任務")
 
-        (d, err) = try await call(mcp, "ops_agent_task_report", ["id": "T-1", "note": "讀了 7d", "status": "done", "result": "播放率 55%", "links": ["ISS-1"]])
+        (d, err) = try await call(mcp, "agent_task_report", ["id": "T-1", "note": "讀了 7d", "status": "done", "result": "播放率 55%", "links": ["ISS-1"]])
         XCTAssertFalse(err)
         XCTAssertEqual(d["status"] as? String, "done")
         XCTAssertEqual((d["notes"] as? [[String: Any]])?.first?["author"] as? String, "訪客分析師")
-        XCTAssertEqual(app.activity.first?.text, "訪客分析師完成 T-1「看 7d 數字」")
+        XCTAssertEqual(store.task("T-1")?.status, .done, "MCP 改了 server 上的資料,App 馬上重讀")
 
-        _ = try await call(mcp, "ops_agent_task_claim", ["agent": "visitor-analyst"])
-        (d, _) = try await call(mcp, "ops_agent_task_claim", ["agent": "visitor-analyst"])
+        _ = try await call(mcp, "agent_task_claim", ["agent": "visitor-analyst"])
+        (d, _) = try await call(mcp, "agent_task_claim", ["agent": "visitor-analyst"])
         XCTAssertTrue(d["task"] is NSNull)
 
-        // 例行任務:到時間排一筆,沒做完不重複排
-        var a = try XCTUnwrap(store.agent("triager"))
-        a.routines[0].createdAt = Date().addingTimeInterval(-8 * 86400)
-        store.upsert(a)
-        store.runDueRoutines()
-        store.runDueRoutines(now: Date().addingTimeInterval(8 * 86400))
+        // 例行任務由 server 排(core 的 StartRoutines);手動立刻排一筆
+        let a = try XCTUnwrap(store.agent("triager"))
+        store.runNow(agent: "triager", routine: a.routines[0].id)
         XCTAssertEqual(store.tasks(for: "triager").count, 1)
 
         // 透過 MCP 新增角色、加例行任務
-        (d, err) = try await call(mcp, "ops_agent_upsert", ["name": "客服", "role": "回覆學員問題", "color": "green",
+        (d, err) = try await call(mcp, "agent_upsert", ["name": "客服", "role": "回覆學員問題", "color": "green",
             "routines": [["title": "每日信件", "kind": "daily", "hour": 8]]])
         XCTAssertFalse(err, "\(d)")
         XCTAssertEqual(d["name"] as? String, "客服")
-        (d, err) = try await call(mcp, "ops_agent_upsert", ["id": "客服", "add_routines": [["title": "週報", "kind": "weekly", "weekday": 6]]])
+        (d, err) = try await call(mcp, "agent_upsert", ["id": "客服", "add_routines": [["title": "週報", "kind": "weekly", "weekday": 6]]])
         XCTAssertFalse(err, "\(d)")
         XCTAssertEqual((d["routines"] as? [[String: Any]])?.map { $0["schedule"] as? String }, ["每天 08:00", "每週五 09:00"])
-        (d, err) = try await call(mcp, "ops_agent_upsert", ["id": "product-manager", "name": "產品經理"])
+        (d, err) = try await call(mcp, "agent_upsert", ["id": "product-manager", "name": "產品經理"])
         XCTAssertFalse(err, "\(d)")
         XCTAssertEqual(d["id"] as? String, "product-manager")
-        (_, err) = try await call(mcp, "ops_agent_upsert", ["id": "產品 經理", "name": "x"])
+        (_, err) = try await call(mcp, "agent_upsert", ["id": "產品 經理", "name": "x"])
         XCTAssertTrue(err)
-        (_, err) = try await call(mcp, "ops_agent_upsert", ["role": "沒有名稱"])
+        (_, err) = try await call(mcp, "agent_upsert", ["role": "沒有名稱"])
         XCTAssertTrue(err)
 
         // 重開讀回
         let app2 = AppState()
         app2.startAgents(timer: false)
-        XCTAssertEqual(app2.agentTasks.count, 8, "快轉 8 天,其他角色的例行任務也到期")
+        XCTAssertEqual(app2.agentTasks.count, 4, "資料在 server 上,重開讀得回來")
         XCTAssertEqual(app2.agentTasks.first { $0.id == "T-1" }?.result, "播放率 55%")
         withExtendedLifetime(app) {}
     }

@@ -9,7 +9,7 @@ package core
 //	Action voice_retry     {id}  立即檢查(Swift 的「立即檢查」按鈕)→ VoiceJob
 //	Action voice_discard   {id}  從清單移除已結束的批次(Go 版才有)→ {}
 //	Action voice_settings  {connection?, pollMinutes?, shuttlePath?} → 同 View voice_settings
-// 送出與試算用 POST /api/tool/ops_voice_submit(dry_run)。
+// 送出與試算用 POST /api/tool/voice_submit(dry_run)。
 
 func init() {
 	RegisterView("voice_jobs", func(a *App) any {

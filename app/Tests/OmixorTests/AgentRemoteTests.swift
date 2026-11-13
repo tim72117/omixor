@@ -274,7 +274,6 @@ final class AgentRemoteTests: XCTestCase {
         _ = FakeOmixorServer.newTask(agent: "programmer", title: "處理 ISS-13", links: ["ISS-13"], by: "mcp")
         let app = remoteApp()
         let store = try XCTUnwrap(app.agentStore)
-        XCTAssertTrue(store.isRemote)
         XCTAssertNil(store.remoteError)
         XCTAssertEqual(app.agents.map(\.id), ["programmer", "tester"])
         XCTAssertEqual(app.agents.first?.docAccess["docs"], .write)
@@ -282,8 +281,7 @@ final class AgentRemoteTests: XCTestCase {
         XCTAssertEqual(app.agentTasks.first?.issueId, "ISS-13")
         XCTAssertTrue(FakeOmixorServer.requests.contains { $0.path == "/api/orgs/omixor/agents" })
         XCTAssertTrue(FakeOmixorServer.requests.contains { $0.path == "/api/orgs/omixor/agent-tasks" })
-        store.runDueRoutines(now: .distantFuture)
-        XCTAssertEqual(app.agentTasks.count, 1, "遠端模式的例行任務由伺服器排")
+        XCTAssertEqual(app.agentTasks.count, 1, "例行任務由伺服器排,App 不自己排")
         XCTAssertFalse(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("agents.json").path))
     }
 
@@ -374,30 +372,49 @@ final class AgentRemoteTests: XCTestCase {
         XCTAssertEqual(issues.remoteError, "assignee 指定的角色不存在:nobody")
     }
 
-    /// MCP:ops_agent_task_claim 回傳憑證;ops_issue_create 可以帶 assignee;ops_server 回版本
+    /// MCP:核心工具一律轉給 core server(這裡連真的本機守護服務):agent_task_claim 回傳憑證,端點指向那台 server 的 /mcp/agent
+    /// (角色自動執行用);issue_create 可以帶 assignee;server 回版本
     func testMCPClaimAndServerInfo() async throws {
-        let app = remoteApp()
+        IssueRemote.protocolClasses = []   // 這個測試連真的守護服務,不攔截
+        let cfg = try TestCore.start(self)
+        let app = AppState()
+        let agents = app.startAgents(timer: false)
+        app.startIssues()
+        try agents.save(agent: Agent(id: "programmer", name: "工程師", role: "寫程式", symbol: "hammer", color: "blue", instructions: "寫程式"))
         let mcp = MCPHandler(app: app)
-        var (obj, text, err) = try await call(mcp, "ops_issue_create", ["title": "要處理的", "assignee": "programmer"])
+        var (obj, text, err) = try await call(mcp, "issue_create", ["title": "要處理的", "assignee": "programmer"])
         XCTAssertFalse(err, text)
         XCTAssertEqual((obj as? [String: Any])?["assignee"] as? String, "programmer")
 
-        (obj, text, err) = try await call(mcp, "ops_agent_task_claim", ["agent": "programmer"])
+        (obj, text, err) = try await call(mcp, "agent_task_claim", ["agent": "programmer"])
         XCTAssertFalse(err, text)
-        let d = try XCTUnwrap(obj as? [String: Any])
+        let d = try XCTUnwrap(obj as? [String: Any], text)
         XCTAssertEqual((d["task"] as? [String: Any])?["id"] as? String, "T-1")
-        let cred = try XCTUnwrap(d["credential"] as? [String: Any])
+        let cred = try XCTUnwrap(d["credential"] as? [String: Any], text)
         XCTAssertEqual(cred["agentId"] as? String, "programmer")
-        XCTAssertEqual(cred["endpoint"] as? String, "http://127.0.0.1:5998/mcp/agent")
+        XCTAssertEqual(cred["endpoint"] as? String, cfg.url.appendingPathComponent("mcp/agent").absoluteString)
+        XCTAssertEqual(AgentRunner.agentEndpoint(app), cfg.url.appendingPathComponent("mcp/agent").absoluteString)
         XCTAssertNotNil(cred["secret"])
 
-        (obj, text, err) = try await call(mcp, "ops_issue_create", ["title": "x", "assignee": "nobody"])
+        (obj, text, err) = try await call(mcp, "issue_create", ["title": "x", "assignee": "nobody"])
         XCTAssertTrue(err, text)
 
-        (obj, text, err) = try await call(mcp, "ops_server", [:])
+        (obj, text, err) = try await call(mcp, "server", [:])
         XCTAssertFalse(err, text)
         // testOverride 不改 OmixorMode,所以這裡是本機模式的輸出:只有 app 版本
         XCTAssertNotNil(((obj as? [String: Any])?["version"] as? [String: Any])?["app"])
+    }
+
+    /// core server 連不上時,核心工具回錯誤,不改用 App 裡的 Swift 實作
+    func testMCPCoreToolsNeedServer() async throws {
+        IssueServerConfig.testOverride = IssueServerConfig(url: URL(string: "http://127.0.0.1")!, token: nil, unavailable: "本機服務啟動中,請稍候")
+        let app = AppState()
+        let mcp = MCPHandler(app: app)
+        let (_, text, err) = try await call(mcp, "issue_create", ["title": "x"])
+        XCTAssertTrue(err)
+        XCTAssertTrue(text.contains("本機服務啟動中"), text)
+        XCTAssertTrue(app.issues.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("issues.json").path), "不寫本機檔案")
     }
 
     /// GET /api/version:不包 result;version 等於 commit 時只顯示短 commit

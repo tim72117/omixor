@@ -14,7 +14,12 @@ struct LoginGate<Content: View>: View {
             if let n = app.noOrgsServer {
                 NoOrgsView(server: n.server, account: n.account)
             } else if app.connectChosen {
-                content()
+                // 本機模式:本機守護服務可用才進主畫面(起不來時停在這裡,不退回舊的本機實作)
+                if app.mode.mode == OmixorMode.local, app.localCore != .ready {
+                    LocalCoreGate()
+                } else {
+                    content()
+                }
             } else {
                 ConnectPicker()
             }
@@ -51,6 +56,9 @@ struct ConnectPicker: View {
                         Text("請在瀏覽器完成 \(name) 的核准…")
                         Text("核准後會自動進入。evoleap 只證明你是誰,能不能用由 omixor 的使用者名單決定。")
                             .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Button("取消") { app.cancelConnect() }
+                            .keyboardShortcut(.cancelAction)
+                            .padding(.top, 4)
                     }
                     .padding(.vertical, 12)
                 } else if let s = choosing {
@@ -108,8 +116,9 @@ extension AppState {
         connectError = nil
         omixorLogin = .skipped
         connectChosen = true
-        guard mode.mode != OmixorMode.local else { return }
+        guard mode.mode != OmixorMode.local else { startLocalCore(); return }
         enterMode(OmixorMode.File(mode: OmixorMode.local))
+        startLocalCore()
         log(.person(me), "internaldrive", "切換到本機模式", .settings)
     }
 
@@ -122,16 +131,37 @@ extension AppState {
         defer { connecting = nil }
         do {
             var account = await OmixorAuth.check(server: s.url).account
-            if account == nil { account = try await OmixorAuth.login(self, server: s.url) }
-            guard let list = await OmixorAuth.fetchOrgs(server: s.url) else { throw ConnectionError("讀不到 \(s.name) 的組織清單") }
+            if account == nil {
+                // 等瀏覽器核准:放在可取消的 Task,使用者按「取消」時 cancelConnect() 取消它
+                let login = Task { try await OmixorAuth.login(self, server: s.url) }
+                connectLogin = login
+                defer { connectLogin = nil }
+                do { account = try await login.value } catch {
+                    // 取消時可能停在等回呼(CancellationError)或某個 HTTP 請求(URLError.cancelled):一律當作使用者取消
+                    if login.isCancelled { throw CancellationError() }
+                    throw error
+                }
+            }
+            let list: [ServerOrg]
+            do { list = try await OmixorAuth.listOrgs(server: s.url) } catch {
+                throw ConnectionError("讀不到 \(s.name) 的組織清單:\(error.localizedDescription)")
+            }
             guard !list.isEmpty else {
                 if let account { noOrgsServer = (s, account) } else { throw ConnectionError("\(s.name) 的登入失效,請再試一次") }
                 return
             }
             enterRemote(s, list, account: account)
+            if let w = OmixorAuth.takeKeychainWarning() { errorNotice = "已登入 \(s.name),但\(w)" }
+        } catch is CancellationError {
+            connectError = nil   // 使用者取消:留在原本的畫面,不顯示錯誤
         } catch {
             connectError = error.localizedDescription
         }
+    }
+
+    /// 取消等待瀏覽器核准(停止等 evoleap 回呼,回到原本的畫面)
+    func cancelConnect() {
+        connectLogin?.cancel()
     }
 
     /// 進入遠端模式(已經讀到組織清單)
@@ -146,7 +176,7 @@ extension AppState {
 
     /// 「還沒有組織」畫面:再讀一次組織清單,有了就進入遠端模式
     func retryNoOrgs() async {
-        guard let n = noOrgsServer, let list = await OmixorAuth.fetchOrgs(server: n.server.url), !list.isEmpty,
+        guard let n = noOrgsServer, let list = await OmixorAuth.fetchOrgs(server: n.server.url), !list.isEmpty,  // 背景重試:失敗下次再試
               noOrgsServer?.server == n.server else { return }
         enterRemote(n.server, list, account: n.account)
     }
@@ -156,9 +186,11 @@ extension AppState {
         guard let n = noOrgsServer else { return }
         let root = OmixorMode.serverOrgId(newOrgId(for: name))
         _ = try await OmixorAuth.createOrg(server: n.server.url, id: root, name: name, symbol: "building.2", color: "blue")
-        guard let list = await OmixorAuth.fetchOrgs(server: n.server.url), !list.isEmpty else {
-            throw ConnectionError("組織建好了,但讀不到 \(n.server.name) 的組織清單")
+        let list: [ServerOrg]
+        do { list = try await OmixorAuth.listOrgs(server: n.server.url) } catch {
+            throw ConnectionError("組織建好了,但讀不到 \(n.server.name) 的組織清單:\(error.localizedDescription)")
         }
+        guard !list.isEmpty else { throw ConnectionError("組織建好了,但 \(n.server.name) 的組織清單裡沒有它(可能還沒把你加成成員)") }
         enterRemote(n.server, list, account: n.account)
     }
 

@@ -7,6 +7,7 @@ final class OrgChainTests: XCTestCase {
     var dataDir: URL!
 
     override func setUp() async throws {
+        try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
         TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-chain-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
@@ -43,16 +44,18 @@ final class OrgChainTests: XCTestCase {
             XCTAssertTrue($0.localizedDescription.contains("循環"), $0.localizedDescription)
         }
         XCTAssertThrowsError(try store.saveChain([e("agent:nobody", "agent:triager")])) { XCTAssertTrue($0.localizedDescription.contains("找不到角色")) }
-        XCTAssertThrowsError(try store.saveChain([e("user:stranger", "agent:triager")])) { XCTAssertTrue($0.localizedDescription.contains("不是組織的成員")) }
+        XCTAssertThrowsError(try store.saveChain([e("user:stranger", "agent:triager")])) { XCTAssertTrue($0.localizedDescription.contains("不是組織成員"), $0.localizedDescription) }
         XCTAssertTrue(app.orgChain.edges.isEmpty, "驗證失敗不能存")
+        // 人要是組織成員(core 的規則)
+        _ = try store.remote.sendJSON("POST", store.remote.orgURL(app.currentOrgId, ["members"]), ["email": "ceo@example.com", "role": "member"])
 
-        let c = try store.saveChain([e("user:CEO@Example.com", "課程開發", "目標"), e("agent:course-dev", "agent:marketing")])
+        let c = try store.saveChain([e("user:CEO@Example.com", "agent:課程開發", "目標"), e("agent:course-dev", "agent:marketing")])
         XCTAssertEqual(c.edges.map(\.from), ["user:ceo@example.com", "agent:course-dev"])
         XCTAssertEqual(c.edges.first?.to, "agent:course-dev")
         XCTAssertEqual(c.layers(), [["user:ceo@example.com"], ["agent:course-dev"], ["agent:marketing"]])
 
-        // 存在 org-chain.json,重開讀得回來;刪角色時相關的邊一併拿掉
-        XCTAssertTrue(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("org-chain.json").path))
+        // 存在 core server(不寫 org-chain.json),重開讀得回來;刪角色時相關的邊一併拿掉
+        XCTAssertFalse(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("org-chain.json").path))
         let app2 = AppState()
         let store2 = app2.startAgents(timer: false)
         XCTAssertEqual(app2.orgChain.edges, c.edges)
@@ -69,18 +72,17 @@ final class OrgChainTests: XCTestCase {
         let src = try XCTUnwrap(store.assign(to: "course-dev", title: "規劃課程", links: ["ISS-3"], by: "tim"))
         _ = try store.claim(agent: "course-dev", task: src.id)
 
-        let t = try store.delegate(from: "course-dev", to: "行銷", title: "寫推廣文", instructions: "寫三篇")
+        let t = try store.delegate(from: "course-dev", to: "行銷", title: "寫推廣文", instructions: "寫三篇", sourceTask: src.id)
         XCTAssertEqual(t.agentId, "marketing")
         XCTAssertEqual(t.createdBy, "agent:course-dev")
         XCTAssertEqual(t.links, [src.id, "ISS-3"])
         XCTAssertEqual(t.instructions, "【目標】\n\n寫三篇")
 
         XCTAssertThrowsError(try store.delegate(from: "marketing", to: "course-dev", title: "x", instructions: "")) {
-            XCTAssertTrue($0.localizedDescription.contains("不能派工作給"), $0.localizedDescription)
-            XCTAssertTrue($0.localizedDescription.contains("沒有"), $0.localizedDescription)
+            XCTAssertTrue($0.localizedDescription.contains("組織鏈上"), $0.localizedDescription)
         }
         XCTAssertThrowsError(try store.delegate(from: "triager", to: "marketing", title: "x", instructions: "")) {
-            XCTAssertTrue($0.localizedDescription.contains("不能派工作給"))
+            XCTAssertTrue($0.localizedDescription.contains("組織鏈上"), $0.localizedDescription)
         }
     }
 
@@ -88,7 +90,9 @@ final class OrgChainTests: XCTestCase {
     func testReport() throws {
         let app = AppState()
         let store = app.startTestAgents()
-        try store.saveChain([e("agent:course-dev", "agent:marketing"), e("user:tim", "agent:course-dev", "目標")])
+        // core 只把 email(或 user:<…>)署名的任務當成鏈上的人(model.NodeOfAuthor);本機使用者 tim 不是 email,這裡用另一位成員測
+        _ = try store.remote.sendJSON("POST", store.remote.orgURL(app.currentOrgId, ["members"]), ["email": "ceo@example.com", "role": "member"])
+        try store.saveChain([e("agent:course-dev", "agent:marketing"), e("user:ceo@example.com", "agent:course-dev", "目標")])
 
         let t = try store.delegate(from: "course-dev", to: "marketing", title: "寫推廣文", instructions: "")
         _ = try store.claim(agent: "marketing", task: t.id)
@@ -119,13 +123,13 @@ final class OrgChainTests: XCTestCase {
         XCTAssertEqual(app.agentTasks.filter { $0.title == "檢視回報:拍影片" }.count, 1)
 
         // 真人建立者:不建任務,原任務留備註,出現在「回報給我的任務」
-        let h = try XCTUnwrap(store.assign(to: "course-dev", title: "訂季度目標", by: "tim"))
+        let h = try XCTUnwrap(store.assign(to: "course-dev", title: "訂季度目標", by: "ceo@example.com"))
         let before = app.agentTasks.count
         _ = try store.claim(agent: "course-dev", task: h.id)
         _ = try store.report(h.id, status: .done, result: "定好了", note: nil, links: nil)
         XCTAssertEqual(app.agentTasks.count, before)
-        XCTAssertEqual(store.task(h.id)?.notes.last?.text, "已回報給 tim")
-        XCTAssertEqual(store.tasksReported(to: "user:tim").map(\.id), [h.id])
+        XCTAssertEqual(store.task(h.id)?.notes.last?.text, "已回報給 ceo@example.com", "\(String(describing: store.task(h.id)))")
+        XCTAssertEqual(try store.remote.reportedTasks(org: app.currentOrgId, reportTo: "user:ceo@example.com").map(\.id), [h.id])
 
         // 沒有邊:不回報
         let n = try XCTUnwrap(store.assign(to: "marketing", title: "沒有鏈", by: "tim"))
@@ -134,42 +138,42 @@ final class OrgChainTests: XCTestCase {
         XCTAssertFalse(store.task(n.id)?.notes.contains { $0.author == ChainNode.author } ?? true)
     }
 
-    /// MCP:ops_chain_save(add / remove / edges)、ops_chain、ops_agent_context 的上下游、ops_agent_task_delegate
+    /// MCP:chain_save(add / remove / edges)、chain、agent_context 的上下游、agent_task_delegate
     func testMCPTools() async throws {
         let app = AppState()
         app.startTestAgents()
         let mcp = MCPHandler(app: app)
-        var (d, text, err) = try await call(mcp, "ops_chain_save", [:])
+        var (d, text, err) = try await call(mcp, "chain_save", [:])
         XCTAssertTrue(err, text)
-        (d, text, err) = try await call(mcp, "ops_chain_save", ["add": [["from": "user:tim", "to": "course-dev", "label": "目標"],
+        (d, text, err) = try await call(mcp, "chain_save", ["add": [["from": "user:tim", "to": "agent:course-dev", "label": "目標"],
                                                                       ["from": "agent:course-dev", "to": "agent:marketing"]]])
         XCTAssertFalse(err, text)
         XCTAssertEqual((d["edges"] as? [[String: Any]])?.count, 2)
-        (d, text, err) = try await call(mcp, "ops_chain_save", ["add": [["from": "agent:marketing", "to": "agent:course-dev"]]])
+        (d, text, err) = try await call(mcp, "chain_save", ["add": [["from": "agent:marketing", "to": "agent:course-dev"]]])
         XCTAssertTrue(err, text)
         XCTAssertTrue(text.contains("循環"), text)
 
-        (d, text, err) = try await call(mcp, "ops_chain", [:])
+        (d, text, err) = try await call(mcp, "chain", [:])
         XCTAssertFalse(err, text)
         let edges = try XCTUnwrap(d["edges"] as? [[String: Any]])
         XCTAssertEqual(edges.first?["toName"] as? String, "課程開發")
         XCTAssertEqual(edges.first?["label"] as? String, "目標")
 
-        (d, text, err) = try await call(mcp, "ops_agent_context", ["agent": "course-dev"])
+        (d, text, err) = try await call(mcp, "agent_context", ["agent": "course-dev"])
         XCTAssertFalse(err, text)
-        let chain = try XCTUnwrap(d["chain"] as? [String: Any])
+        let chain = try XCTUnwrap(d["chain"] as? [String: Any], text)
         XCTAssertEqual((chain["upstream"] as? [[String: Any]])?.first?["node"] as? String, "user:tim")
         XCTAssertEqual((chain["downstream"] as? [[String: Any]])?.first?["name"] as? String, "行銷")
         XCTAssertEqual((chain["downstream"] as? [[String: Any]])?.first?["label"] as? String, "任務")
 
-        (d, text, err) = try await call(mcp, "ops_agent_task_delegate", ["agent": "course-dev", "to": "marketing", "title": "寫文"])
+        (d, text, err) = try await call(mcp, "agent_task_delegate", ["agent": "course-dev", "to": "marketing", "title": "寫文"])
         XCTAssertFalse(err, text)
         XCTAssertEqual(d["agentId"] as? String, "marketing")
-        XCTAssertEqual(d["instructions"] as? String, "【任務】\n\n")
-        (d, text, err) = try await call(mcp, "ops_agent_task_delegate", ["agent": "marketing", "to": "course-dev", "title": "x"])
+        XCTAssertEqual(d["instructions"] as? String, "【任務】", "說明前綴由 core 加")
+        (d, text, err) = try await call(mcp, "agent_task_delegate", ["agent": "marketing", "to": "course-dev", "title": "x"])
         XCTAssertTrue(err, text)
 
-        (d, text, err) = try await call(mcp, "ops_chain_save", ["remove": [["from": "agent:course-dev", "to": "marketing"]]])
+        (d, text, err) = try await call(mcp, "chain_save", ["remove": [["from": "agent:course-dev", "to": "agent:marketing"]]])
         XCTAssertFalse(err, text)
         XCTAssertEqual((d["edges"] as? [[String: Any]])?.count, 1)
     }

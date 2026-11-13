@@ -1,4 +1,4 @@
-// 開發 › Sprint 看板(Swift 的 DevBoardTab.swift)。拖拉卡片移欄 = ops_work_item_move。
+// 開發 › Sprint 看板(Swift 的 DevBoardTab.swift)。拖拉卡片移欄 = work_item_move。
 import { useEffect, useState } from "react";
 import { action, tool } from "../../api";
 import { color, EmptyState, Modal, Pill } from "../../components/ui";
@@ -8,6 +8,7 @@ import {
   type Actor, type PullRequest, type WorkItem, type WorkStatusKey, type WorkTypeKey,
 } from "../../components/opsKit";
 import { ChecksIcon, TypeTag, useDev } from "./devShared";
+import { canGo } from "../../features";
 
 export function DevBoardTab() {
   const o = useOps();
@@ -38,7 +39,7 @@ export function DevBoardTab() {
   });
   const hasFilter = assignee !== "all" || !!type || onlyAI || !!query;
   const pts = filtered.reduce((a, i) => a + i.points, 0);
-  const move = (id: string, status: WorkStatusKey) => run(() => tool("ops_work_item_move", { id, status }));
+  const move = (id: string, status: WorkStatusKey) => run(() => tool("work_item_move", { id, status }));
 
   return (
     <div className="ops-page">
@@ -129,7 +130,7 @@ function WorkCard({ item, prs, onMove }: { item: WorkItem; prs: PullRequest[]; o
           ...(item.assignee ? [{ label: "取消指派", onClick: () => assign(null) }] : []),
           "sep",
           { label: "查看詳細資料", onClick: () => setDetail(true) },
-          ...(item.service ? [{ label: `前往服務「${svc?.name ?? item.service}」`, onClick: () => o.go("infrastructure", item.service) }] : []),
+          ...(item.service && canGo("infrastructure") ? [{ label: `前往服務「${svc?.name ?? item.service}」`, onClick: () => o.go("infrastructure", item.service) }] : []),
           { label: "複製編號", onClick: () => copyText(item.id) },
         ])}>
         <div style={{ width: 3, flex: "none", background: color(WORK_TYPE[item.type]?.color) }} />
@@ -186,7 +187,7 @@ function WorkDetail({ item: w, prs, onMove, onAssign, close }: { item: WorkItem;
         {w.service && (
           <>
             <span className="muted">服務</span>
-            <button className="btn link row gap4" style={{ justifySelf: "start" }} onClick={() => { close(); o.go("infrastructure", w.service); }}>
+            <button className="btn link row gap4" style={{ justifySelf: "start" }} onClick={canGo("infrastructure") ? () => { close(); o.go("infrastructure", w.service); } : undefined}>
               {svc && <HealthBadge h={svc.health} compact />}{svc?.name ?? w.service}<SIcon name="arrow.up.forward" size={10} />
             </button>
           </>

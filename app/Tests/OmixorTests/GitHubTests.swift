@@ -10,6 +10,7 @@ final class GitHubTests: XCTestCase {
     private var nextId = 0
 
     override func setUp() async throws {
+        try TestCore.start(self)   // 追蹤的 repo 是組織的設定,存在 core server:每個測試一個新的本機守護服務
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-gh-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         setenv("OPS_DATA_DIR", dataDir.path, 1)
@@ -28,6 +29,7 @@ final class GitHubTests: XCTestCase {
         ConnHTTP.protocolClasses = []
         StubProtocol.handler = nil
         unsetenv("OPS_DATA_DIR")
+        IssueServerConfig.testOverride = nil
         try? FileManager.default.removeItem(at: dataDir)
     }
 
@@ -160,9 +162,51 @@ final class GitHubTests: XCTestCase {
         XCTAssertEqual(ok.duration ?? 0, 591, accuracy: 1)
         XCTAssertTrue(app.github.runs[1].isFailure)
         XCTAssertFalse(app.github.busy)
-        // 追蹤的 repo 存在目前組織的 github.json
-        let saved = try OrgFiles.decoder().decode(GHSettings.self, from: Data(contentsOf: app.dataDir.appendingPathComponent("github.json")))
-        XCTAssertEqual(saved.repos, ["tim72117/evoleap"])
+        // 追蹤的 repo 是組織的設定,存在 core server;這台的 github.json 只寫用哪一個連線(不寫 repos)
+        let core = try IssueRemote(config: IssueServerConfig.current).githubSettings(org: app.currentOrgId)
+        XCTAssertTrue(core.saved)
+        XCTAssertEqual(core.repos, ["tim72117/evoleap"])
+        if let d = try? Data(contentsOf: app.dataDir.appendingPathComponent("github.json")) {
+            let saved = try OrgFiles.decoder().decode(GHSettings.self, from: d)
+            XCTAssertEqual(saved.repos, [])
+            XCTAssertEqual(saved.connection, GitHub.connectionId)
+        }
+    }
+
+    /// 這台的舊設定(github.json 的 repos):核心還沒存過時第一次連上匯入,原檔不刪不改;之後以核心為準
+    func testLegacyReposImportedOnceAndFileKept() throws {
+        let legacy = #"{"connection":"github","repos":["tim72117/evoleap","bad repo","a/b"]}"#
+        try FileManager.default.createDirectory(at: app.dataDir, withIntermediateDirectories: true)
+        let file = app.dataDir.appendingPathComponent("github.json")
+        try Data(legacy.utf8).write(to: file)
+        let g = app.startGitHub(timer: false)
+        XCTAssertEqual(app.githubSettings.repos, ["tim72117/evoleap", "a/b"], "格式不對的略過")
+        XCTAssertNil(app.github.settingsError)
+        let remote = IssueRemote(config: IssueServerConfig.current)
+        XCTAssertEqual(try remote.githubSettings(org: app.currentOrgId).repos, ["tim72117/evoleap", "a/b"])
+        XCTAssertEqual(String(decoding: try Data(contentsOf: file), as: UTF8.self), legacy, "原檔不動")
+
+        // 別的裝置改了核心:這台下次讀就跟著變;舊檔不會再匯入
+        _ = try remote.saveGitHubSettings(org: app.currentOrgId, remove: ["a/b"])
+        g.load()
+        XCTAssertEqual(app.githubSettings.repos, ["tim72117/evoleap"])
+        try g.removeRepo("tim72117/evoleap")
+        XCTAssertEqual(app.githubSettings.repos, [])
+        g.load()
+        XCTAssertEqual(app.githubSettings.repos, [], "清空也算存過,不會再匯入舊檔")
+        XCTAssertThrowsError(try g.addRepo("evoleap"))
+    }
+
+    /// 連不到 core server:顯示這台檔案裡的(唯讀),寫入回錯誤
+    func testCoreUnavailableShowsLocalAndRejectsWrites() throws {
+        IssueServerConfig.testOverride = IssueServerConfig(url: URL(string: "http://127.0.0.1:9")!, token: nil, unavailable: "本機服務還沒啟動")
+        try FileManager.default.createDirectory(at: app.dataDir, withIntermediateDirectories: true)
+        try Data(#"{"connection":"github","repos":["a/b"]}"#.utf8).write(to: app.dataDir.appendingPathComponent("github.json"))
+        let g = app.startGitHub(timer: false)
+        XCTAssertEqual(app.githubSettings.repos, ["a/b"])
+        XCTAssertEqual(app.github.settingsError, "本機服務還沒啟動")
+        XCTAssertThrowsError(try g.addRepo("c/d"))
+        XCTAssertEqual(app.githubSettings.repos, ["a/b"])
     }
 
     func testBadTokenShowsError() async throws {
@@ -183,38 +227,38 @@ final class GitHubTests: XCTestCase {
     }
 
     func testMCPToolsAreReadOnlyAndWork() async throws {
-        let ro = MCPHandler.tools.filter { $0.name.hasPrefix("ops_github") }
+        let ro = MCPHandler.tools.filter { $0.name.hasPrefix("github") }
         XCTAssertEqual(ro.count, 4)
 
         // 還沒登入:告訴角色要請人登入
-        let (msg, isErr) = try await tool("ops_github")
+        let (msg, isErr) = try await tool("github")
         XCTAssertTrue(isErr)
         XCTAssertTrue("\(msg)".contains("還沒登入 GitHub"))
 
         await login()
-        let sumOut = try await tool("ops_github", ["refresh": true]).0
+        let sumOut = try await tool("github", ["refresh": true]).0
         let sum = try XCTUnwrap(sumOut as? [String: Any])
         let repo = try XCTUnwrap((sum["repos"] as? [[String: Any]])?.first)
         XCTAssertEqual(repo["failedRuns"] as? Int, 1)
         XCTAssertEqual((repo["openPulls"] as? [Any])?.count, 1)
         XCTAssertEqual(sum["account"] as? String, "tim72117")
 
-        let runsOut = try await tool("ops_github_runs", ["status": "failure"]).0
+        let runsOut = try await tool("github_runs", ["status": "failure"]).0
         let runs = try XCTUnwrap(runsOut as? [String: Any])
         XCTAssertEqual((runs["runs"] as? [[String: Any]])?.map { $0["id"] as? Int }, [7])
 
-        let runOut = try await tool("ops_github_run", ["id": 7]).0
+        let runOut = try await tool("github_run", ["id": 7]).0
         let run = try XCTUnwrap(runOut as? [String: Any])
         XCTAssertEqual(run["failedSteps"] as? [String], ["test / test › go test ./..."])
         XCTAssertEqual(run["state"] as? String, "失敗")
 
-        let pullOut = try await tool("ops_github_pull", ["number": 12]).0
+        let pullOut = try await tool("github_pull", ["number": 12]).0
         let pull = try XCTUnwrap(pullOut as? [String: Any])
         XCTAssertEqual(pull["changedFiles"] as? Int, 1)
         XCTAssertEqual((pull["files"] as? [[String: Any]])?.first?["filename"] as? String, "web/src/routes.tsx")
 
         // 沒追蹤的 repo 也可以直接查,格式錯誤會擋
-        let (bad, badErr) = try await tool("ops_github_runs", ["repo": "not a repo"])
+        let (bad, badErr) = try await tool("github_runs", ["repo": "not a repo"])
         XCTAssertTrue(badErr, "\(bad)")
         // 只送 GET
         XCTAssertTrue(StubProtocol.log.allSatisfy { $0.0 == "GET" }, "\(StubProtocol.log.map { $0.0 + " " + $0.1 })")
@@ -239,12 +283,12 @@ final class GitHubTests: XCTestCase {
     func testOrgsKeepSeparateRepos() async throws {
         await login()
         let other = app.createOrg(name: "Side", template: .blank)
-        app.switchOrg(other.id)
+        await app.switchOrg(other.id).value
         XCTAssertEqual(app.githubSettings.repos, [])
-        app.switchOrg(OrgFiles.defaultId)
+        await app.switchOrg(OrgFiles.defaultId).value
         XCTAssertEqual(app.githubSettings.repos, ["tim72117/evoleap"])
         let copy = app.createOrg(name: "Copy", template: .copyCurrent)
-        app.switchOrg(copy.id)
+        await app.switchOrg(copy.id).value
         XCTAssertEqual(app.githubSettings.repos, ["tim72117/evoleap"])
     }
 

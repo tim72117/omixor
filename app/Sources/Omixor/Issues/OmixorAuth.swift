@@ -61,7 +61,10 @@ enum OmixorAuth {
         return nil
     }
 
-    static func setToken(_ t: TokenSet?, server: URL) { TokenVault.setTokens(t, tokenId, scope: OmixorMode.tokenScope(for: server)) }
+    /// 存這台伺服器的 omixor token(nil = 刪掉)。回傳是否真的寫進鑰匙圈;寫不進去時這次執行仍用新的值(見 TokenVault.set),
+    /// 不會再讀到鑰匙圈裡已撤銷的舊 token
+    @discardableResult
+    static func setToken(_ t: TokenSet?, server: URL) -> Bool { TokenVault.setTokens(t, tokenId, scope: OmixorMode.tokenScope(for: server)) }
 
     /// 更舊的版本把 omixor token 存在預設組織底下:搬到舊格式的遠端位置(之後再由 token(server:) 搬給第一個遠端;只搬一次)
     static func migrateLegacyToken() {
@@ -120,6 +123,12 @@ enum OmixorAuth {
         return try await exchange(evo, evoToken, server: server)
     }
 
+    /// 撤銷 evoleap token。另開不受取消影響的 Task:使用者按「取消」時登入的 Task 已被取消,
+    /// 直接在裡面送請求會立刻失敗,token 就留在 evoleap 沒撤銷
+    private static func revokeEvoleap(_ evo: Connection, _ t: TokenSet) async {
+        await Task.detached { await ApprovalConnector.logout(evo, t) }.value
+    }
+
     /// 拿 evoleap token 換 omixor token,換完(成功或失敗)撤銷 evoleap token
     @MainActor
     static func exchange(_ evo: Connection, _ evoToken: TokenSet, server: URL) async throws -> OmixorAccount {
@@ -128,20 +137,30 @@ enum OmixorAuth {
             r = try await ConnHTTP.json("POST", server.appendingPathComponent("api/auth/evoleap"),
                                         ["token": evoToken.accessToken, "device": deviceName])
         } catch {
-            await ApprovalConnector.logout(evo, evoToken)
+            await revokeEvoleap(evo, evoToken)
             throw error
         }
         // evoleap 的 token 只用來證明一次身分:換成功或失敗都撤銷
-        await ApprovalConnector.logout(evo, evoToken)
+        await revokeEvoleap(evo, evoToken)
         let obj = r.json as? [String: Any]
         guard r.ok, let tok = obj?["token"] as? String, !tok.isEmpty else {
             throw ConnectionError("omixor 拒絕登入:\(ConnHTTP.errorMessage(r))", status: r.status)
         }
         let exp = date(obj?["expiresAt"] as? String)
-        setToken(TokenSet(accessToken: tok, expiresAt: exp, tokenType: "Bearer"), server: server)
+        // 寫不進鑰匙圈(舊的 token 刪不掉)時這次執行仍用新的 token;原因在 TokenVault.lastWriteError,登入畫面會提示
+        if !setToken(TokenSet(accessToken: tok, expiresAt: exp, tokenType: "Bearer"), server: server) {
+            keychainWarning = TokenVault.lastWriteError
+        }
         let user = obj?["user"] as? [String: Any]
         return OmixorAccount(email: user?["email"] as? String ?? "", name: user?["name"] as? String ?? "", role: user?["role"] as? String ?? "",
                              device: deviceName, expiresAt: exp)
+    }
+
+    /// 上次登入時新的 omixor token 寫不進鑰匙圈的原因(畫面提示一次就清掉)
+    nonisolated(unsafe) private static var keychainWarning: String?
+    static func takeKeychainWarning() -> String? {
+        defer { keychainWarning = nil }
+        return keychainWarning
     }
 
     /// 目前登入的帳號;沒登入或 token 失效回傳 nil
@@ -157,17 +176,45 @@ enum OmixorAuth {
         return try await ConnHTTP.send(method, url, headers: h)
     }
 
+    /// 讀 {"result": …};失敗時丟出看得懂的原因(HTTP 狀態與伺服器的訊息、或哪個欄位解不開)
     private static func result<T: Decodable>(_ r: ConnHTTP.Response, _ type: T.Type) throws -> T {
-        guard r.ok, let obj = r.json as? [String: Any], let res = obj["result"] else {
-            throw ConnectionError(ConnHTTP.errorMessage(r), status: r.status)
+        guard r.ok else {
+            let msg = r.status == 401 ? "omixor 的登入無效或已撤銷,請重新登入(\(ConnHTTP.errorMessage(r)))" : ConnHTTP.errorMessage(r)
+            throw ConnectionError("\(msg)(HTTP \(r.status))", status: r.status)
         }
-        return try JSONDecoder().decode(T.self, from: try JSONSerialization.data(withJSONObject: res, options: .fragmentsAllowed))
+        guard let obj = r.json as? [String: Any], let res = obj["result"] else {
+            throw ConnectionError("伺服器回應的格式不對(HTTP \(r.status)):\(String(decoding: r.data.prefix(200), as: UTF8.self))", status: r.status)
+        }
+        do {
+            return try JSONDecoder().decode(T.self, from: try JSONSerialization.data(withJSONObject: res, options: .fragmentsAllowed))
+        } catch let e as DecodingError {
+            throw ConnectionError("伺服器回應的資料解不開:\(describe(e))", status: r.status)
+        }
+    }
+
+    private static func describe(_ e: DecodingError) -> String {
+        func path(_ c: DecodingError.Context) -> String {
+            let p = c.codingPath.map { $0.intValue.map { "[\($0)]" } ?? $0.stringValue }.joined(separator: ".")
+            return p.isEmpty ? c.debugDescription : "\(p):\(c.debugDescription)"
+        }
+        switch e {
+        case .typeMismatch(_, let c), .valueNotFound(_, let c), .dataCorrupted(let c): return path(c)
+        case .keyNotFound(let k, let c): return "少了欄位 \(k.stringValue)(\(path(c)))"
+        @unknown default: return e.localizedDescription
+        }
     }
 
     /// 向伺服器取得我能用的組織;失敗回傳 nil(畫面照用快取)
     static func fetchOrgs(server: URL) async -> [ServerOrg]? {
-        guard let r = try? await authed(server, "GET", server.appendingPathComponent("api/orgs")) else { return nil }
-        return try? result(r, [ServerOrg].self)
+        try? await listOrgs(server: server)
+    }
+
+    /// 同 fetchOrgs,但失敗時丟出原因(畫面要顯示為什麼讀不到)
+    static func listOrgs(server: URL) async throws -> [ServerOrg] {
+        let r = try await authed(server, "GET", server.appendingPathComponent("api/orgs"))
+        // Go 的空切片可能編成 null:當作沒有組織
+        if r.ok, let obj = r.json as? [String: Any], obj["result"] is NSNull { return [] }
+        return try result(r, [ServerOrg].self)
     }
 
     /// 在伺服器建立組織(要伺服器管理員)

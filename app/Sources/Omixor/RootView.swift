@@ -14,12 +14,20 @@ struct RootView: View {
                     .frame(width: g.size.width, height: g.size.height, alignment: .topLeading)
                     .clipped()
             }
+            .overlay(alignment: .top) {
+                VStack(spacing: 0) {
+                    FeatureNoticeBanner()
+                    ErrorNoticeBanner()
+                }
+            }
             .background(Color(nsColor: .windowBackgroundColor))
                 .inspector(isPresented: $app.showAssistant) {
                     AssistantPanel()
                         .inspectorColumnWidth(min: 280, ideal: 330, max: 440)
                 }
         }
+        // 外部 MCP 閘道:需要人確認的工具呼叫
+        .overlay(alignment: .bottomTrailing) { MCPConfirmOverlay(gateway: app.mcpGateway) }
         .navigationTitle(app.section.title)
         .toolbar { MainToolbar() }
         .sheet(isPresented: $app.showCommandPalette) { CommandPalette() }
@@ -37,6 +45,8 @@ struct RootView: View {
         case .cabinet: CabinetView()
         case .settings: SettingsView()
         case .channels: ChannelsView()
+        case .help: HelpView()
+        case .system: SystemView()
         }
     }
 }
@@ -47,10 +57,14 @@ struct SidebarView: View {
     var body: some View {
         List(selection: Binding(get: { app.section }, set: { if let s = $0 { app.go(s) } })) {
             Section("維運") {
-                ForEach([AppSection.overview, .development, .pipelines, .infrastructure, .monitoring, .incidents], id: \.self) { row($0) }
+                ForEach([AppSection.overview, .development, .pipelines, .infrastructure, .monitoring, .incidents].filter(app.isVisible), id: \.self) { row($0) }
             }
-            Section("自動化") { row(.automation); row(.channels); row(.cabinet) }
-            Section { row(.settings) }
+            // 系統設定關掉的頁面不顯示(總覽、設定、系統永遠顯示)
+            let auto = [AppSection.help, .automation, .channels, .cabinet].filter(app.isVisible)
+            if !auto.isEmpty {
+                Section("自動化") { ForEach(auto, id: \.self) { row($0) } }
+            }
+            Section { row(.settings); row(.system) }
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top) { OrgSwitcher() }
@@ -68,6 +82,8 @@ struct SidebarView: View {
 /// 用 evoleap 授權)完全分開;點一下可以切換,有設定遠端或在遠端時一直看得到「登出」(登出後回到選擇連接對象)
 private struct AccountFooter: View {
     @EnvironmentObject var app: AppState
+    /// 「配對手機…」的視窗(遠端模式才有,見 PairPhoneSheet.swift)
+    @State private var pairing: OmixorMode.Server?
 
     var body: some View {
         VStack(spacing: 6) {
@@ -82,6 +98,10 @@ private struct AccountFooter: View {
                     } label: {
                         if remote == s { Label(s.name, systemImage: "checkmark") } else { Label(s.name, systemImage: "cloud") }
                     }
+                }
+                if let r = remote, app.omixorLogin.account != nil {
+                    Divider()
+                    Button { pairing = r } label: { Label("配對手機…", systemImage: "iphone") }
                 }
             } label: {
                 HStack(spacing: 8) {
@@ -102,8 +122,12 @@ private struct AccountFooter: View {
             .disabled(app.connecting != nil)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
             .help(help)
+            .sheet(item: $pairing) { s in PairPhoneSheet(serverName: s.name, serverURL: s.url) }
             if let name = app.connecting {
-                Text("請在瀏覽器完成 \(name) 的核准…").font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text("請在瀏覽器完成 \(name) 的核准…").font(.caption2).foregroundStyle(.secondary)
+                    Button("取消") { app.cancelConnect() }.buttonStyle(.link).font(.caption2)
+                }
             } else if let e = app.connectError {
                 Text(e).font(.caption2).foregroundStyle(.red).lineLimit(3)
             }

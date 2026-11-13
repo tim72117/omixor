@@ -12,6 +12,8 @@ struct IncDeclareSheet: View {
     @State private var commander = ""
     @State private var impact = ""
     @State private var serviceQuery = ""
+    /// 宣告失敗的原因(伺服器拒絕或連不上)
+    @State private var submitError: String?
 
     private var canSubmit: Bool { !title.trimmingCharacters(in: .whitespaces).isEmpty && !commander.isEmpty }
 
@@ -26,6 +28,10 @@ struct IncDeclareSheet: View {
                 Spacer()
             }
             .padding(18)
+            if let submitError {
+                Text("沒有宣告成功:\(submitError)").font(.caption).foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 18).padding(.bottom, 8)
+            }
             Divider()
 
             Form {
@@ -107,8 +113,6 @@ struct IncDeclareSheet: View {
 
     private func submit() {
         guard canSubmit else { return }
-        let num = (app.incidents.map(\.incNumber).max() ?? 2000) + 1
-        let id = "INC-\(num)"
         let now = Date()
         let svc = app.services.map(\.id).filter { services.contains($0) }
         var timeline = [IncidentEvent(id: UUID(), date: now, actor: .person(app.me), kind: .status,
@@ -118,13 +122,17 @@ struct IncDeclareSheet: View {
             timeline.append(IncidentEvent(id: UUID(), date: now, actor: .system, kind: .action,
                                           text: names.isEmpty ? "已呼叫值班人員" : "已呼叫值班:\(names.joined(separator: "、"))"))
         }
-        let inc = Incident(id: id, title: title.trimmingCharacters(in: .whitespaces), sev: sev, status: .investigating,
-                           services: svc, commander: commander, startedAt: now, resolvedAt: nil,
-                           impact: impact.trimmingCharacters(in: .whitespacesAndNewlines),
-                           timeline: timeline, aiSummary: nil, followUps: [])
-        app.incidents.insert(inc, at: 0)
-        app.log(.person(app.me), "flame.fill", "宣告 \(IncSev.label(sev)) 事件 \(id)「\(inc.title)」", .incidents)
-        onCreated(id)
-        dismiss()
+        // 寫進 core server(編號由伺服器決定);連線不能用或失敗時顯示原因,不會只改記憶體
+        do {
+            let inc = try app.startIncidents().declare(
+                title: title.trimmingCharacters(in: .whitespaces), sev: sev, services: svc, commander: commander,
+                impact: impact.trimmingCharacters(in: .whitespacesAndNewlines), startedAt: now,
+                timeline: timeline, by: .person(app.me))
+            app.log(.person(app.me), "flame.fill", "宣告 \(IncSev.label(sev)) 事件 \(inc.id)「\(inc.title)」", .incidents)
+            onCreated(inc.id)
+            dismiss()
+        } catch {
+            submitError = error.localizedDescription
+        }
     }
 }

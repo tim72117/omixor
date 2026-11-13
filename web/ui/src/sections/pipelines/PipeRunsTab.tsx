@@ -159,7 +159,7 @@ function RunDetail({ run, runs, onOpenRun }: { run: PipelineRun; runs: PipelineR
     let text = `失敗發生在「${fs?.name ?? "未知階段"}」的 ${fj?.name ?? "job"}。`;
     if (errLine) text += `關鍵錯誤:${errLine.trim()}。`;
     text += "這個錯誤與本次 commit 的變更有關的機率較高,建議先檢查相關測試與相依版本;若為暫時性問題,重新執行即可。";
-    await act(() => tool("ops_pipeline_update", { run_id: run.id, ai_diagnosis: text }));
+    await act(() => tool("pipeline_update", { run_id: run.id, ai_diagnosis: text }));
     setAnalyzing(false);
   };
   const done = run.stages.filter((s) => s.status === "succeeded").length;

@@ -23,7 +23,7 @@ type IssueInput struct {
 	Assignee string `json:"assignee,omitempty"`
 }
 
-// IssuePatch 修改 Issue:有給的欄位整個取代(同 app 的 ops_issue_update)
+// IssuePatch 修改 Issue:有給的欄位整個取代(同 app 的 issue_update)
 type IssuePatch struct {
 	Title    *string          `json:"title,omitempty"`
 	Body     *string          `json:"body,omitempty"`

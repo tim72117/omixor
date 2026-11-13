@@ -11,7 +11,7 @@ import (
 	"omixor-web/internal/core"
 )
 
-// 組織、Issue、虛擬角色與任務、文件櫃的工具(ops_orgs、ops_issue_*、ops_agent*、ops_cabinet、ops_docs、ops_doc_save)在 omixor-core/mcp,
+// 組織、Issue、虛擬角色與任務、文件櫃的工具(orgs、issue_*、agent*、cabinet、docs、doc_save)在 omixor-core/mcp,
 // 透過核心的共同介面 backend.Backend 操作。這裡提供 web 的實作(appBackend):
 //   - 組織、Issue:包著 web 的 core.App(組織清單、Issue 快取、動態牆、與核心 service/client 的同步),
 //     讓 MCP 工具的副作用和畫面操作完全一樣
@@ -25,6 +25,7 @@ func init() {
 	coremcp.RegisterCabinetTools(srv)
 	coremcp.RegisterChainTools(srv)
 	coremcp.RegisterChannelTools(srv)
+	coremcp.RegisterIncidentTools(srv) // incident_declare、incident_update(web 的規格沒有 incidents;見 tools_incident.go)
 }
 
 // toolErr 把 core.UserError 轉成工具錯誤
@@ -106,7 +107,7 @@ func (x *callCtx) EndpointURL() (u string) {
 
 var _ coremcp.AgentEnv = (*callCtx)(nil)
 
-// docAccess 的顯示(換成看得懂的文件櫃範圍)與 ops_agent_upsert 的 doc_access key 解析都由核心依文件櫃結構處理
+// docAccess 的顯示(換成看得懂的文件櫃範圍)與 agent_upsert 的 doc_access key 解析都由核心依文件櫃結構處理
 
 // appBackend 以 core.App 實作 backend.Backend:組織與 Issue 的部分包 web 的狀態(呼叫時要拿著 App.Mu,MCP 工具會先 Lock),
 // 角色與任務的部分交給 App.AgentOps(不要拿著 Mu)。組織 id 參數:Issue 忽略(一律是目前的組織),角色與任務照給的用。

@@ -12,7 +12,7 @@ import (
 	"omixor-web/internal/core"
 )
 
-// PostgreSQL 的存放處(omixor 資料庫,和 ops_issues 同一個庫)
+// PostgreSQL 的存放處(omixor 資料庫,和 issues 同一個庫)
 const pgSchema = `
 create table if not exists omixor_users (
   id text primary key,
@@ -234,7 +234,7 @@ func (p *PGStore) ListAudit(limit int) ([]AuditEntry, error) {
 	return out, rows.Err()
 }
 
-// PGIssues 正式的 Issue 讀取與匯入(core 的 ops_issues 表)
+// PGIssues 正式的 Issue 讀取與匯入(core 的 issues 表)
 type PGIssues struct{}
 
 func (PGIssues) Read(org string) ([]core.OpsIssue, error) { return core.PGReadIssues(org) }

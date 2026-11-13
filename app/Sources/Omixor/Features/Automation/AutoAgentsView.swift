@@ -125,6 +125,7 @@ private struct AgentDetail: View {
                 }
                 routines
                 docScopeCard
+                AgentToolsCard(agent: agent)
                 assignCard
                 taskList
             }
@@ -261,64 +262,12 @@ private struct AgentDetail: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    if selectedTask == t.id { taskDetail(t) }
+                    if selectedTask == t.id { AgentTaskDetail(task: t) }
                 }
                 .padding(.vertical, 4)
                 Divider()
             }
         }
-    }
-
-    @ViewBuilder private func taskDetail(_ t: AgentTask) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("\(store.authorName(t.createdBy)) 建立 · ") .font(.caption).foregroundStyle(.secondary)
-                + Text(t.createdAt, format: .dateTime.month().day().hour().minute()).font(.caption).foregroundStyle(.secondary)
-            if let lease = t.leaseLabel {
-                Label(lease, systemImage: "lock").font(.caption).foregroundStyle(.secondary)
-                    .help("領取租約:鎖定期間不能被其他人領取;逾時沒回報會自動退回待領取")
-            }
-            if !t.instructions.isEmpty { MarkdownText(t.instructions) }
-            ForEach(t.notes) { n in
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(store.authorName(n.author)).font(.caption.weight(.semibold))
-                    Text(n.at, format: .dateTime.hour().minute()).font(.caption).foregroundStyle(.secondary)
-                    Text(n.text).font(.callout).textSelection(.enabled)
-                }
-            }
-            if !t.result.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("結果", systemImage: "checkmark.seal").font(.caption.weight(.semibold)).foregroundStyle(.green)
-                    MarkdownText(t.result)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-            }
-            if !t.links.isEmpty {
-                HStack {
-                    ForEach(t.links, id: \.self) { l in
-                        if app.issues.contains(where: { $0.id == l }) {
-                            Button(l) { app.go(.development, focus: l) }.buttonStyle(.link)
-                        } else {
-                            Text(l).font(.caption).textSelection(.enabled)
-                        }
-                    }
-                }
-            }
-            HStack {
-                if t.status.isOpen {
-                    Button { copy(store.prompt(agent: agent, task: t), t.id) } label: {
-                        Label(copied == t.id ? "已複製" : "複製給 Claude Code", systemImage: "doc.on.clipboard")
-                    }
-                    Button("取消任務", role: .destructive) { store.cancel(t.id) }
-                    if t.status != .queued { Button("退回待領取") { store.requeue(t.id) } }
-                } else {
-                    Button("重新排入") { store.requeue(t.id) }
-                }
-            }
-            .controlSize(.small)
-        }
-        .padding(.leading, 24)
     }
 
     private func copy(_ s: String, _ key: String) {
@@ -445,5 +394,88 @@ private struct RoutineEditor: View {
             TextField("要做什麼(給 AI 的任務說明)", text: $routine.instructions, axis: .vertical).lineLimit(1...4)
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - 可用工具
+
+/// 角色執行時(連角色端點)看得到的工具:伺服器依角色設定(文件權限)、組織鏈(下游)、頻道成員算,
+/// 角色連上時 tools/list 只列可用的,agent_context 也會附上同一份
+private struct AgentToolsCard: View {
+    @EnvironmentObject var app: AppState
+    let agent: Agent
+    @State private var tools: [AgentToolInfo]?
+    @State private var error: String?
+
+    private var store: AgentStore { app.startAgents() }
+
+    var body: some View {
+        Card("可用工具", subtitle: "角色執行時看得到的工具,依角色設定、組織鏈與頻道自動調整;外部 MCP 工具依組織登記與這裡的勾選") {
+            if let error {
+                Text(error).font(.caption).foregroundStyle(.orange)
+            } else if let tools {
+                let groups = tools.reduce(into: [String]()) { if !$0.contains($1.group) { $0.append($1.group) } }
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(groups, id: \.self) { g in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(g).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            ForEach(tools.filter { $0.group == g }) { row($0) }
+                        }
+                    }
+                    let n = tools.filter(\.available).count
+                    Text("可用 \(n) / \(tools.count) 個;另外自動執行時若設了工作資料夾,還會開放檔案工具(見「自動執行」)。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .task(id: "\(agent.hashValue)-\(app.channelsVersion)-\(app.currentOrgId)") { await load() }
+    }
+
+    private func row(_ t: AgentToolInfo) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: t.available ? "checkmark.circle.fill" : "minus.circle")
+                .foregroundStyle(t.available ? .green : .secondary)
+            Text(t.name).font(.callout.monospaced()).foregroundStyle(t.available ? .primary : .secondary)
+            Text(t.label).font(.callout).foregroundStyle(.secondary)
+            if t.confirm == true { Text("要確認").font(.caption2).foregroundStyle(.orange) }
+            if !t.available, let r = t.reason, !r.isEmpty {
+                Text("· \(r)").font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // 外部 MCP 工具:組織管理員可以勾選這個角色能不能用(寫回 core,預設不給)
+            if t.source == "mcp", let srv = t.server, let tool = t.tool, gateway.view?.canEdit == true {
+                Spacer()
+                Toggle("給這個角色", isOn: Binding(get: { granted(srv, tool) }, set: { v in
+                    Task {
+                        do { try await gateway.setGrant(agent: agent.id, server: srv, tool: tool, on: v); await load() }
+                        catch { self.error = "改不了外部工具權限:\(error.localizedDescription)" }
+                    }
+                })).toggleStyle(.checkbox).font(.caption)
+            }
+        }
+    }
+
+    private var gateway: MCPGateway { app.mcpGateway }
+
+    /// 角色有沒有這個外部工具的權限(整台或勾選了這個工具)
+    private func granted(_ server: String, _ tool: String) -> Bool {
+        gateway.view?.grants(of: agent.id).contains { $0.server.caseInsensitiveCompare(server) == .orderedSame && ($0.tools.isEmpty || $0.tools.contains(tool)) } ?? false
+    }
+
+    /// 在背景讀(不擋主執行緒),回來才更新畫面
+    private func load() async {
+        let org = app.currentOrgId, id = agent.id, r = store.remote
+        do {
+            let list = try await r.run { try $0.agentTools(org: org, id: id) }
+            if app.isFeatureEnabled("mcpGateway") { await gateway.reload() }   // 勾選外部工具要用到目前的權限
+            guard !Task.isCancelled else { return }
+            tools = list
+            error = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            self.error = "讀不到可用工具:\(error.localizedDescription)"
+        }
     }
 }

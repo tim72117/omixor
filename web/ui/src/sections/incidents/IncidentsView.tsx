@@ -10,9 +10,12 @@ import type { SectionProps } from "../index";
 import { IncDetail } from "./IncDetail";
 import { IncOnCall } from "./IncOnCall";
 import { IncStats } from "./IncStats";
+import { useFeatureTabs } from "../../features";
 import { IncCtx, SEVS, SevBadge, durationOf, fmtShort, isActive, sevLabel, sevMeaning, t, useInc, type IncData } from "./incSupport";
 
 type Tab = "incidents" | "oncall" | "stats";
+const TABS: { value: Tab; label: string }[] = [{ value: "incidents", label: "事件" }, { value: "oncall", label: "值班" }, { value: "stats", label: "統計" }];
+const TAB_KEY: Record<Tab, string> = { incidents: "incidents.list", oncall: "incidents.oncall", stats: "incidents.stats" };
 
 export default function IncidentsView({ focusId, clearFocus }: SectionProps) {
   const [incRaw, incErr] = useView<Incident[]>("incidents");
@@ -23,7 +26,9 @@ export default function IncidentsView({ focusId, clearFocus }: SectionProps) {
   const data: IncData = useMemo(() => ({
     incidents: arr(incRaw), alerts: arr(alerts), services: arr(services), workItems: arr(work), onCall: arr(onCall), loaded: incRaw !== undefined, error: incErr,
   }), [incRaw, alerts, services, work, onCall, incErr]);
-  const [tab, setTab] = useState<Tab>("incidents");
+  const [rawTab, setRawTab] = useState<Tab>("incidents");
+  const tabs = useFeatureTabs(TABS.map((x) => x.value), rawTab, setRawTab, (x) => TAB_KEY[x]);
+  const tab = tabs.shown, setTab = tabs.select;
   const [selected, setSelected] = useState<string>();
   const [declaring, setDeclaring] = useState(false);
 
@@ -61,7 +66,7 @@ export default function IncidentsView({ focusId, clearFocus }: SectionProps) {
       <div className="col" style={{ flex: 1, minHeight: 0 }}>
         <PageHeader title="事件" subtitle={subtitle} right={
           <div className="row gap8">
-            <Segmented value={tab} onChange={setTab} options={[{ value: "incidents", label: "事件" }, { value: "oncall", label: "值班" }, { value: "stats", label: "統計" }]} />
+            <Segmented value={tab} onChange={setTab} options={TABS.filter((x) => tabs.on(x.value))} />
             <button className="btn red" title="宣告新的事件(⇧⌘N)" onClick={() => setDeclaring(true)}><Icon name="flame.fill" size={12} />宣告事件</button>
           </div>
         } />
@@ -183,14 +188,14 @@ function DeclareSheet({ open, onClose, onCreated }: { open: boolean; onClose: ()
     setCommander(cur?.person ?? (dir.person(dir.me) ? dir.me : dir.people[0]?.id ?? ""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-  // MCP 的 ops_incident_declare 要求 impact,所以影響範圍也要填(Swift 版畫面可以留空)
+  // MCP 的 incident_declare 要求 impact,所以影響範圍也要填(Swift 版畫面可以留空)
   const can = title.trim() !== "" && commander !== "" && impact.trim() !== "";
   const list = services
     .filter((s) => !sq.trim() || s.name.toLowerCase().includes(sq.trim().toLowerCase()) || svc.has(s.id))
     .sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
   const submit = () => run(async () => {
     if (!can) return;
-    const r = await tool<{ id?: string } | string>("ops_incident_declare", {
+    const r = await tool<{ id?: string } | string>("incident_declare", {
       title: title.trim(), sev, impact: impact.trim(), commander, services: services.map((s) => s.id).filter((id) => svc.has(id)),
     });
     const id = typeof r === "string" ? (/INC-\d+/.exec(r)?.[0] ?? "") : r?.id ?? "";
@@ -206,7 +211,7 @@ function DeclareSheet({ open, onClose, onCreated }: { open: boolean; onClose: ()
           <span className="caption muted">建立後會通知值班人員,並開始記錄時間軸。</span>
         </div>
       </div>
-      <label className="bx-field"><span>標題</span><input className="input" autoFocus value={title} placeholder="例如:結帳 API 回應變慢" onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} /></label>
+      <label className="bx-field"><span>標題</span><input className="input" autoFocus value={title} placeholder="例如:結帳 API 回應變慢" onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && submit()} /></label>
       <label className="bx-field"><span>嚴重程度</span>
         <select className="select" value={sev} onChange={(e) => setSev(+e.target.value)}>{SEVS.map((s) => <option key={s} value={s}>{sevLabel(s)} — {sevMeaning(s)}</option>)}</select>
       </label>

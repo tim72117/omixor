@@ -1,18 +1,13 @@
 import Foundation
 
 // 訊息頻道:把組織成員(人)與虛擬角色拉進同一個頻道對話。頻道可以自由建立,也可以綁一個 Issue(一個 Issue 只有一個頻道)。
-// @ 一個角色只通知、不排任務;角色下次執行(ops_agent_context)時看得到提到它的未讀訊息。
+// @ 一個角色只通知、不排任務;角色下次執行(agent_context)時看得到提到它的未讀訊息。
 // 成員節點同組織鏈:"agent:<角色 id>" 或 "user:<email 小寫>"(本機模式的人是 app 的人員 id,例如 user:tim)。
 //
-// 本機模式存在組織資料夾的 channels.json({channels, messages, reads},格式同核心);
-// 遠端模式改讀寫 omixor server(core)的 /api/orgs/<組織>/channels(ChannelRemote.swift),規則由伺服器強制。
-// 本機模式的規則(行為照核心):
-//   - 名稱必填(去頭尾空白,最多 80 字)、topic 最多 500 字;訊息去頭尾空白後不能空白,最多 8000 字
-//   - 建立者自動是成員;成員可以給 agent:<id 或名稱>、user:<email>、純 email、純角色 id 或名稱;角色要存在、人要是組織成員
-//   - 綁 Issue:Issue 要存在(404);已有頻道而且看得到 → 回傳那個(不新建);看不到 → 409
-//   - 權限:本機只有一個使用者(擁有者,等同組織管理員):看得到全部、可以改名稱主題與成員,發訊息要是成員;
-//     角色只能看與發自己是成員的頻道,不能建頻道、不能改成員
-//   - 未讀 = 號碼 > lastRead 而且作者不是自己的訊息;刪角色時把它從所有頻道成員拿掉
+// 一律透過 core server 的 /api/orgs/<組織>/channels(ChannelRemote.swift;遠端是 omixor server,本機是 App 啟動的本機守護服務),
+// 規則(名稱長度、成員、綁 Issue、權限、未讀、@ 解析)由伺服器強制。
+// 原本存在組織資料夾 channels.json 的本機實作已停用(程式碼留在 ChannelStore 的 LEGACY_LOCAL_STORE 區塊);
+// channels.json 只在第一次啟動本機守護服務時匯入,留著當備份。
 
 struct Channel: Codable, Hashable, Identifiable {
     var id: String               // CH-1
@@ -236,6 +231,278 @@ final class ChannelStore {
     static let maxLimit = 200
     static let inboxLimit = 20
 
+    // MARK: core server
+    // 頻道一律透過 core server(IssueServerConfig.current:遠端 omixor 或本機守護服務),規則由伺服器強制。
+    // 原本的本機實作(channels.json、App 自己算權限與未讀)已停用,程式碼留在下面的 LEGACY_LOCAL_STORE 區塊備查,不編譯也不會被呼叫。
+
+    private var remoteClient: IssueRemote?
+    /// 目前連的 core server 的用戶端(和 Issue 同一個;連線換了會換新的)
+    var remote: IssueRemote {
+        let cfg = IssueServerConfig.current
+        if let c = remoteClient, c.config == cfg { return c }
+        let c = IssueRemote(config: cfg)
+        remoteClient = c
+        return c
+    }
+    /// 最近一次和伺服器溝通的錯誤(nil = 正常)
+    private(set) var remoteError: String?
+    private var poller: Timer?
+    /// 多久重新讀一次頻道清單(秒);0 = 不定時讀
+    static var pollInterval: TimeInterval = NSClassFromString("XCTestCase") != nil ? 0 : 5
+
+    private func remoteFailed(_ e: Error) {
+        let msg = e.localizedDescription
+        if remoteError != msg { NSLog("訊息頻道(omixor server):%@", msg) }
+        remoteError = msg
+    }
+
+    func start() {
+        guard poller == nil, Self.pollInterval > 0 else { return }
+        poller = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.poll() }
+        }
+    }
+
+    private var polling = false
+    /// 定時重讀(頻道清單只由這裡定時讀;畫面不另外輪詢):請求在背景跑,上一輪還沒回來就跳過這一輪
+    private func poll() async {
+        guard !polling else { return }
+        polling = true
+        defer { polling = false }
+        await reload()
+    }
+
+    /// 在背景讀頻道清單與提到我的未讀訊息,回主執行緒才更新畫面(定時重讀、切換組織、打開頁面用;不擋主執行緒)
+    func reload() async {
+        let org = app.currentOrgId, r = remote, me = meNode, before = app.channels
+        do {
+            let (list, inbox) = try await r.run { r in
+                (try r.listChannels(org: org, issue: nil), try? r.channelInbox(org: org, for: me))
+            }
+            guard app.currentOrgId == org else { return }
+            remoteError = nil
+            if app.channels == before, list != app.channels {
+                app.channels = list
+                app.channelsVersion += 1
+            }
+            if let b = inbox, b.mentions != app.myMentions { app.myMentions = b.mentions }
+        } catch {
+            if app.currentOrgId == org { remoteFailed(error) }
+        }
+    }
+
+    /// 換組織:先清掉上一個組織的頻道,之後由 reload() 在背景讀
+    func clearForOrgChange() {
+        app.channels = []
+    }
+
+    /// 我的節點:登入遠端時是登入的 email;本機守護服務的使用者就是 App 的使用者(user:<app.me>)
+    var meNode: String {
+        if let e = app.omixorLogin.account?.email, !e.isEmpty { return ChainNode.user(e) }
+        return ChainNode.user(app.me)
+    }
+
+    // MARK: 讀寫
+
+    func load() {
+        app.channels = []
+        refresh()
+    }
+
+    /// 更新「提到我的未讀訊息」(需要協助區塊用)
+    func refreshMentions() {
+        guard let b = try? inbox(for: meNode) else { return }
+        if b.mentions != app.myMentions { app.myMentions = b.mentions }
+    }
+
+    /// 重新讀頻道清單
+    func refresh() {
+        do {
+            let list = try remote.listChannels(org: app.currentOrgId, issue: nil)
+            remoteError = nil
+            if list != app.channels {
+                app.channels = list
+                app.channelsVersion += 1
+            }
+            refreshMentions()
+        } catch { remoteFailed(error) }
+    }
+
+    /// 到秒的現在時間(格式同核心)
+    static func now() -> Date { Date(timeIntervalSince1970: Date.now.timeIntervalSince1970.rounded(.down)) }
+
+    // MARK: 顯示
+
+    /// 節點的顯示名稱:角色名稱、人名或 email
+    func name(of node: String) -> String {
+        if let id = ChainNode.agentId(node) { return app.agents.first { $0.id == id }?.name ?? id }
+        if let u = ChainNode.userId(node) {
+            if let p = app.people.first(where: { $0.id.lowercased() == u }) { return p.name }
+            if let a = app.omixorLogin.account, a.email.lowercased() == u, !a.name.isEmpty { return a.name }
+            return u
+        }
+        return node
+    }
+
+    /// 給 AuthorIcon 的作者字串:角色是 agent:<id>,人是 id / email
+    static func iconAuthor(_ node: String) -> String { ChainNode.userId(node) ?? node }
+
+    /// 節點對應的動態牆執行者
+    func actorOf(_ node: String) -> Actor {
+        if let id = ChainNode.agentId(node) { return .ai(id) }
+        return .person(ChainNode.userId(node) ?? node)
+    }
+
+    /// 畫面輸入的成員:純 email 換成 user:<email>,其他照原樣交給伺服器解析(agent:<id 或名稱>、角色 id 或名稱)
+    static func memberInput(_ s: String) -> String { s.contains("@") && !s.contains(":") ? ChainNode.user(s) : s }
+
+    /// 伺服器的錯誤換成 ChannelError(保留 HTTP 狀態碼:400、403、404、409)
+    private func ch<T>(_ f: (IssueRemote) throws -> T) throws -> T {
+        do { return try f(remote) } catch let e as IssueRemoteError {
+            throw ChannelError(e.status, e.message)
+        }
+    }
+
+    // MARK: API(actor = 以誰的身分,nil = 我;伺服器管理員可以代角色或別人操作)
+
+    /// 我(或 actor)看得到的頻道;issue 只找綁該 Issue 的
+    func list(issue: String? = nil, as actor: String? = nil) throws -> [ChannelSummary] {
+        let r = remote
+        var list = try ch { try $0.listChannels(org: app.currentOrgId, issue: issue) }
+        remoteError = nil
+        if actor == nil, issue == nil, list != app.channels { app.channels = list; app.channelsVersion += 1 }
+        if let a = actor, ChainNode.isAgent(a) {
+            // 角色身分:只留它是成員的頻道,未讀數改用它的(inbox)
+            let unread = Dictionary((try? r.channelInbox(org: app.currentOrgId, for: a))?.channels.map { ($0.id, $0.unread) } ?? [],
+                                    uniquingKeysWith: { x, _ in x })
+            list = list.filter { $0.channel.members.contains(a) }.map { var s = $0; s.unread = unread[s.id] ?? 0; return s }
+        }
+        return list
+    }
+
+    /// 一個頻道(id 或名稱)
+    func channel(_ ref: String, as actor: String? = nil) throws -> ChannelSummary {
+        let s = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.uppercased().hasPrefix("CH-"), Int(s.dropFirst(3)) != nil {
+            let c = try ch { try $0.getChannel(org: app.currentOrgId, id: s.uppercased()) }
+            if let a = actor, ChainNode.isAgent(a), !c.channel.members.contains(a) {
+                throw ChannelError(403, "\(name(of: a)) 不是頻道 \(c.id) 的成員")
+            }
+            return c
+        }
+        let all = try list(as: actor)
+        guard let c = all.first(where: { $0.name == s }) ?? all.first(where: { $0.name.caseInsensitiveCompare(s) == .orderedSame }) else {
+            throw ChannelError(404, "找不到頻道 \(s)")
+        }
+        return c
+    }
+
+    /// 建立頻道(角色不能建)。綁 Issue 而且已有看得到的頻道時回傳那個,created = false
+    @discardableResult
+    func create(name rawName: String, topic rawTopic: String = "", issueId rawIssue: String = "", members rawMembers: [String] = [],
+                as actor: String? = nil, via: Actor? = nil) throws -> (channel: ChannelSummary, created: Bool) {
+        let who = actor ?? meNode
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let topic = rawTopic.trimmingCharacters(in: .whitespacesAndNewlines)
+        let issue = rawIssue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let known = Set(app.channels.map(\.id))
+        let c = try ch { try $0.createChannel(org: app.currentOrgId, name: name, topic: topic, issueId: issue, members: rawMembers) }
+        remoteError = nil
+        let created = !known.contains(c.id)
+        if created { logCreate(c.channel, via ?? actorOf(who)) }
+        refresh()
+        return (c, created)
+    }
+
+    private func logCreate(_ c: Channel, _ by: Actor) {
+        app.log(by, "bubble.left.and.bubble.right", "建立頻道「\(c.name)」" + (c.hasIssue ? "(\(c.issueId))" : ""), .channels)
+    }
+
+    /// 改名稱、主題(成員或組織管理員;角色不能改)
+    @discardableResult
+    func update(_ id: String, name newName: String? = nil, topic newTopic: String? = nil, as actor: String? = nil) throws -> ChannelSummary {
+        let n = newName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let t = newTopic?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let c = try ch { try $0.updateChannel(org: app.currentOrgId, id: id, name: n, topic: t) }
+        remoteError = nil
+        refresh()
+        return c
+    }
+
+    /// 加減成員(成員或組織管理員;角色不能改)
+    @discardableResult
+    func changeMembers(_ id: String, add: [String] = [], remove: [String] = [], as actor: String? = nil) throws -> ChannelSummary {
+        let c = try ch { try $0.changeChannelMembers(org: app.currentOrgId, id: id, add: add, remove: remove) }
+        remoteError = nil
+        refresh()
+        return c
+    }
+
+    /// 訊息:給 since(M-n 或時間)→ 之後最早的 limit 筆;沒給 → 最新的 limit 筆;before 只取之前的。都由舊到新
+    func messages(_ id: String, since: String? = nil, before: String? = nil, limit: Int? = nil, as actor: String? = nil) throws -> ChannelPage {
+        let lim = min(Self.maxLimit, max(1, limit ?? Self.defaultLimit))
+        let p = try ch { try $0.channelMessages(org: app.currentOrgId, id: id, since: since, before: before, limit: lim) }
+        remoteError = nil
+        return p
+    }
+
+    /// "M-12" → 12
+    static func messageNumber(_ s: String) -> Int? {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        guard t.uppercased().hasPrefix("M-") else { return nil }
+        return Int(t.dropFirst(2))
+    }
+
+    /// 發訊息(要是頻道成員);@ 到的角色記到動態牆
+    @discardableResult
+    func post(_ id: String, text raw: String, as actor: String? = nil, via: Actor? = nil) throws -> ChannelMessage {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { throw ChannelError(400, "訊息不能是空的") }
+        let m = try ch { try $0.postChannelMessage(org: app.currentOrgId, id: id, text: text, author: actor) }
+        remoteError = nil
+        let chName = app.channels.first { $0.id == m.channelId }?.name ?? m.channelId
+        logMentions(m, channelName: chName, via ?? actorOf(m.author))
+        refresh()
+        return m
+    }
+
+    /// 被 @ 的角色記到動態牆
+    private func logMentions(_ m: ChannelMessage, channelName: String, _ by: Actor) {
+        let agents = m.mentions.filter(ChainNode.isAgent)
+        guard !agents.isEmpty else { return }
+        app.log(by, "at", "在頻道「\(channelName)」提到 " + agents.map(name(of:)).joined(separator: "、"), .channels)
+    }
+
+    /// 標已讀到 upTo(M-n;沒給 = 最新);已讀只會往前,不會倒退
+    @discardableResult
+    func markRead(_ id: String, upTo: String? = nil, as actor: String? = nil) throws -> ChannelRead {
+        let read = try ch { try $0.markChannelRead(org: app.currentOrgId, id: id, upTo: upTo, member: actor) }
+        remoteError = nil
+        if actor == nil, let i = app.channels.firstIndex(where: { $0.id == read.channelId }), app.channels[i].unread != 0 {
+            refresh()
+        }
+        return read
+    }
+
+    /// 提到 node 的未讀訊息(新的在前,最多 20 則)與它所在頻道的未讀數
+    func inbox(for node: String) throws -> ChannelInbox {
+        let b = try ch { try $0.channelInbox(org: app.currentOrgId, for: node) }
+        remoteError = nil
+        return b
+    }
+
+    /// Issue 的對話頻道:已有(看得到的)就回傳,沒有就建立(名稱用 Issue 標題,成員含自己與指派的角色)
+    func openForIssue(_ issue: OpsIssue) throws -> ChannelSummary {
+        if let found = (try? list(issue: issue.id))?.first { return found }
+        var members: [String] = []
+        if let a = issue.assignedAgent { members.append(ChainNode.agent(a)) }
+        let title = issue.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = String((title.isEmpty ? issue.id : title).prefix(Self.maxName))
+        return try create(name: name, issueId: issue.id, members: members).channel
+    }
+
+#if LEGACY_LOCAL_STORE
+    // ===== 已停用:原本的本機實作(channels.json、權限、未讀、@ 解析都在 App 裡算);留著備查,不編譯 =====
     /// 本機模式的資料(channels.json)
     private(set) var data = ChannelData()
     private var fileURL: URL { app.dataDir.appendingPathComponent("channels.json") }
@@ -312,6 +579,13 @@ final class ChannelStore {
         let list = localSummaries(for: meNode, issue: nil)
         if list != app.channels { app.channels = list }
         app.channelsVersion += 1
+        refreshMentions()
+    }
+
+    /// 更新「提到我的未讀訊息」(需要協助區塊用)
+    func refreshMentions() {
+        guard let b = try? inbox(for: meNode) else { return }
+        if b.mentions != app.myMentions { app.myMentions = b.mentions }
     }
 
     /// 重新讀頻道清單(遠端:伺服器;本機:重新計算未讀)
@@ -324,6 +598,7 @@ final class ChannelStore {
                 app.channels = list
                 app.channelsVersion += 1
             }
+            refreshMentions()
         } catch { remoteFailed(error) }
     }
 
@@ -748,4 +1023,5 @@ final class ChannelStore {
         let name = String((title.isEmpty ? issue.id : title).prefix(Self.maxName))
         return try create(name: name, issueId: issue.id, members: members).channel
     }
+#endif
 }

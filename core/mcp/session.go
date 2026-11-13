@@ -23,7 +23,7 @@ type AgentEnv interface {
 	OrgName() string
 	// AgentName 角色 id → 名稱(找不到回 id)
 	AgentName(id string) string
-	// ContextExtra 附加到 ops_agent_context 輸出的其他欄位(文件櫃的 cabinet、docs 核心已經附上);沒有回 nil
+	// ContextExtra 附加到 agent_context 輸出的其他欄位(文件櫃的 cabinet、docs 核心已經附上);沒有回 nil
 	ContextExtra(g model.Agent, includeBodies bool) map[string]any
 	// EndpointURL 領取任務時告訴呼叫端的角色端點網址;不知道回空字串
 	EndpointURL() string
@@ -34,7 +34,7 @@ type AgentDecorator interface {
 	DecorateAgent(g model.Agent, out map[string]any)
 }
 
-// DocAccessResolver 可選:ops_agent_upsert 的 doc_access 的 key 先經過它換成存起來的 key;
+// DocAccessResolver 可選:agent_upsert 的 doc_access 的 key 先經過它換成存起來的 key;
 // 沒實作時核心依文件櫃結構換(區塊 id 或名稱 → 區塊 id;頁籤網址、名稱或代號 → 頁籤網址)。不認得回 ToolError
 type DocAccessResolver interface {
 	ResolveDocAccessKey(k string) (string, error)
@@ -67,7 +67,7 @@ type Session struct {
 	OrgNameFn func() string
 	// AgentNameFn 角色 id → 名稱;nil 時從 Backend.GetAgent 找
 	AgentNameFn func(id string) string
-	// Extra 附加到 ops_agent_context 的其他欄位(文件櫃核心已經附上)
+	// Extra 附加到 agent_context 的其他欄位(文件櫃核心已經附上)
 	Extra func(g model.Agent, includeBodies bool) map[string]any
 	// Decorate 再改寫角色的輸出;nil = 不改
 	Decorate func(g model.Agent, out map[string]any)

@@ -13,6 +13,7 @@ import { AutoInbox } from "./AutoInbox";
 import { AutoInsights } from "./AutoInsights";
 import { AutoRuns } from "./AutoRuns";
 import { AutoCtx, pendingOf, type AutoData } from "./autoShared";
+import { useFeatureTabs } from "../../features";
 
 type Tab = "inbox" | "agents" | "dispatch" | "chain" | "flows" | "runs" | "insights";
 const TABS: { id: Tab; label: string }[] = [
@@ -29,7 +30,9 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
     agents: agents && Array.isArray(agents.agents) ? { agents: agents.agents, tasks: arr(agents.tasks) } : undefined,
     agentsError: agentsErr, loaded: autos !== undefined && runs !== undefined && approvals !== undefined,
   }), [autos, runs, approvals, agents, agentsErr]);
-  const [tab, setTab] = useState<Tab>("inbox");
+  const [rawTab, setRawTab] = useState<Tab>("inbox");
+  const tabs = useFeatureTabs(TABS.map((x) => x.id), rawTab, setRawTab, (x) => `automation.${x}`);
+  const tab = tabs.shown, setTab = tabs.select;
   const [focusApproval, setFocusApproval] = useState<string>();
   const [detail, setDetail] = useState<string>();
   const [selectedRun, setSelectedRun] = useState<string>();
@@ -73,7 +76,7 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
               {pending.length > 0 && <Pill text={`${pending.length} 件待核准`} color="orange" icon="hand.raised.fill" />}
             </div>
           }>
-          <div style={{ maxWidth: 760 }}><Segmented value={tab} onChange={setTab} options={TABS.map((t) => ({ value: t.id, label: tabTitle(t) }))} /></div>
+          <div style={{ maxWidth: 760 }}><Segmented value={tab} onChange={setTab} options={TABS.filter((t) => tabs.on(t.id)).map((t) => ({ value: t.id, label: tabTitle(t) }))} /></div>
         </PageHeader>
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
           {autosErr ? <EmptyState title="讀不到 AI 自動化" icon="exclamationmark.triangle" message={autosErr} />

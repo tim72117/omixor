@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { action, useView } from "./api";
 import { AssistantPanel } from "./assistant/AssistantPanel";
 import { CommandPalette } from "./assistant/CommandPalette";
@@ -7,6 +7,7 @@ import { AccountBox } from "./auth/AccountBox";
 import { DirectoryProvider } from "./components/bits";
 import { Icon } from "./components/Icon";
 import { color, Segmented } from "./components/ui";
+import { guardedNavigate, useFeatures, useFeaturesSync, useLocalNotice, useTimedNotice } from "./features";
 import { SECTION_VIEWS } from "./sections";
 import { SECTIONS, type Nav, type SectionId } from "./types";
 
@@ -26,9 +27,13 @@ function useBadges(): Record<string, number> {
 export function App() {
   const [nav] = useView<Nav>("nav");
   const badges = useBadges();
-  const section: SectionId = nav?.section ?? "overview";
+  useFeaturesSync();
+  const flags = useFeatures();
+  // 系統設定關掉的頁面不顯示(後端會切回總覽並提示;這裡先照總覽畫,不閃一下)
+  const asked: SectionId = nav?.section ?? "overview";
+  const section: SectionId = SECTION_VIEWS[asked] && flags.visible(asked) ? asked : "overview";
   const View = SECTION_VIEWS[section];
-  const go = (s: SectionId) => action("navigate", { section: s });
+  const go = (s: SectionId) => guardedNavigate(s);
   const [showAssistant, setShowAssistant] = useAssistantVisible();
   const [palette, setPalette] = useState(false);
 
@@ -53,7 +58,7 @@ export function App() {
           <div key={g} className="side-group">
             {g === "main" && <div className="side-label">維運</div>}
             {g === "auto" && <div className="side-label">自動化</div>}
-            {SECTIONS.filter((s) => s.group === g).map((s) => (
+            {SECTIONS.filter((s) => s.group === g && flags.visible(s.id)).map((s) => (
               <button key={s.id} className={"side-item" + (s.id === section ? " on" : "")} onClick={() => go(s.id)}>
                 <Icon name={s.icon} size={15} />
                 <span>{s.title}</span>
@@ -87,6 +92,7 @@ export function App() {
             </button>
           </div>
         </header>
+        <FeatureNotice />
         <div className="content">
           <Suspense fallback={<div className="muted" style={{ padding: 20 }}>載入中…</div>}>
             <View key={section} focusId={nav?.focusId || undefined} clearFocus={() => action("navigate", { section, focusId: "" })} />
@@ -97,6 +103,30 @@ export function App() {
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
     </div>
     </DirectoryProvider>
+  );
+}
+
+/** 跳到關掉的功能、所在頁被關掉時,畫面上方的提示(5 秒後自動消失;同 App 的 FeatureNoticeBanner) */
+function FeatureNotice() {
+  const flags = useFeatures();
+  const server = flags.view?.notice;
+  // 第一次讀到時已經有的提示是之前的,不顯示
+  const base = useRef<number>();
+  if (server && base.current === undefined) base.current = server.seq;
+  const fresh = server && base.current !== undefined && server.seq > base.current ? server : undefined;
+  const [s, closeS] = useTimedNotice(fresh?.seq ?? 0, fresh?.text ?? "");
+  const local = useLocalNotice();
+  const [l, closeL] = useTimedNotice(local.seq, local.text);
+  const text = l ?? s;
+  if (!text) return null;
+  const close = () => { closeS(); closeL(); };
+  return (
+    <div className="feature-notice">
+      <Icon name="switch.2" size={14} />
+      <span>{text}</span>
+      <button className="btn link" onClick={() => { close(); void guardedNavigate("system"); }}>前往系統</button>
+      <button className="bx-icon-btn" title="關閉" onClick={close}><Icon name="xmark" size={12} /></button>
+    </div>
   );
 }
 
