@@ -54,11 +54,14 @@ extension IncidentEvent: Decodable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: DKeys.self)
-        self.init(id: IncidentJSON.uuid(try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString),
-                  date: try c.decodeIfPresent(Date.self, forKey: .date) ?? .distantPast,
-                  actor: (try? c.decodeIfPresent(Actor.self, forKey: .actor)) ?? .system,
-                  kind: (try? c.decodeIfPresent(Kind.self, forKey: .kind)) ?? .note,
-                  text: try c.decodeIfPresent(String.self, forKey: .text) ?? "")
+        let date: Date = c.lossy(.date, default: .distantPast)
+        let text: String = c.lossy(.text, default: "")
+        // id 缺時用內容算固定的 UUID(重讀時不會每次都變)
+        self.init(id: IncidentJSON.uuid(c.lossyOptional(String.self, .id) ?? "\(date.timeIntervalSince1970)|\(text)"),
+                  date: date,
+                  actor: c.lossy(.actor, default: .system),
+                  kind: c.lossyEnum(.kind, default: .note),
+                  text: text)
     }
 }
 
@@ -75,18 +78,18 @@ struct ServerIncident: Decodable {
         let c = try decoder.container(keyedBy: DKeys.self)
         incident = Incident(
             id: try c.decode(String.self, forKey: .id),
-            title: try c.decodeIfPresent(String.self, forKey: .title) ?? "",
-            sev: try c.decodeIfPresent(Int.self, forKey: .sev) ?? 3,
-            status: (try? c.decodeIfPresent(IncidentStatus.self, forKey: .status)) ?? .investigating,
-            services: try c.decodeIfPresent([String].self, forKey: .services) ?? [],
-            commander: try c.decodeIfPresent(String.self, forKey: .commander) ?? "",
-            startedAt: try c.decodeIfPresent(Date.self, forKey: .startedAt) ?? .distantPast,
-            resolvedAt: try? c.decodeIfPresent(Date.self, forKey: .resolvedAt),
-            impact: try c.decodeIfPresent(String.self, forKey: .impact) ?? "",
-            timeline: try c.decodeIfPresent([IncidentEvent].self, forKey: .timeline) ?? [],
-            aiSummary: try c.decodeIfPresent(String.self, forKey: .aiSummary),
-            followUps: try c.decodeIfPresent([String].self, forKey: .followUps) ?? [])
-        alertIds = try c.decodeIfPresent([String].self, forKey: .alertIds) ?? []
+            title: c.lossy(.title, default: ""),
+            sev: c.lossy(.sev, default: 3),
+            status: c.lossy(.status, default: .investigating),
+            services: c.lossyArray(String.self, .services),
+            commander: c.lossy(.commander, default: ""),
+            startedAt: c.lossy(.startedAt, default: .distantPast),
+            resolvedAt: c.lossyOptional(Date.self, .resolvedAt),
+            impact: c.lossy(.impact, default: ""),
+            timeline: c.lossyArray(IncidentEvent.self, .timeline),
+            aiSummary: c.lossyOptional(String.self, .aiSummary),
+            followUps: c.lossyArray(String.self, .followUps))
+        alertIds = c.lossyArray(String.self, .alertIds)
     }
 }
 
@@ -99,7 +102,7 @@ extension IssueRemote {
 
     /// GET /incidents:全部事件(新的在前)
     func listIncidents(org: String) throws -> [ServerIncident] {
-        try decodeIncident([ServerIncident].self, try send("GET", orgURL(org, ["incidents"]), nil))
+        try decodeIncident(LossyList<ServerIncident>.self, try send("GET", orgURL(org, ["incidents"]), nil)).elements
     }
 
     /// POST /incidents:宣告(欄位見 core 的 service.IncidentInput)
@@ -110,12 +113,5 @@ extension IssueRemote {
     /// POST /incidents/{id}:更新(欄位見 core 的 service.IncidentPatch)
     func updateIncident(org: String, id: String, _ body: [String: Any]) throws -> ServerIncident {
         try decodeIncident(ServerIncident.self, try send("POST", orgURL(org, ["incidents", id]), try json(body)))
-    }
-
-    /// POST /incidents/import:第一次搬資料用(組織管理員;伺服器已經有事件就拒絕)
-    func importIncidents(org: String, _ list: [Incident]) throws {
-        let data = try MCPJSON.encoder.encode(list)
-        let arr = try JSONSerialization.jsonObject(with: data)
-        _ = try send("POST", orgURL(org, ["incidents", "import"]), try json(["incidents": arr]))
     }
 }

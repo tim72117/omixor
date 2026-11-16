@@ -164,3 +164,11 @@ func init() {
 			"requests": core.Object(m.Requests), "latencyP95": core.Object(m.LatencyP95), "instances": core.Object(m.Instances)}, nil
 	})
 }
+
+// connAccount 連線狀態裡的帳號名稱(拿著鎖;原本在 tools_github.go)
+func connAccount(a *core.App, id string) *string {
+	if st := core.ConnStateOf(a, id); st != nil {
+		return st.Account
+	}
+	return nil
+}

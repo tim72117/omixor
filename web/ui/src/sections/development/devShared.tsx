@@ -4,15 +4,15 @@ import { action } from "../../api";
 import { color, EmptyState } from "../../components/ui";
 import { ActorAvatar, CHECK, SIcon, WORK_TYPE, now, t, type CheckKey, type PullRequest, type Repository, type WorkItem, type WorkTypeKey } from "../../components/opsKit";
 
-export type DevTab = "overview" | "board" | "issues" | "pulls" | "repos" | "github" | "gitlab";
+// Repositories(功能 development.repos,選用模組 integrations):GitHub 與 GitLab 追蹤中的 repo 一起列;
+// 原本的 GitHub、GitLab 分頁已併進來(舊連結的 focusId "github" / "gitlab" 改開 Repositories)
+export type DevTab = "overview" | "board" | "issues" | "pulls" | "repos";
 export const DEV_TABS: { id: DevTab; label: string; icon: string }[] = [
   { id: "overview", label: "概覽", icon: "chart.bar.xaxis" },
-  { id: "board", label: "Sprint 看板", icon: "rectangle.split.3x1" },
+  { id: "board", label: "看板", icon: "rectangle.split.3x1" },
   { id: "issues", label: "Issue", icon: "exclamationmark.bubble" },
   { id: "pulls", label: "Pull Requests", icon: "arrow.triangle.pull" },
   { id: "repos", label: "Repositories", icon: "shippingbox" },
-  { id: "github", label: "GitHub", icon: "chevron.left.forwardslash.chevron.right" },
-  { id: "gitlab", label: "GitLab", icon: "chevron.left.forwardslash.chevron.right" },
 ];
 
 export type DevModel = {
@@ -21,12 +21,46 @@ export type DevModel = {
   prRepoFilter?: string; setPrRepoFilter: (r?: string) => void;
   highlightedItem?: string; setHighlightedItem: (id?: string) => void;
   selectedIssue?: string; setSelectedIssue: (id?: string) => void;
+  /** Repositories 選的 repo(「平台:key」,例如 github:owner/name、gitlab:42) */
+  selectedRepo?: string; setSelectedRepo: (id?: string) => void;
   showIssue: (id: string) => void; showPR: (id: number) => void; showRepoPRs: (repo: string) => void; showItem: (id: string) => void;
+  /** 打開 Repositories 並選這個 repo(「平台:key」;undefined = 只切到分頁) */
+  showRepo: (id?: string) => void;
 };
 export const DevCtx = createContext<DevModel | null>(null);
 export const useDev = () => useContext(DevCtx)!;
 
-// MARK: - 程式碼倉庫設定的入口(GitHub、GitLab 分頁用)
+// MARK: - Issue 的倉庫篩選(Issue 分頁與看板共用;Swift 的 IssueRepoOptions / IssueRepoFilterPicker)
+
+/** 選單去重用的鍵:不分大小寫(平台前綴保留,github:x 與 gitlab:x 是不同倉庫) */
+export const repoKey = (r: string) => r.trim().toLowerCase();
+/** 篩選「未標記倉庫」用的值,同核心的 model.IssueFilterNone(含括號,CleanRepo 不接受,不會和真的 repo 名稱撞到) */
+export const NO_REPO = "(none)";
+
+/** Issue 用到的倉庫(去重:不分大小寫,保留第一次出現的寫法),依字母排序 */
+export function usedRepos(issues: { repo?: string }[]): string[] {
+  const m = new Map<string, string>();
+  for (const i of issues) if (i.repo && !m.has(repoKey(i.repo))) m.set(repoKey(i.repo), i.repo);
+  return [...m.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/** 依所屬倉庫篩選的下拉:"" = 全部倉庫;NO_REPO = 未標記;其他 = 只列這個倉庫(比對規則在核心的 model.RepoMatch)。
+ *  沒有 Issue 標記倉庫、也沒在篩選時不顯示 */
+export function RepoFilterSelect({ value, onChange, repos }: { value: string; onChange: (v: string) => void; repos: string[] }) {
+  if (repos.length === 0 && !value) return null;
+  return (
+    <select className="select" title="依所屬倉庫篩選" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">全部倉庫</option>
+      <option value={NO_REPO}>未標記倉庫</option>
+      {repos.length > 0 && <option disabled>──────</option>}
+      {repos.map((r) => <option key={r} value={r}>{r}</option>)}
+      {/* 篩選中的倉庫已經沒有 Issue 用了:仍列出來,選單才不會是空白 */}
+      {value && value !== NO_REPO && !repos.some((r) => repoKey(r) === repoKey(value)) && <option value={value}>{value}</option>}
+    </select>
+  );
+}
+
+// MARK: - 程式碼倉庫設定的入口(Repositories 分頁用)
 
 /** 跳到 設定 › 程式碼倉庫(SettingsView 以 focusId 決定打開的分頁) */
 export const openRepoSettings = () => action("navigate", { section: "settings", focusId: "repos" }).catch(() => undefined);

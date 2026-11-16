@@ -1,92 +1,135 @@
-// 開發 › Sprint 看板(Swift 的 DevBoardTab.swift)。拖拉卡片移欄 = work_item_move。
-import { useEffect, useState } from "react";
-import { action, tool } from "../../api";
-import { color, EmptyState, Modal, Pill } from "../../components/ui";
-import {
-  ActorAvatar, ActorLabel, AIBadge, copyText, HealthBadge, PR, SIcon, ToggleButton, useAct, useContextMenu, useList, useOps,
-  WORK_STATUS, WORK_STATUS_ORDER, WORK_TYPE, WORK_TYPE_ORDER, sameActor,
-  type Actor, type PullRequest, type WorkItem, type WorkStatusKey, type WorkTypeKey,
-} from "../../components/opsKit";
-import { ChecksIcon, TypeTag, useDev } from "./devShared";
-import { canGo } from "../../features";
+// 開發 › 看板:依狀態分欄顯示目前組織真的 Issue。分欄、排序、篩選、搜尋的規則只在核心(omixor-core/model 的 issue_query.go):
+// 畫面呼叫 issue_board(後端用核心的 model.BuildIssueBoard 處理快取的 Issue),只負責顯示;改狀態走 issue_update。
+//   待處理 = open 且沒指派角色;進行中 = open 且指派給角色;已完成 = closed(每欄依優先度 → 最近更新 → 編號)
+// 拖曳:欄的 dropStatus 和 Issue 現在的 status 不同才送修改(拖到「已完成」= 關閉,從「已完成」拖出 = 重新打開);
+// 待處理 ↔ 進行中 狀態相同(要改指派,會牽動角色的任務),看板上不做,請到 Issue 分頁改。
+// 拖曳游標:能放的欄 dropEffect = move 並高亮;不能放的欄(原欄、待處理 ↔ 進行中)dropEffect = none(禁止游標、瀏覽器不觸發 drop),
+// 待處理 ↔ 進行中 另外在欄內顯示一行提示。dragover 時讀不到 dataTransfer 的資料,所以 dragstart 時把 Issue 記在 dragging。
+import { useState } from "react";
+import { tool, useActionQuery, useDebounced } from "../../api";
+import { color, EmptyState, Pill } from "../../components/ui";
+import { boardDropStatus } from "../../components/models";
+import { copyText, SIcon, useAct, useContextMenu, useList, useOps } from "../../components/opsKit";
+import { RepoFilterSelect, usedRepos, useDev } from "./devShared";
+import { PRIORITY, showPriorityPill, type OpsIssue } from "./DevIssuesTab";
+
+type Priority = OpsIssue["priority"];
+const PRIORITIES: Priority[] = ["urgent", "high", "normal", "low"];
+
+export type BoardColumnKey = "todo" | "doing" | "done";
+/** issue_board 回傳的一欄(同核心的 model.BoardColumn) */
+export type BoardColumn = { key: BoardColumnKey; title: string; dropStatus: "open" | "closed" | null; issues: OpsIssue[] };
+/** issue_board 的回應(同核心 GET /api/orgs/{org}/issues/board 的 model.IssueBoard) */
+export type IssueBoard = { columns: BoardColumn[]; labels: string[]; total: number; matched: number };
+
+// 各欄的顯示(圖示、顏色、說明);欄的順序、標題、內容都照後端回傳
+const COLUMN_LOOK: Record<string, { icon: string; color: string; help: string }> = {
+  todo: { icon: "circle.dotted", color: "secondary", help: "未解決、還沒指派給角色的 Issue" },
+  doing: { icon: "circle.lefthalf.filled", color: "blue", help: "未解決、已指派給角色的 Issue" },
+  done: { icon: "checkmark.circle.fill", color: "green", help: "已關閉的 Issue;拖到這裡會關閉,拖回去會重新打開" },
+};
+const look = (k: string) => COLUMN_LOOK[k] ?? { icon: "circle", color: "secondary", help: "" };
+
+// MARK: - 畫面
 
 export function DevBoardTab() {
-  const o = useOps();
-  const [work, err, ready] = useList<WorkItem>("work_items");
-  const [prs] = useList<PullRequest>("pull_requests");
-  const [assignee, setAssignee] = useState("all");
-  const [type, setType] = useState<WorkTypeKey | "">("");
-  const [onlyAI, setOnlyAI] = useState(false);
-  const [showBacklog, setShowBacklog] = useState(true);
   const [query, setQuery] = useState("");
-  const [targeted, setTargeted] = useState<WorkStatusKey>();
+  const [label, setLabel] = useState("");
+  const [priority, setPriority] = useState<Priority | "">("");
+  const [repo, setRepo] = useState(""); // "" = 全部倉庫;NO_REPO = 未標記;其他 = 只列這個倉庫(比對規則在核心的 model.RepoMatch)
+  const [issues] = useList<OpsIssue>("issues"); // 全部(倉庫選單用,同 Issue 分頁);看板本身照 issue_board 的結果
+  const q = useDebounced(query, 250);
+  const [board, err] = useActionQuery<IssueBoard>("issue_board", { q, label, priority, repo }, ["issues"]);
+  const [targeted, setTargeted] = useState<string>();
+  /** 拖曳中的 Issue(dragstart 記下、dragend 清掉)與它原本的欄 */
+  const [dragging, setDragging] = useState<{ issue: OpsIssue; from: string }>();
+  /** 拖到不能放、要提示的欄(待處理 ↔ 進行中) */
+  const [blocked, setBlocked] = useState<string>();
   const { run, toastEl } = useAct();
-  const me: Actor = { kind: "person", id: o.me };
 
-  const columns = showBacklog ? WORK_STATUS_ORDER : WORK_STATUS_ORDER.filter((s) => s !== "backlog");
-  const filtered = work.filter((it) => {
-    if (type && it.type !== type) return false;
-    if (onlyAI && !it.createdByAI) return false;
-    if (assignee === "me" && !sameActor(it.assignee, me)) return false;
-    if (assignee === "ai" && it.assignee?.kind !== "ai") return false;
-    if (assignee === "none" && it.assignee) return false;
-    if (assignee.startsWith("p:") && !(it.assignee?.kind === "person" && it.assignee.id === assignee.slice(2))) return false;
-    if (query) {
-      const q = query.toLowerCase();
-      if (!it.title.toLowerCase().includes(q) && !it.id.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
-  const hasFilter = assignee !== "all" || !!type || onlyAI || !!query;
-  const pts = filtered.reduce((a, i) => a + i.points, 0);
-  const move = (id: string, status: WorkStatusKey) => run(() => tool("work_item_move", { id, status }));
+  const labels = board?.labels ?? [];
+  const total = board?.total ?? 0;
+  const hasFilter = !!query || !!label || !!priority || !!repo;
+  const setStatus = (i: OpsIssue, s: "open" | "closed") => {
+    if (i.status !== s) run(() => tool("issue_update", { id: i.id, status: s }));
+  };
+  // 只有能放的欄會觸發 drop(不能放的 dragover 設了 dropEffect = none);仍照 dropStatus 再判斷一次
+  const drop = (id: string, col: BoardColumn) => {
+    const i = board?.columns.flatMap((c) => c.issues).find((x) => x.id === id);
+    const s = i && boardDropStatus(col.dropStatus, i.status);
+    if (i && s) setStatus(i, s);
+  };
+  const endDrag = () => { setDragging(undefined); setTargeted(undefined); setBlocked(undefined); };
 
   return (
     <div className="ops-page">
       <div className="ops-filterbar">
-        <input className="input" style={{ minWidth: 120, maxWidth: 200, flex: 1 }} placeholder="搜尋標題或編號" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <select className="select" value={assignee} onChange={(e) => setAssignee(e.target.value)} title="負責人">
-          <option value="all">所有人</option><option value="me">我</option><option value="ai">AI</option><option value="none">未指派</option>
-          {o.people.length > 0 && <option disabled>──────</option>}
-          {o.people.map((p) => <option key={p.id} value={`p:${p.id}`}>{p.name}</option>)}
+        <input className="input" style={{ minWidth: 140, maxWidth: 240, flex: 1 }} placeholder="搜尋編號、標題、內文、標籤、留言" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <select className="select" value={label} onChange={(e) => setLabel(e.target.value)} title="依標籤篩選">
+          <option value="">全部標籤</option>
+          {labels.length > 0 && <option disabled>──────</option>}
+          {labels.map((l) => <option key={l} value={l}>{l}</option>)}
+          {/* 篩選中的標籤已經沒有 Issue 用了:仍列出來,選單才不會是空白 */}
+          {label && !labels.some((l) => l.toLowerCase() === label.toLowerCase()) && <option value={label}>{label}</option>}
         </select>
-        <select className="select" value={type} onChange={(e) => setType(e.target.value as WorkTypeKey | "")} title="類型">
-          <option value="">全部類型</option><option disabled>──────</option>
-          {WORK_TYPE_ORDER.map((t) => <option key={t} value={t}>{WORK_TYPE[t].label}</option>)}
+        <select className="select" value={priority} onChange={(e) => setPriority(e.target.value as Priority | "")} title="依優先度篩選">
+          <option value="">全部優先度</option><option disabled>──────</option>
+          {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY[p].label}</option>)}
         </select>
-        <ToggleButton on={onlyAI} onChange={setOnlyAI} title="只顯示 AI 建立的項目"><SIcon name="sparkles" size={12} />AI 建立</ToggleButton>
-        <ToggleButton on={showBacklog} onChange={setShowBacklog} title="顯示 Backlog 欄"><SIcon name="tray" size={12} />Backlog</ToggleButton>
-        {hasFilter && <button className="btn link" onClick={() => { setAssignee("all"); setType(""); setOnlyAI(false); setQuery(""); }}>清除</button>}
+        <RepoFilterSelect value={repo} onChange={setRepo} repos={usedRepos(issues)} />
+        {hasFilter && <button className="btn link" onClick={() => { setQuery(""); setLabel(""); setPriority(""); setRepo(""); }}>清除</button>}
         <span className="grow" />
-        <span className="muted num">{filtered.length} 項・{pts} 點</span>
+        {board && <span className="muted num">{hasFilter ? `${board.matched} / ${total} 個 Issue` : `${total} 個 Issue`}</span>}
       </div>
-      {err && work.length === 0 ? <EmptyState title="讀不到工作項目" icon="exclamationmark.triangle" message={err} />
-        : !ready ? null : work.length === 0 ? <EmptyState title="看板是空的" icon="rectangle.split.3x1" message="這個 Sprint 還沒有工作項目" /> : (
+      {err && !board ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={err} />
+        : !board ? null : total === 0 ? (
+          <EmptyState title="這個組織還沒有 Issue" icon="rectangle.split.3x1" message="到「Issue」分頁新增,或讓 AI 透過 MCP 的 issue_create 建立;建立後會依狀態出現在看板上。" />
+        ) : (
           <div className="ops-board">
-            {columns.map((status) => {
-              const items = filtered.filter((i) => i.status === status);
-              const isTarget = targeted === status;
+            {board.columns.map((col) => {
+              const items = col.issues;
+              const isTarget = targeted === col.key;
+              const isBlocked = blocked === col.key;
+              const lk = look(col.key);
               return (
-                <div key={status} className={"ops-col" + (isTarget ? " target" : "")}
-                  onDragOver={(e) => { e.preventDefault(); if (targeted !== status) setTargeted(status); }}
-                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setTargeted((t) => (t === status ? undefined : t)); }}
+                <div key={col.key} className={"ops-col" + (isTarget ? " target" : "")}
+                  onDragOver={(e) => {
+                    const ok = !!dragging && !!boardDropStatus(col.dropStatus, dragging.issue.status);
+                    if (ok) {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                    } else {
+                      e.dataTransfer.dropEffect = "none";
+                    }
+                    const t = ok ? col.key : undefined;
+                    if (targeted !== t) setTargeted(t);
+                    const b = !ok && !!dragging && dragging.from !== col.key ? col.key : undefined;
+                    if (blocked !== b) setBlocked(b);
+                  }}
+                  onDragLeave={(e) => {
+                    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                    setTargeted((t) => (t === col.key ? undefined : t));
+                    setBlocked((b) => (b === col.key ? undefined : b));
+                  }}
                   onDrop={(e) => {
                     e.preventDefault();
-                    setTargeted(undefined);
-                    const id = e.dataTransfer.getData("text/plain");
-                    const it = work.find((w) => w.id === id);
-                    if (it && it.status !== status) move(id, status);
+                    const id = dragging?.issue.id ?? e.dataTransfer.getData("text/plain");
+                    endDrag();
+                    drop(id, col);
                   }}>
-                  <div className="row gap6" style={{ padding: "9px 10px" }}>
-                    <SIcon name={WORK_STATUS[status].icon} color={WORK_STATUS[status].color} />
-                    <span className="card-title">{WORK_STATUS[status].label}</span>
+                  <div className="row gap6" style={{ padding: "9px 10px" }} title={lk.help}>
+                    <SIcon name={lk.icon} color={lk.color} />
+                    <span className="card-title">{col.title}</span>
                     <span className="ops-count">{items.length}</span>
-                    <span className="grow" />
-                    <span className="caption muted num">{items.reduce((a, i) => a + i.points, 0)} 點</span>
                   </div>
+                  {isBlocked && <div className="ops-col-hint">待處理 ↔ 進行中 由指派角色決定,請到 Issue 分頁改指派</div>}
                   <div className="ops-col-body">
-                    {items.map((it) => <WorkCard key={it.id} item={it} prs={prs} onMove={move} />)}
-                    {items.length === 0 && <div className="ops-dashed">{isTarget ? `放開以移到「${WORK_STATUS[status].label}」` : "沒有項目"}</div>}
+                    {items.map((i) => (
+                      <IssueCard key={i.id} issue={i} onStatus={(s) => setStatus(i, s)}
+                        dragging={dragging?.issue.id === i.id}
+                        onDragStart={() => setDragging({ issue: i, from: col.key })} onDragEnd={endDrag} />
+                    ))}
+                    {items.length === 0 && <div className="ops-dashed">{isTarget ? `放開以移到「${col.title}」` : hasFilter ? "沒有符合的 Issue" : "沒有 Issue"}</div>}
                   </div>
                 </div>
               );
@@ -98,115 +141,73 @@ export function DevBoardTab() {
   );
 }
 
-function WorkCard({ item, prs, onMove }: { item: WorkItem; prs: PullRequest[]; onMove: (id: string, s: WorkStatusKey) => void }) {
+const tagStyle: React.CSSProperties = {
+  fontSize: 10.5, padding: "1px 5px", borderRadius: 4, maxWidth: "100%",
+  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+};
+
+function IssueCard({ issue, onStatus, dragging, onDragStart, onDragEnd }: {
+  issue: OpsIssue; onStatus: (s: "open" | "closed") => void;
+  /** 這張卡正在被拖曳(半透明) */
+  dragging: boolean;
+  onDragStart: () => void; onDragEnd: () => void;
+}) {
   const o = useOps();
   const dev = useDev();
-  const [detail, setDetail] = useState(false);
   const menu = useContextMenu();
-  const { run, toastEl } = useAct();
-  const highlighted = dev.highlightedItem === item.id;
-  const linked = prs.filter((p) => p.linkedItem === item.id);
-  const me: Actor = { kind: "person", id: o.me };
-  const assign = (a: Actor | null) => run(() => action("work_item_assign", { id: item.id, assignee: a?.id ?? "" }));
-
-  useEffect(() => {
-    if (highlighted) {
-      const id = window.setTimeout(() => setDetail(true), 300);
-      return () => window.clearTimeout(id);
-    }
-  }, [highlighted]);
-  const close = () => { setDetail(false); if (highlighted) dev.setHighlightedItem(undefined); };
-
-  const svc = item.service ? o.service(item.service) : undefined;
+  const open = issue.status === "open";
+  const p = PRIORITY[issue.priority] ?? PRIORITY.normal;
+  const agentName = issue.assignee ? (o.agents.find((a) => a.id === issue.assignee)?.name ?? issue.assignee) : undefined;
+  const labels = issue.labels ?? [];
   return (
     <>
-      <div className={"ops-work" + (highlighted ? " hl" : "")} draggable onDragStart={(e) => { e.dataTransfer.setData("text/plain", item.id); e.dataTransfer.effectAllowed = "move"; }}
-        onClick={() => setDetail(true)}
+      <div className={"ops-work" + (dragging ? " dragging" : "")} draggable title="按一下在 Issue 分頁打開;拖到其他欄改狀態"
+        onDragStart={(e) => { e.dataTransfer.setData("text/plain", issue.id); e.dataTransfer.effectAllowed = "move"; onDragStart(); }}
+        onDragEnd={onDragEnd}
+        onClick={() => dev.showIssue(issue.id)}
         onContextMenu={menu.open([
-          { header: "移到…" },
-          ...WORK_STATUS_ORDER.map((s) => ({ label: <><SIcon name={WORK_STATUS[s].icon} size={12} />&nbsp;{WORK_STATUS[s].label}</>, disabled: s === item.status, onClick: () => onMove(item.id, s) })),
+          { label: "打開詳細資料", onClick: () => dev.showIssue(issue.id) },
           "sep",
-          ...(!sameActor(item.assignee, me) ? [{ label: "指派給我", onClick: () => assign(me) }] : []),
-          ...(item.assignee ? [{ label: "取消指派", onClick: () => assign(null) }] : []),
+          open ? { label: "關閉 Issue", onClick: () => onStatus("closed") } : { label: "重新打開", onClick: () => onStatus("open") },
           "sep",
-          { label: "查看詳細資料", onClick: () => setDetail(true) },
-          ...(item.service && canGo("infrastructure") ? [{ label: `前往服務「${svc?.name ?? item.service}」`, onClick: () => o.go("infrastructure", item.service) }] : []),
-          { label: "複製編號", onClick: () => copyText(item.id) },
+          { label: "複製編號", onClick: () => copyText(issue.id) },
         ])}>
-        <div style={{ width: 3, flex: "none", background: color(WORK_TYPE[item.type]?.color) }} />
-        <div className="col grow" style={{ padding: 10, gap: 7, minWidth: 0 }}>
+        <div style={{ width: 3, flex: "none", background: color(p.color) }} title={`優先度:${p.label}`} />
+        <div className="col grow" style={{ padding: 10, gap: 6, minWidth: 0 }}>
           <div className="row gap6">
-            <span className="caption mono muted">{item.id}</span>
-            {item.createdByAI && <span title="由 AI 建立"><SIcon name="sparkles" size={11} color="purple" /></span>}
+            <span className="caption mono muted">{issue.id}</span>
             <span className="grow" />
-            <span className="ops-count" title={`${item.points} 點`} style={{ minWidth: 18, textAlign: "center" }}>{item.points}</span>
+            {issue.comments?.length > 0 && <span className="caption muted row gap4"><SIcon name="bubble.left" size={11} />{issue.comments.length}</span>}
+            {showPriorityPill(issue.priority) && <Pill text={p.label} color={p.color} />}
           </div>
-          <div style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.title}</div>
-          <div className="row gap6">
-            <TypeTag type={item.type} />
-            {item.service && <span className="ellipsis" style={{ fontSize: 10.5, padding: "1px 5px", borderRadius: 4, background: "color-mix(in srgb, var(--fg) 6%, transparent)" }}>{svc?.name ?? item.service}</span>}
-            <span className="grow" />
-            {linked.length > 0 && <span className="row muted" style={{ gap: 2, fontSize: 10.5 }} title={`${linked.length} 個相關 PR`}><SIcon name="arrow.triangle.pull" size={10} />{linked.length}</span>}
-            <ActorAvatar actor={item.assignee} size={20} />
-          </div>
+          <div style={{ color: open ? undefined : "var(--fg2)", overflowWrap: "anywhere", whiteSpace: "normal" }}>{issue.title}</div>
+          {(agentName || issue.repo) && (
+            <div className="col gap4" style={{ alignItems: "flex-start", minWidth: 0 }}>
+              {agentName && (
+                <span className="row gap4" title={`指派給角色:${agentName}`} style={{ ...tagStyle, color: color("purple"), background: `color-mix(in srgb, ${color("purple")} 12%, transparent)` }}>
+                  <SIcon name="person.crop.circle" size={10} />{agentName}
+                </span>
+              )}
+              {issue.repo && (
+                <span className="row gap4 mono" title={`倉庫:${issue.repo}`} style={{ ...tagStyle, color: color("teal"), background: `color-mix(in srgb, ${color("teal")} 12%, transparent)` }}>
+                  <SIcon name="chevron.left.forwardslash.chevron.right" size={10} />{issue.repo}
+                </span>
+              )}
+            </div>
+          )}
+          {labels.length > 0 && (
+            <div className="row gap4" style={{ flexWrap: "wrap" }} title={labels.join("、")}>
+              {labels.slice(0, 3).map((l) => (
+                <span key={l} className="row gap4 muted" style={{ ...tagStyle, maxWidth: 120, background: "color-mix(in srgb, var(--fg) 6%, transparent)" }}>
+                  <SIcon name="tag" size={10} />{l}
+                </span>
+              ))}
+              {labels.length > 3 && <span className="caption muted">+{labels.length - 3}</span>}
+            </div>
+          )}
         </div>
       </div>
-      {menu.el}{toastEl}
-      <Modal open={detail} onClose={close} width={380}>
-        <WorkDetail item={item} prs={linked} onMove={onMove} onAssign={assign} close={close} />
-      </Modal>
+      {menu.el}
     </>
-  );
-}
-
-function WorkDetail({ item: w, prs, onMove, onAssign, close }: { item: WorkItem; prs: PullRequest[]; onMove: (id: string, s: WorkStatusKey) => void; onAssign: (a: Actor | null) => void; close: () => void }) {
-  const o = useOps();
-  const dev = useDev();
-  const me: Actor = { kind: "person", id: o.me };
-  const svc = w.service ? o.service(w.service) : undefined;
-  return (
-    <div className="col gap12">
-      <div className="row gap8">
-        <span className="mono muted">{w.id}</span>
-        <Pill text={WORK_TYPE[w.type].label} color={WORK_TYPE[w.type].color} />
-        {w.createdByAI && <AIBadge text="AI 建立" />}
-        <span className="grow" />
-        <span className="muted num">{w.points} 點</span>
-      </div>
-      <div className="card-title" style={{ fontSize: 15 }}>{w.title}</div>
-      <div className="ops-kbd-row">
-        <span className="muted">狀態</span>
-        <select className="select" style={{ justifySelf: "start" }} value={w.status} onChange={(e) => onMove(w.id, e.target.value as WorkStatusKey)}>
-          {WORK_STATUS_ORDER.map((s) => <option key={s} value={s}>{WORK_STATUS[s].label}</option>)}
-        </select>
-        <span className="muted">負責人</span>
-        <span className="row gap8">
-          {w.assignee ? <ActorLabel actor={w.assignee} /> : <span className="faint">未指派</span>}
-          {!sameActor(w.assignee, me) && <button className="btn link caption" onClick={() => onAssign(me)}>指派給我</button>}
-        </span>
-        {w.service && (
-          <>
-            <span className="muted">服務</span>
-            <button className="btn link row gap4" style={{ justifySelf: "start" }} onClick={canGo("infrastructure") ? () => { close(); o.go("infrastructure", w.service); } : undefined}>
-              {svc && <HealthBadge h={svc.health} compact />}{svc?.name ?? w.service}<SIcon name="arrow.up.forward" size={10} />
-            </button>
-          </>
-        )}
-      </div>
-      {prs.length > 0 && (
-        <>
-          <div className="divider" />
-          <div style={{ fontWeight: 500 }}>相關 Pull Request</div>
-          {prs.map((pr) => (
-            <button key={pr.id} className="ops-plain row gap6" onClick={() => { close(); dev.showPR(pr.id); }}>
-              <span className="dot" style={{ background: color(PR[pr.status].color) }} />
-              <span className="muted num">#{pr.id}</span>
-              <span className="ellipsis grow">{pr.title}</span>
-              <ChecksIcon s={pr.checks} />
-            </button>
-          ))}
-        </>
-      )}
-    </div>
   );
 }

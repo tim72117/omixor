@@ -151,7 +151,7 @@ func TestFileStoreCorrupt(t *testing.T) {
 func TestFileStoreCoversMem(t *testing.T) {
 	handled := map[string]bool{"mu": true, "users": true, "tokens": true, "audit": true, "orgs": true, "members": true,
 		"issues": true, "attach": true, "agents": true, "tasks": true, "creds": true, "layouts": true, "docs": true,
-		"chains": true, "channels": true, "messages": true, "reads": true, "incidents": true, "integrations": true, "system": true, "mcp": true}
+		"chains": true, "channels": true, "messages": true, "reads": true, "incidents": true, "integrations": true, "system": true, "mcp": true, "server": true}
 	tp := reflect.TypeOf(Mem{})
 	for i := 0; i < tp.NumField(); i++ {
 		if n := tp.Field(i).Name; !handled[n] {
@@ -242,5 +242,106 @@ func TestFileCleansTemps(t *testing.T) {
 	}
 	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
 		t.Fatal("暫存檔要清掉")
+	}
+}
+
+// 非批次寫入存檔失敗:記憶體要還原成上一次成功存檔的內容,下一次成功的寫入不能把失敗的那筆帶進磁碟
+func TestFileWriteSaveFailRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	f, err := OpenFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fail := func(string, []byte) error { return os.ErrPermission }
+	// 磁碟上還沒有 store.json 時第一筆就失敗:還原成空的
+	f.writeFn = fail
+	if err := f.CreateOrg(model.Org{ID: "x", Name: "x"}); err == nil {
+		t.Fatal("存檔失敗要回錯誤")
+	}
+	if _, err := f.GetOrg("x"); err == nil {
+		t.Fatal("第一筆存檔失敗,記憶體要還原成空的")
+	}
+	f.writeFn = nil
+	if err := f.CreateOrg(model.Org{ID: "a", Name: "舊名"}); err != nil {
+		t.Fatal(err)
+	}
+	// 存檔失敗:新增與修改都要還原
+	f.writeFn = fail
+	if err := f.CreateOrg(model.Org{ID: "b", Name: "b"}); err == nil {
+		t.Fatal("存檔失敗要回錯誤")
+	}
+	if err := f.UpdateOrg(model.Org{ID: "a", Name: "新名"}); err == nil {
+		t.Fatal("存檔失敗要回錯誤")
+	}
+	if _, err := f.GetOrg("b"); err == nil {
+		t.Fatal("存檔失敗的新增要從記憶體還原掉")
+	}
+	if o, err := f.GetOrg("a"); err != nil || o.Name != "舊名" {
+		t.Fatalf("存檔失敗的修改要還原:%+v %v", o, err)
+	}
+	// 下一次成功的寫入
+	f.writeFn = nil
+	if err := f.CreateOrg(model.Org{ID: "c", Name: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	g, err := OpenFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.GetOrg("b"); err == nil {
+		t.Fatal("失敗的寫入不能被下一次寫入帶進磁碟")
+	}
+	if _, err := g.GetOrg("x"); err == nil {
+		t.Fatal("失敗的寫入不能被下一次寫入帶進磁碟")
+	}
+	if o, err := g.GetOrg("a"); err != nil || o.Name != "舊名" {
+		t.Fatalf("磁碟上要是修改前的名字:%+v %v", o, err)
+	}
+	if _, err := g.GetOrg("c"); err != nil {
+		t.Fatal("成功的寫入要存進磁碟")
+	}
+}
+
+// 真的寫不進去(資料夾唯讀)也一樣還原
+func TestFileWriteReadOnlyDirRollsBack(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root 不受唯讀限制")
+	}
+	dir := t.TempDir()
+	f, err := OpenFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.CreateOrg(model.Org{ID: "a", Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if err := f.CreateOrg(model.Org{ID: "b", Name: "b"}); err == nil {
+		t.Fatal("唯讀資料夾存檔要失敗")
+	}
+	if _, err := f.GetOrg("b"); err == nil {
+		t.Fatal("存檔失敗的寫入要從記憶體還原掉")
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.CreateOrg(model.Org{ID: "c", Name: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	g, err := OpenFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.GetOrg("b"); err == nil {
+		t.Fatal("失敗的寫入不能被下一次寫入帶進磁碟")
+	}
+	if _, err := g.GetOrg("a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.GetOrg("c"); err != nil {
+		t.Fatal(err)
 	}
 }

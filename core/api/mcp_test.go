@@ -30,8 +30,12 @@ func TestMCPAPI(t *testing.T) {
 	if _, err := boss.SaveMCPServer("o1", in); status(err) != 403 {
 		t.Fatal("沒開時寫入 403", err)
 	}
-	if model.BuildEdition != model.EditionDev {
-		return
+	// 系統層沒開放:組織層開不了(400);伺服器管理員開放後組織層才能開
+	if _, err := boss.SaveSystemSettings("o1", service.SystemSettingsInput{Features: map[string]bool{model.FeatureMCPGateway: true}}); status(err) != 400 {
+		t.Fatal("系統層沒開放 400", err)
+	}
+	if _, err := boss.SaveServerFeatures(service.SystemSettingsInput{Features: map[string]bool{model.FeatureMCPGateway: true}}); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := boss.SaveSystemSettings("o1", service.SystemSettingsInput{Features: map[string]bool{model.FeatureMCPGateway: true}}); err != nil {
 		t.Fatal(err)
@@ -59,8 +63,17 @@ func TestMCPAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	v, err = alice.GetMCP("o1")
-	if err != nil || !v.Enabled || len(v.Servers) != 1 || len(v.Grants["cto"]) != 1 || v.CanEdit {
+	if err != nil || !v.Enabled || len(v.Servers) != 1 || len(v.Grants["cto"]) != 1 || !v.Grants["cto"][0].All || v.CanEdit {
 		t.Fatal(v, err)
+	}
+	// 只有空白字串的 tools 400;密鑰寫在 args 400
+	if err := boss.SaveMCPGrants("o1", service.MCPGrantsInput{AgentID: "cto", Grants: []model.MCPGrant{{Server: "fs", Tools: []string{" "}}}}); status(err) != 400 {
+		t.Fatal(err)
+	}
+	leak := in
+	leak.Args = &[]string{"--token", "ghp_abcdefghijk"}
+	if _, err := boss.SaveMCPServer("o1", leak); status(err) != 400 {
+		t.Fatal(err)
 	}
 	r, err := alice.ResolveMCPTools("o1", service.MCPResolveInput{AgentID: "cto", Tools: []service.MCPResolveTool{{Server: "fs", Name: "read"}, {Server: "fs", Name: "x"}}})
 	if err != nil || !r.Tools[0].Allowed || r.Tools[1].Allowed {

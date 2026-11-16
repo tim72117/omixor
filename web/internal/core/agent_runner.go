@@ -296,8 +296,15 @@ func hasTopic(topics []string, t string) bool {
 	return false
 }
 
-// runnerTick 挑一筆開了自動執行的待領取任務來跑;有跑回 true(呼叫端會馬上再挑下一筆)
+// runnerFeature 系統設定裡「自動執行」的功能 key(見 core/model/features.go)
+const runnerFeature = "automation.runner"
+
+// runnerTick 挑一筆開了自動執行的待領取任務來跑;有跑回 true(呼叫端會馬上再挑下一筆)。
+// 系統設定關掉「自動執行」時不領新任務(角色各自的 AutoRun 照舊保留;進行中的那筆照常做完,做完後下一輪就停)
 func (a *App) runnerTick(ctx context.Context, org string) bool {
+	if !a.featureEnabled(org, runnerFeature) {
+		return false
+	}
 	cfg, err := LoadRunnerConfig(org)
 	if err != nil {
 		a.runSt().setError("讀不到自動執行設定:" + err.Error())
@@ -667,6 +674,9 @@ type AgentRunnerView struct {
 	LastError   string           `json:"lastError,omitempty"`
 	Loop        bool             `json:"loop"`
 	Org         string           `json:"org"`
+	// Disabled 系統設定關掉了「自動執行」:不領新任務(進行中的做完);DisabledReason 給畫面的說明
+	Disabled       bool   `json:"disabled"`
+	DisabledReason string `json:"disabledReason,omitempty"`
 }
 
 // RunnerAgentRow 一個角色與它的設定
@@ -681,6 +691,10 @@ type RunnerAgentRow struct {
 func (a *App) runnerView() AgentRunnerView {
 	org := a.CurrentOrgID()
 	v := AgentRunnerView{Org: org, Agents: []RunnerAgentRow{}, History: []RunnerRecord{}, Efforts: RunnerEfforts}
+	if !a.featureEnabled(org, runnerFeature) {
+		v.Disabled = true
+		v.DisabledReason = "「自動執行」在系統設定裡關閉了:不會再領新的任務(進行中的會做完),角色的設定都保留,打開後照原本的設定繼續。"
+	}
 	bin := findClaude()
 	v.ClaudeBin, v.ClaudeFound = bin, bin != ""
 	cfg, err := LoadRunnerConfig(org)

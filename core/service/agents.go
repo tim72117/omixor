@@ -324,17 +324,33 @@ func (s *Service) DeleteAgent(p *model.Principal, org, id string) error {
 	}
 	s.pruneChainNode(org, model.AgentNode(g.ID))
 	s.pruneChannelNode(org, model.AgentNode(g.ID))
+	// 外部 MCP 權限一併清掉(同 id 重建的角色不會繼承);在 s.agents.mu 內,和 SaveMCPGrants 互斥
+	if err := s.pruneAgentMCPGrants(org, g.ID); err != nil {
+		return err
+	}
 	issues, err := s.Store.ListIssues(org)
 	if err == nil {
 		for _, i := range issues {
 			if i.Assignee == g.ID {
-				i.Assignee, i.UpdatedAt = "", now
-				_ = s.Store.UpdateIssue(org, i)
+				s.clearAssignee(org, i.ID, g.ID, now)
 			}
 		}
 	}
 	s.Audit(p, "agent.delete", org, map[string]any{"agent": g.ID})
 	return nil
+}
+
+// clearAssignee 角色刪掉時取消 Issue 的指派:在 Issue 的鎖裡重讀最新的再改,留言不動(拿著 agents.mu 呼叫,順序 agents.mu → issueLock)
+func (s *Service) clearAssignee(org, issueID, agentID string, now model.Time) {
+	mu := s.issueLock(org, issueID)
+	mu.Lock()
+	defer mu.Unlock()
+	i, err := s.Store.GetIssue(org, issueID)
+	if err != nil || i.Assignee != agentID {
+		return
+	}
+	i.Assignee, i.UpdatedAt, i.Comments = "", now, nil
+	_ = s.Store.UpdateIssue(org, *i)
 }
 
 // ================= 任務 =================
@@ -1336,8 +1352,8 @@ func (s *Service) WorkerComment(p *model.Principal, org, taskID, code, issueID, 
 		}
 		return nil, fail(403, "%s 的相關 Issue %s,不能在 %s 留言", t.ID, links, cur.ID)
 	}
-	cs := append(append([]model.Comment{}, cur.Comments...), model.Comment{ID: uuid(), Author: ap.User.Email, Text: text, At: s.mt()})
-	u, err := s.UpdateIssue(ap, org, cur.ID, IssuePatch{Comments: &cs})
+	// 只附加這一則(作者是 agent:<角色 id>),不會蓋掉同時進來的留言
+	u, err := s.AddIssueComment(ap, org, cur.ID, CommentInput{Text: text})
 	if err == nil {
 		s.Audit(p, "agent.task.worker.comment", org, map[string]any{"task": t.ID, "agent": t.AgentID, "issue": cur.ID})
 	}

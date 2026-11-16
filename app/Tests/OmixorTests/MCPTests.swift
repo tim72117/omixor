@@ -16,6 +16,7 @@ final class MCPTests: XCTestCase {
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         setenv("OPS_DATA_DIR", dataDir.path, 1)
         app = AppState()
+        app.features = .allOnForTests   // 範例資料工具(overview、list、alert_create…)要對應的功能開著才能用
         mcp = MCPHandler(app: app)
     }
 
@@ -96,6 +97,9 @@ final class MCPTests: XCTestCase {
         let names = Set(tools.compactMap { $0["name"] as? String })
         XCTAssertTrue(names.isSuperset(of: MCPHandler.tools.map(\.name)), "\(Set(MCPHandler.tools.map(\.name)).subtracting(names))")
         XCTAssertEqual(names.count, tools.count, "工具名稱不能重複")
+        // 核心工具 App 沒有實作,清單裡的定義來自 core server(這裡是 TestCore 的本機守護服務),每個都要有
+        XCTAssertTrue(names.isSuperset(of: MCPHandler.coreTools), "\(MCPHandler.coreTools.subtracting(names))")
+        XCTAssertTrue(Set(MCPHandler.tools.map(\.name)).isDisjoint(with: MCPHandler.coreTools), "核心工具不能在 App 重複定義")
         for t in tools {
             let schema = try XCTUnwrap(t["inputSchema"] as? [String: Any], "\(t["name"] ?? "")")
             XCTAssertEqual(schema["type"] as? String, "object")
@@ -181,7 +185,7 @@ final class MCPTests: XCTestCase {
         let alertId = try XCTUnwrap(alert["id"] as? String)
         XCTAssertEqual(app.alerts.first?.id, alertId)
 
-        app.startIncidents()   // 同 App 啟動:事件存在 core server(本機服務的預設組織第一次會匯入範例資料)
+        app.startIncidents()   // 同 App 啟動:事件存在 core server(incident_declare、incident_update 轉給 core 處理)
         let before = app.incidents.count
         let inc = try await ok("incident_declare", ["title": "測試事件", "sev": 2, "services": [svc],
                                                   "impact": "部分使用者無法登入", "alert_ids": [alertId]])
@@ -227,6 +231,60 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual(app.pendingApprovals.count, pending + 1)
     }
 
+    /// 範例資料工具依功能開關:功能關了 tools/list 不列、tools/call 回「這個功能已關閉」;核心工具不擋
+    func testSampleToolsFollowFeatureFlags() async throws {
+        func listed() async throws -> Set<String> {
+            let r = try await rpc("tools/list")
+            return Set(try XCTUnwrap((r["result"] as? [String: Any])?["tools"] as? [[String: Any]]).compactMap { $0["name"] as? String })
+        }
+        // 全開:範例工具都在
+        var names = try await listed()
+        XCTAssertTrue(names.isSuperset(of: MCPHandler.sampleToolFeatures.keys), "\(Set(MCPHandler.sampleToolFeatures.keys).subtracting(names))")
+
+        // 只關告警:alert_create、alert_update 不列,呼叫回錯誤,不改資料;其他範例工具照常
+        app.features = .withFeatures { $0 != "monitoring.alerts" }
+        names = try await listed()
+        XCTAssertFalse(names.contains("alert_create")); XCTAssertFalse(names.contains("alert_update"))
+        XCTAssertTrue(names.isSuperset(of: ["overview", "list", "get", "pipeline_update", "request_approval"]))
+        let alerts = app.alerts
+        var (msg, isError) = try await tool("alert_create", ["title": "x", "severity": "info", "service": app.services[0].id,
+                                                          "rule": "r", "value": "v"])
+        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("這個功能已關閉"), "\(msg)")
+        XCTAssertEqual(app.alerts, alerts, "關掉時不改資料")
+        // list / get:關掉的集合回錯誤,開著的照常
+        (msg, isError) = try await tool("list", ["collection": "alerts"])
+        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("這個功能已關閉"), "\(msg)")
+        (msg, isError) = try await tool("get", ["collection": "alerts", "id": alerts[0].id])
+        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("這個功能已關閉"), "\(msg)")
+        _ = try await ok("list", ["collection": "pipeline_runs"])
+        _ = try await ok("list", ["collection": "people"])
+
+        // 範例功能全關(預設):範例工具都不列、呼叫回錯誤;App 的其他工具與核心工具照常列
+        app.features = .withFeatures { !MCPHandler.sampleFeatureKeys.contains($0) }
+        names = try await listed()
+        XCTAssertTrue(names.isDisjoint(with: MCPHandler.sampleToolFeatures.keys), "\(names.intersection(MCPHandler.sampleToolFeatures.keys))")
+        XCTAssertTrue(names.isSuperset(of: ["navigate", "activity_post", "orgs", "server"]))
+        XCTAssertTrue(names.isSuperset(of: MCPHandler.coreTools), "核心工具不擋:\(MCPHandler.coreTools.subtracting(names))")
+        for n in ["overview", "ops_overview", "pipeline_update", "request_approval", "work_item_create", "log_append"] {
+            (msg, isError) = try await tool(n, [:])
+            XCTAssertTrue(isError, n); XCTAssertTrue("\(msg)".contains("這個功能已關閉"), "\(n):\(msg)")
+        }
+        (msg, isError) = try await tool("issues")   // 核心工具(轉給 core server)不擋
+        XCTAssertFalse(isError, "\(msg)")
+
+        // 再打開:回來
+        app.features = .allOnForTests
+        _ = try await ok("overview")
+    }
+
+    /// 功能開關用的 key 都是 core 登記的(FeatureFallback 和 core/model/features.go 一致,見 SystemSettingsTests)
+    func testSampleToolFeatureKeysAreRegistered() {
+        for keys in MCPHandler.sampleToolFeatures.values {
+            for k in keys { XCTAssertNotNil(FeatureFallback.entry(k), k) }
+        }
+        for c in MCPHandler.collectionFeatures.keys { XCTAssertTrue(MCPHandler.collections.contains(c), c) }
+    }
+
     func testNavigate() async throws {
         let inc = app.incidents[0].id
         _ = try await ok("navigate", ["section": "incidents", "focus_id": inc, "env": "staging"])
@@ -251,14 +309,111 @@ final class MCPTests: XCTestCase {
 
     func testHTTPRouteRejectsForeignOrigin() async throws {
         let echo: @Sendable (Data) async -> Data? = { $0 }
-        let evil = HTTPRequest(method: "POST", path: "/mcp", headers: ["origin": "https://evil.example"], body: Data("{}".utf8))
-        let r1 = await MCPServer.route(evil, handle: echo)
+        let auth: @Sendable (String?) -> Bool = { $0 == "Bearer omxl_ok" }
+        let ok = ["authorization": "Bearer omxl_ok"]
+        let evil = HTTPRequest(method: "POST", path: "/mcp", headers: ["origin": "https://evil.example", "authorization": "Bearer omxl_ok"], body: Data("{}".utf8))
+        let r1 = await MCPServer.route(evil, authorize: auth, handle: echo)
         XCTAssertEqual(r1.status, 403)
-        let get = HTTPRequest(method: "GET", path: "/mcp", headers: [:], body: Data())
-        let r2 = await MCPServer.route(get, handle: echo)
+        let get = HTTPRequest(method: "GET", path: "/mcp", headers: ok, body: Data())
+        let r2 = await MCPServer.route(get, authorize: auth, handle: echo)
         XCTAssertEqual(r2.status, 405)
-        let note = HTTPRequest(method: "POST", path: "/mcp", headers: [:], body: Data())
-        let r3 = await MCPServer.route(note, handle: { _ in nil })
+        let note = HTTPRequest(method: "POST", path: "/mcp", headers: ok, body: Data())
+        let r3 = await MCPServer.route(note, authorize: auth, handle: { _ in nil })
         XCTAssertEqual(r3.status, 202)
     }
+
+    // MARK: - 本機 MCP token
+
+    /// /mcp 沒帶、帶錯、帶閘道 token 一律 401(handler 不會被呼叫);帶對才放行
+    func testHTTPRouteRequiresToken() async throws {
+        MCPLocalToken.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        defer { MCPLocalToken.removeForTests() }
+        let tok = try XCTUnwrap(MCPLocalToken.current())
+        XCTAssertTrue(tok.hasPrefix("omxl_"))
+        XCTAssertEqual(MCPLocalToken.current(), tok, "第二次讀到同一把")
+        let auth: @Sendable (String?) -> Bool = { MCPLocalToken.authorizes($0) }
+        let called = LockedFlag()
+        let echo: @Sendable (Data) async -> Data? = { called.set(); return $0 }
+        func post(_ headers: [String: String]) -> HTTPRequest { HTTPRequest(method: "POST", path: "/mcp", headers: headers, body: Data("{}".utf8)) }
+        for h in [[:], ["authorization": "Bearer nope"], ["authorization": "Bearer omxgw_forged"], ["authorization": "Basic \(tok)"],
+                  ["authorization": "Bearer \(tok)x"]] {
+            let r = await MCPServer.route(post(h), authorize: auth, handle: echo)
+            XCTAssertEqual(r.status, 401, "\(h)")
+            XCTAssertNotNil(r.extra["WWW-Authenticate"])
+        }
+        let get = await MCPServer.route(HTTPRequest(method: "GET", path: "/mcp", headers: [:], body: Data()), authorize: auth, handle: echo)
+        XCTAssertEqual(get.status, 401, "沒帶 token 不透露任何東西")
+        XCTAssertFalse(called.value, "沒認證不會進 handler")
+        let r = await MCPServer.route(post(["authorization": "Bearer \(tok)"]), authorize: auth, handle: echo)
+        XCTAssertEqual(r.status, 200)
+        XCTAssertTrue(called.value)
+
+        // 重新產生:舊的立刻失效
+        let new = try XCTUnwrap(MCPLocalToken.regenerate())
+        XCTAssertNotEqual(new, tok)
+        XCTAssertFalse(MCPLocalToken.authorizes("Bearer \(tok)"))
+        XCTAssertTrue(MCPLocalToken.authorizes("bearer \(new)"))
+        // 本機 token 不能用在角色的閘道端點
+        let (st, _) = await MCPGatewayEndpoint(app: app).handle(Data("{}".utf8), authorization: "Bearer \(new)")
+        XCTAssertEqual(st, 401)
+
+        // 亂數來源失敗:不發 token
+        MCPLocalToken.randomHook = { nil }
+        defer { MCPLocalToken.randomHook = nil }
+        XCTAssertNil(MCPLocalToken.generate())
+        XCTAssertNil(MCPLocalToken.regenerate())
+        XCTAssertTrue(MCPLocalToken.authorizes("Bearer \(new)"), "重新產生失敗時舊的照舊")
+
+        // 給使用者的指令帶 --header
+        let cmd = MCPLocalToken.claudeCommand(url: "http://127.0.0.1:3765/mcp", token: "omxl_abc")
+        XCTAssertEqual(cmd, "claude mcp add --transport http ops http://127.0.0.1:3765/mcp --header \"Authorization: Bearer omxl_abc\"")
+    }
+
+    /// 閘道 token:亂數來源失敗時不發
+    func testGatewayTokenRandomFailure() {
+        MCPGateway.randomHook = { nil }
+        defer { MCPGateway.randomHook = nil }
+        XCTAssertNil(app.mcpGateway.issueToken(agentId: "a", taskId: "T-1", ttl: 60))
+        MCPGateway.randomHook = nil
+        let t = app.mcpGateway.issueToken(agentId: "a", taskId: "T-1", ttl: 60)
+        XCTAssertTrue(t?.hasPrefix("omxgw_") ?? false)
+    }
+
+    /// 確認卡片的參數:完整(不截斷)、高風險欄位在前、密鑰換成 ***
+    func testConfirmFields() {
+        let long = String(repeating: "很長的內容", count: 200)
+        let fields = app.mcpGateway.confirmFields(["note": long, "subject": "嗨", "to": "a@example.com", "file_path": "/etc/hosts",
+                                                   "amount": 100, "nested": ["url": "https://x.example"]], server: nil)
+        XCTAssertEqual(fields.prefix(3).map(\.key), ["amount", "file_path", "to"], "高風險的在前")
+        XCTAssertTrue(fields.prefix(3).allSatisfy(\.risky))
+        XCTAssertEqual(fields.first { $0.key == "note" }?.value, long, "長字串完整顯示")
+        XCTAssertFalse(fields.first { $0.key == "subject" }?.risky ?? true)
+        XCTAssertTrue(fields.first { $0.key == "nested" }?.value.contains("https://x.example") ?? false)
+        XCTAssertTrue(MCPGateway.isRisky("recipientEmail") && MCPGateway.isRisky("BCC") && MCPGateway.isRisky("callback_url"))
+    }
+
+    /// stdio 參數的 ${名稱}:只代入登記的名稱、找不到值不連、不會二次展開
+    func testExpandArgs() throws {
+        let vals = ["API_KEY": "k-1", "TOKEN": "t-${API_KEY}"]
+        let out = try MCPGateway.expandArgs(["--api-key", "${API_KEY}", "--api-key=${API_KEY}", "-H", "Authorization: Bearer ${TOKEN}", "plain"],
+                                            declared: ["API_KEY", "TOKEN"]) { vals[$0] }
+        XCTAssertEqual(out, ["--api-key", "k-1", "--api-key=k-1", "-H", "Authorization: Bearer t-${API_KEY}", "plain"], "值裡的 ${…} 不再展開")
+        XCTAssertThrowsError(try MCPGateway.expandArgs(["${OTHER}"], declared: ["API_KEY"]) { vals[$0] }) {
+            XCTAssertTrue($0.localizedDescription.contains("OTHER"))
+        }
+        XCTAssertThrowsError(try MCPGateway.expandArgs(["${MISSING}"], declared: ["MISSING"]) { vals[$0] }) {
+            XCTAssertTrue($0.localizedDescription.contains("還沒輸入"))
+        }
+        XCTAssertThrowsError(try MCPGateway.expandArgs(["${API_KEY"], declared: ["API_KEY"]) { vals[$0] })
+        XCTAssertThrowsError(try MCPGateway.expandArgs(["${bad name}"], declared: ["API_KEY"]) { vals[$0] })
+        XCTAssertEqual(MCPGateway.placeholders(["a${X}b${Y}", "${X}"]), ["X", "Y"])
+    }
+}
+
+/// 測試用:可以跨執行緒設定的旗標
+final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var v = false
+    func set() { lock.withLock { v = true } }
+    var value: Bool { lock.withLock { v } }
 }

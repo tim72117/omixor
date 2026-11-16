@@ -48,25 +48,28 @@ func TestFamilyTemplate(t *testing.T) {
 	if err != nil || len(l) != 0 {
 		t.Fatalf("開關預設關,列表是空的:%+v %v", l, err)
 	}
-	if model.BuildEdition != model.EditionDev {
-		// 正式版沒有家庭助理:開不了、預覽與套用 404 並說明;存著的舊值也不生效
-		if _, err := svc.SaveSystemSettings(parent, "home", service.SystemSettingsInput{Features: map[string]bool{"familyAssistant": true}}); service.Code(err) != 400 {
-			t.Fatal("正式版不能開家庭助理", err)
-		}
-		_ = svc.Store.SaveSystemSettings("home", model.OrgSystemSettings{Features: map[string]bool{"familyAssistant": true}})
-		if l, _ := svc.ListOrgTemplates(kid, "home"); len(l) != 0 {
-			t.Fatal("正式版不列", l)
-		}
-		if _, err := svc.ApplyOrgTemplate(parent, "home", "family", service.TemplateApplyInput{}); service.Code(err) != 404 || !strings.Contains(err.Error(), "開發版") {
-			t.Fatal("正式版套用 404 並說明", err)
-		}
-		if _, err := svc.PreviewOrgTemplate(kid, "home", "family", false); service.Code(err) != 404 {
-			t.Fatal(err)
-		}
-		return
+	// 系統層預設沒開放家庭助理:組織層開不了、預覽與套用 404 並說明;存著的舊值也不生效
+	if _, err := svc.SaveSystemSettings(parent, "home", service.SystemSettingsInput{Features: map[string]bool{"familyAssistant": true}}); service.Code(err) != 400 {
+		t.Fatal("系統層沒開放時組織層不能開家庭助理", err)
 	}
-	if _, err := svc.ApplyOrgTemplate(parent, "home", "family", service.TemplateApplyInput{}); service.Code(err) != 403 || !strings.Contains(err.Error(), "系統") {
-		t.Fatal("開關關閉套用 403 並說明到系統頁開啟", err)
+	_ = svc.Store.SaveSystemSettings("home", model.OrgSystemSettings{Features: map[string]bool{"familyAssistant": true}})
+	if l, _ := svc.ListOrgTemplates(kid, "home"); len(l) != 0 {
+		t.Fatal("系統層沒開放不列", l)
+	}
+	if _, err := svc.ApplyOrgTemplate(parent, "home", "family", service.TemplateApplyInput{}); service.Code(err) != 404 || !strings.Contains(err.Error(), "這台伺服器沒有開放") {
+		t.Fatal("系統層沒開放套用 404 並說明", err)
+	}
+	if _, err := svc.PreviewOrgTemplate(kid, "home", "family", false); service.Code(err) != 404 {
+		t.Fatal(err)
+	}
+	// 系統層開放後:組織存著的舊值生效;先拿掉,測組織層關閉時的擋法
+	serverOn(t, svc, "familyAssistant")
+	if l, _ := svc.ListOrgTemplates(kid, "home"); len(l) != 1 {
+		t.Fatal("系統層開放後舊值生效", l)
+	}
+	_ = svc.Store.SaveSystemSettings("home", model.OrgSystemSettings{Features: map[string]bool{}})
+	if _, err := svc.ApplyOrgTemplate(parent, "home", "family", service.TemplateApplyInput{}); service.Code(err) != 403 || !strings.Contains(err.Error(), "設定 › 功能") {
+		t.Fatal("開關關閉套用 403 並說明到 設定 › 功能 開啟", err)
 	}
 	if _, err := svc.PreviewOrgTemplate(parent, "home", "family", false); service.Code(err) != 403 {
 		t.Fatal(err)

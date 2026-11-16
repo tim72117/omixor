@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"slices"
 	"sort"
 	"strings"
 
@@ -11,7 +10,7 @@ import (
 )
 
 // 事件工具:incidents(查)、incident_declare(宣告)、incident_update(更新)。規則在 service/incident.go(透過 Backend);
-// incident_declare、incident_update 的名稱、參數同 Swift 版 MCPHandler(web/spec/tools.json)。
+// incident_declare、incident_update 的名稱、參數沿用 Swift 版 MCPHandler 原本的定義(現在 App 轉給 core,不自己實作)。
 // 執行者:管理端點是呼叫者(e.Author:伺服器管理員的 web 內建核心 / App 是畫面的人或 mcp,其他人是自己)。
 // 不拿 Env 的鎖(同頻道工具):omixor-web 的 Backend 實作自己處理鎖與畫面快取。
 
@@ -59,9 +58,9 @@ func incidentErr(id string, err error) error {
 }
 
 // RegisterIncidentTools 登記事件工具。執行環境(Call.Ctx)要實作 Env。
-// 規格裡沒有 incidents 的(omixor-web 的 /mcp 用 Swift 匯出的規格)只登記 incident_declare、incident_update
+// 規格裡沒有 incidents 的只登記 incident_declare、incident_update(相容自己組規格的使用程式)
 func RegisterIncidentTools(s *Server) {
-	if slices.Contains(s.ToolNames(), "incidents") {
+	if s.InSpec("incidents") {
 		registerIncidentQuery(s)
 	}
 	registerIncidentWrites(s)

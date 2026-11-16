@@ -12,12 +12,22 @@
 //	GET  /api/orgs/{org}/members               成員
 //	POST /api/orgs/{org}/members               {email, role} 加入或改角色(組織管理員)
 //	POST /api/orgs/{org}/members/remove        {email}
-//	GET  /api/orgs/{org}/issues?repo=          全部 Issue(新的在前);repo 有給只回標記該倉庫的(不分大小寫,github:/gitlab: 前綴一邊沒寫就忽略)
+//	GET  /api/orgs/{org}/issues?q=&status=&priority=&label=&repo=&assignee=&sort=
+//	                                           Issue 列表;不帶參數 = 全部(新的在前)。規則只在 core(model/issue_query.go):
+//	                                           q 搜尋標題、內文、留言、編號、標籤(空白分隔的每個字都要有,不分大小寫);status open|closed|all;
+//	                                           label 不分大小寫完全相同;repo 不分大小寫,github:/gitlab: 前綴一邊沒寫就忽略;
+//	                                           repo、assignee 給 "(none)" = 沒標記/沒指派的;sort priority|status|updated(不給 = 不排序)
+//	GET  /api/orgs/{org}/issues/board?q=&priority=&label=&repo=&assignee=
+//	                                           看板 {columns:[{key,title,dropStatus,issues}], labels, total, matched}:
+//	                                           待處理(open、沒指派)、進行中(open、有指派)、已完成(closed),每欄依優先度 → 最近更新 → 編號;
+//	                                           dropStatus 是拖進該欄要套的 status(和 Issue 現在的相同就不用改)
 //	POST /api/orgs/{org}/issues                {title, body, priority, labels, source, link, repo?, author} 建立
 //	GET  /api/orgs/{org}/issues/{id}
 //	POST /api/orgs/{org}/attachments           {data: base64} 上傳圖片(PNG、JPEG、GIF、WebP,10 MB)→ {id}
 //	GET  /api/orgs/{org}/attachments/{id}      → {type, data: base64}
-//	POST /api/orgs/{org}/issues/{id}           {title?, body?, status?, priority?, labels?, source?, link?, repo?, comments?, author?} 修改
+//	POST /api/orgs/{org}/issues/{id}           {title?, body?, appendBody?, status?, priority?, labels?, source?, link?, repo?, assignee?, comments?, author?} 修改
+//	                                           (comments:伺服器管理員整份取代;其他人只能新增、不能改或刪已有的,見 service.IssuePatch;留言請改用 …/comments)
+//	POST /api/orgs/{org}/issues/{id}/comments  {text, author?} 新增一則留言(成員、角色;只附加這一則,回傳新增後的 Issue;author 只有伺服器管理員的有效)
 //	POST /api/orgs/{org}/issues/{id}/delete
 //	GET  /api/orgs/{org}/issues/export         整份(組織管理員)
 //	POST /api/orgs/{org}/issues/import         {issues} 第一次搬資料用(組織管理員;已經有 Issue 就拒絕)
@@ -75,31 +85,38 @@
 //	POST /api/orgs/{org}/incidents/import      {incidents} 第一次搬資料用(組織管理員;已經有事件就拒絕)
 //	  伺服器管理員可以用 actor({kind, id})或 author 指定執行者(見 service/incident.go)
 //
-//	GET  /api/orgs/{org}/integrations/github   GitHub 設定 {repos, saved, updatedAt?, updatedBy?}(成員;角色憑證也可以;沒存過 saved = false)
-//	POST /api/orgs/{org}/integrations/github   {repos?, add?, remove?} 修改(組織管理員;repos 整份取代,再套用加減;格式不對 400)
-//	POST /api/orgs/{org}/integrations/github/import {repos} 第一次匯入裝置的本機設定(組織管理員;核心存過就不動)→ {imported, skipped, settings}
-//	GET  /api/orgs/{org}/integrations/gitlab   GitLab 設定 {baseUrl, projects, saved, updatedAt?, updatedBy?}
-//	POST /api/orgs/{org}/integrations/gitlab   {baseUrl?, projects?, add?, remove?} 修改(組織管理員)
-//	POST /api/orgs/{org}/integrations/gitlab/import {baseUrl, projects} 第一次匯入(同 GitHub)
+//	選用模組(core/module;入口程式 import 才有,沒編進來的模組路由 404):
+//	GET  /api/modules                          這台編進來的選用模組 [{id, name, description?, features}](登入者;角色憑證也可以)
+//	GET|POST /api/orgs/{org}/integrations/github|gitlab(/import)   GitHub、GitLab 設定,模組 integrations(說明見 core/modules/integrations/module.go)
 //
 //	外部 MCP 閘道的登記(功能開關 mcpGateway;沒開時 GET 回 enabled = false 與空清單、寫入回 403;規則在 service/mcp.go):
-//	GET  /api/orgs/{org}/mcp-servers           {enabled, note?, servers, grants, canEdit}(成員;角色憑證只看到自己的權限)
+//	GET  /api/orgs/{org}/mcp-servers           {enabled, note?, servers, grants, canEdit}(成員看完整設定;角色憑證只看到自己有權限的伺服器與自己的權限,
+//	                                           伺服器不含 command、args、cwd、envNames、url、headerNames,工具規則只留權限內的)
 //	POST /api/orgs/{org}/mcp-servers           {id, name?, description?, transport?, command?, args?, cwd?, envNames?, url?, headerNames?, enabled?, toolDefault?}
-//	                                           新增或修改(組織管理員;帶 env、headers、secrets、token 這類密鑰值一律 400:core 只記名稱)
+//	                                           新增或修改(組織管理員;帶 env、headers、secrets、token 這類密鑰值一律 400:core 只記名稱;
+//	                                           command、args、cwd、url 裡看起來像密鑰的值也 400,見 model.CheckMCPLaunch、NormalizeMCPURL)
+//	                                           密鑰要當參數傳:args 寫 ${名稱}(名稱要在 envNames),App 啟動時用該裝置的密鑰代入
 //	POST /api/orgs/{org}/mcp-servers/{id}/delete   刪除(角色權限裡的這台一併拿掉)
 //	POST /api/orgs/{org}/mcp-servers/{id}/tools    {sync?: [{name, title?, description?}], prune?, rules?: [{name, enabled?, confirm?}]} 同步工具清單、改規則
-//	POST /api/orgs/{org}/mcp-grants            {agentId, grants: [{server, tools}]} 整份取代角色的權限(tools 空 = 這台開著的全部工具)
+//	POST /api/orgs/{org}/mcp-grants            {agentId, grants: [{server, all?, tools?}]} 整份取代角色的權限(all = 這台開著的全部工具;
+//	                                           沒給 tools 也沒給 all 視為全部、存成 all = true;tools 只有空白字串 400)
+//	                                           工具名比對(規則、權限)不分大小寫,- 與 _ 視為相同
 //	POST /api/orgs/{org}/mcp-tools/resolve     {agentId?, tools: [{server, name}]} → {enabled, tools: [{server, name, qualified, allowed, confirm, reason?}]}
 //	                                           (成員;App 的閘道列工具、呼叫前用;agentId 空 = 一般成員)
-//	  只存非機密設定;token、CA 憑證檔、不驗證憑證、用哪個本機連線都留在各裝置(見 model/integration.go)
+//	  只存非機密設定;token、CA 憑證檔、不驗證憑證、用哪個本機連線都留在各裝置(見 core/modules/integrations/model.go)
 //
-//	GET  /api/orgs/{org}/system                系統設定(只列這次編譯的版本有的功能) {features: [{key, name, description, parent?, edition, experimental, experimentalNote?, default, required?, enabled, on, changed}], saved, updatedAt?, updatedBy?, edition, canEdit}
-//	                                           (成員;角色憑證也可以;功能清單在 model/features.go,App 與 web 不另外寫)
-//	POST /api/orgs/{org}/system                {features?: {key: bool}, reset?: [key]} 修改功能開關(組織管理員;沒登記的 key、這次編譯沒有的功能、關必要功能 400)
+//	功能開關分兩層,都存在 core(實際可用 = 系統層開放 && 組織層開 && 頁面規則;規則在 service/system.go,清單在 model/features.go):
+//	GET  /api/system/features                  系統層(整台伺服器) {features: [{key, name, description, parent?, edition, experimental, experimentalNote?, default,
+//	                                           required?, systemDefault, on, available, changed}], saved, updatedAt?, updatedBy?, canEdit}(任何登入的使用者;角色憑證不行)
+//	POST /api/system/features                  {features?: {key: bool}, reset?: [key]} 修改系統層(伺服器管理員;沒登記的 key、關必要功能 400)
+//	GET  /api/orgs/{org}/system                組織層(只列系統層有開放的功能) {features: [{…同上的功能欄位, enabled, on, changed, system}], saved, updatedAt?, updatedBy?,
+//	                                           serverFeatures: {key: bool}, edition(過時:系統層開放了原本開發版的功能時是 dev), canEdit}
+//	                                           (成員;角色憑證也可以;App 與 web 不另外寫清單)
+//	POST /api/orgs/{org}/system                {features?: {key: bool}, reset?: [key]} 修改組織層(組織管理員;沒登記的 key、關必要功能 400;系統層沒開放的功能 400)
 //
 //	GET  /api/orgs/{org}/templates             可用的組織樣板 [{id, name, description, feature, agents, channels, docs, edges}](成員;功能開關關閉的不列)
 //	GET  /api/orgs/{org}/templates/{id}?scenarios=1 預覽 {template, items: [{kind, name, status: create|skip, detail?}], created, skipped, suggestAutoReply, canApply}
-//	POST /api/orgs/{org}/templates/{id}/apply  {scenarios?: bool} 套用(組織管理員;scenarios = 帶入模擬情境;已存在的略過)→ 同上,status 是 created|skipped|failed;功能開關關閉 403;這次編譯沒有該功能 404
+//	POST /api/orgs/{org}/templates/{id}/apply  {scenarios?: bool} 套用(組織管理員;scenarios = 帶入模擬情境;已存在的略過)→ 同上,status 是 created|skipped|failed;功能開關關閉 403;系統層沒開放該功能 404
 //
 //	GET  /api/admin/users | POST {email, role?, disabled?}   (伺服器管理員,以下同)
 //	GET  /api/admin/tokens | POST /api/admin/tokens/{id}/revoke
@@ -269,11 +286,12 @@ func (a *API) Handler() http.Handler {
 	// Issue(新路徑與舊路徑)
 	for _, base := range []string{"/api/orgs/{org}/issues", "/api/issues/{org}"} {
 		mux.HandleFunc("GET "+base, a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
-			l, err := a.Svc.ListIssues(p, r.PathValue("org"))
-			if err == nil {
-				l = service.FilterIssuesByRepo(l, r.URL.Query().Get("repo"))
-			}
+			l, err := a.Svc.QueryIssues(p, r.PathValue("org"), model.ParseIssueQuery(r.URL.Query()))
 			reply(w, l, err)
+		}))
+		mux.HandleFunc("GET "+base+"/board", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+			b, err := a.Svc.IssueBoard(p, r.PathValue("org"), model.ParseIssueQuery(r.URL.Query()))
+			reply(w, b, err)
 		}))
 		mux.HandleFunc("POST "+base, a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 			var in service.IssueInput
@@ -295,6 +313,15 @@ func (a *API) Handler() http.Handler {
 				return
 			}
 			i, err := a.Svc.UpdateIssue(p, r.PathValue("org"), r.PathValue("id"), in)
+			reply(w, i, err)
+		}))
+		mux.HandleFunc("POST "+base+"/{id}/comments", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+			var in service.CommentInput
+			if err := read(r, &in); err != nil {
+				bad(w, err)
+				return
+			}
+			i, err := a.Svc.AddIssueComment(p, r.PathValue("org"), r.PathValue("id"), in)
 			reply(w, i, err)
 		}))
 		mux.HandleFunc("POST "+base+"/{id}/delete", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
@@ -349,7 +376,7 @@ func (a *API) Handler() http.Handler {
 	a.chainRoutes(mux)
 	a.channelRoutes(mux)
 	a.incidentRoutes(mux)
-	a.integrationRoutes(mux)
+	a.moduleRoutes(mux) // 選用模組(modules.go;例如 GitHub、GitLab 設定)
 	a.mcpRoutes(mux)
 	a.systemRoutes(mux)
 	a.templateRoutes(mux)

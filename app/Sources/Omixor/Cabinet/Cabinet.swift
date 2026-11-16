@@ -1,18 +1,40 @@
 import Foundation
 
-// 文件櫃:純文字(Markdown)文件,依 evoleap 研發基地(/studio)的區塊與頁籤分類。
-// 結構照 shuttle 的 web/src/studio/proposal/ProposalLayout.tsx(SECTIONS、LEVELS、DEV、IDEAS、DOCS)與
-// web/src/studio/articles/registry.ts;研發基地改版時要跟著改這裡。
-// 本機模式存在組織資料夾的 cabinet.json、cabinet-layout.json;遠端模式讀寫 omixor server(CabinetRemote.swift),
-// 每 10 秒重讀一次,別人或角色的修改也看得到。
+// 文件櫃:純文字(Markdown)文件,依組織的文件櫃結構(CabinetLayout:區塊與頁籤,每個組織可以自訂)分類。
+// 預設組織的結構是 evoleap 研發基地(/studio,CabinetLayout.evoleapStudio),照 shuttle 的
+// web/src/studio/proposal/ProposalLayout.tsx(SECTIONS、LEVELS、DEV、IDEAS、DOCS)與 web/src/studio/articles/registry.ts;
+// evoleap 研發基地改版時要跟著改 evoleapStudio。
+// 資料一律讀寫 core server(遠端 omixor 或本機守護服務,CabinetRemote.swift),每 10 秒重讀一次,別人或角色的修改也看得到。
 
 struct CabinetTab: Hashable, Identifiable, Codable {
-    var path: String              // 頁籤的 id,一律 / 開頭;研發基地的頁籤就是網址路徑,例如 /studio/tools
+    var path: String              // 頁籤的 id,一律 / 開頭;evoleap 研發基地的頁籤就是網址路徑,例如 /studio/tools
     var label: String
     var code: String?             // L0…L4
     var group: String?            // 頁籤群組,例如「做出自己的軟體」
     var id: String { path }
     var title: String { code.map { "\($0) \(label)" } ?? label }
+}
+
+extension CabinetTab {
+    // 寬鬆解碼(LossyDecoding.swift):path 必填(缺了略過這一頁籤),label 缺時用 path
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decode(String.self, forKey: .path)
+        label = c.lossy(.label, default: path)
+        code = c.lossyOptional(String.self, .code)
+        group = c.lossyOptional(String.self, .group)
+    }
+}
+
+extension CabinetSection {
+    // 寬鬆解碼:tabs 是 null 或缺 → [],壞掉的頁籤略過;id 必填
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        label = c.lossy(.label, default: id)
+        path = c.lossy(.path, default: "")
+        tabs = c.lossyArray(CabinetTab.self, .tabs)
+    }
 }
 
 struct CabinetSection: Hashable, Identifiable, Codable {
@@ -135,20 +157,20 @@ extension CabinetDoc {
     // 手寫解碼:之後加欄位時,舊檔缺欄位也讀得出來
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // 寬鬆解碼(LossyDecoding.swift):tags 是 null → [];id、section 必填(缺了列表會略過這一筆)
         id = try c.decode(String.self, forKey: .id)
-        title = try c.decode(String.self, forKey: .title)
-        body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
+        title = c.lossy(.title, default: "")
+        body = c.lossy(.body, default: "")
         section = try c.decode(String.self, forKey: .section)
-        tab = try c.decodeIfPresent(String.self, forKey: .tab)
-        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
-        author = try c.decodeIfPresent(String.self, forKey: .author) ?? "mcp"
-        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
-        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        tab = c.lossyOptional(String.self, .tab)
+        tags = c.lossyArray(String.self, .tags)
+        author = c.lossy(.author, default: "mcp")
+        createdAt = c.lossy(.createdAt, default: .now)
+        updatedAt = c.lossy(.updatedAt, default: createdAt)
     }
 }
 
 /// 文件櫃的動作(畫面與 MCP 共用):一律透過 core server(IssueServerConfig.current:遠端 omixor 或本機守護服務),失敗丟錯誤。
-/// 原本的本機實作(cabinet.json、cabinet-layout.json)已停用,程式碼留在 LEGACY_LOCAL_STORE 區塊備查,不編譯也不會被呼叫。
 @MainActor
 enum Cabinet {
     private static var remoteClient: IssueRemote?
@@ -159,7 +181,7 @@ enum Cabinet {
     /// 目前連的 core server 的用戶端(和 Issue 同一個;連線換了會換新的)
     static var remote: IssueRemote {
         let cfg = IssueServerConfig.current
-        if let c = remoteClient, c.config == cfg { return c }
+        if let c = remoteClient, c.matches(cfg) { return c }   // 連線設定與組織的 token 範圍都相同才沿用
         let c = IssueRemote(config: cfg)
         remoteClient = c
         return c
@@ -192,7 +214,8 @@ enum Cabinet {
     }
 
     private static func apply(_ app: AppState, _ c: RemoteCabinet) {
-        if c.layout != CabinetLayout.sections {
+        // layout 是 null 或整份解不開(寬鬆解碼成空陣列)時保留目前的結構,不把畫面清空
+        if !c.layout.isEmpty, c.layout != CabinetLayout.sections {
             CabinetLayout.sections = c.layout
             app.cabinetLayoutVersion += 1
         }
@@ -297,186 +320,6 @@ enum Cabinet {
         try remoteWrite(app) { try $0.deleteDoc(org: app.currentOrgId, id: id) }
         app.cabinetDocs.removeAll { $0.id == id }
     }
-
-#if LEGACY_LOCAL_STORE
-    // ===== 已停用:原本的本機實作(cabinet.json、cabinet-layout.json);留著備查,不編譯 =====
-    static func fileURL(_ app: AppState) -> URL { app.dataDir.appendingPathComponent("cabinet.json") }
-    static func layoutURL(_ app: AppState) -> URL { app.dataDir.appendingPathComponent("cabinet-layout.json") }
-
-    // MARK: 遠端
-
-    private static var remoteClient: IssueRemote?
-    private static var poller: Timer?
-    /// 遠端模式多久重新讀一次(秒);0 = 不定時讀
-    static var pollInterval: TimeInterval = NSClassFromString("XCTestCase") != nil ? 0 : 10
-
-    /// 遠端模式時的用戶端(和 Issue 同一個伺服器與登入;nil = 用本機檔案)
-    static var remote: IssueRemote? {
-        guard let cfg = IssueServerConfig.current else { remoteClient = nil; poller?.invalidate(); poller = nil; return nil }
-        if remoteClient?.config != cfg { remoteClient = IssueRemote(config: cfg) }
-        return remoteClient
-    }
-
-    /// 遠端:從伺服器重讀結構與文件換進畫面;失敗記在 cabinetRemoteError(畫面照用上次的)
-    static func refresh(_ app: AppState) {
-        guard let r = remote else { return }
-        do {
-            let c = try r.getCabinet(org: app.currentOrgId)
-            if c.layout != CabinetLayout.sections {
-                CabinetLayout.sections = c.layout
-                app.cabinetLayoutVersion += 1
-            }
-            if c.docs != app.cabinetDocs { app.cabinetDocs = c.docs }
-            if app.cabinetRemoteError != nil { app.cabinetRemoteError = nil }
-        } catch {
-            if app.cabinetRemoteError != error.localizedDescription { app.cabinetRemoteError = error.localizedDescription }
-        }
-    }
-
-    private static func startPolling(_ app: AppState) {
-        guard poller == nil, pollInterval > 0 else { return }
-        poller = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak app] _ in
-            Task { @MainActor in
-                guard let app, app.cabinetLoaded, remote != nil else { return }
-                refresh(app)
-            }
-        }
-    }
-
-    /// 遠端寫入:失敗時記下錯誤並丟出(畫面與 MCP 顯示原因)
-    private static func remoteWrite<T>(_ app: AppState, _ f: (IssueRemote) throws -> T) throws -> T {
-        guard let r = remote else { throw CabinetError("目前不是遠端模式") }
-        do {
-            let v = try f(r)
-            app.cabinetRemoteError = nil
-            return v
-        } catch {
-            throw CabinetError(error.localizedDescription)
-        }
-    }
-
-    /// 讀檔(只讀一次);遠端模式從伺服器讀並定時重讀。檔案存在但讀不出來時不覆蓋,先改名保留,避免把文件洗掉
-    static func load(_ app: AppState) {
-        guard !app.cabinetLoaded else { return }
-        app.cabinetLoaded = true
-        if remote != nil {
-            CabinetLayout.sections = CabinetLayout.blank
-            app.cabinetDocs = []
-            app.cabinetLayoutVersion += 1
-            refresh(app)
-            startPolling(app)
-            return
-        }
-        // 結構:沒有檔案就用研發基地的結構(舊版資料)
-        if let data = try? Data(contentsOf: layoutURL(app)), let l = try? OrgFiles.decoder().decode([CabinetSection].self, from: data) {
-            CabinetLayout.sections = l
-        } else {
-            CabinetLayout.sections = CabinetLayout.evoleapStudio
-        }
-        app.cabinetLayoutVersion += 1
-        let fileURL = fileURL(app)
-        guard let data = try? Data(contentsOf: fileURL) else { app.cabinetDocs = []; return }
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        if let docs = try? d.decode([CabinetDoc].self, from: data) {
-            app.cabinetDocs = docs
-        } else {
-            let keep = fileURL.deletingPathExtension().appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970)).json")
-            try? FileManager.default.moveItem(at: fileURL, to: keep)
-            app.cabinetDocs = []
-        }
-    }
-
-    static func save(_ app: AppState) {
-        let e = JSONEncoder()
-        e.dateEncodingStrategy = .iso8601
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? e.encode(app.cabinetDocs) { try? data.write(to: fileURL(app), options: .atomic) }
-    }
-
-    // MARK: 結構
-
-    static func saveLayout(_ app: AppState, _ sections: [CabinetSection]) throws {
-        if remote != nil {
-            let saved = try remoteWrite(app) { try $0.saveCabinetLayout(org: app.currentOrgId, sections) }
-            CabinetLayout.sections = saved
-            app.cabinetLayoutVersion += 1
-            return
-        }
-        CabinetLayout.sections = sections
-        app.cabinetLayoutVersion += 1
-        if let data = try? OrgFiles.encoder().encode(sections) { try? data.write(to: layoutURL(app), options: .atomic) }
-    }
-
-    /// 檢查新結構:id 不重複,而且被拿掉的區塊/頁籤裡不能還有文件
-    static func validate(_ app: AppState, _ sections: [CabinetSection]) -> String? {
-        var ids = Set<String>()
-        for s in sections {
-            if s.label.trimmingCharacters(in: .whitespaces).isEmpty { return "區塊名稱不能是空的" }
-            if !ids.insert(s.id).inserted { return "區塊 id 重複:\(s.id)" }
-            for t in s.tabs {
-                if t.label.trimmingCharacters(in: .whitespaces).isEmpty { return "「\(s.label)」有頁籤沒有名稱" }
-                if !t.path.hasPrefix("/") { return "頁籤 id 要用 / 開頭:\(t.path)" }
-                if !ids.insert(t.path).inserted { return "頁籤 id 重複:\(t.path)" }
-            }
-        }
-        for d in app.cabinetDocs {
-            guard let s = sections.first(where: { $0.id == d.section }) else { return "「\(d.title)」還在被拿掉的區塊裡,先搬走或刪除" }
-            if let t = d.tab, !s.tabs.contains(where: { $0.path == t }) { return "「\(d.title)」還在被拿掉的頁籤裡,先搬走或刪除" }
-        }
-        return nil
-    }
-    @discardableResult
-    static func create(_ app: AppState, title: String, body: String, section: String, tab: String?, tags: [String], by author: String) throws -> CabinetDoc {
-        load(app)
-        if remote != nil {
-            let d = try remoteWrite(app) {
-                try $0.createDoc(org: app.currentOrgId, title: title, body: body, section: section, tab: tab, tags: IssueStore.clean(tags), author: author)
-            }
-            app.cabinetDocs.removeAll { $0.id == d.id }
-            app.cabinetDocs.insert(d, at: 0)
-            app.log(actor(app, d.author), "archivebox", "文件櫃新增 \(d.id)「\(d.title)」(\(d.location))", .cabinet)
-            return d
-        }
-        let num = (app.cabinetDocs.map(\.number).max() ?? 0) + 1
-        let d = CabinetDoc(id: "DOC-\(num)", title: title, body: body, section: section, tab: tab,
-                           tags: IssueStore.clean(tags), author: author)
-        app.cabinetDocs.insert(d, at: 0)
-        save(app)
-        app.log(actor(app, author), "archivebox", "文件櫃新增 \(d.id)「\(title)」(\(d.location))", .cabinet)
-        return d
-    }
-
-    @discardableResult
-    static func update(_ app: AppState, _ id: String, _ change: (inout CabinetDoc) -> Void) throws -> CabinetDoc? {
-        guard let i = app.cabinetDocs.firstIndex(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) else { return nil }
-        var d = app.cabinetDocs[i]
-        let before = d
-        change(&d)
-        d.tags = IssueStore.clean(d.tags)
-        guard d != before else { return d }
-        if remote != nil {
-            let saved = try remoteWrite(app) { try $0.updateDoc(org: app.currentOrgId, id: before.id, from: before, to: d) }
-            if let j = app.cabinetDocs.firstIndex(where: { $0.id == saved.id }) { app.cabinetDocs[j] = saved }
-            return saved
-        }
-        d.updatedAt = .now
-        app.cabinetDocs[i] = d
-        save(app)
-        return d
-    }
-
-    static func delete(_ app: AppState, _ id: String) throws {
-        if remote != nil {
-            try remoteWrite(app) { try $0.deleteDoc(org: app.currentOrgId, id: id) }
-            app.cabinetDocs.removeAll { $0.id == id }
-            return
-        }
-        app.cabinetDocs.removeAll { $0.id == id }
-        save(app)
-    }
-
-#endif
 
     static func doc(_ app: AppState, _ id: String) -> CabinetDoc? {
         app.cabinetDocs.first { $0.id.caseInsensitiveCompare(id) == .orderedSame }

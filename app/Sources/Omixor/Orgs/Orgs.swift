@@ -329,6 +329,8 @@ extension AppState {
             guard let self else { return }
             let system = self.systemStore, issues = self.issueStore, agents = self.agentStore
             let channels = self.channelStore, incidents = self.incidentStore, gh = self.ghStore
+            let gl = self.glStore
+            gl?.clearForOrgChange()
             await withTaskGroup(of: Void.self) { g in
                 if let system { g.addTask { await system.reload() } }
                 if let issues { g.addTask { await issues.reload() } }
@@ -337,6 +339,7 @@ extension AppState {
                 if let incidents { g.addTask { await incidents.reload() } }
                 g.addTask { await Cabinet.reload(self) }
                 if let gh { g.addTask { await gh.reload() } }
+                if let gl { g.addTask { await gl.reload() } }
             }
             if let gh, gh.isLoggedIn { Task { await gh.refresh() } }
         }

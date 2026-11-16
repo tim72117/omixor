@@ -1,0 +1,17 @@
+[
+  {
+    "id": "acme",
+    "name": "Acme 研發",
+    "createdAt": "2026-09-01T00:00:00Z",
+    "symbol": "building.2",
+    "color": "teal",
+    "note": "主要組織",
+    "myRole": "admin"
+  },
+  {
+    "id": "side_2",
+    "name": "副業",
+    "createdAt": "2026-09-02T00:00:00Z",
+    "myRole": "member"
+  }
+]

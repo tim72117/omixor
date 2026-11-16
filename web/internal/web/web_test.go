@@ -21,6 +21,7 @@ func TestMain(m *testing.M) {
 	// 預設不載入範本;這裡的測試要用範例資料(告警等),所以開著(templates/ 在 repo 最外層)
 	os.Setenv("OMIXOR_TEMPLATES", "1")
 	core.Vault = core.NewMemoryVault()
+	core.UseMemoryCores() // 沒有資料庫時用記憶體的核心
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

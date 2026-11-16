@@ -30,6 +30,11 @@ type File struct {
 	// tx 是批次裡給 fn 用的寫入入口(只改記憶體、不存檔);dirty 記錄批次裡有沒有寫入
 	tx    bool
 	dirty atomic.Bool
+	// saved 上一次成功存進磁碟的 store.json 內容(nil = 磁碟上還沒有);非批次寫入存檔失敗時用它還原記憶體。
+	// 存檔本來就要編一份 JSON,留著它不用額外深拷貝;只有失敗時才解回來。只在 gate 的寫鎖裡讀寫
+	saved []byte
+	// writeFn 寫檔用的函式(nil = writeAtomic;測試注入失敗用)
+	writeFn func(path string, data []byte) error
 }
 
 // auditKeep store.json 裡最多留幾筆操作紀錄
@@ -71,10 +76,12 @@ type fileSnapshot struct {
 	Reads    map[string]map[string]map[string]model.ChannelRead `json:"reads"`
 	// Incidents 事件(寫入方法在 file_incident.go)
 	Incidents map[string][]model.Incident `json:"incidents,omitempty"`
-	// Integrations 組織的 GitHub、GitLab 設定(寫入方法在 file_integration.go)
-	Integrations map[string]model.OrgIntegrations `json:"integrations,omitempty"`
+	// Integrations 組織設定文件(選用模組的設定;org → kind → 設定,和以前的 github、gitlab 欄位格式相同;寫入方法在 file_integration.go)
+	Integrations map[string]map[string]json.RawMessage `json:"integrations,omitempty"`
 	// System 組織的系統設定(功能開關;寫入方法在 file_system.go)
 	System map[string]model.OrgSystemSettings `json:"system,omitempty"`
+	// ServerFeatures 系統層的功能設定(整台伺服器一份;寫入方法在 file_system.go;nil = 還沒存過)
+	ServerFeatures *model.ServerFeatures `json:"serverFeatures,omitempty"`
 	// MCP 組織的外部 MCP 登記(寫入方法在 file_mcp.go;沒有任何密鑰)
 	MCP map[string]model.OrgMCPConfig `json:"mcp,omitempty"`
 }
@@ -101,6 +108,7 @@ func OpenFile(dir string) (*File, error) {
 		return nil, fmt.Errorf("%s 讀不出來:%w", filepath.Join(dir, fileName), err)
 	}
 	f.restore(s)
+	f.saved = b
 	return f, nil
 }
 
@@ -162,6 +170,7 @@ func (f *File) restore(s fileSnapshot) {
 	m.incidents = orEmpty(s.Incidents)
 	m.integrations = orEmpty(s.Integrations)
 	m.system = orEmpty(s.System)
+	m.server = s.ServerFeatures
 	m.mcp = orEmpty(s.MCP)
 }
 
@@ -174,7 +183,8 @@ func (f *File) snapshot() ([]byte, error) {
 	s := fileSnapshot{Version: 1, SavedAt: now, Users: []model.User{}, Tokens: []fileToken{}, Orgs: []model.Org{},
 		Members: []model.Member{}, Creds: []fileCred{},
 		Issues: m.issues, Agents: m.agents, Tasks: m.tasks, Layouts: m.layouts, Docs: m.docs, Chains: m.chains,
-		Channels: m.channels, Messages: m.messages, Reads: m.reads, Incidents: m.incidents, Integrations: m.integrations, System: m.system, MCP: m.mcp}
+		Channels: m.channels, Messages: m.messages, Reads: m.reads, Incidents: m.incidents, Integrations: m.integrations, System: m.system, MCP: m.mcp,
+		ServerFeatures: m.server}
 	for _, u := range m.users {
 		s.Users = append(s.Users, u)
 	}
@@ -237,10 +247,28 @@ func (f *File) save() error {
 	if err != nil {
 		return err
 	}
-	if err := writeAtomic(filepath.Join(f.dir, fileName), b); err != nil {
+	wf := f.writeFn
+	if wf == nil {
+		wf = writeAtomic
+	}
+	if err := wf(filepath.Join(f.dir, fileName), b); err != nil {
 		return fmt.Errorf("存檔失敗:%w", err)
 	}
+	f.saved = b
 	return nil
+}
+
+// commit 非批次寫入改完記憶體後存檔;存檔失敗就把記憶體還原成上一次成功存檔的內容
+// (呼叫的人要拿著 gate 的寫鎖,這樣記憶體裡除了這一筆以外,就是 saved 的內容)
+func (f *File) commit() error {
+	err := f.save()
+	if err == nil {
+		return nil
+	}
+	if rerr := f.rollback(f.saved); rerr != nil {
+		return fmt.Errorf("%v(還原記憶體也失敗:%v)", err, rerr)
+	}
+	return err
 }
 
 // after 寫入成功才存檔(批次裡不存,批次結束時一起存)
@@ -255,15 +283,19 @@ func (f *File) after(err error) error {
 	return f.save()
 }
 
-// write 一筆寫入:改記憶體、成功就存檔。批次進行中時,批次以外的寫入在這裡等批次結束
-// (批次失敗會把記憶體還原到批次開始前,不能把別人的寫入一起還原掉)
+// write 一筆寫入:改記憶體、成功就存檔;存檔失敗時記憶體還原成上一次成功存檔的內容(不會被下一次寫入帶進磁碟)。
+// 非批次寫入一次只做一筆(gate 寫鎖):還原時記憶體裡才不會有別人還沒存的寫入被一起還原掉;
+// 存檔本來就在 saveMu 裡排隊,所以不會變慢。讀取不受影響。批次進行中時,批次以外的寫入在這裡等批次結束
 func (f *File) write(op func() error) error {
 	if f.tx {
 		return f.after(op())
 	}
-	f.gate.RLock()
-	defer f.gate.RUnlock()
-	return f.after(op())
+	f.gate.Lock()
+	defer f.gate.Unlock()
+	if err := op(); err != nil {
+		return err
+	}
+	return f.commit()
 }
 
 // Batch 批次寫入(全有或全無):fn 用 tx 寫入時只改記憶體、不存檔;fn 成功後整份只存一次檔。
@@ -299,11 +331,13 @@ func (f *File) Batch(fn func(tx *File) error) error {
 	return nil
 }
 
-// rollback 把記憶體換回批次開始前的快照
+// rollback 把記憶體換回快照(批次開始前,或上一次成功存檔的內容;nil = 空的,磁碟上還沒有存過)
 func (f *File) rollback(before []byte) error {
 	var s fileSnapshot
-	if err := json.Unmarshal(before, &s); err != nil {
-		return err
+	if before != nil {
+		if err := json.Unmarshal(before, &s); err != nil {
+			return err
+		}
 	}
 	fresh := &File{Mem: NewMem()}
 	fresh.restore(s)
@@ -320,7 +354,7 @@ func (m *Mem) replaceFrom(src *Mem) {
 	m.layouts, m.docs, m.chains = src.layouts, src.docs, src.chains
 	m.channels, m.messages, m.reads = src.channels, src.messages, src.reads
 	m.incidents, m.integrations, m.system = src.incidents, src.integrations, src.system
-	m.mcp = src.mcp
+	m.mcp, m.server = src.mcp, src.server
 }
 
 // w1 有回傳值的寫入
@@ -373,11 +407,17 @@ func (f *File) CreateIssue(org string, i model.Issue) (model.Issue, error) {
 func (f *File) UpdateIssue(org string, i model.Issue) error {
 	return f.write(func() error { return f.Mem.UpdateIssue(org, i) })
 }
+func (f *File) AddIssueComment(org, issueID string, c model.Comment) (*model.Issue, error) {
+	return w1(f, func() (*model.Issue, error) { return f.Mem.AddIssueComment(org, issueID, c) })
+}
 func (f *File) DeleteIssue(org, id string) error {
 	return f.write(func() error { return f.Mem.DeleteIssue(org, id) })
 }
 func (f *File) ImportIssues(org string, list []model.Issue) (int, error) {
 	return w1(f, func() (int, error) { return f.Mem.ImportIssues(org, list) })
+}
+func (f *File) MergeIssues(org string, list []model.Issue, overwrite bool) (MergeCounts, error) {
+	return w1(f, func() (MergeCounts, error) { return f.Mem.MergeIssues(org, list, overwrite) })
 }
 
 func (f *File) SaveAgent(org string, a model.Agent) error {
@@ -411,8 +451,8 @@ func (f *File) ImportAgents(org string, agents []model.Agent, tasks []model.Agen
 // PruneAgentCredentials 例行清理:沒有到期的憑證就不存檔
 func (f *File) PruneAgentCredentials(now time.Time) error {
 	if !f.tx {
-		f.gate.RLock()
-		defer f.gate.RUnlock()
+		f.gate.Lock()
+		defer f.gate.Unlock()
 	}
 	f.Mem.mu.Lock()
 	n := len(f.Mem.creds)
@@ -426,7 +466,10 @@ func (f *File) PruneAgentCredentials(now time.Time) error {
 	if !changed {
 		return nil
 	}
-	return f.after(nil)
+	if f.tx {
+		return f.after(nil)
+	}
+	return f.commit()
 }
 
 func (f *File) SaveCabinetLayout(org string, layout []model.CabinetSection) error {

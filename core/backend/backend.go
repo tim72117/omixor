@@ -33,9 +33,15 @@ type Backend interface {
 
 	// Issue
 	ListIssues(org string) ([]model.Issue, error)
+	// QueryIssues 依條件篩選、排序(規則見 model.QueryIssues;零值同 ListIssues)
+	QueryIssues(org string, q model.IssueQuery) ([]model.Issue, error)
+	// IssueBoard 看板三欄(規則見 model.BuildIssueBoard)
+	IssueBoard(org string, q model.IssueQuery) (*model.IssueBoard, error)
 	GetIssue(org, id string) (*model.Issue, error)
 	CreateIssue(org string, in service.IssueInput) (*model.Issue, error)
 	UpdateIssue(org, id string, p service.IssuePatch) (*model.Issue, error)
+	// AddIssueComment 新增一則留言(只附加這一則,不會蓋掉同時進來的留言);author 只有伺服器管理員的有效
+	AddIssueComment(org, id, text, author string) (*model.Issue, error)
 	DeleteIssue(org, id string) error
 
 	// 虛擬角色與任務(權限同 service/agents.go:管理角色與派任務要組織管理員)。實作在 agents.go
@@ -106,18 +112,14 @@ type Backend interface {
 	UpdateIncident(org, id string, in service.IncidentPatch) (*model.Incident, error)
 	ImportIncidents(org string, list []model.Incident) (*model.ImportResult, error)
 
-	// 組織的 GitHub、GitLab 設定(權限同 service/integration.go:成員讀、組織管理員改與匯入;只有非機密設定)。實作在 integration.go
-	GetGitHubSettings(org string) (*model.GitHubSettings, error)
-	SaveGitHubSettings(org string, in service.GitHubSettingsInput) (*model.GitHubSettings, error)
-	// ImportGitHubSettings 第一次匯入裝置的本機設定(核心存過就不動,Imported = false)
-	ImportGitHubSettings(org string, in service.GitHubImport) (*service.GitHubImportResult, error)
-	GetGitLabSettings(org string) (*model.GitLabSettings, error)
-	SaveGitLabSettings(org string, in service.GitLabSettingsInput) (*model.GitLabSettings, error)
-	ImportGitLabSettings(org string, in service.GitLabImport) (*service.GitLabImportResult, error)
+	// 組織的 GitHub、GitLab 設定搬到選用模組 core/modules/integrations(它自己的 Backend 介面與 Local / Remote 實作,見 module.go)
 
 	// 組織的系統設定(功能開關;權限同 service/system.go:成員讀、組織管理員改)。實作在 system.go
 	GetSystemSettings(org string) (*service.SystemSettingsView, error)
 	SaveSystemSettings(org string, in service.SystemSettingsInput) (*service.SystemSettingsView, error)
+	// 系統層的功能設定(整台伺服器一份;任何登入的使用者讀、伺服器管理員改)。實作在 system.go
+	GetServerFeatures() (*service.ServerFeaturesView, error)
+	SaveServerFeatures(in service.SystemSettingsInput) (*service.ServerFeaturesView, error)
 
 	// 附件(圖片)
 	SaveAttachment(org string, data []byte) (id string, err error)
@@ -145,6 +147,9 @@ type Unsupported struct{}
 
 var errUnsupported = errors.New("這個模式不支援這個操作")
 
+// Unsupported 錯誤是 Unsupported 的預設實作回的(這個模式沒有實作這個操作)
+func IsUnsupported(err error) bool { return errors.Is(err, errUnsupported) }
+
 func (Unsupported) ListOrgs() ([]model.Org, error)             { return nil, errUnsupported }
 func (Unsupported) CreateOrg(model.Org) (*model.Org, error)    { return nil, errUnsupported }
 func (Unsupported) UpdateOrg(model.Org) (*model.Org, error)    { return nil, errUnsupported }
@@ -156,10 +161,19 @@ func (Unsupported) SaveMember(string, string, string) (*model.Member, error) {
 func (Unsupported) RemoveMember(string, string) error             { return errUnsupported }
 func (Unsupported) ListIssues(string) ([]model.Issue, error)      { return nil, errUnsupported }
 func (Unsupported) GetIssue(string, string) (*model.Issue, error) { return nil, errUnsupported }
+func (Unsupported) QueryIssues(string, model.IssueQuery) ([]model.Issue, error) {
+	return nil, errUnsupported
+}
+func (Unsupported) IssueBoard(string, model.IssueQuery) (*model.IssueBoard, error) {
+	return nil, errUnsupported
+}
 func (Unsupported) CreateIssue(string, service.IssueInput) (*model.Issue, error) {
 	return nil, errUnsupported
 }
 func (Unsupported) UpdateIssue(string, string, service.IssuePatch) (*model.Issue, error) {
+	return nil, errUnsupported
+}
+func (Unsupported) AddIssueComment(string, string, string, string) (*model.Issue, error) {
 	return nil, errUnsupported
 }
 func (Unsupported) DeleteIssue(string, string) error              { return errUnsupported }

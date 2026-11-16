@@ -53,8 +53,8 @@ func (a *App) membersView() MembersView {
 		v.Error = errNoDB.Error()
 		return v
 	}
-	l.ensureOrg(org)
-	list, err := l.svc.ListMembers(localPrincipal, org)
+	ensureLocalOrg(l, org)
+	list, err := l.Svc.ListMembers(localPrincipal, org)
 	if err != nil {
 		v.Error = err.Error()
 		return v
@@ -98,8 +98,8 @@ func init() {
 			if l == nil {
 				return nil, errNoDB
 			}
-			l.ensureOrg(org)
-			m, err = l.svc.SaveMember(localPrincipal, org, email, role)
+			ensureLocalOrg(l, org)
+			m, err = l.Svc.SaveMember(localPrincipal, org, email, role)
 		}
 		if err != nil {
 			return nil, err
@@ -122,8 +122,8 @@ func init() {
 			if l == nil {
 				return nil, errNoDB
 			}
-			l.ensureOrg(org)
-			err = l.svc.RemoveMember(localPrincipal, org, email)
+			ensureLocalOrg(l, org)
+			err = l.Svc.RemoveMember(localPrincipal, org, email)
 		}
 		if err != nil {
 			return nil, err

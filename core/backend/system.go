@@ -36,3 +36,36 @@ func (r *Remote) SaveSystemSettings(org string, in service.SystemSettingsInput) 
 	}
 	return x, nil
 }
+
+// ---- 系統層(整台伺服器的功能設定) ----
+
+func (Unsupported) GetServerFeatures() (*service.ServerFeaturesView, error) {
+	return nil, errUnsupported
+}
+func (Unsupported) SaveServerFeatures(service.SystemSettingsInput) (*service.ServerFeaturesView, error) {
+	return nil, errUnsupported
+}
+
+func (l *Local) GetServerFeatures() (*service.ServerFeaturesView, error) {
+	return l.Svc.GetServerFeatures(l.P)
+}
+
+func (l *Local) SaveServerFeatures(in service.SystemSettingsInput) (*service.ServerFeaturesView, error) {
+	return l.Svc.SaveServerFeatures(l.P, in)
+}
+
+func (r *Remote) GetServerFeatures() (*service.ServerFeaturesView, error) {
+	x, err := r.Client().GetServerFeatures()
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return x, nil
+}
+
+func (r *Remote) SaveServerFeatures(in service.SystemSettingsInput) (*service.ServerFeaturesView, error) {
+	x, err := r.Client().SaveServerFeatures(in)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return x, nil
+}

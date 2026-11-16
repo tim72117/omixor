@@ -5,6 +5,7 @@ import (
 
 	"omixor-core/client"
 	"omixor-core/model"
+	"omixor-core/module"
 	"omixor-core/service"
 )
 
@@ -12,88 +13,62 @@ func agentNamed(id string) model.Agent { return model.Agent{ID: id, Name: id, Ac
 
 func newClient(e *env) *client.Client { return client.New(e.srv.URL) }
 
-// 組織的 GitHub、GitLab 設定的 API:成員讀(角色憑證也可以)、管理員改、匯入只有第一次
-func TestIntegrationAPI(t *testing.T) {
+// GitHub、GitLab 設定是選用模組(core/modules/integrations;有模組時的測試在那裡)。
+// 這個測試套件不 import 模組 = 沒編進模組的伺服器:路由不存在(404)、功能清單沒有 development.repos(Repositories 分頁不出現;退場的 development.github 也沒有)、/api/modules 是空的
+func TestWithoutIntegrationsModule(t *testing.T) {
+	if module.Has("integrations") {
+		t.Fatal("core/api 的測試不該編進模組")
+	}
+	for _, k := range []string{"development.repos", "development.github"} {
+		if _, ok := model.FeatureByKey(k); ok {
+			t.Fatal("沒編進模組時不該登記", k)
+		}
+	}
 	e := newEnv(t)
 	boss := e.login("evo-boss")
 	if _, err := boss.CreateOrg("o1", "組織一"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := boss.SaveUser("alice@example.com", nil, nil); err != nil {
+	for _, p := range []string{"/api/orgs/o1/integrations/github", "/api/orgs/o1/integrations/gitlab"} {
+		if err := boss.Do("GET", p, nil, nil); status(err) != 404 {
+			t.Fatal(p, "要 404", err)
+		}
+		if err := boss.Do("POST", p, map[string]any{"add": []string{"a/b"}}, nil); status(err) != 404 {
+			t.Fatal(p, "要 404", err)
+		}
+	}
+	var infos []module.Info
+	if err := boss.Do("GET", "/api/modules", nil, &infos); err != nil || len(infos) != 0 {
+		t.Fatal(infos, err)
+	}
+	sf, err := boss.GetServerFeatures()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := boss.SaveMember("o1", "alice@example.com", "member"); err != nil {
+	for _, f := range sf.Features {
+		if f.Key == "development.repos" || f.Key == "development.github" {
+			t.Fatal("系統層清單不該有", f.Key)
+		}
+	}
+	ss, err := boss.GetSystemSettings("o1")
+	if err != nil {
 		t.Fatal(err)
 	}
-	alice := e.login("evo-alice")
-	g, err := alice.GetGitHubSettings("o1")
-	if err != nil || g.Saved || len(g.Repos) != 0 {
-		t.Fatal(g, err)
+	for _, f := range ss.Features {
+		if f.Key == "development.repos" || f.Key == "development.github" {
+			t.Fatal("組織層清單不該有", f.Key)
+		}
 	}
-	if _, err := alice.SaveGitHubSettings("o1", service.GitHubSettingsInput{Add: []string{"a/b"}}); status(err) != 403 {
-		t.Fatal("成員不能改", err)
+	if _, ok := ss.ServerFeatures["development.repos"]; ok {
+		t.Fatal("serverFeatures 不該有 development.repos")
 	}
-	if _, err := alice.ImportGitHubSettings("o1", service.GitHubImport{Repos: []string{"a/b"}}); status(err) != 403 {
-		t.Fatal("成員不能匯入", err)
-	}
-	r, err := boss.ImportGitHubSettings("o1", service.GitHubImport{Repos: []string{"https://github.com/a/b", "nope"}})
-	if err != nil || !r.Imported || len(r.Settings.Repos) != 1 || len(r.Skipped) != 1 {
-		t.Fatal(r, err)
-	}
-	g, err = boss.SaveGitHubSettings("o1", service.GitHubSettingsInput{Add: []string{"c/d"}})
-	if err != nil || len(g.Repos) != 2 || g.UpdatedBy != "boss@example.com" {
-		t.Fatal(g, err)
-	}
-	if _, err := boss.SaveGitHubSettings("o1", service.GitHubSettingsInput{Add: []string{"bad"}}); status(err) != 400 {
-		t.Fatal(err)
-	}
-	if got, err := alice.GetGitHubSettings("o1"); err != nil || !got.Saved || len(got.Repos) != 2 {
-		t.Fatal(got, err)
-	}
-	r, err = boss.ImportGitHubSettings("o1", service.GitHubImport{Repos: []string{"x/y"}})
-	if err != nil || r.Imported || len(r.Settings.Repos) != 2 {
-		t.Fatal("第二次匯入不動", r, err)
-	}
-	if _, err := boss.GetGitHubSettings("nope"); status(err) != 404 {
-		t.Fatal(err)
-	}
-
-	base := "https://gitlab.example.com/"
-	l, err := boss.SaveGitLabSettings("o1", service.GitLabSettingsInput{BaseURL: &base, Add: []string{"https://gitlab.example.com/g/p"}})
-	if err != nil || l.BaseURL != "https://gitlab.example.com" || len(l.Projects) != 1 || l.Projects[0] != "g/p" {
-		t.Fatal(l, err)
-	}
-	if _, err := alice.SaveGitLabSettings("o1", service.GitLabSettingsInput{Add: []string{"g/q"}}); status(err) != 403 {
-		t.Fatal(err)
-	}
-	if got, err := alice.GetGitLabSettings("o1"); err != nil || got.BaseURL != "https://gitlab.example.com" {
-		t.Fatal(got, err)
-	}
-	if lr, err := boss.ImportGitLabSettings("o1", service.GitLabImport{BaseURL: "https://other"}); err != nil || lr.Imported {
-		t.Fatal(lr, err)
-	}
-
-	// 角色憑證也可以讀(不能改)
-	if _, err := boss.SaveAgent("o1", agentNamed("cto")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := boss.AssignTask("o1", service.TaskInput{AgentID: "cto", Title: "t"}); err != nil {
-		t.Fatal(err)
-	}
-	cl, err := boss.ClaimTask("o1", service.ClaimInput{AgentID: "cto"})
-	if err != nil || cl.Credential == nil {
-		t.Fatal(cl, err)
-	}
-	role := newClient(e)
-	cred := "cto:" + cl.Credential.Secret
-	role.Token = func() string { return cred }
-	if got, err := role.GetGitHubSettings("o1"); err != nil || len(got.Repos) != 2 {
-		t.Fatal("角色憑證可以讀", got, err)
-	}
-	if got, err := role.GetGitLabSettings("o1"); err != nil || len(got.Projects) != 1 {
-		t.Fatal(got, err)
-	}
-	if _, err := role.SaveGitHubSettings("o1", service.GitHubSettingsInput{Add: []string{"z/z"}}); status(err) != 401 {
-		t.Fatal("角色憑證不能改(不是 omixor token)", err)
+	// 沒登記的 key 不能存(像那功能不存在);退場的 development.github 轉成 development.repos,沒模組時一樣 400
+	for _, k := range []string{"development.repos", "development.github"} {
+		if _, err := boss.SaveServerFeatures(service.SystemSettingsInput{Features: map[string]bool{k: false}}); status(err) != 400 {
+			t.Fatal("沒登記的 key 要 400", k, err)
+		}
+		if _, err := boss.SaveSystemSettings("o1", service.SystemSettingsInput{Features: map[string]bool{k: false}}); status(err) != 400 {
+			t.Fatal("沒登記的 key 要 400", k, err)
+		}
 	}
 }

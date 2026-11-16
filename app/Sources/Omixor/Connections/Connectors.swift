@@ -219,9 +219,19 @@ enum ApprovalConnector {
         Browser.open(approveURL)
         let code = try await callback.waitForCode(timeout: 600)
         guard let ex = URL(string: c.trimmedBase + a.exchangePath) else { throw ConnectionError("網址格式錯誤") }
-        let tr = try ConnHTTP.check(try await ConnHTTP.json("POST", ex, ["id": id, "code": code]))
+        // 拿到 code 之前已取消:不換 token(伺服器不會發出 token)
+        try Task.checkCancellation()
+        // 換 token 這一步不能被取消打斷:請求送出後伺服器可能已經發了 token,中途斷掉就拿不到、也撤銷不了。
+        // 放在不受取消影響的 Task 做完,回來再看是否已取消
+        let tr = try await Task.detached { try ConnHTTP.check(try await ConnHTTP.json("POST", ex, ["id": id, "code": code])) }.value
         guard let token = (tr.json as? [String: Any])?["token"] as? String else { throw ConnectionError("換不到 token") }
-        return TokenSet(accessToken: token, refreshToken: nil, idToken: nil, expiresAt: nil, tokenType: "Bearer")
+        let t = TokenSet(accessToken: token, refreshToken: nil, idToken: nil, expiresAt: nil, tokenType: "Bearer")
+        if Task.isCancelled {
+            // 換到之後才取消:立刻撤銷剛拿到的 token(撤銷也放在不受取消影響的 Task,否則請求會立刻失敗)
+            await Task.detached { await logout(c, t) }.value
+            throw CancellationError()
+        }
+        return t
     }
 
     static func logout(_ c: Connection, _ t: TokenSet) async {

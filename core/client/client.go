@@ -222,6 +222,30 @@ func (c *Client) ListIssuesByRepo(org, repo string) ([]model.Issue, error) {
 	return l, c.Do("GET", path, nil, &l)
 }
 
+// QueryIssues 依條件篩選、排序的 Issue(伺服器端 GET …/issues?q=&status=…;規則見 model.QueryIssues;零值 = 全部)
+func (c *Client) QueryIssues(org string, q model.IssueQuery) ([]model.Issue, error) {
+	path := c.issues(org)
+	if v := q.Values(); len(v) > 0 {
+		path += "?" + v.Encode()
+	}
+	var l []model.Issue
+	return l, c.Do("GET", path, nil, &l)
+}
+
+// IssueBoard 看板(GET …/issues/board;規則見 model.BuildIssueBoard)
+func (c *Client) IssueBoard(org string, q model.IssueQuery) (*model.IssueBoard, error) {
+	path := c.issues(org) + "/board"
+	q.Status, q.Sort = "", ""
+	if v := q.Values(); len(v) > 0 {
+		path += "?" + v.Encode()
+	}
+	var b model.IssueBoard
+	if err := c.Do("GET", path, nil, &b); err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
 func (c *Client) GetIssue(org, id string) (*model.Issue, error) {
 	var i model.Issue
 	return &i, c.Do("GET", c.issues(org)+"/"+esc(id), nil, &i)
@@ -235,6 +259,12 @@ func (c *Client) CreateIssue(org string, in service.IssueInput) (*model.Issue, e
 func (c *Client) UpdateIssue(org, id string, in service.IssuePatch) (*model.Issue, error) {
 	var i model.Issue
 	return &i, c.Do("POST", c.issues(org)+"/"+esc(id), in, &i)
+}
+
+// AddIssueComment 新增一則留言(只附加這一則),回傳新增後的 Issue
+func (c *Client) AddIssueComment(org, id string, in service.CommentInput) (*model.Issue, error) {
+	var i model.Issue
+	return &i, c.Do("POST", c.issues(org)+"/"+esc(id)+"/comments", in, &i)
 }
 
 func (c *Client) DeleteIssue(org, id string) error {

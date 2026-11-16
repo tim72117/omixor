@@ -1,5 +1,5 @@
 // GitLab 的設定元件(設定 › 程式碼倉庫 用):伺服器網址與 CA 憑證、登入流程(OAuth 應用程式或個人存取權杖)、登出、追蹤的專案。
-// 從 GitLabTab 搬出來;開發進度 › GitLab 只看資料,只從這裡借 InsecureBanner(不驗證憑證的安全提醒)。
+// 從原本的 GitLab 分頁搬出來;資料在 開發進度 › Repositories(只看資料)。
 // 資料:view gitlab;動作:gitlab_settings、gitlab_ensure_connection、gitlab_add_project、gitlab_remove_project、connection_*(見 docs/PORTING.md)。
 import { useState } from "react";
 import { action, useRun } from "../api";
@@ -77,7 +77,7 @@ export function GitLabSetup({ gl }: { gl: GitLabView }) {
   );
   return (
     <div className="col" style={{ gap: 12 }}>
-      <div className="caption muted">連上後,開發進度 › GitLab 會列出追蹤中專案的 Pipelines(含 jobs、stage 與失敗紀錄)和開著的 Merge Requests(含 pipeline 與核准狀態)。omixor 只讀,不會開 MR、留言或重跑 pipeline。</div>
+      <div className="caption muted">連上後,開發進度 › Repositories 會列出追蹤中專案的 Pipelines(含 jobs、stage 與失敗紀錄)和開著的 Merge Requests(含 pipeline 與核准狀態)。omixor 只讀,不會開 MR、留言或重跑 pipeline。</div>
       {!conn ? (
         <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => run(() => action("gitlab_ensure_connection"))}>開始設定</button>
       ) : (

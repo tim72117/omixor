@@ -6,23 +6,26 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
-	"testing"
 	"time"
 
+	"omixor-core/backend"
 	"omixor-core/client"
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
 )
 
-// Issue(與本機的組織)一律交給 omixor 核心(omixor-core),依模式(mode.go)二選一,兩邊完全分開:
+// Issue(與本機的組織、角色、文件櫃…)一律交給 omixor 核心(omixor-core)的共同介面 backend.Backend,依模式(mode.go)二選一,兩邊完全分開:
 //
-//	遠端模式:OMIXOR_SERVER 指向線上 omixor server,用 core/client 讀寫
+//	遠端模式:OMIXOR_SERVER 指向線上 omixor server,用 backend.Remote(core/client)讀寫
 //	      token:OPS_ISSUE_SERVER_TOKEN 固定的;沒設時用 omixor 自己的 token(鑰匙圈的 omixor-issues),
-//	      沒有或被拒絕(401)就拿 evoleap 連線的 token 去 /api/auth/evoleap 換一個再重送
-//	本機模式:核心的 service 跑在同一個程式裡,連本機的 PostgreSQL(OPS_DATABASE_URL);
-//	      沒有資料庫就不能用(回 errNoDB),不再退回存檔案。測試時沒有資料庫就用核心的記憶體存放處
+//	      沒有或被拒絕(401)就拿 evoleap 連線的 token 去 /api/auth/evoleap 換一個再重送(issueRemoteClient)
+//	本機模式:backend.Local,核心的 service 跑在同一個程式裡,連本機的 PostgreSQL(OPS_DATABASE_URL);
+//	      沒有資料庫就不能用(回 errNoDB),不再退回存檔案。測試改用記憶體的核心(UseMemoryCores)
 //
 // 讀:組織載入時讀、每次修改前重讀;遠端模式每 5 秒在背景同步一次。
 // 寫:每個動作各自送給核心,用回傳的內容。本機模式以「omixor-web」(伺服器管理員)身分呼叫核心。
@@ -32,49 +35,35 @@ const (
 	issueRemoteTokenID     = "omixor-issues"
 )
 
-// issueBackend 核心的 Issue 操作(遠端或內建)
-type issueBackend interface {
-	List(scope, org string) ([]model.Issue, error)
-	Create(scope, org string, in service.IssueInput) (*model.Issue, error)
-	Update(scope, org, id string, p service.IssuePatch) (*model.Issue, error)
-	Delete(scope, org, id string) error
-}
-
-var (
-	backendOnce sync.Once
-	backendVal  issueBackend
-	backendMu   sync.Mutex
-)
-
 // errNoDB 本機模式沒有資料庫
 var errNoDB = errors.New("本機模式要連 PostgreSQL:設環境變數 OPS_DATABASE_URL 與 OPS_SECRET_KEY(本機開發可以用 web/docker-compose.dev.yml 開一個)")
 
-// currentIssueBackend 目前的核心:遠端模式是 omixor server;本機模式是同一個程式裡的核心(service + PostgreSQL)。
-// 本機沒有資料庫時回傳一個一律回錯誤的 backend(不再退回存檔案)。
-func currentIssueBackend() issueBackend {
+// coreBackend 目前的核心:遠端模式是 omixor server(scope 是換 token 時用哪個連線設定的 evoleap 登入);
+// 本機模式是同一個程式裡的核心(service + PostgreSQL)。本機沒有資料庫回 errNoDB
+func coreBackend(scope string) (backend.Backend, error) {
 	if url := IssueRemoteURL(); url != "" {
-		backendMu.Lock()
-		defer backendMu.Unlock()
-		if r, ok := backendVal.(*remoteBackend); !ok || r.base != url {
-			backendVal = &remoteBackend{base: url}
-		}
-		return backendVal
+		return &backend.Remote{Client: func() *client.Client { return issueRemoteClient(url, scope) }, OrgID: serverOrgID}, nil
 	}
 	if l := localCore(); l != nil {
-		return l
+		return l, nil
 	}
-	return noDBBackend{}
+	return nil, errNoDB
 }
 
 var (
 	localCoreMu  sync.Mutex
-	localCoreVal *localBackend
-	localCoreKey any // 建立核心時的資料庫連線池(或記憶體資料夾),換了就重建
-	memCores     = map[string]*localBackend{}
+	localCoreVal *backend.Local
+	localCoreKey any // 建立核心時的資料庫連線池,換了就重建
+
+	// newTestCore 沒有資料庫時改用的核心(測試用;UseMemoryCores 設定)。nil = 沒有資料庫就不能用
+	newTestCore func() *backend.Local
 )
 
-// localCore 本機模式的核心:連 PostgreSQL(OPS_DATABASE_URL);測試時沒有資料庫就用記憶體(每個資料夾一份)。都沒有回傳 nil
-func localCore() *localBackend {
+// omixor-web 以伺服器管理員身分呼叫核心(畫面與 MCP 的權限由 omixor-web 自己管)
+var localPrincipal = &model.Principal{User: model.User{ID: "ops-web", Email: "ops-web", Role: "admin"}}
+
+// localCore 本機模式的核心:連 PostgreSQL(OPS_DATABASE_URL);沒有資料庫時用 newTestCore(測試)。都沒有回傳 nil
+func localCore() *backend.Local {
 	localCoreMu.Lock()
 	defer localCoreMu.Unlock()
 	if pgPool != nil {
@@ -88,35 +77,39 @@ func localCore() *localBackend {
 			if err := svc.EnsureOrgsForIssues(); err != nil {
 				log.Printf("補建組織失敗:%v", err)
 			}
-			localCoreVal, localCoreKey = &localBackend{svc: svc}, any(pgPool)
+			localCoreVal, localCoreKey = &backend.Local{Svc: svc, P: localPrincipal, EnsureOrg: true}, any(pgPool)
 		}
 		return localCoreVal
 	}
-	if testing.Testing() {
-		k := DataRoot()
-		if memCores[k] == nil {
-			memCores[k] = &localBackend{svc: &service.Service{Store: store.NewMem()}}
-		}
-		return memCores[k]
+	if newTestCore != nil {
+		return newTestCore()
 	}
 	return nil
 }
 
-// noDBBackend 本機模式沒有資料庫:所有操作都回錯誤
-type noDBBackend struct{}
-
-func (noDBBackend) List(string, string) ([]model.Issue, error) { return nil, errNoDB }
-func (noDBBackend) Create(string, string, service.IssueInput) (*model.Issue, error) {
-	return nil, errNoDB
+// UseMemoryCores 沒有資料庫時改用記憶體的核心(每個資料夾 DataRoot 一份)。只給測試用(各測試套件的 TestMain 呼叫);
+// 正式程式不呼叫,本機模式沒有資料庫就回 errNoDB
+func UseMemoryCores() {
+	cores := map[string]*backend.Local{}
+	localCoreMu.Lock()
+	defer localCoreMu.Unlock()
+	newTestCore = func() *backend.Local { // 在 localCoreMu 裡呼叫
+		k := DataRoot()
+		if cores[k] == nil {
+			cores[k] = &backend.Local{Svc: &service.Service{Store: store.NewMem()}, P: localPrincipal, EnsureOrg: true}
+		}
+		return cores[k]
+	}
 }
-func (noDBBackend) Update(string, string, string, service.IssuePatch) (*model.Issue, error) {
-	return nil, errNoDB
+
+// ensureLocalOrg 組織還沒建就補建(omixor-web 的組織是自己管的;同 backend.Local 的 EnsureOrg)
+func ensureLocalOrg(l *backend.Local, org string) {
+	if _, err := l.Svc.Store.GetOrg(org); err != nil {
+		_ = l.Svc.Store.CreateOrg(model.Org{ID: org, Name: org, CreatedAt: model.Now()})
+	}
 }
-func (noDBBackend) Delete(string, string, string) error { return errNoDB }
 
-// ---- 遠端:core/client ----
-
-type remoteBackend struct{ base string }
+// ---- 遠端:token 提供者(給 backend.Remote 的 client) ----
 
 var issueRemoteExchangeMu sync.Mutex
 
@@ -131,12 +124,13 @@ func issueRemoteToken(base string) string {
 	return ""
 }
 
-func (r *remoteBackend) client(scope string) *client.Client {
-	c := client.New(r.base)
+// issueRemoteClient 連 base 的 client:token 用 issueRemoteToken;沒設固定 token 時,401 用 scope 的 evoleap 登入換一個再重送
+func issueRemoteClient(base, scope string) *client.Client {
+	c := client.New(base)
 	c.HTTP.Timeout = 8 * time.Second
-	c.Token = func() string { return issueRemoteToken(r.base) }
+	c.Token = func() string { return issueRemoteToken(base) }
 	if os.Getenv("OPS_ISSUE_SERVER_TOKEN") == "" {
-		c.Refresh = func(stale string) (string, error) { return issueRemoteExchange(r.base, scope, stale) }
+		c.Refresh = func(stale string) (string, error) { return issueRemoteExchange(base, scope, stale) }
 	}
 	return c
 }
@@ -173,87 +167,39 @@ func issueRemoteExchange(base, scope, stale string) (string, error) {
 	return res.Token, nil
 }
 
-// 組織 id 是內部的(遠端組織加了 "~" 前綴),送給伺服器前換回伺服器上的 id
-func (r *remoteBackend) List(scope, org string) ([]model.Issue, error) {
-	return r.client(scope).ListIssues(serverOrgID(org))
-}
-func (r *remoteBackend) Create(scope, org string, in service.IssueInput) (*model.Issue, error) {
-	return r.client(scope).CreateIssue(serverOrgID(org), in)
-}
-func (r *remoteBackend) Update(scope, org, id string, p service.IssuePatch) (*model.Issue, error) {
-	return r.client(scope).UpdateIssue(serverOrgID(org), id, p)
-}
-func (r *remoteBackend) Delete(scope, org, id string) error {
-	return r.client(scope).DeleteIssue(serverOrgID(org), id)
-}
-
-// ---- 內建:核心 service 跑在同一個程式 ----
-
-type localBackend struct{ svc *service.Service }
-
-// omixor-web 以伺服器管理員身分呼叫核心(畫面與 MCP 的權限由 omixor-web 自己管)
-var localPrincipal = &model.Principal{User: model.User{ID: "ops-web", Email: "ops-web", Role: "admin"}}
-
-// ensureOrg 組織還沒建就補建(omixor-web 的組織是自己管的)
-func (l *localBackend) ensureOrg(org string) {
-	if _, err := l.svc.Store.GetOrg(org); err != nil {
-		_ = l.svc.Store.CreateOrg(model.Org{ID: org, Name: org, CreatedAt: model.Now()})
-	}
-}
-
-func (l *localBackend) List(_, org string) ([]model.Issue, error) {
-	l.ensureOrg(org)
-	return l.svc.ListIssues(localPrincipal, org)
-}
-func (l *localBackend) Create(_, org string, in service.IssueInput) (*model.Issue, error) {
-	l.ensureOrg(org)
-	return l.svc.CreateIssue(localPrincipal, org, in)
-}
-func (l *localBackend) Update(_, org, id string, p service.IssuePatch) (*model.Issue, error) {
-	l.ensureOrg(org)
-	return l.svc.UpdateIssue(localPrincipal, org, id, p)
-}
-func (l *localBackend) Delete(_, org, id string) error {
-	l.ensureOrg(org)
-	return l.svc.DeleteIssue(localPrincipal, org, id)
-}
-
 // ---- 一次存多筆(Jira 匯入用) ----
 
-// issueSaver 一次改多筆、新增多筆(新增的由核心給編號,新的在前)
-type issueSaver interface {
-	Save(scope, org string, updates, creates []model.Issue) error
-}
-
-// Save 本機:直接用核心的存放處,保留 Jira 的建立時間與留言作者
-func (l *localBackend) Save(_, org string, updates, creates []model.Issue) error {
-	l.ensureOrg(org)
-	for _, i := range updates {
-		if err := l.svc.Store.UpdateIssue(org, i); err != nil {
-			return err
-		}
+// issueSave 一次改多筆、新增多筆(新增的由核心給編號,新的在前)。
+// 本機:直接用核心的存放處,保留 Jira 的建立時間與留言作者;
+// 遠端:一筆一筆送(伺服器的 API 沒有批次;新增的建立時間會是送出的時間)
+func issueSave(scope, org string, updates, creates []model.Issue) error {
+	b, err := coreBackend(scope)
+	if err != nil {
+		return err
 	}
-	for _, i := range creates {
-		if _, err := l.svc.Store.CreateIssue(org, i); err != nil {
-			return err
+	if l, ok := b.(*backend.Local); ok {
+		ensureLocalOrg(l, org)
+		for _, i := range updates {
+			if err := l.Svc.Store.UpdateIssue(org, i); err != nil {
+				return err
+			}
 		}
+		for _, i := range creates {
+			if _, err := l.Svc.Store.CreateIssue(org, i); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
-	return nil
-}
-
-// Save 遠端:一筆一筆送(伺服器的 API 沒有批次;新增的建立時間會是送出的時間)
-func (r *remoteBackend) Save(scope, org string, updates, creates []model.Issue) error {
-	c := r.client(scope)
-	org = serverOrgID(org)
 	for _, i := range updates {
 		labels, comments := i.Labels, i.Comments
-		if _, err := c.UpdateIssue(org, i.ID, service.IssuePatch{Title: &i.Title, Body: &i.Body, Status: &i.Status,
+		if _, err := b.UpdateIssue(org, i.ID, service.IssuePatch{Title: &i.Title, Body: &i.Body, Status: &i.Status,
 			Priority: &i.Priority, Labels: &labels, Source: &i.Source, Link: &i.Link, Repo: &i.Repo, Comments: &comments, Author: i.CreatedBy}); err != nil {
 			return err
 		}
 	}
 	for _, i := range creates {
-		if _, err := c.CreateIssue(org, service.IssueInput{Title: i.Title, Body: i.Body, Priority: i.Priority,
+		if _, err := b.CreateIssue(org, service.IssueInput{Title: i.Title, Body: i.Body, Priority: i.Priority,
 			Labels: i.Labels, Source: i.Source, Link: i.Link, Repo: i.Repo, Author: i.CreatedBy}); err != nil {
 			return err
 		}
@@ -261,46 +207,115 @@ func (r *remoteBackend) Save(scope, org string, updates, creates []model.Issue) 
 	return nil
 }
 
-func (noDBBackend) Save(string, string, []model.Issue, []model.Issue) error { return errNoDB }
-
-func toModelIssues(l []OpsIssue) []model.Issue {
-	b, _ := json.Marshal(l)
-	var out []model.Issue
-	_ = json.Unmarshal(b, &out)
-	return out
+func (a *App) issueRemoteSave(org string, updates, creates []model.Issue) error {
+	return issueSave(a.conns().Scope, org, updates, creates)
 }
 
-func (a *App) issueRemoteSave(org string, updates, creates []OpsIssue) error {
-	sv, ok := currentIssueBackend().(issueSaver)
-	if !ok {
-		return errors.New("這個模式不能一次存多筆")
+// ---- 匯入 issues.json(omixor-web import / import-issues):交給本機核心的 service.ImportIssuesWith ----
+
+// ImportIssues 把一份 Issue 清單匯入本機核心的 org(可以重跑):id 已經有的,overwrite=false 時略過(保留核心裡的版本),
+// overwrite=true 時用清單的內容整筆取代;新匯入的依清單順序排在既有的後面(清單第一筆最新)。沒有 id 或 id 重複的略過
+func ImportIssues(org string, list []model.Issue, overwrite bool) (service.IssueImportResult, error) {
+	res := service.IssueImportResult{Org: org}
+	if !ValidOrgID(org) {
+		return res, fmt.Errorf("組織 id 不對:%q", org)
 	}
-	return sv.Save(a.conns().Scope, org, toModelIssues(updates), toModelIssues(creates))
+	l := localCore()
+	if l == nil {
+		return res, errors.New("沒有連資料庫")
+	}
+	ensureLocalOrg(l, org)
+	r, err := l.Svc.ImportIssuesWith(localPrincipal, org, list, service.IssueImportOptions{Merge: true, Overwrite: overwrite})
+	if err != nil {
+		return res, err
+	}
+	return *r, nil
 }
 
-// ---- 型別轉換(JSON 格式相同) ----
-
-func toOps(i model.Issue) OpsIssue {
-	b, _ := json.Marshal(i)
-	var o OpsIssue
-	_ = json.Unmarshal(b, &o)
-	return o
+// decodeIssueFile 讀 issues.json 的內容;沒寫 createdBy 的當作 MCP 建的(同舊的 issues.json 讀法)
+func decodeIssueFile(b []byte) ([]model.Issue, error) {
+	var list []model.Issue
+	if err := json.Unmarshal(b, &list); err != nil {
+		return nil, err
+	}
+	var raw []struct {
+		CreatedBy *string `json:"createdBy"`
+	}
+	_ = json.Unmarshal(b, &raw)
+	for k := range list {
+		if k < len(raw) && raw[k].CreatedBy == nil {
+			list[k].CreatedBy = MCPAuthor
+		}
+	}
+	return list, nil
 }
 
-func toOpsList(l []model.Issue) []OpsIssue {
-	out := []OpsIssue{}
+// ImportIssuesPath 匯入 issues.json:path 是檔案(匯入到 org),或資料夾(匯入 orgs/<組織>/issues.json,org 不用給)
+func ImportIssuesPath(path, org string, overwrite bool) ([]service.IssueImportResult, error) {
+	if localCore() == nil {
+		return nil, errors.New("沒有連資料庫")
+	}
+	var out []service.IssueImportResult
+	one := func(file, org string) error {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		list, err := decodeIssueFile(b)
+		if err != nil {
+			return fmt.Errorf("%s 不是 Issue 清單:%w", file, err)
+		}
+		r, err := ImportIssues(org, list, overwrite)
+		if err != nil {
+			return err
+		}
+		out = append(out, r)
+		return nil
+	}
+	if strings.HasSuffix(path, ".json") {
+		if org == "" {
+			org = DefaultOrgID
+		}
+		return out, one(path, org)
+	}
+	matches, _ := filepath.Glob(filepath.Join(path, "orgs", "*", "issues.json"))
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("%s 底下沒有 orgs/<組織>/issues.json", path)
+	}
+	for _, m := range matches {
+		o := filepath.Base(filepath.Dir(m))
+		if org != "" && o != org {
+			continue
+		}
+		if err := one(m, o); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+
+// ---- 輸出邊界:畫面、/api/issues 與 MCP 看到的 JSON 和以前一樣(labels、comments 一律是陣列;狀態、優先度是認得的值) ----
+
+func normIssue(i model.Issue) model.Issue {
+	if i.Labels == nil {
+		i.Labels = []string{}
+	}
+	if i.Comments == nil {
+		i.Comments = []model.Comment{}
+	}
+	if !model.OneOf(i.Status, model.IssueStatuses) {
+		i.Status = "open"
+	}
+	if !model.OneOf(i.Priority, model.IssuePriorities) {
+		i.Priority = "normal"
+	}
+	return i
+}
+
+func normIssues(l []model.Issue) []model.Issue {
+	out := make([]model.Issue, 0, len(l))
 	for _, i := range l {
-		out = append(out, toOps(i))
-	}
-	return out
-}
-
-func toModelComments(cs []IssueComment) []model.Comment {
-	b, _ := json.Marshal(cs)
-	var out []model.Comment
-	_ = json.Unmarshal(b, &out)
-	if out == nil {
-		out = []model.Comment{}
+		out = append(out, normIssue(i))
 	}
 	return out
 }
@@ -318,21 +333,24 @@ func (a *App) issueRemoteFailed(err error) {
 	s.remoteErr = err.Error()
 }
 
+// issueBackend 目前組織用的核心(scope 是目前組織的連線設定)
+func (a *App) issueBackend() (backend.Backend, error) { return coreBackend(a.conns().Scope) }
+
 // issueRemoteLoad 從核心讀 s.Org 的全部 Issue;失敗時保留原本的清單
 func (a *App) issueRemoteLoad(s *issueState) {
-	b := currentIssueBackend()
-	if b == nil {
-		return
+	b, err := a.issueBackend()
+	var list []model.Issue
+	if err == nil {
+		list, err = b.ListIssues(s.Org)
 	}
-	list, err := b.List(a.conns().Scope, s.Org)
 	if err != nil {
 		a.issueRemoteFailed(err)
 		if s.Issues == nil {
-			s.Issues = []OpsIssue{}
+			s.Issues = []model.Issue{}
 		}
 		return
 	}
-	s.Issues, s.remoteErr, s.fetched = toOpsList(list), "", time.Now()
+	s.Issues, s.remoteErr, s.fetched = normIssues(list), "", time.Now()
 	s.gen++
 }
 
@@ -344,47 +362,123 @@ func (a *App) RefreshIssuesIfStale(maxAge time.Duration) {
 	}
 }
 
-func (a *App) issueRemoteCreate(title, body, priority string, labels []string, source, link, author, assignee, repo string) (OpsIssue, error) {
-	b := currentIssueBackend()
-	i, err := b.Create(a.conns().Scope, a.issueSt().Org, service.IssueInput{Title: title, Body: body, Priority: priority,
+func (a *App) issueRemoteCreate(title, body, priority string, labels []string, source, link, author, assignee, repo string) (model.Issue, error) {
+	b, err := a.issueBackend()
+	if err != nil {
+		return model.Issue{}, err
+	}
+	i, err := b.CreateIssue(a.issueSt().Org, service.IssueInput{Title: title, Body: body, Priority: priority,
 		Labels: labels, Source: source, Link: link, Author: author, Assignee: assignee, Repo: repo})
 	if err != nil {
-		return OpsIssue{}, err
+		return model.Issue{}, err
 	}
-	return toOps(*i), nil
+	return normIssue(*i), nil
 }
 
-func (a *App) issueRemoteUpdate(n, before OpsIssue, author string) (OpsIssue, error) {
-	b := currentIssueBackend()
-	labels, comments := n.Labels, toModelComments(n.Comments)
-	patch := service.IssuePatch{Title: &n.Title, Body: &n.Body, Status: &n.Status,
-		Priority: &n.Priority, Labels: &labels, Source: &n.Source, Link: &n.Link, Comments: &comments, Author: author}
-	if n.Assignee != before.Assignee { // 指派變了才送(核心會取消舊角色未領取的任務、替新角色排任務)
-		as := n.Assignee
-		patch.Assignee = &as
-	}
-	if n.Repo != before.Repo { // 所屬倉庫變了才送("" = 清除;格式由核心檢查)
-		rp := n.Repo
-		patch.Repo = &rp
-	}
-	i, err := b.Update(a.conns().Scope, a.issueSt().Org, n.ID, patch)
+// issueRemoteUpdate 把 before → n 的變更送給核心:只送有變的欄位(沒變的不送,才不會蓋掉別處同時做的修改);
+// appendBody 交給核心在 Issue 的鎖裡以最新內文附加。
+// 留言:只是在最後新增的,一則一則走核心的只附加路徑(AddIssueComment;id 與時間由核心給);改了或刪了已有的留言,
+// 或呼叫者要求整份取代(replaceComments,/api/issues 給了 comments)才整份送(omixor-web 對核心是伺服器管理員,整份取代)。
+func (a *App) issueRemoteUpdate(n, before model.Issue, author, appendBody string, replaceComments bool) (model.Issue, error) {
+	b, err := a.issueBackend()
 	if err != nil {
-		return OpsIssue{}, err
+		return model.Issue{}, err
 	}
-	return toOps(*i), nil
+	org := a.issueSt().Org
+	patch, changed := issuePatchFor(n, before, author)
+	if appendBody != "" {
+		patch.AppendBody, changed = &appendBody, true
+	}
+	added, replace := commentsDiff(before.Comments, n.Comments)
+	if replaceComments && len(added) > 0 {
+		added, replace = nil, true
+	}
+	if replace {
+		cs := append([]model.Comment{}, n.Comments...)
+		patch.Comments, changed = &cs, true
+	}
+	var cur *model.Issue
+	if changed {
+		i, err := b.UpdateIssue(org, n.ID, patch)
+		if err != nil {
+			return model.Issue{}, err
+		}
+		cur = i
+	}
+	for _, c := range added {
+		who := c.Author
+		if who == "" {
+			who = author
+		}
+		i, err := b.AddIssueComment(org, n.ID, c.Text, who)
+		if err != nil {
+			return model.Issue{}, err
+		}
+		cur = i
+	}
+	if cur == nil { // 沒有東西要送(呼叫者已經擋掉了;保險起見回傳原本的)
+		return before, nil
+	}
+	return normIssue(*cur), nil
+}
+
+// issuePatchFor 只放 before → n 有變的欄位(留言另外處理);changed 是有沒有任何欄位要送
+func issuePatchFor(n, before model.Issue, author string) (p service.IssuePatch, changed bool) {
+	p.Author = author
+	str := func(dst **string, nv, ov string) {
+		if nv != ov {
+			v := nv
+			*dst, changed = &v, true
+		}
+	}
+	str(&p.Title, n.Title, before.Title)
+	str(&p.Body, n.Body, before.Body)
+	str(&p.Status, n.Status, before.Status)
+	str(&p.Priority, n.Priority, before.Priority)
+	str(&p.Source, n.Source, before.Source)
+	str(&p.Link, n.Link, before.Link)
+	str(&p.Assignee, n.Assignee, before.Assignee) // 指派變了才送(核心會取消舊角色未領取的任務、替新角色排任務)
+	str(&p.Repo, n.Repo, before.Repo)             // 所屬倉庫變了才送("" = 清除;格式由核心檢查)
+	if !slices.Equal(n.Labels, before.Labels) {
+		l := append([]string{}, n.Labels...)
+		p.Labels, changed = &l, true
+	}
+	return p, changed
+}
+
+// commentsDiff 比較留言:n 是 before 後面再加幾則時回傳加的那幾則;改了或刪了已有的留言時 replace = true
+func commentsDiff(before, n []model.Comment) (added []model.Comment, replace bool) {
+	if len(n) < len(before) {
+		return nil, true
+	}
+	for k := range before {
+		if string(Marshal(before[k])) != string(Marshal(n[k])) {
+			return nil, true
+		}
+	}
+	for _, c := range n[len(before):] {
+		if strings.TrimSpace(c.Text) != "" {
+			added = append(added, c)
+		}
+	}
+	return added, false
 }
 
 func (a *App) issueRemoteDelete(id string) error {
-	return currentIssueBackend().Delete(a.conns().Scope, a.issueSt().Org, id)
+	b, err := a.issueBackend()
+	if err != nil {
+		return err
+	}
+	return b.DeleteIssue(a.issueSt().Org, id)
 }
 
 // issueRemoteSync 在鎖外讀 org 的 Issue,讀到就換上並通知畫面(組織換了或清單在這期間變過就丟掉)
 func (a *App) issueRemoteSync(org, scope string, gen int) {
-	b := currentIssueBackend()
-	if b == nil {
-		return
+	b, err := coreBackend(scope)
+	var list []model.Issue
+	if err == nil {
+		list, err = b.ListIssues(org)
 	}
-	list, err := b.List(scope, org)
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
 	s := a.issueSt()
@@ -395,7 +489,7 @@ func (a *App) issueRemoteSync(org, scope string, gen int) {
 		a.issueRemoteFailed(err)
 		return
 	}
-	ops := toOpsList(list)
+	ops := normIssues(list)
 	changed := string(Marshal(s.Issues)) != string(Marshal(ops))
 	s.Issues, s.fetched, s.remoteErr = ops, time.Now(), ""
 	s.gen++

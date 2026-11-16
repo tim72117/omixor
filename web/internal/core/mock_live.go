@@ -143,12 +143,21 @@ func sortStable(items []map[string]any, less func(x, y map[string]any) bool) {
 // MARK: 側邊欄徽章
 
 func init() {
+	// 只算開著的分頁(關掉的實驗分頁的範例資料不算;同 App 的 badge(for:))
 	OnBadge(func(a *App) map[string]int {
-		return map[string]int{
-			"monitoring": len(a.FiringAlerts()),
-			"incidents":  len(a.OpenIncidents()),
-			"automation": len(a.PendingApprovals()),
-			"pipelines":  len(a.RunningPipelines()),
+		out := map[string]int{}
+		if a.FeatureOn("monitoring.alerts") {
+			out["monitoring"] = len(a.FiringAlerts())
 		}
+		if a.FeatureOn("incidents.list") {
+			out["incidents"] = len(a.OpenIncidents())
+		}
+		if a.FeatureOn("automation.inbox") {
+			out["automation"] = len(a.PendingApprovals())
+		}
+		if a.FeatureOn("pipelines.runs") {
+			out["pipelines"] = len(a.RunningPipelines())
+		}
+		return out
 	})
 }

@@ -7,6 +7,13 @@ struct DevIssuesTab: View {
     @State private var filter: IssueFilter = .open
     @State private var query = ""
     @State private var creating = false
+    /// 依所屬倉庫篩選:"" = 全部倉庫;IssueRepoOptions.none = 未標記;其他 = 只列這個倉庫(比對規則在 core 的 model.RepoMatch)
+    @State private var repoFilter = ""
+    /// core 篩選、排序好的列表(第一次讀到前是 nil);規則只在 core(model/issue_query.go)
+    @State private var result: [OpsIssue]?
+    @State private var loadError: String?
+    /// 上一次送出查詢時的搜尋字(搜尋字變了才等 250ms)
+    @State private var lastQ = ""
 
     enum IssueFilter: String, CaseIterable, Identifiable {
         case open, closed, all
@@ -14,14 +21,39 @@ struct DevIssuesTab: View {
         var label: String { self == .open ? "未解決" : self == .closed ? "已關閉" : "全部" }
     }
 
-    private var list: [OpsIssue] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return app.issues.filter { i in
-            (filter == .all || i.status.rawValue == filter.rawValue)
-                && (q.isEmpty || i.title.lowercased().contains(q) || i.id.lowercased().contains(q)
-                    || i.labels.contains { $0.lowercased().contains(q) } || i.body.lowercased().contains(q))
+    /// Issue 用到的倉庫(去重:不分大小寫),篩選選單用
+    private var usedRepos: [String] { IssueRepoOptions.used(app.issues) }
+
+    /// 送給 core 的條件:未解決的在前 → 優先度 → 最近更新 → 編號
+    private var issueQuery: IssueQuery { IssueQuery(q: query, status: filter.rawValue, repo: repoFilter, sort: "status") }
+
+    /// 重新查詢的條件:篩選、組織、全量清單(輪詢讀到新資料或寫入後就會變)
+    private struct LoadKey: Equatable {
+        var q: IssueQuery
+        var org: String
+        var issues: [OpsIssue]
+    }
+
+    private var list: [OpsIssue] { result ?? [] }
+
+    /// 向 core 查列表(背景執行;搜尋字變了先等 250ms,期間再變就取消這次)
+    private func load() async {
+        let q = issueQuery
+        if q.q != lastQ {
+            try? await Task.sleep(for: .milliseconds(250))
+            if Task.isCancelled { return }
         }
-        .sorted { ($0.status == .open ? 0 : 1, $0.priority, $1.updatedAt) < ($1.status == .open ? 0 : 1, $1.priority, $0.updatedAt) }
+        lastQ = q.q
+        do {
+            let l = try await app.startIssues().query(q)
+            if Task.isCancelled { return }
+            if l != result { result = l }
+            loadError = nil
+            if model.selectedIssue == nil { model.selectedIssue = l.first?.id }
+        } catch is CancellationError {
+        } catch {
+            if !Task.isCancelled { loadError = error.localizedDescription }
+        }
     }
 
     var body: some View {
@@ -36,14 +68,19 @@ struct DevIssuesTab: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     HStack {
-                        TextField("搜尋標題、標籤、內文", text: $query).textFieldStyle(.roundedBorder)
+                        TextField("搜尋編號、標題、內文、標籤、留言", text: $query).textFieldStyle(.roundedBorder)
                         Button { creating = true } label: { Image(systemName: "plus") }
                             .help("新增 Issue")
                     }
+                    IssueRepoFilterPicker(selection: $repoFilter, repos: usedRepos)
                 }
                 .padding(10)
                 Divider()
-                if list.isEmpty {
+                if result == nil, let loadError {
+                    EmptyStateView(title: "讀不到 Issue", icon: "exclamationmark.triangle", message: loadError)
+                } else if result == nil {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if list.isEmpty {
                     EmptyStateView(title: app.issues.isEmpty ? "還沒有 Issue" : "沒有符合的 Issue", icon: "exclamationmark.bubble",
                                    message: app.issues.isEmpty ? "按 + 新增,或讓 AI 透過 MCP 的 issue_create 存進來。" : nil)
                 } else {
@@ -60,16 +97,14 @@ struct DevIssuesTab: View {
                     IssueDetail(issue: issue).id(issue.id)
                 } else {
                     EmptyStateView(title: "選一個 Issue", icon: "exclamationmark.bubble",
-                                   message: "Issue 存在這台 Mac 上(issues.json),重開 app 也還在。AI 可以用 MCP 建立、留言與關閉。")
+                                   message: "Issue 存在 core(目前連線的伺服器;本機模式是這台 Mac 的本機服務),重開 app 也還在。AI 可以用 MCP 建立、留言與關閉。")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear {
-            app.startIssues()
-            if model.selectedIssue == nil { model.selectedIssue = list.first?.id }
-        }
-        .onChange(of: app.currentOrgId) { model.selectedIssue = list.first?.id }
+        .onAppear { _ = app.startIssues() }
+        .onChange(of: app.currentOrgId) { model.selectedIssue = nil; result = nil }
+        .task(id: LoadKey(q: issueQuery, org: app.currentOrgId, issues: app.issues)) { await load() }
         .sheet(isPresented: $creating) {
             NewIssueSheet { model.selectedIssue = $0.id; filter = .open }
         }
@@ -99,6 +134,11 @@ private struct IssueRow: View {
                     AuthorIcon(author: issue.createdBy, size: 14).help(app.issueStore?.authorName(issue.createdBy) ?? "")
                 }
                 if issue.priority <= .high { Pill(text: issue.priority.label, color: issue.priority.color) }
+                if let r = issue.repoTag {
+                    Text(r).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: 140, alignment: .leading)
+                        .help("倉庫:\(r)")
+                }
                 // 寬度不夠時依序少放標籤,最後指派只剩圖示
                 ViewThatFits(in: .horizontal) {
                     tags(labels: 3, assigneeName: true)
@@ -145,6 +185,7 @@ private struct IssueDetail: View {
     @State private var draftTitle = ""
     @State private var draftBody = ""
     @State private var draftLabels = ""
+    @State private var draftRepo = ""
     @State private var comment = ""
     @State private var confirmDelete = false
     @State private var channelError: String?
@@ -224,6 +265,9 @@ private struct IssueDetail: View {
                 if let a = issue.assignedAgent {
                     Pill(text: "指派:" + (app.agents.first { $0.id == a }?.name ?? a), color: .purple, icon: "person.crop.circle")
                 }
+                if let r = issue.repoTag {
+                    Pill(text: "倉庫:" + r, color: .teal, icon: "chevron.left.forwardslash.chevron.right").help(r)
+                }
                 ForEach(issue.labels, id: \.self) { Pill(text: $0, icon: "tag") }
                 if let e = store.remoteError { Text(e).font(.caption).foregroundStyle(.orange).lineLimit(2) }
                 if let e = channelError { Text(e).font(.caption).foregroundStyle(.red).lineLimit(2) }
@@ -268,21 +312,24 @@ private struct IssueDetail: View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("標題", text: $draftTitle).textFieldStyle(.roundedBorder).font(.title3)
             TextField("標籤(逗號分隔)", text: $draftLabels).textFieldStyle(.roundedBorder)
+            IssueRepoPicker(value: $draftRepo)
             MarkdownEditor(text: $draftBody, minHeight: 220)
             HStack {
                 Text("內文支援 Markdown").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("取消") { editing = false }
                 Button("儲存") {
+                    let repo = IssueRepo.clean(draftRepo) ?? ""
                     store.update(issue.id, by: app.me) {
                         $0.title = draftTitle.trimmingCharacters(in: .whitespaces)
                         $0.body = draftBody
                         $0.labels = draftLabels.split(separator: ",").map(String.init)
+                        $0.repo = repo.isEmpty ? nil : repo
                     }
                     editing = false
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(draftTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(draftTitle.trimmingCharacters(in: .whitespaces).isEmpty || !IssueRepo.isValid(draftRepo))
             }
         }
     }
@@ -318,6 +365,7 @@ private struct IssueDetail: View {
         draftTitle = issue.title
         draftBody = issue.body
         draftLabels = issue.labels.joined(separator: ", ")
+        draftRepo = issue.repo ?? ""
         editing = true
     }
 }
@@ -330,6 +378,8 @@ struct MarkdownText: View {
 
     private enum Block: Hashable {
         case heading(Int, String), bullet(String, String), code(String), text(String), image(String, String)
+        /// 圖表區塊(```wireframe、```flowchart、flowchart 語法的 ```mermaid),畫成圖片(見 DiagramBlock.swift)
+        case diagram(DiagramKind, String)
     }
 
     /// ![alt](網址):網址不含空白(同 Go 版)
@@ -361,12 +411,17 @@ struct MarkdownText: View {
     private var blocks: [Block] {
         var out: [Block] = []
         var code: [String]?
+        var info = ""
         var para: [String] = []
         func flush() { if !para.isEmpty { out += Self.splitImages(para.joined(separator: "\n")); para = [] } }
+        func endCode(_ c: [String]) {
+            let text = c.joined(separator: "\n")
+            if let k = DiagramKind.of(info: info, code: text) { out.append(.diagram(k, text)) } else { out.append(.code(text)) }
+        }
         for raw in source.components(separatedBy: "\n") {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("```") {
-                if let c = code { out.append(.code(c.joined(separator: "\n"))); code = nil } else { flush(); code = [] }
+                if let c = code { endCode(c); code = nil } else { flush(); code = []; info = String(line.dropFirst(3)) }
                 continue
             }
             if code != nil { code?.append(raw); continue }
@@ -384,7 +439,7 @@ struct MarkdownText: View {
             }
             para.append(raw)
         }
-        if let c = code { out.append(.code(c.joined(separator: "\n"))) }
+        if let c = code { endCode(c) }
         flush()
         return out
     }
@@ -410,6 +465,8 @@ struct MarkdownText: View {
                     inline(t)
                 case .image(let alt, let src):
                     MarkdownImage(alt: alt, src: src)
+                case .diagram(let kind, let src):
+                    DiagramBlockView(kind: kind, source: src)
                 }
             }
         }
@@ -433,6 +490,7 @@ private struct NewIssueSheet: View {
     @State private var bodyText = ""
     @State private var labels = ""
     @State private var priority: IssuePriority = .normal
+    @State private var repo = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -445,6 +503,7 @@ private struct NewIssueSheet: View {
                 .frame(width: 180)
                 TextField("標籤(逗號分隔)", text: $labels).textFieldStyle(.roundedBorder)
             }
+            IssueRepoPicker(value: $repo)
             MarkdownEditor(text: $bodyText, minHeight: 180)
             HStack {
                 Text("內文支援 Markdown").font(.caption).foregroundStyle(.secondary)
@@ -453,17 +512,87 @@ private struct NewIssueSheet: View {
                 Button("建立") {
                     let i = app.startIssues().create(title: title.trimmingCharacters(in: .whitespaces), body: bodyText,
                                                      priority: priority, labels: labels.split(separator: ",").map(String.init),
-                                                     by: app.me)
+                                                     repo: IssueRepo.clean(repo), by: app.me)
                     onCreate(i)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || !IssueRepo.isValid(repo))
             }
         }
         .padding(20)
         .frame(width: 560)
+    }
+}
+
+// MARK: - 所屬倉庫
+
+/// 倉庫的候選清單(新增、編輯 Issue 與列表篩選用)
+enum IssueRepoOptions {
+    /// 篩選「未標記倉庫」用的值,同 core 的 model.IssueFilterNone(含括號,IssueRepo.clean 不接受,不會和真的倉庫名稱撞到)
+    static let none = IssueQuery.none
+
+    /// Issue 用到的倉庫(去重:不分大小寫,保留第一次出現的寫法),依字母排序
+    static func used(_ issues: [OpsIssue]) -> [String] {
+        var seen = Set<String>()
+        return issues.compactMap(\.repoTag).filter { seen.insert($0.lowercased()).inserted }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// 選單分組:GitHub 追蹤的 repo、GitLab 追蹤的專案(組織設定,加 gitlab: 前綴)、其他 Issue 用過的(去重,不分大小寫)
+    /// hasModule = false(server 沒編進程式碼倉庫模組):沒有候選,只能不標記或手動輸入
+    static func groups(github: [String], gitlab: [String] = [], issues: [OpsIssue], hasModule: Bool = true) -> [(label: String, options: [String])] {
+        guard hasModule else { return [] }
+        var seen = Set<String>()
+        func take(_ l: [String]) -> [String] { l.filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted } }
+        return [("GitHub", take(github)), ("GitLab 專案", take(gitlab.map(GitLab.repoTag))),
+                ("其他 Issue 用過的", take(used(issues)))].filter { !$0.options.isEmpty }
+    }
+}
+
+/// 設定所屬倉庫:下拉選已設定的倉庫、「不標記」,或「其他…」自己輸入
+struct IssueRepoPicker: View {
+    @EnvironmentObject var app: AppState
+    @Binding var value: String
+    @State private var custom = false
+
+    private static let other = "\u{0}other"
+
+    /// server 沒編進程式碼倉庫模組時沒有候選清單,只剩「不標記倉庫」與「其他…」(手動輸入)
+    private var groups: [(label: String, options: [String])] {
+        IssueRepoOptions.groups(github: app.githubSettings.repos, gitlab: app.gitlabSettings.projects, issues: app.issues,
+                                hasModule: app.hasModule(ServerModule.integrations))
+    }
+
+    var body: some View {
+        let known = groups.contains { $0.options.contains(value) }
+        let showField = custom || (!value.isEmpty && !known)
+        HStack(spacing: 6) {
+            Image(systemName: "chevron.left.forwardslash.chevron.right").foregroundStyle(.secondary)
+            Picker("所屬倉庫", selection: Binding(get: { showField ? Self.other : value }, set: { v in
+                if v == Self.other { custom = true; return }
+                custom = false
+                value = v
+            })) {
+                Text("不標記倉庫").tag("")
+                ForEach(groups, id: \.label) { g in
+                    Section(g.label) { ForEach(g.options, id: \.self) { Text($0).tag($0) } }
+                }
+                Divider()
+                Text("其他…").tag(Self.other)
+            }
+            .labelsHidden()
+            .fixedSize()
+            .help("所屬倉庫")
+            if showField {
+                TextField("owner/name 或 gitlab:group/project", text: $value).textFieldStyle(.roundedBorder)
+            }
+            if !IssueRepo.isValid(value) {
+                Text("只能用英數與 - _ . / :(最長 \(IssueRepo.maxLength))").font(.caption).foregroundStyle(.red)
+            }
+            if !showField { Spacer(minLength: 0) }
+        }
     }
 }
 

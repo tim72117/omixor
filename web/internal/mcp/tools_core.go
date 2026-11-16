@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 
@@ -26,7 +25,7 @@ func init() {
 	coremcp.RegisterCabinetTools(srv)
 	coremcp.RegisterChainTools(srv)
 	coremcp.RegisterChannelTools(srv)
-	coremcp.RegisterIncidentTools(srv) // incident_declare、incident_update(web 的規格沒有 incidents;見 tools_incident.go)
+	coremcp.RegisterIncidentTools(srv) // incidents、incident_declare、incident_update(見 tools_incident.go)
 }
 
 // toolErr 把 core.UserError 轉成工具錯誤
@@ -127,7 +126,7 @@ func (b appBackend) ListOrgs() ([]model.Org, error) {
 
 func (b appBackend) ListIssues(string) ([]model.Issue, error) {
 	b.a.RefreshIssuesIfStale(0) // Issue 伺服器模式:用最新的
-	return toModels(b.a.Issues()), nil
+	return copyIssues(b.a.Issues()), nil
 }
 
 func (b appBackend) GetIssue(_, id string) (*model.Issue, error) {
@@ -136,8 +135,8 @@ func (b appBackend) GetIssue(_, id string) (*model.Issue, error) {
 	if i == nil {
 		return nil, &service.Error{Code: 404, Msg: "找不到 Issue " + id}
 	}
-	m := toModels([]core.OpsIssue{*i})
-	return &m[0], nil
+	c := copyIssue(*i)
+	return &c, nil
 }
 
 func (b appBackend) CreateIssue(_ string, in service.IssueInput) (*model.Issue, error) {
@@ -145,13 +144,18 @@ func (b appBackend) CreateIssue(_ string, in service.IssueInput) (*model.Issue, 
 	if issue.ID == "" { // Issue 伺服器連不上
 		return nil, errors.New(b.a.IssueRemoteError())
 	}
-	m := toModels([]core.OpsIssue{issue})
-	return &m[0], nil
+	c := copyIssue(issue)
+	return &c, nil
 }
 
 func (b appBackend) UpdateIssue(_, id string, p service.IssuePatch) (*model.Issue, error) {
 	a := b.a
-	updated := a.UpdateIssue(id, p.Author, func(i *core.OpsIssue) {
+	appendBody := ""
+	if p.AppendBody != nil {
+		appendBody = *p.AppendBody
+	}
+	// 只改 patch 有給的欄位;UpdateIssueAppend 只把有變的欄位送給核心,append_body 交給核心在 Issue 的鎖裡附加
+	updated := a.UpdateIssueAppend(id, p.Author, appendBody, func(i *model.Issue) {
 		if p.Title != nil {
 			i.Title = *p.Title
 		}
@@ -174,7 +178,7 @@ func (b appBackend) UpdateIssue(_, id string, p service.IssuePatch) (*model.Issu
 			i.Repo = strings.TrimSpace(*p.Repo)
 		}
 	})
-	// 新增的留言走 CommentIssue(和畫面一樣:空白不做事、記到動態牆)
+	// 給了整份留言(核心的工具已經不這樣做,留著相容):比現有多的那幾則一則一則走只附加的路徑
 	if updated != nil && p.Comments != nil && len(*p.Comments) > len(updated.Comments) {
 		for _, c := range (*p.Comments)[len(updated.Comments):] {
 			updated = a.CommentIssue(id, c.Text, c.Author)
@@ -189,15 +193,41 @@ func (b appBackend) UpdateIssue(_, id string, p service.IssuePatch) (*model.Issu
 		}
 		return nil, &service.Error{Code: 404, Msg: "找不到 Issue " + id}
 	}
-	m := toModels([]core.OpsIssue{*updated})
-	return &m[0], nil
+	c := copyIssue(*updated)
+	return &c, nil
 }
 
-// toModels web 的 Issue 轉成核心的(JSON 格式相同)
-func toModels(l []core.OpsIssue) []model.Issue {
-	b, _ := json.Marshal(l)
-	out := []model.Issue{}
-	_ = json.Unmarshal(b, &out)
+// SupportsIssueAppendBody UpdateIssue 認得 IssuePatch.AppendBody(交給核心在鎖裡附加),核心的 issue_update 會改送 AppendBody
+func (appBackend) SupportsIssueAppendBody() bool { return true }
+
+// AddIssueComment 新增一則留言:App.AddIssueComment 走核心的只附加路徑(本機 service、遠端 POST …/comments)
+func (b appBackend) AddIssueComment(_, id, text, author string) (*model.Issue, error) {
+	i, err := b.a.AddIssueComment(id, text, author)
+	if err != nil {
+		return nil, err
+	}
+	c := copyIssue(*i)
+	return &c, nil
+}
+
+var _ coremcp.IssueAppendBodySupporter = appBackend{}
+
+// copyIssue、copyIssues 給核心工具一份拷貝(App 快取裡的清單不會被改到)
+func copyIssue(i model.Issue) model.Issue {
+	i.Labels = append([]string{}, i.Labels...)
+	i.Comments = append([]model.Comment{}, i.Comments...)
+	if i.ClosedAt != nil {
+		t := *i.ClosedAt
+		i.ClosedAt = &t
+	}
+	return i
+}
+
+func copyIssues(l []model.Issue) []model.Issue {
+	out := make([]model.Issue, 0, len(l))
+	for _, i := range l {
+		out = append(out, copyIssue(i))
+	}
 	return out
 }
 

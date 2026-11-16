@@ -4,6 +4,7 @@ import SwiftUI
 /// 支援:# 到 ####、段落、- / * / 1. 清單(依縮排分層)、- [ ] / - [x] 待辦、「名稱:說明」清單(名稱加粗)、
 /// > 引言、``` 程式碼(可橫向捲動)、```html preview / ```js preview 展示(按了才在沙盒執行,見 SandboxPreview.swift)、
 /// | 表格 |、--- 分隔線、![圖片](網址);行內的粗體、斜體、連結、`程式碼` 交給 AttributedString。
+/// 圖表區塊(```wireframe、```flowchart、flowchart 語法的 ```mermaid)畫成圖片顯示(見 DiagramBlock.swift)。
 /// Issue 的留言等精簡顯示仍用 MarkdownText(Features/Development/DevIssuesTab.swift)。
 struct ReadingMarkdown: View {
     let source: String
@@ -154,6 +155,8 @@ struct ReadingMarkdown: View {
                 }
             }
             .padding(.vertical, 4)
+        case .code(let lang, let t) where DiagramKind.of(info: lang, code: t) != nil:
+            DiagramBlockView(kind: DiagramKind.of(info: lang, code: t)!, source: t)
         case .code(let lang, let t) where Self.previewLang(lang) != nil:
             SandboxBlock(source: t, lang: Self.previewLang(lang)!)
         case .code(let lang, let t):

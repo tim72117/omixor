@@ -1,7 +1,7 @@
 // Package mcp 是 omixor 核心的 MCP 協定層:JSON-RPC(initialize / tools/list / tools/call)、HTTP 傳輸、
 // 工具登記,以及與組織、Issue 有關的工具(見 tools_orgs.go、tools_issues.go)。
 //
-// 工具的規格(initialize 回應、tools/list)由使用的程式提供(web 內嵌從 Swift 版匯出的 spec/*.json),
+// 工具的規格(initialize 回應、tools/list)由使用的程式提供(核心工具的定義在 spec.go 的 CoreToolDefs;web 用它加上自己的 spec/tools.json),
 // 協定層只負責原樣回傳。工具操作的資料透過 core/backend 的共同介面(Env.Backend,env.go),
 // 所以內建 service(backend.Local)、遠端 client(backend.Remote)或 omixor-web 的本機狀態都能實作。
 package mcp
@@ -58,6 +58,9 @@ type Hooks struct {
 type Server struct {
 	// Marshal 把工具結果轉成 JSON 文字;預設是精簡輸出、不跳脫 HTML
 	Marshal func(v any) []byte
+	// HideMissing 規格裡有、但這次編譯沒有實作的工具(例如選用模組沒編進來,見 omixor-core/module)不列在 tools/list、
+	// ToolNames、ToolDefs;呼叫時回「這台伺服器沒有編進這個工具」。規格本身不改(omixor-web 的 spec/tools.json 照舊有這些工具)
+	HideMissing bool
 
 	toolDefs  []any
 	toolNames []string
@@ -118,11 +121,39 @@ func (s *Server) Add(t Tool) {
 	s.registry[name] = t.Fn
 }
 
-// ToolNames 全部工具名稱(依 tools/list 的順序)
-func (s *Server) ToolNames() []string { return s.toolNames }
+// InSpec 規格(含 Add 加上的)裡有沒有這個工具(不管有沒有實作)
+func (s *Server) InSpec(name string) bool { return slices.Contains(s.toolNames, name) }
 
-// ToolDefs tools/list 的內容
-func (s *Server) ToolDefs() []any { return s.toolDefs }
+// listed 這個工具列不列在 tools/list(HideMissing 時沒實作的不列)
+func (s *Server) listed(name string) bool { return !s.HideMissing || s.registry[name] != nil }
+
+// ToolNames 全部工具名稱(依 tools/list 的順序;HideMissing 時不含沒實作的)
+func (s *Server) ToolNames() []string {
+	if !s.HideMissing {
+		return s.toolNames
+	}
+	out := []string{}
+	for _, n := range s.toolNames {
+		if s.listed(n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// ToolDefs tools/list 的內容(HideMissing 時不含沒實作的)
+func (s *Server) ToolDefs() []any {
+	if !s.HideMissing {
+		return s.toolDefs
+	}
+	out := []any{}
+	for _, t := range s.toolDefs {
+		if s.listed(t.(map[string]any)["name"].(string)) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
 
 // Missing 還沒實作的工具(測試用)
 func (s *Server) Missing() []string {
@@ -164,6 +195,9 @@ func (s *Server) RunNested(c *Call, name string, args map[string]any) (any, erro
 func (s *Server) run(name string, args map[string]any, ctx any, h *Hooks) (out any, err error) {
 	f := s.registry[name]
 	if f == nil {
+		if s.HideMissing {
+			return nil, ToolError{"這台伺服器沒有編進 " + name + " 工具(它屬於沒有編進來的選用模組)"}
+		}
 		return nil, ToolError{"這個工具在 Go 版還沒實作:" + name}
 	}
 	if args == nil {
@@ -247,10 +281,11 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 	case "ping":
 		return result(id, map[string]any{})
 	case "tools/list":
-		defs := s.toolDefs
+		defs := s.ToolDefs()
 		if h.Allow != nil {
+			all := defs
 			defs = []any{}
-			for _, t := range s.toolDefs {
+			for _, t := range all {
 				if h.Allow(t.(map[string]any)["name"].(string)) {
 					defs = append(defs, t)
 				}

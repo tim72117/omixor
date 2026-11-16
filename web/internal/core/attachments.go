@@ -82,34 +82,16 @@ func AttachmentIDFor(orgDir, seed string) string {
 	return ""
 }
 
-// attachmentCore 目前組織的附件交給核心:遠端模式是 omixor server,本機模式是同一個程式裡的核心(PostgreSQL)
-type attachmentCore interface {
-	save(org string, data []byte) (string, error)
-	get(org, id string) ([]byte, string, error)
-}
-
-func (l *localBackend) save(org string, data []byte) (string, error) {
-	l.ensureOrg(org)
-	return l.svc.SaveAttachment(localPrincipal, org, data)
-}
-func (l *localBackend) get(org, id string) ([]byte, string, error) {
-	return l.svc.GetAttachment(localPrincipal, org, id)
-}
-func (r *remoteBackend) save(org string, data []byte) (string, error) {
-	return r.client("").SaveAttachment(serverOrgID(org), data)
-}
-func (r *remoteBackend) get(org, id string) ([]byte, string, error) {
-	return r.client("").GetAttachment(serverOrgID(org), id)
-}
-func (noDBBackend) save(string, []byte) (string, error)        { return "", errNoDB }
-func (noDBBackend) get(string, string) ([]byte, string, error) { return nil, "", errNoDB }
-
 // SaveAttachment 存到目前組織的核心(呼叫時不用拿鎖)
 func SaveAttachment(a *App, data []byte) (string, error) {
 	a.Mu.Lock()
 	org := a.CurrentOrgID()
 	a.Mu.Unlock()
-	return currentIssueBackend().(attachmentCore).save(org, data)
+	b, err := coreBackend("")
+	if err != nil {
+		return "", err
+	}
+	return b.SaveAttachment(org, data)
 }
 
 // ReadAttachment 讀目前組織的附件,回傳內容與 MIME 類型。核心沒有的,再找舊的本機存放(Jira 匯入的圖還在那裡)
@@ -120,8 +102,10 @@ func ReadAttachment(a *App, id string) ([]byte, string, error) {
 	a.Mu.Lock()
 	org, dir := a.CurrentOrgID(), a.DataDir()
 	a.Mu.Unlock()
-	if data, t, err := currentIssueBackend().(attachmentCore).get(org, id); err == nil {
-		return data, t, nil
+	if b, err := coreBackend(""); err == nil {
+		if data, t, err := b.GetAttachment(org, id); err == nil {
+			return data, t, nil
+		}
 	}
 	data, err := attachmentRead(dir, id)
 	if err != nil {

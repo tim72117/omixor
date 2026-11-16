@@ -29,20 +29,31 @@ final class APIClientTests: XCTestCase {
                        ["limit=200", "since=M-2"], "空的 before 不送")
     }
 
-    func testAddCommentKeepsExisting() async throws {
+    /// Issue 的篩選、搜尋、排序在 core:清單只把條件送出去(規則與搜尋語意的測試在 core/model/issue_query_test.go)
+    func testIssueQueryParams() async throws {
+        StubProtocol.reset { _, _ in .init(status: 200, body: #"{"result":[{"id":"ISS-2","title":"x"}]}"#) }
+        let l = try await api().issues(org: "o1", query: "safari  a+b", status: "open", sort: "status")
+        XCTAssertEqual(l.map(\.id), ["ISS-2"])
+        let u = StubProtocol.requests[0].0.url!
+        XCTAssertEqual(u.path, "/api/orgs/o1/issues")
+        XCTAssertEqual(URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.map { "\($0.name)=\($0.value ?? "")" },
+                       ["q=safari  a+b", "sort=status", "status=open"])
+        XCTAssertTrue(u.absoluteString.contains("a%2Bb"), "+ 要編碼,不然伺服器當成空白:\(u.absoluteString)")
+        _ = try await api().issues(org: "o1")
+        XCTAssertNil(StubProtocol.requests[1].0.url!.query, "不給條件 = 舊的呼叫(全部)")
+    }
+
+    func testAddCommentPostsOnlyNewComment() async throws {
         StubProtocol.reset { req, body in
-            if req.httpMethod == "GET" {
-                return .init(status: 200, body: #"{"result":{"id":"ISS-1","title":"x","comments":[{"id":"c1","author":"a@x","text":"舊的","at":"2026-01-01T00:00:00Z"}]}}"#)
-            }
-            let cs = json(body)["comments"] as? [[String: Any]] ?? []
-            XCTAssertEqual(cs.count, 2)
-            XCTAssertEqual(cs[0]["id"] as? String, "c1")
-            XCTAssertEqual(cs[1]["text"] as? String, "新的")
+            let b = json(body)
+            XCTAssertEqual(b["text"] as? String, "新的")
+            XCTAssertNil(b["comments"], "不整份送回留言")
             return .init(status: 200, body: #"{"result":{"id":"ISS-1","title":"x","comments":[{"id":"c1","author":"a@x","text":"舊的"},{"id":"c2","author":"tim@x","text":"新的"}]}}"#)
         }
         let i = try await api().addComment(org: "o1", issue: "ISS-1", text: "新的", author: "tim@x")
         XCTAssertEqual(i.comments.map(\.text), ["舊的", "新的"])
-        XCTAssertEqual(StubProtocol.requests.map { $0.0.httpMethod ?? "" }, ["GET", "POST"])
+        XCTAssertEqual(StubProtocol.requests.map { $0.0.httpMethod ?? "" }, ["POST"], "只有一次往返")
+        XCTAssertEqual(StubProtocol.requests[0].0.url?.path, "/api/orgs/o1/issues/ISS-1/comments")
     }
 
     func testDecodeGoJSON() throws {

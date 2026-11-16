@@ -27,4 +27,25 @@ final class SpecExportTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: out, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
         try data.write(to: URL(fileURLWithPath: path))
     }
+
+    /// App 自己的工具 ↔ web 自己的工具(web/spec/tools.json):名稱要一樣。
+    /// 定義(說明文字、enum)不逐字比:兩邊有刻意的平台差異(例如 navigate 的頁面、server 的說明)。
+    /// 核心工具(Issue、角色與任務、文件櫃、組織鏈、頻道、事件、繪圖)兩邊都不自己定義:App 轉給 core server、
+    /// web 直接用 omixor-core/mcp.CoreToolDefs(一致性在 web/internal/mcp/spec_test.go 測),所以不在這裡比。
+    /// App 新增或移除自己的工具時,web/spec/tools.json 要跟著改(App 開著時在 web 跑 `python3 spec/dump_spec.py` 匯出,會濾掉核心工具;
+    /// 匯出後保留 web 的平台差異)。
+    func testAppToolsMatchWebSpec() throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../web/spec/tools.json").standardized
+        guard let data = try? Data(contentsOf: file) else { throw XCTSkip("沒有 web/spec/tools.json(單獨拿到 app 時略過)") }
+        let web = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        let webNames = web.compactMap { $0["name"] as? String }
+        XCTAssertEqual(Set(webNames).count, web.count, "web/spec/tools.json 工具名稱重複")
+        XCTAssertTrue(Set(webNames).isDisjoint(with: MCPHandler.coreTools), "web/spec/tools.json 不該有核心工具")
+        // App 自己留著實作、但名稱在 core 登記表(core/model/tools.go)裡的工具:web 那邊用核心的定義
+        let appCoreNamed: Set<String> = ["orgs", "agent_task_delegate"]
+        XCTAssertTrue(Set(webNames).isDisjoint(with: appCoreNamed))
+        let appOwn = Set(MCPHandler.tools.map(\.name)).subtracting(appCoreNamed)
+        XCTAssertEqual(appOwn.subtracting(webNames).sorted(), [], "App 有、web/spec/tools.json 沒有的工具")
+        XCTAssertEqual(Set(webNames).subtracting(appOwn).sorted(), [], "web/spec/tools.json 有、App 沒有的工具")
+    }
 }

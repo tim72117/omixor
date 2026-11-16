@@ -7,7 +7,7 @@ import (
 )
 
 // 文件櫃工具(cabinet、docs、doc_save)與 agent_context 的文件櫃欄位都在核心(omixor-core/mcp/tools_cabinet.go),
-// 管理端點 /mcp 與角色端點 /mcp/agent 共用;規格仍是 spec/tools.json(和 Swift 版一樣)。
+// 管理端點 /mcp 與角色端點 /mcp/agent 共用;規格取自核心(coremcp.CoreToolDefs,見 handler.go 的 webSpec)。
 // 這裡只提供 appBackend 的文件櫃部分:交給 App.CabinetOps(本機內建核心或遠端 omixor server),寫入後更新快取、寫動態、通知畫面。
 
 func cabOrgName(a *core.App) string {

@@ -15,6 +15,7 @@ package web
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -69,14 +70,21 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		writeJSON(w, 200, names)
 	})
 	mux.HandleFunc("GET /api/view/{name}", func(w http.ResponseWriter, r *http.Request) {
-		v, ok := core.View(app, r.PathValue("name"))
+		name := r.PathValue("name")
+		v, ok := core.View(app, name)
 		if !ok {
-			writeJSON(w, 404, map[string]any{"error": "沒有這個 view:" + r.PathValue("name")})
+			writeJSON(w, 404, map[string]any{"error": "沒有這個 view:" + name})
 			return
+		}
+		if name == "system" {
+			v = forViewer(name, v, isAdmin(r, app, au))
 		}
 		writeJSON(w, 200, v)
 	})
 	mux.HandleFunc("POST /api/tool/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if what, ok := adminTools[r.PathValue("name")]; ok && denyNonAdmin(w, r, app, au, what) {
+			return
+		}
 		args, err := readArgs(r)
 		if err != nil {
 			writeJSON(w, 400, map[string]any{"error": err.Error()})
@@ -90,18 +98,32 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		writeJSON(w, 200, map[string]any{"result": core.Object(out)})
 	})
 	mux.HandleFunc("POST /api/action/{name}", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		// 核心要管理員、或 web 共用的設定:web 的登入者要是管理員(見 admin.go)
+		if what, ok := adminActions[name]; ok && denyNonAdmin(w, r, app, au, what) {
+			return
+		}
 		args, err := readArgs(r)
 		if err != nil {
 			writeJSON(w, 400, map[string]any{"error": err.Error()})
 			return
 		}
 		args[core.UserKey] = userID(r, app)
-		out, err := core.Action(app, r.PathValue("name"), args)
+		out, err := core.Action(app, name, args)
 		if err != nil {
-			writeJSON(w, 200, map[string]any{"error": err.Error()})
+			status := 200
+			var se core.StatusError
+			if errors.As(err, &se) && se.Status > 0 {
+				status = se.Status
+			}
+			writeJSON(w, status, map[string]any{"error": err.Error()})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"result": core.Object(out)})
+		res := core.Object(out)
+		if v, ok := actionView[name]; ok {
+			res = forViewer(v, res, isAdmin(r, app, au))
+		}
+		writeJSON(w, 200, map[string]any{"result": res})
 	})
 	// 附件:上傳也走 JSON(維持「POST 一律 JSON」的 CSRF 防護),data 是 base64;只收圖片
 	mux.HandleFunc("POST /api/attachments", func(w http.ResponseWriter, r *http.Request) {

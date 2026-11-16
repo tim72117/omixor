@@ -35,28 +35,29 @@ swift run
 
 需要 macOS 14 以上與 Swift 6 工具鏈。
 
-### 版本(正式版/開發版)
+### 功能開關(系統層/組織層)
 
-編譯時決定這次的 App 有哪些功能(清單與版本在 `core/model/features.go`、`core/model/edition.go`):
+所有功能都編進 App 與包進去的 omixor-local(不再有正式版/開發版、`OMIXOR_DEV`、`OMIXOR_EDITION`)。
+開放哪些功能由 core 資料庫裡的兩層開關決定(清單在 `core/model/features.go`,規則在 `core/service/system.go`):
 
-```bash
-bash scripts/build-app.sh                      # 正式版(預設):只有已實作的功能
-OMIXOR_EDITION=dev bash scripts/build-app.sh   # 開發版:再加上實驗功能(範例資料)與家庭助理等框架階段的功能
-swift build -Xswiftc -DOMIXOR_DEV              # 開發版的 debug build;測試:swift test -Xswiftc -DOMIXOR_DEV
-```
+- **系統層**(整台伺服器一份,`/api/system/features`):伺服器管理員在「系統」頁決定這台伺服器開放哪些功能;
+  本機模式的本機使用者就是伺服器管理員。沒設定過時,原本正式版的功能開放,實驗、範例資料、家庭助理、外部 MCP 閘道等不開放。
+- **組織層**(每個組織一份,`/api/orgs/<組織>/system`):組織管理員在 設定 › 功能 開關自己組織要用的功能(只列系統層開放的)。
 
-App 的編譯條件是 `OMIXOR_DEV`(`AppEdition`),包進去的 omixor-local 用相同的版本(`go build -tags dev`)。
-功能要「server 的版本有」(`/system` 只列它編進去的)、「App 的版本有」、「組織開著」三者都成立才顯示。
+實際可用 = 系統層開放 && 組織層開 && 頁面規則(頁面關了分頁不顯示;開放的分頁全關時頁面不顯示;總覽、設定、系統永遠開)。
+讀不到 core 時用這次執行最後一份;都沒有時用保守預設(`FeatureFallback`)。
 `OMIXOR_APP=<路徑>/omixor.app` 可以把 App 打包到別的位置。
 
 ## MCP 伺服器
 
 app 開著時會在 `http://127.0.0.1:3765/mcp` 提供 MCP 伺服器(Streamable HTTP,只接受本機連線)。MCP 用戶端可以讀取 app 裡的即時資料,也能寫回去,變更立刻出現在畫面上,並以「MCP 用戶端」記在動態牆與事件時間軸。狀態與連線指令在 設定 › 整合 最上方。
 
-加到 Claude Code:
+`/mcp` 一定要帶 `Authorization: Bearer <token>`(沒帶或不對回 401):token 由 App 產生、存在這台的鑰匙圈,代表「這台 Mac 的使用者」(確認卡片與動態牆都用這個身分,不用用戶端自報的名稱)。在 設定 › 整合 › MCP 伺服器 可以顯示、重新產生,並「複製 Claude Code 設定指令」。
+
+加到 Claude Code(已經加過舊的 `ops` 要先 `claude mcp remove ops`;當初用 `-s user` 加的要加 `-s user`):
 
 ```bash
-claude mcp add --transport http ops http://127.0.0.1:3765/mcp
+claude mcp add --transport http ops http://127.0.0.1:3765/mcp --header "Authorization: Bearer <App 複製的 token>"
 ```
 
 只支援 stdio 的用戶端(例如 Claude Desktop)用轉接程式 `omixor-mcp`:
@@ -66,7 +67,7 @@ swift build -c release --product omixor-mcp   # 產生 .build/release/omixor-mcp
 ```
 
 ```json
-{ "mcpServers": { "ops": { "command": "/絕對路徑/app/.build/release/omixor-mcp" } } }
+{ "mcpServers": { "ops": { "command": "/絕對路徑/app/.build/release/omixor-mcp", "env": { "OPS_MCP_TOKEN": "<App 複製的 token>" } } } }
 ```
 
 連接埠可用環境變數 `OPS_MCP_PORT`(app 與 `omixor-mcp` 都讀)或 `defaults write com.tim72117.ops mcp.port 4000`(打包後的 omixor.app)修改。
@@ -94,6 +95,7 @@ swift build -c release --product omixor-mcp   # 產生 .build/release/omixor-mcp
 | `gcp` / `gcp_logs` / `gcp_metrics` | Cloud Run 服務與 Job 狀態、版本、執行;Cloud Logging 日誌;Cloud Monitoring 請求量、5xx、p95 延遲(只讀) |
 | `github` / `github_runs` / `github_run` / `github_pull` | GitHub 概況、Actions 執行、執行的工作步驟與失敗紀錄、PR 詳情(只讀) |
 | `cabinet` / `docs` / `doc_save` | 文件櫃結構、查文件、存文件(帶 agent 時依角色的存取範圍把關) |
+| `wireframe_render` / `flowchart_render` | 用描述畫線框圖、流程圖(JSON 或 Mermaid flowchart)回傳 SVG,可順便存進文件櫃;core 的工具,App 連 server 時轉送 |
 | `fb_pages` / `fb_posts` / `fb_insights` / `fb_drafts` | Facebook 粉絲專頁清單、最近與已排程貼文(含成效)、專頁成效、貼文草稿(只讀) |
 | `fb_draft_save` | 新增或修改貼文草稿(帶 agent 時署名該角色);發佈與排程只能由人在 app 裡按 |
 
@@ -126,9 +128,11 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 
 要追蹤的問題或待辦,存在 `~/Library/Application Support/Ops/issues.json`(真實資料,重開 app 也還在;看板上的工作項目則是範例資料)。人可以在畫面上新增、編輯、留言、關閉;AI 透過 MCP 存入:
 
-- `issue_create`:標題、Markdown 內文、優先度(urgent / high / normal / low)、標籤、來源、網址
-- `issue_update`:改欄位、`append_body` 補內文、`comment` 留言、`status` 關閉或重新打開
-- `issues`:給 id 看完整內容;不給則依狀態、標籤、關鍵字列出
+- `issue_create`:標題、Markdown 內文、優先度(urgent / high / normal / low)、標籤、來源、網址、所屬倉庫 `repo`
+- `issue_update`:改欄位、`append_body` 補內文、`comment` 留言、`status` 關閉或重新打開、`repo`(空字串 = 清除)
+- `issues`:給 id 看完整內容;不給則依狀態、標籤、倉庫、關鍵字列出
+
+所屬倉庫 `repo` 是 owner/name(GitHub)或 group/sub/project(GitLab),可加 `github:`、`gitlab:` 前綴;只允許英數與 `- _ . / :`、最長 200(同 core 的 `model.CleanRepo`)。篩選不分大小寫,前綴有一邊沒寫就忽略。列表可依倉庫篩選,新增與編輯時從 GitHub 追蹤的 repo、其他 Issue 用過的倉庫選,或「其他…」自己輸入。
 
 緊急與高優先度的未解決 Issue 會算進側邊欄「開發進度」的徽章。
 
@@ -146,11 +150,11 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 - MCP 一律作用在目前的組織,`orgs` 看是哪一個;切換組織只能由人在 app 裡做。
 - 跑測試卻沒指定 `OPS_DATA_DIR` 時,資料夾會改用暫存資料夾,不會碰到真正的資料。
 
-## GitHub(開發進度 › GitHub)
+## GitHub(開發進度 › GitHub;設定在 設定 › 程式碼倉庫)
 
 用「GitHub」連線讀追蹤中 repo 的 Actions 執行(工作、步驟、失敗工作紀錄的最後幾行)和開著的 PR(檢查結果、說明、變更檔案)。**只讀**:Ops 不會開 PR、留言或重跑 workflow。
 
-- 登入:網頁 OAuth。GitHub 不支援自動註冊,第一次要在 GitHub 註冊一個 OAuth App(Homepage `http://127.0.0.1`、callback `http://127.0.0.1/callback`),把 Client ID / secret 貼進分頁上的引導,之後按「用瀏覽器登入」。secret 與 token 存在鑰匙圈。權限只要 `read:user`(公開 repo);私有 repo 要在 設定 › 連線 › GitHub 的 scopes 加 `repo`。也可以改貼 fine-grained 個人存取權杖。
+- 登入:網頁 OAuth。GitHub 不支援自動註冊,第一次要在 GitHub 註冊一個 OAuth App(Homepage `http://127.0.0.1`、callback `http://127.0.0.1/callback`),把 Client ID / secret 貼進 設定 › 程式碼倉庫 的引導,之後按「用瀏覽器登入」;同一頁可以登出、加入或停止追蹤 repo。開發進度 › GitHub 只看資料,沒設定好時有「前往 設定 › 程式碼倉庫」按鈕。secret 與 token 存在鑰匙圈。權限只要 `read:user`(公開 repo);私有 repo 要在 設定 › 連線 › GitHub 的 scopes 加 `repo`。也可以改貼 fine-grained 個人存取權杖。
 - 追蹤哪些 repo 存在組織資料夾的 `github.json`(每個組織各自一份);有登入時每 5 分鐘更新。
 - GitHub 紀錄會轉址到暫時的下載網址;轉址到別的網站時 Ops 會拿掉 Authorization,token 不會外流。
 
@@ -164,7 +168,7 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 
 ## 文件櫃(側邊欄 › 文件櫃)
 
-純文字(Markdown)文件,預設組織依 evoleap 研發基地 `/studio` 的區塊(總覽、待辦、會員、課程、開發、構想、文件、工具)與頁籤分類;結構照 shuttle 的 `web/src/studio/proposal/ProposalLayout.tsx` 與 `studio/articles/registry.ts`,研發基地改版時要改 `Sources/Omixor/Cabinet/Cabinet.swift`。每個角色在「編輯…」設定文件櫃存取範圍(區塊或頁籤,可讀/可讀寫;頁籤優先於區塊),也可用 `agent_upsert` 的 `doc_access` 調整。AI 以角色身分讀寫文件時帶 `agent`,超出範圍會被拒絕;不帶 `agent` 視為 MCP 用戶端,全部可讀寫。結構可在文件櫃左下「編輯結構」修改(每個組織各自一份 `cabinet-layout.json`)。文件存在組織資料夾的 `cabinet.json`;檔案讀不出來時會改名保留(`cabinet.unreadable-*.json`),不會被覆蓋。
+純文字(Markdown)文件;```wireframe、```flowchart 與 flowchart 語法的 ```mermaid 區塊會畫成圖(core server 的 `wireframe_render` / `flowchart_render` 渲染,App 只把 SVG 當圖片顯示,失敗時顯示錯誤與原始描述)。預設組織依 evoleap 研發基地 `/studio` 的區塊(總覽、待辦、會員、課程、開發、構想、文件、工具)與頁籤分類;結構照 shuttle 的 `web/src/studio/proposal/ProposalLayout.tsx` 與 `studio/articles/registry.ts`,研發基地改版時要改 `Sources/Omixor/Cabinet/Cabinet.swift`。每個角色在「編輯…」設定文件櫃存取範圍(區塊或頁籤,可讀/可讀寫;頁籤優先於區塊),也可用 `agent_upsert` 的 `doc_access` 調整。AI 以角色身分讀寫文件時帶 `agent`,超出範圍會被拒絕;不帶 `agent` 視為 MCP 用戶端,全部可讀寫。結構可在文件櫃左下「編輯結構」修改(每個組織各自一份 `cabinet-layout.json`)。文件存在組織資料夾的 `cabinet.json`;檔案讀不出來時會改名保留(`cabinet.unreadable-*.json`),不會被覆蓋。
 
 
 ## Facebook 粉絲專頁(AI 自動化 › 粉絲專頁)

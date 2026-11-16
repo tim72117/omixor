@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 開發進度:概覽 / Sprint 看板 / Pull Requests / Repositories
+/// 開發進度:概覽 / 看板 / Issue / Pull Requests / Repositories(組織追蹤的 repo,真實資料)
 struct DevelopmentView: View {
     @EnvironmentObject var app: AppState
     @StateObject private var model = DevModel()
@@ -28,8 +28,7 @@ struct DevelopmentView: View {
                 case .board: DevBoardTab()
                 case .issues: DevIssuesTab()
                 case .pulls: DevPullRequestsTab()
-                case .repos: DevReposTab()
-                case .github: DevGitHubTab()
+                case .repos: DevRepositoriesTab()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -41,26 +40,9 @@ struct DevelopmentView: View {
         .onChange(of: model.tab) { _, t in if let r = app.redirectTab(t) { model.tab = r } }
     }
 
-    /// 其他頁跳過來時:focusId 可能是 PR 編號(可帶 #)、工作項目 id 或 repo id
+    /// 其他頁跳過來時切到對應的分頁(規則見 DevModel.apply)
     private func applyFocus(_ focus: String?) {
-        guard let focus, !focus.isEmpty else { return }
-        let trimmed = focus.hasPrefix("#") ? String(focus.dropFirst()) : focus
-        if let n = Int(trimmed), app.pullRequests.contains(where: { $0.id == n }) {
-            model.prRepoFilter = nil
-            model.showPR(n)
-        } else if let issue = app.issues.first(where: { $0.id.caseInsensitiveCompare(focus) == .orderedSame }) {
-            model.showIssue(issue.id)
-        } else if focus == "issues" {
-            model.tab = .issues
-        } else if focus == "github" {
-            model.tab = .github
-        } else if app.workItems.contains(where: { $0.id == focus }) {
-            model.showItem(focus)
-        } else if app.repos.contains(where: { $0.id == focus }) {
-            model.tab = .repos
-        } else {
-            return
-        }
+        guard let focus, !focus.isEmpty, model.apply(focus: focus, app: app) else { return }
         app.focusId = nil
     }
 }

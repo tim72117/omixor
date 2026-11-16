@@ -19,8 +19,8 @@ final class AppState: ObservableObject {
     @Published var connectChosen = false
     /// 正在連接的對象(等瀏覽器核准時顯示)
     @Published var connecting: String?
-    /// 正在等瀏覽器核准的登入(可以取消)
-    var connectLogin: Task<OmixorAccount, Error>?
+    /// 進行中的連接遠端(確認既有登入、瀏覽器核准、讀組織清單整段;cancelConnect 取消)
+    var connectLogin: Task<Void, Error>?
     @Published var connectError: String?
     /// 登入遠端成功、但伺服器上還沒有我能用的組織:先顯示「還沒有組織」(管理員可以建立;成員等被加入),有了組織才進入遠端模式
     @Published var noOrgsServer: (server: OmixorMode.Server, account: OmixorAccount)?
@@ -42,10 +42,12 @@ final class AppState: ObservableObject {
     @Published var showCommandPalette = false
     /// 跨頁跳轉時要選中的項目(例如從總覽點告警 → 監控頁選中該告警)
     @Published var focusId: String?
-    /// 系統設定的功能開關(System/SystemSettings.swift;core 讀不到前是保守預設:已實作的開、實驗的關)
+    /// 功能開關(兩層:系統層 && 組織層;System/SystemSettings.swift;core 讀不到前是保守預設)
     @Published var features = FeatureFlags() { didSet { if features != oldValue { featuresChanged() } } }
     /// 跳到關掉的功能時的提示(畫面上方顯示一下)
     @Published var featureNotice: String?
+    /// featureNotice 說的是哪個功能(提示的「前往」按鈕依它決定去「系統」或「設定 › 功能」)
+    var featureNoticeKey: String?
     /// 動作失敗的提示(畫面上方顯示,例如事件沒有存起來、刪除組織時本機服務沒有回應;按掉或幾秒後消失)
     @Published var errorNotice: String?
     var systemStore: SystemStore?
@@ -92,7 +94,7 @@ final class AppState: ObservableObject {
     }
     private(set) var voice: VoicePipeline?
 
-    /// 虛擬角色與任務(Agents/Agents.swift):存在 agents.json,AI 透過 MCP 以角色身分領取
+    /// 虛擬角色與任務(Agents/Agents.swift):存在 core(目前連線的 core server),AI 透過 MCP 以角色身分領取
     @Published var agents: [Agent] = []
     @Published var agentTasks: [AgentTask] = []
     /// 組織鏈(Agents/OrgChain.swift):誰可以派工作給誰、做完回報給誰
@@ -115,7 +117,7 @@ final class AppState: ObservableObject {
         return s
     }
 
-    /// 訊息頻道(Channels/Channels.swift):人與角色一起對話;本機存在 channels.json,遠端在 omixor server
+    /// 訊息頻道(Channels/Channels.swift):人與角色一起對話;資料在 core server(遠端 omixor 或本機守護服務)
     @Published var channels: [ChannelSummary] = []
     /// 頻道或訊息有變動就加一(畫面重新讀訊息)
     @Published var channelsVersion = 0
@@ -139,6 +141,21 @@ final class AppState: ObservableObject {
     @Published var github = GHSnapshot()
     @Published var githubSettings = GHSettings()
     private(set) var ghStore: GitHubStore?
+
+    /// GitLab(GitLab/GitLab.swift):組織的 GitLab 設定(主機網址、追蹤的專案,存在 core)與讀取錯誤
+    @Published var gitlabSettings = CoreGitLabSettings()
+    @Published var gitlabSettingsError: String?
+    private(set) var glStore: GitLabStore?
+
+    /// 建立 GitLab 的設定(沒有才建;不會自己讀,呼叫端用 reload())
+    @discardableResult
+    func startGitLab() -> GitLabStore {
+        if let s = glStore { return s }
+        startConnections()
+        let s = GitLabStore(app: self)
+        glStore = s
+        return s
+    }
 
     @discardableResult
     func startGitHub(timer: Bool = true) -> GitHubStore {
@@ -205,7 +222,7 @@ final class AppState: ObservableObject {
     var mockOrg = OrgFiles.defaultId
     var mockStash: [String: MockSnapshot] = [:]
 
-    /// 文件櫃(Cabinet/Cabinet.swift):本機存在 cabinet.json,遠端在 omixor server
+    /// 文件櫃(Cabinet/Cabinet.swift):存在 core(目前連線的 core server;本機模式是本機守護服務)
     @Published var cabinetDocs: [CabinetDoc] = []
     var cabinetLoaded = false
     /// 文件櫃結構改了就加一,讓畫面重畫
@@ -214,7 +231,7 @@ final class AppState: ObservableObject {
     @Published var cabinetRemoteError: String?
     func startCabinet() { Cabinet.load(self) }
 
-    /// Issue(Issues/Issues.swift):真實資料,存在 issues.json
+    /// Issue(Issues/Issues.swift):真實資料,存在 core(目前連線的 core server;本機模式是本機守護服務)
     @Published var issues: [OpsIssue] = []
     private(set) var issueStore: IssueStore?
 
@@ -239,6 +256,7 @@ final class AppState: ObservableObject {
         if systemStore == nil { systemStore = SystemStore(app: self) }
         startConnections()
         if ghStore == nil { let s = GitHubStore(app: self); ghStore = s; s.start(timer: true) }
+        startGitLab()
         reloadOrgData()
     }
 
@@ -325,11 +343,11 @@ final class AppState: ObservableObject {
 
     // MARK: - 導覽
 
-    /// 跳到某一頁;那一頁在系統設定關掉了就改去總覽並提示(回傳 false)
+    /// 跳到某一頁;那一頁關掉了(系統層沒開放或組織層關了)就改去總覽並提示(回傳 false)
     @discardableResult
     func go(_ section: AppSection, focus id: String? = nil) -> Bool {
         guard isVisible(section) else {
-            featureNotice = "「\(section.title)」在系統設定裡關閉了"
+            noteFeatureOff(section.rawValue, name: section.title)
             self.section = .overview
             focusId = nil
             return false
@@ -466,11 +484,42 @@ final class AppState: ObservableObject {
 
     // MARK: - 模擬即時資料
 
+    /// 計時器會改到的範例資料所屬的功能:伺服器指標(servers)、部署進度(deployments)、Pipeline 執行(pipelineRuns)。
+    /// 總覽是必要功能(永遠開),不算在內:這三個都關時總覽上的範例數字就停著不動
+    static let liveUpdateFeatureKeys = ["infrastructure.servers", "pipelines.deployments", "pipelines.runs"]
+
+    /// App 要求跑模擬即時資料(startLiveUpdates 後為 true);實際跑不跑還要看功能開關
+    private var liveUpdatesRequested = false
+
+    /// 對應的範例功能至少開了一個(依兩層功能開關的有效值)
+    var liveUpdatesWanted: Bool { Self.liveUpdateFeatureKeys.contains { isFeatureEnabled($0) } }
+
+    /// 模擬即時資料的計時器正在跑
+    var isLiveUpdating: Bool { timer != nil }
+
     /// 每 3 秒讓伺服器指標與執行中的流程往前走一點,讓畫面看起來是活的。
+    /// 只有對應的範例功能至少開了一個時才跑;功能開關改變時由 syncLiveUpdates() 啟動或停止
     func startLiveUpdates() {
-        guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        liveUpdatesRequested = true
+        syncLiveUpdates()
+    }
+
+    /// 停掉模擬即時資料(之後功能開關改變也不會再啟動,除非再呼叫 startLiveUpdates)
+    func stopLiveUpdates() {
+        liveUpdatesRequested = false
+        syncLiveUpdates()
+    }
+
+    /// 依目前的功能開關啟動或停止計時器(功能開關改變時呼叫)
+    func syncLiveUpdates() {
+        if liveUpdatesRequested, liveUpdatesWanted {
+            guard timer == nil else { return }
+            timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.tick() }
+            }
+        } else if let t = timer {
+            t.invalidate()
+            timer = nil
         }
     }
 

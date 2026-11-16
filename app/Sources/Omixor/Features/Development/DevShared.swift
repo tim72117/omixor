@@ -3,16 +3,16 @@ import SwiftUI
 // 開發進度頁內部共用:分頁、跨分頁狀態、計算指標、小元件。
 
 enum DevTab: String, CaseIterable, Identifiable {
-    case overview, board, issues, pulls, repos, github
+    /// repos:組織追蹤的 repo 與它們的 PR、Actions(原本獨立的 GitHub 分頁併進來了)
+    case overview, board, issues, pulls, repos
     var id: String { rawValue }
     var label: String {
         switch self {
         case .overview: return "概覽"
-        case .board: return "Sprint 看板"
+        case .board: return "看板"
         case .issues: return "Issue"
         case .pulls: return "Pull Requests"
         case .repos: return "Repositories"
-        case .github: return "GitHub"
         }
     }
     var icon: String {
@@ -22,7 +22,6 @@ enum DevTab: String, CaseIterable, Identifiable {
         case .issues: return "exclamationmark.bubble"
         case .pulls: return "arrow.triangle.pull"
         case .repos: return "shippingbox"
-        case .github: return "chevron.left.forwardslash.chevron.right"
         }
     }
 }
@@ -35,6 +34,8 @@ final class DevModel: ObservableObject {
     @Published var prRepoFilter: String?          // nil = 全部
     @Published var highlightedItem: WorkItem.ID?
     @Published var selectedIssue: OpsIssue.ID?
+    /// Repositories 分頁選中的 repo(RepoEntry.id:GitHub 是 owner/name,GitLab 是 gitlab:<專案>)
+    @Published var selectedRepo: String?
 
     func showIssue(_ id: String) {
         selectedIssue = id
@@ -55,6 +56,37 @@ final class DevModel: ObservableObject {
     func showItem(_ id: String) {
         highlightedItem = id
         tab = .board
+    }
+
+    /// 切到 Repositories 並選中某個追蹤的 repo(nil = 只切分頁)
+    func showRepo(_ id: String?) {
+        if let id { selectedRepo = id }
+        tab = .repos
+    }
+
+    /// 其他頁跳過來時:focusId 可能是 PR 編號(可帶 #)、工作項目 id、追蹤的 repo,
+    /// 或分頁名稱(issues、repos;舊的 github 當作 repos)。認得就切過去並回傳 true
+    func apply(focus: String, app: AppState) -> Bool {
+        let trimmed = focus.hasPrefix("#") ? String(focus.dropFirst()) : focus
+        if let n = Int(trimmed), app.pullRequests.contains(where: { $0.id == n }) {
+            prRepoFilter = nil
+            showPR(n)
+        } else if let issue = app.issues.first(where: { $0.id.caseInsensitiveCompare(focus) == .orderedSame }) {
+            showIssue(issue.id)
+        } else if focus == "issues" {
+            tab = .issues
+        } else if focus == "repos" || focus == "github" {
+            showRepo(nil)
+        } else if let r = RepoListing.entry(matching: focus, github: app.githubSettings.repos, gitlab: app.gitlabSettings.projects) {
+            showRepo(r.id)
+        } else if app.workItems.contains(where: { $0.id == focus }) {
+            showItem(focus)
+        } else if app.repos.contains(where: { $0.id == focus }) {
+            tab = .repos   // 範例資料的 repo id(總覽等處還在用):只切到 Repositories
+        } else {
+            return false
+        }
+        return true
     }
 }
 
@@ -215,6 +247,33 @@ extension WorkStatus {
         case .inProgress: return .blue
         case .review: return .purple
         case .done: return .green
+        }
+    }
+}
+
+// MARK: - Issue 的倉庫篩選(Issue 分頁與看板共用)
+
+/// 依所屬倉庫篩選的下拉:"" = 全部倉庫;IssueRepoOptions.none = 未標記;其他 = 只列這個倉庫(比對規則在 core 的 model.RepoMatch)。
+/// 選項是 Issue 用過的倉庫(IssueRepoOptions.used);沒有 Issue 標記倉庫、也沒在篩選時不顯示
+struct IssueRepoFilterPicker: View {
+    @Binding var selection: String
+    let repos: [String]
+
+    var body: some View {
+        if !repos.isEmpty || !selection.isEmpty {
+            Picker("倉庫", selection: $selection) {
+                Text("全部倉庫").tag("")
+                Text("未標記倉庫").tag(IssueRepoOptions.none)
+                Divider()
+                ForEach(repos, id: \.self) { Text($0).tag($0) }
+                // 篩選中的倉庫已經沒有 Issue 用了:仍列出來,選單才不會是空白
+                if !selection.isEmpty, selection != IssueRepoOptions.none,
+                   !repos.contains(where: { $0.caseInsensitiveCompare(selection) == .orderedSame }) {
+                    Text(selection).tag(selection)
+                }
+            }
+            .labelsHidden()
+            .help("依所屬倉庫篩選")
         }
     }
 }

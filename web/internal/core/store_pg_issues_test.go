@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"omixor-core/model"
 )
 
 // 需要 PostgreSQL(OPS_TEST_DATABASE_URL,見 store_pg_test.go 的 withDB);沒設就略過。
@@ -36,7 +38,7 @@ func TestPGIssuesTable(t *testing.T) {
 	i2 := a.CreateIssue("第二筆", "", "", nil, "", "", "tim")
 	a.CommentIssue(i1.ID, "留言一", "agent:pm")
 	a.CommentIssue(i1.ID, "留言二", "tim")
-	a.UpdateIssue(i2.ID, "tim", func(i *OpsIssue) { i.Status = "closed" })
+	a.UpdateIssue(i2.ID, "tim", func(i *model.Issue) { i.Status = "closed" })
 	i3 := a.CreateIssue("要刪的", "", "low", nil, "", "", "mcp")
 	a.DeleteIssue(i3.ID)
 	want := string(Marshal(a.Issues()))
@@ -132,7 +134,7 @@ func TestPGIssueImportRerunAndMigration(t *testing.T) {
 	// ops_documents 裡舊的 issues.json:表裡沒有這個組織時搬進來,舊文件改名保留
 	_ = (pgBackend{}).Write("orgs/old/issues.json", []byte(`[{"id":"ISS-7","title":"舊的","createdBy":"mcp"}]`))
 	a.Mu.Lock()
-	var got []OpsIssue
+	var got []model.Issue
 	a.WithOrgIssues("old", func() { got = a.Issues() })
 	a.Mu.Unlock()
 	if len(got) != 1 || got[0].ID != "ISS-7" {

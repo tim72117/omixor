@@ -14,6 +14,13 @@ var ErrNotFound = errors.New("not found")
 // ErrLocked 領取任務時,任務已被別人鎖住(進行中且 lockedUntil 還沒到)
 var ErrLocked = errors.New("locked")
 
+// MergeCounts MergeIssues 的結果:新增、整筆取代、因為 id 已經有而略過的筆數
+type MergeCounts struct {
+	Inserted int
+	Updated  int
+	Skipped  int
+}
+
 type Store interface {
 	// 使用者、token、操作紀錄
 	CountUsers() (int, error)
@@ -49,11 +56,19 @@ type Store interface {
 	GetIssue(org, id string) (*model.Issue, error)
 	// CreateIssue 指定新的 id(ISS-<最大號碼+1>)並放在最前面,回傳存好的
 	CreateIssue(org string, i model.Issue) (model.Issue, error)
-	// UpdateIssue 整筆取代(含留言;位置不變)
+	// UpdateIssue 整筆取代(位置不變;id 不分大小寫)。i.Comments 是 nil 時留言不動(一般修改都這樣用,
+	// 才不會蓋掉同時新增的留言);不是 nil 時留言整份取代(匯入、維運用)
 	UpdateIssue(org string, i model.Issue) error
+	// AddIssueComment 只附加一則留言(放最後)並把 Issue 的 updatedAt 設成 c.At,回傳附加後的 Issue;
+	// id 不分大小寫,Issue 不存在回 ErrNotFound。不會動到其他留言,同時多則留言也不會互相蓋掉
+	AddIssueComment(org, issueID string, c model.Comment) (*model.Issue, error)
+	// DeleteIssue id 不分大小寫
 	DeleteIssue(org, id string) error
 	// ImportIssues 第一次搬資料用:保留 id、作者與時間;list 是新的在前
 	ImportIssues(org string, list []model.Issue) (int, error)
+	// MergeIssues 可以重跑的匯入(一次完成):id(不分大小寫)已經有的,overwrite 時整筆取代(位置不變、留言整份取代),
+	// 否則略過;沒有的保留 id、作者與時間,依 list 的順序排在既有的後面(list 是新的在前)。list 裡的 id 不能重複
+	MergeIssues(org string, list []model.Issue, overwrite bool) (MergeCounts, error)
 	// 附件(Issue 內文與留言裡的圖片):一個組織一份,id 是內容雜湊;同 id 再存不覆蓋
 	PutAttachment(org, id string, data []byte) error
 	GetAttachment(org, id string) ([]byte, error) // 沒有回 ErrNotFound
@@ -133,12 +148,11 @@ type Store interface {
 	// ImportIncidents 第一次搬資料用:保留 id、時間與時間軸;list 是新的在前;組織已經有事件就回錯誤
 	ImportIncidents(org string, list []model.Incident) (int, error)
 
-	// 組織的 GitHub、GitLab 設定(依組織分;DeleteOrg 一併刪除;只有非機密設定,見 model/integration.go)。
-	// Get 沒存過回 ErrNotFound;Save 整份取代(Saved 欄位不用存,讀回時一律是 true)。方法在 *_integration.go
-	GetGitHubSettings(org string) (*model.GitHubSettings, error)
-	SaveGitHubSettings(org string, s model.GitHubSettings) error
-	GetGitLabSettings(org string) (*model.GitLabSettings, error)
-	SaveGitLabSettings(org string, s model.GitLabSettings) error
+	// 組織設定文件(通用):選用模組(core/module)存自己的組織層設定用,一個組織每種 kind 一份,例如 GitHub、GitLab 模組的
+	// kind = github、gitlab。依組織分;DeleteOrg 一併刪除。Get 沒存過回 ErrNotFound;Save 整份取代。
+	// kind 是保留字(mcp,外部 MCP 登記用專屬方法)或空白時回錯誤。方法在 *_integration.go(見 OrgDoc)
+	GetOrgDoc(org, kind string) (*OrgDoc, error)
+	SaveOrgDoc(org, kind string, d OrgDoc) error
 
 	// 組織的外部 MCP 登記(伺服器、工具規則、角色權限;依組織分;DeleteOrg 一併刪除;沒有任何密鑰,見 model/mcp.go)。
 	// Get 沒存過回 ErrNotFound;Save 整份取代。方法在 *_mcp.go
@@ -149,4 +163,9 @@ type Store interface {
 	// Get 沒存過回 ErrNotFound;Save 整份取代(Saved 不用存,讀回時一律是 true)。方法在 *_system.go
 	GetSystemSettings(org string) (*model.OrgSystemSettings, error)
 	SaveSystemSettings(org string, s model.OrgSystemSettings) error
+
+	// 系統層的功能設定(整台伺服器一份;見 model/features.go 的 ServerFeatures)。
+	// Get 沒存過回 ErrNotFound;Save 整份取代(Saved 不用存,讀回時一律是 true)。方法在 *_system.go
+	GetServerFeatures() (*model.ServerFeatures, error)
+	SaveServerFeatures(s model.ServerFeatures) error
 }

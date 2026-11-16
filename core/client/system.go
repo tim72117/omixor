@@ -17,3 +17,15 @@ func (c *Client) SaveSystemSettings(org string, in service.SystemSettingsInput) 
 	var x service.SystemSettingsView
 	return &x, c.Do("POST", c.systemPath(org), in, &x)
 }
+
+// GetServerFeatures 系統層的功能設定(整台伺服器;任何登入的使用者)
+func (c *Client) GetServerFeatures() (*service.ServerFeaturesView, error) {
+	var x service.ServerFeaturesView
+	return &x, c.Do("GET", "/api/system/features", nil, &x)
+}
+
+// SaveServerFeatures 修改系統層的功能開關(伺服器管理員)
+func (c *Client) SaveServerFeatures(in service.SystemSettingsInput) (*service.ServerFeaturesView, error) {
+	var x service.ServerFeaturesView
+	return &x, c.Do("POST", "/api/system/features", in, &x)
+}

@@ -42,7 +42,11 @@ struct APIClient: Sendable {
         let base = c.percentEncodedPath
         c.percentEncodedPath = (base.hasSuffix("/") ? String(base.dropLast()) : base) + path
         let q = query.filter { !$0.value.isEmpty }.sorted { $0.key < $1.key }
-        if !q.isEmpty { c.queryItems = q.map { URLQueryItem(name: $0.key, value: $0.value) } }
+        if !q.isEmpty {
+            c.queryItems = q.map { URLQueryItem(name: $0.key, value: $0.value) }
+            // URLComponents 不會把 + 編碼,伺服器(Go 的 url.Values)會把 + 當成空白
+            c.percentEncodedQuery = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        }
         guard let url = c.url else { throw APIError(message: "網址不對:\(path)") }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.httpMethod = method
@@ -143,16 +147,18 @@ struct APIClient: Sendable {
 
     // MARK: Issue
 
-    func issues(org: String) async throws -> [Issue] { try await get(orgPath(org, "issues")) }
+    /// Issue 列表。篩選、搜尋、排序在 core(model/issue_query.go;同 macOS App 與 web):
+    ///   query 搜尋編號、標題、內文、留言、標籤(空白分隔的每個字都要有,不分大小寫);status open|closed|all;
+    ///   sort priority|status|updated。都不給 = 全部、新的在前(同舊的呼叫)
+    func issues(org: String, query: String = "", status: String = "", sort: String = "") async throws -> [Issue] {
+        try await get(orgPath(org, "issues"), query: ["q": query, "status": status, "sort": sort])
+    }
     func issue(org: String, id: String) async throws -> Issue { try await get(orgPath(org, "issues", id)) }
 
-    /// 留言:伺服器的修改是整份取代留言,所以先拿最新的再加一則(新留言的作者伺服器會設成自己)
+    /// 留言:POST …/issues/<id>/comments,伺服器只附加這一則(不會蓋掉別人同時留的言),回傳新增後的 Issue。
+    /// author 只有伺服器管理員的有效,一般成員伺服器一律記成登入的人
     func addComment(org: String, issue id: String, text: String, author: String) async throws -> Issue {
-        let cur = try await raw("GET", orgPath(org, "issues", id))
-        let obj = try JSONSerialization.jsonObject(with: cur) as? [String: Any] ?? [:]
-        var comments = obj["comments"] as? [[String: Any]] ?? []
-        comments.append(["text": text, "author": author])
-        return try await post(orgPath(org, "issues", id), ["comments": comments, "author": author])
+        try await post(orgPath(org, "issues", id, "comments"), ["text": text, "author": author])
     }
 
     // MARK: 派發

@@ -290,6 +290,7 @@ func TestTick(t *testing.T) {
 
 func TestBadges(t *testing.T) {
 	a := New()
+	sysForceFeatures(t, a) // 實驗分頁全開(關掉時不算,見 TestBadgesSkipClosedFeatures)
 	v, _ := View(a, "badges")
 	b := v.(map[string]any)
 	// 範例資料:4 個觸發中告警、2 個未結束事件、5 個待核准、3 個執行中/排隊的流程

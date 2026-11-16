@@ -7,3 +7,7 @@ import "omixor-core/model"
 func (f *File) SaveSystemSettings(org string, s model.OrgSystemSettings) error {
 	return f.write(func() error { return f.Mem.SaveSystemSettings(org, s) })
 }
+
+func (f *File) SaveServerFeatures(s model.ServerFeatures) error {
+	return f.write(func() error { return f.Mem.SaveServerFeatures(s) })
+}

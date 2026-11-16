@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"omixor-core/model"
 )
 
 // fakePNG 最小的 PNG 檔頭(看內容判斷類型用)
@@ -109,7 +111,7 @@ func jiraFixture(summary1 string) []map[string]any {
 	}
 }
 
-func issueByLink(a *App, link string) *OpsIssue {
+func issueByLink(a *App, link string) *model.Issue {
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
 	for _, i := range a.Issues() {
@@ -179,8 +181,8 @@ func TestJiraCloudImport(t *testing.T) {
 
 	// 本機加一則留言,再匯入一次(含已關閉):更新、不重複、本機留言保留
 	a.Mu.Lock()
-	a.UpdateIssue(is.ID, "tim", func(i *OpsIssue) {
-		i.Comments = append(i.Comments, IssueComment{ID: "local-1", Author: "tim", At: nowPrecise(), Text: "本機留言"})
+	a.UpdateIssue(is.ID, "tim", func(i *model.Issue) {
+		i.Comments = append(i.Comments, model.Comment{ID: "local-1", Author: "tim", At: model.Now(), Text: "本機留言"})
 	})
 	a.Mu.Unlock()
 	summary = "登入頁跑版(已改標題)"
@@ -195,7 +197,7 @@ func TestJiraCloudImport(t *testing.T) {
 		t.Fatalf("再匯入不該重下載圖片:%d 次", jiraDownloads)
 	}
 	is2 := issueByLink(a, link)
-	if is2.ID != is.ID || is2.Title != summary || len(is2.Comments) != 4 || is2.Comments[3].ID != "local-1" {
+	if is2.ID != is.ID || is2.Title != summary || len(is2.Comments) != 4 || is2.Comments[3].Text != "本機留言" || is2.Comments[3].Author != "tim" {
 		t.Fatalf("更新不對:%+v", is2)
 	}
 	done := issueByLink(a, "https://your-team.atlassian.net/browse/EDU-2")

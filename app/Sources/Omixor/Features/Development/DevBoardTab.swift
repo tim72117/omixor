@@ -1,41 +1,84 @@
 import SwiftUI
+import UniformTypeIdentifiers
+
+// 開發 › 看板:依狀態分欄顯示目前組織真的 Issue。分欄、排序、篩選、搜尋的規則只在 core(model/issue_query.go):
+// 畫面向 core 要 GET /api/orgs/<組織>/issues/board(IssueRemote.board,在背景執行),只負責顯示。
+//   待處理 = open 且沒指派角色;進行中 = open 且指派給角色;已完成 = closed(每欄依優先度 → 最近更新 → 編號)
+// 拖曳:欄的 dropStatus 和 Issue 現在的狀態不同才改(拖到「已完成」= 關閉,從「已完成」拖出 = 重新打開);
+// 待處理 ↔ 進行中 狀態相同(要改指派,會牽動角色的任務),看板上不做,請到 Issue 分頁改。
+// 拖曳游標:能放的欄是「移動」,不能放的欄(原欄、待處理 ↔ 進行中)是「禁止」(IssueBoardResult.dropCheck);
+// NSItemProvider 在拖曳途中讀不到內容,所以開始拖時把 id 記在 draggingId。
+// app.issues(IssueStore 定時輪詢的全量清單)有變、或篩選條件改了,就重新向 core 查一次(搜尋輸入等 250ms 再查)。
+
+/// 看板各欄的顯示(圖示、顏色、說明);欄的順序、標題與內容照 core 回傳
+enum IssueBoardColumn: String, CaseIterable, Identifiable {
+    case todo, doing, done
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .todo: return "circle.dotted"
+        case .doing: return "circle.lefthalf.filled"
+        case .done: return "checkmark.circle.fill"
+        }
+    }
+    var color: Color {
+        switch self {
+        case .todo: return .secondary
+        case .doing: return .blue
+        case .done: return .green
+        }
+    }
+    var help: String {
+        switch self {
+        case .todo: return "未解決、還沒指派給角色的 Issue"
+        case .doing: return "未解決、已指派給角色的 Issue"
+        case .done: return "已關閉的 Issue;拖到這裡會關閉,拖回去會重新打開"
+        }
+    }
+
+    /// core 回傳的欄 key 對應的顯示;不認得的 key 用待處理的樣式
+    static func look(_ key: String) -> IssueBoardColumn { IssueBoardColumn(rawValue: key) ?? .todo }
+}
 
 struct DevBoardTab: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var model: DevModel
 
-    @State private var assignee = "all"          // all / me / ai / none / p:<id>
-    @State private var type: WorkType?
-    @State private var onlyAI = false
-    @State private var showBacklog = true
     @State private var query = ""
-    @State private var targeted: WorkStatus?
+    @State private var label: String?
+    @State private var priority: IssuePriority?
+    /// 依所屬倉庫篩選:"" = 全部倉庫;IssueRepoOptions.none = 未標記;其他 = 只列這個倉庫(同 Issue 分頁)
+    @State private var repoFilter = ""
+    @State private var targeted: String?
+    /// 拖曳中的 Issue id(卡片開始拖時記下,放下、看板消失時清掉;取消拖曳時留著,下次拖曳會覆寫)
+    @State private var draggingId: String?
+    /// 拖曳被拒絕時的提示(例如待處理 ↔ 進行中)
+    @State private var notice: String?
+    /// core 回傳的看板(第一次讀到前是 nil)
+    @State private var result: IssueBoardResult?
+    @State private var loadError: String?
+    /// 上一次送出查詢時的搜尋字(搜尋字變了才等 250ms)
+    @State private var lastQ = ""
 
-    private var columns: [WorkStatus] {
-        showBacklog ? WorkStatus.allCases : WorkStatus.allCases.filter { $0 != .backlog }
+    private var store: IssueStore { app.startIssues() }
+    private var usedLabels: [String] { result?.labels ?? [] }
+    /// Issue 用到的倉庫(去重:不分大小寫),篩選選單用(同 Issue 分頁)
+    private var usedRepos: [String] { IssueRepoOptions.used(app.issues) }
+    private var hasFilter: Bool { !query.isEmpty || label != nil || priority != nil || !repoFilter.isEmpty }
+    private var total: Int { result?.total ?? app.issues.count }
+
+    /// 重新查詢的條件:篩選、組織、全量清單(輪詢讀到新資料或寫入後就會變)
+    private struct LoadKey: Equatable {
+        var q: IssueQuery
+        var org: String
+        var issues: [OpsIssue]
     }
+    private var issueQuery: IssueQuery { DevBoardTab.query(q: query, priority: priority, label: label, repo: repoFilter) }
 
-    private var filtered: [WorkItem] {
-        app.workItems.filter { item in
-            if let type, item.type != type { return false }
-            if onlyAI && !item.createdByAI { return false }
-            switch assignee {
-            case "all": break
-            case "me": if item.assignee != .person(app.me) { return false }
-            case "ai": if !(item.assignee?.devIsAI ?? false) { return false }
-            case "none": if item.assignee != nil { return false }
-            default:
-                if item.assignee?.devPersonId != String(assignee.dropFirst(2)) { return false }
-            }
-            if !query.isEmpty {
-                let q = query.lowercased()
-                if !item.title.lowercased().contains(q) && !item.id.lowercased().contains(q) { return false }
-            }
-            return true
-        }
+    /// 看板送給 core 的條件(status、sort 看板不用;repo 給 IssueRepoOptions.none = 未標記)
+    static func query(q: String, priority: IssuePriority?, label: String?, repo: String) -> IssueQuery {
+        IssueQuery(q: q, priority: priority?.rawValue ?? "", label: label ?? "", repo: repo)
     }
-
-    private var hasFilter: Bool { assignee != "all" || type != nil || onlyAI || !query.isEmpty }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,58 +86,89 @@ struct DevBoardTab: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
             Divider()
-            if app.workItems.isEmpty {
-                EmptyStateView(title: "看板是空的", icon: "rectangle.split.3x1", message: "這個 Sprint 還沒有工作項目")
+            if let result, result.total == 0 {
+                EmptyStateView(title: "這個組織還沒有 Issue", icon: "rectangle.split.3x1",
+                               message: "到「Issue」分頁新增,或讓 AI 透過 MCP 的 issue_create 建立;建立後會依狀態出現在看板上。")
+            } else if let result {
+                board(result)
+            } else if let loadError {
+                EmptyStateView(title: "讀不到 Issue", icon: "exclamationmark.triangle", message: loadError)
             } else {
-                board
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .onAppear { _ = app.startIssues() }
+        .onDisappear { draggingId = nil; targeted = nil }
+        .onChange(of: app.currentOrgId) { label = nil; repoFilter = ""; notice = nil; result = nil }
+        .task(id: LoadKey(q: issueQuery, org: app.currentOrgId, issues: app.issues)) { await load() }
+    }
+
+    /// 向 core 讀看板(背景執行;搜尋字變了先等 250ms,期間再變就取消這次)
+    private func load() async {
+        let q = issueQuery
+        if q.q != lastQ {
+            try? await Task.sleep(for: .milliseconds(250))
+            if Task.isCancelled { return }
+        }
+        lastQ = q.q
+        do {
+            let b = try await store.board(q)
+            if Task.isCancelled { return }
+            if b != result { result = b }
+            loadError = nil
+        } catch is CancellationError {
+        } catch {
+            if !Task.isCancelled { loadError = error.localizedDescription }
         }
     }
 
     // MARK: 篩選列
 
     private var filterBar: some View {
-        let items = filtered
-        let pts = items.reduce(0) { $0 + $1.points }
-        return HStack(spacing: 10) {
-            TextField("搜尋標題或編號", text: $query)
+        HStack(spacing: 10) {
+            TextField("搜尋編號、標題、內文、標籤、留言", text: $query)
                 .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 120, maxWidth: 200)
+                .frame(minWidth: 140, maxWidth: 240)
 
-            Picker("負責人", selection: $assignee) {
-                Text("所有人").tag("all")
-                Text("我").tag("me")
-                Text("AI").tag("ai")
-                Text("未指派").tag("none")
-                if !app.people.isEmpty {
-                    Divider()
-                    ForEach(app.people) { p in Text(p.name).tag("p:\(p.id)") }
+            Picker("標籤", selection: $label) {
+                Text("全部標籤").tag(String?.none)
+                if !usedLabels.isEmpty { Divider() }
+                ForEach(usedLabels, id: \.self) { Text($0).tag(String?.some($0)) }
+                // 篩選中的標籤已經沒有 Issue 用了:仍列出來,選單才不會是空白
+                if let l = label, !usedLabels.contains(where: { $0.caseInsensitiveCompare(l) == .orderedSame }) {
+                    Text(l).tag(String?.some(l))
                 }
             }
+            .labelsHidden()
             .fixedSize()
+            .help("依標籤篩選")
 
-            Picker("類型", selection: $type) {
-                Text("全部類型").tag(WorkType?.none)
+            Picker("優先度", selection: $priority) {
+                Text("全部優先度").tag(IssuePriority?.none)
                 Divider()
-                ForEach(WorkType.allCases) { t in Text(t.label).tag(WorkType?.some(t)) }
+                ForEach(IssuePriority.allCases) { p in Text(p.label).tag(IssuePriority?.some(p)) }
             }
+            .labelsHidden()
             .fixedSize()
+            .help("依優先度篩選")
 
-            Toggle(isOn: $onlyAI) { Label("AI 建立", systemImage: "sparkles") }
-                .toggleStyle(.button)
-                .help("只顯示 AI 建立的項目")
-            Toggle(isOn: $showBacklog) { Label("Backlog", systemImage: "tray") }
-                .toggleStyle(.button)
-                .help("顯示 Backlog 欄")
+            IssueRepoFilterPicker(selection: $repoFilter, repos: usedRepos)
+                .fixedSize()
 
             if hasFilter {
-                Button("清除") {
-                    assignee = "all"; type = nil; onlyAI = false; query = ""
-                }
-                .buttonStyle(.link)
+                Button("清除") { query = ""; label = nil; priority = nil; repoFilter = "" }
+                    .buttonStyle(.link)
+            }
+            if let e = store.remoteError ?? (result != nil ? loadError : nil) {
+                Label(e, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+                    .lineLimit(1).truncationMode(.tail)
+                    .help(e)
+            } else if let notice {
+                Text(notice).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
             }
             Spacer(minLength: 0)
-            Text("\(items.count) 項・\(pts) 點")
+            Text(hasFilter ? "\(result?.matched ?? 0) / \(total) 個 Issue" : "\(total) 個 Issue")
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -104,16 +178,15 @@ struct DevBoardTab: View {
 
     // MARK: 看板
 
-    private var board: some View {
+    private func board(_ result: IssueBoardResult) -> some View {
         GeometryReader { geo in
             let spacing: CGFloat = 12
-            let n = CGFloat(columns.count)
-            let colWidth = max(220, (geo.size.width - 40 - spacing * (n - 1)) / n)
-            let items = filtered
+            let n = CGFloat(max(1, result.columns.count))
+            let colWidth = max(240, (geo.size.width - 40 - spacing * (n - 1)) / n)
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: spacing) {
-                    ForEach(columns) { status in
-                        column(status, items: items.filter { $0.status == status })
+                    ForEach(result.columns) { c in
+                        column(c)
                             .frame(width: colWidth)
                     }
                 }
@@ -124,30 +197,31 @@ struct DevBoardTab: View {
         }
     }
 
-    private func column(_ status: WorkStatus, items: [WorkItem]) -> some View {
-        let pts = items.reduce(0) { $0 + $1.points }
-        let isTarget = targeted == status
+    private func column(_ col: IssueBoardResult.Column) -> some View {
+        let isTarget = targeted == col.key
+        let look = IssueBoardColumn.look(col.key)
+        let items = col.issues
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: status.devIcon).foregroundStyle(status.devColor)
-                Text(status.label).font(.headline)
+                Image(systemName: look.icon).foregroundStyle(look.color)
+                Text(col.title).font(.headline)
                 Text("\(items.count)")
                     .font(.caption.weight(.semibold).monospacedDigit())
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .background(Color.primary.opacity(0.08), in: Capsule())
                 Spacer()
-                Text("\(pts) 點").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 9)
+            .help(look.help)
 
             ScrollView(.vertical) {
                 LazyVStack(spacing: 8) {
-                    ForEach(items) { item in
-                        DevWorkCard(item: item)
+                    ForEach(items) { issue in
+                        IssueBoardCard(issue: issue, onStatus: { setStatus(issue, $0) }, onDragStart: { draggingId = issue.id })
                     }
                     if items.isEmpty {
-                        Text(isTarget ? "放開以移到「\(status.label)」" : "沒有項目")
+                        Text(isTarget ? "放開以移到「\(col.title)」" : (hasFilter ? "沒有符合的 Issue" : "沒有 Issue"))
                             .font(.caption).foregroundStyle(.tertiary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 24)
@@ -165,81 +239,154 @@ struct DevBoardTab: View {
         .overlay(RoundedRectangle(cornerRadius: 12)
             .strokeBorder(isTarget ? Color.accentColor : .clear, lineWidth: 2))
         .animation(.easeOut(duration: 0.15), value: isTarget)
-        .dropDestination(for: String.self) { ids, _ in
-            var moved = false
-            for id in ids {
-                guard let item = app.workItems.first(where: { $0.id == id }), item.status != status else { continue }
-                withAnimation(.snappy) { app.moveWorkItem(id: id, to: status) }
-                app.log(.person(app.me), "rectangle.split.3x1", "把 \(id) 移到「\(status.label)」", .development)
-                moved = true
+        .onDrop(of: [.utf8PlainText, .plainText], delegate: BoardDropDelegate(
+            check: { result?.dropCheck(dragging: draggingId, onto: col) ?? .unknown },
+            onTarget: { on in
+                if on { targeted = col.key } else if targeted == col.key { targeted = nil }
+            },
+            onBlocked: { notice = blockedNotice },
+            onDrop: { dropped in
+                // 實際拖進來的字串要等於拖曳開始時記下的 id 才改(擋掉取消拖曳後殘留的 id 配上外部拖進來的文字)
+                defer { draggingId = nil; targeted = nil }
+                guard let id = draggingId, dropped == id else { return }
+                _ = drop([id], on: col)
+            }))
+    }
+
+    private let blockedNotice = "待處理 ↔ 進行中 由指派角色決定,請到 Issue 分頁改指派"
+
+    /// 拖放:欄的 dropStatus 和 Issue 現在的狀態不同才改;待處理 ↔ 進行中(要改指派)不做
+    private func drop(_ ids: [String], on col: IssueBoardResult.Column) -> Bool {
+        var moved = false
+        for id in ids {
+            guard let from = result?.column(of: id), let issue = from.issues.first(where: { $0.id == id }) else { continue }
+            guard let s = col.status(forDropping: issue) else {
+                if from.key != col.key { notice = blockedNotice }
+                continue
             }
-            return moved
-        } isTargeted: { on in
-            if on { targeted = status } else if targeted == status { targeted = nil }
+            setStatus(issue, s)
+            moved = true
+        }
+        return moved
+    }
+
+    /// 改狀態:走和 Issue 分頁同一條路(IssueStore.update → core API),動態牆由 store 記
+    private func setStatus(_ issue: OpsIssue, _ s: IssueStatus) {
+        guard issue.status != s else { return }
+        notice = nil
+        withAnimation(.snappy) {
+            _ = store.update(issue.id, by: app.me) { $0.status = s }
         }
     }
 }
 
-// MARK: - 工作卡片
+// MARK: - 拖放
 
-struct DevWorkCard: View {
+/// 看板一欄的放置判斷:能放 → 移動游標 + 高亮;不能放(原欄、待處理 ↔ 進行中)→ 禁止游標、不高亮。
+/// 判斷交給 check(IssueBoardResult.dropCheck,用拖曳開始時記下的 id),所以拖曳途中不用讀 NSItemProvider;
+/// 放下時才讀出實際拖進來的字串交給 onDrop(由它比對是不是拖曳中的 id)。
+private struct BoardDropDelegate: DropDelegate {
+    private static let types: [UTType] = [.text]
+    let check: () -> IssueBoardResult.DropCheck
+    /// 高亮開 / 關
+    let onTarget: (Bool) -> Void
+    /// 拖進不能放、但要提示的欄(待處理 ↔ 進行中)
+    let onBlocked: () -> Void
+    /// 放下(只有能放的欄會走到這裡):拖進來的字串(讀不到是 nil),在主執行緒呼叫
+    let onDrop: (String?) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: Self.types) }
+
+    func dropEntered(info: DropInfo) {
+        let c = check()
+        onTarget(c.canDrop)
+        if c == .blocked { onBlocked() }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard info.hasItemsConforming(to: Self.types) else { return DropProposal(operation: .forbidden) }
+        return DropProposal(operation: check().canDrop ? .move : .forbidden)
+    }
+
+    func dropExited(info: DropInfo) { onTarget(false) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard check().canDrop, info.hasItemsConforming(to: Self.types),
+              let provider = info.itemProviders(for: Self.types).first,
+              provider.canLoadObject(ofClass: NSString.self) else {
+            onTarget(false)
+            onDrop(nil) // 不放,也清掉 draggingId
+            return false
+        }
+        let onDrop = onDrop
+        _ = provider.loadObject(ofClass: NSString.self) { obj, _ in
+            let s = (obj as? NSString).map { $0 as String }
+            DispatchQueue.main.async { onDrop(s) }
+        }
+        return true
+    }
+}
+
+// MARK: - Issue 卡片
+
+private struct IssueBoardCard: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var model: DevModel
-    let item: WorkItem
-    @State private var showDetail = false
+    let issue: OpsIssue
+    let onStatus: (IssueStatus) -> Void
+    /// 開始拖曳(看板記下拖曳中的 id,判斷每一欄能不能放)
+    let onDragStart: () -> Void
     @State private var hover = false
 
-    private var highlighted: Bool { model.highlightedItem == item.id }
-    private var linkedPRs: [PullRequest] { app.pullRequests.filter { $0.linkedItem == item.id } }
+    private var agentName: String? {
+        issue.assignedAgent.map { a in app.agents.first { $0.id == a }?.name ?? a }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
-            Rectangle().fill(item.type.color).frame(width: 3)
-            VStack(alignment: .leading, spacing: 7) {
+            Rectangle().fill(issue.priority.color).frame(width: 3)
+                .help("優先度:\(issue.priority.label)")
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Text(item.id).font(.caption.monospaced()).foregroundStyle(.secondary)
-                    if item.createdByAI {
-                        Image(systemName: "sparkles").font(.caption2).foregroundStyle(.purple)
-                            .help("由 AI 建立")
+                    Text(issue.id).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        .lineLimit(1).fixedSize()
+                    if IssueStore.isAI(issue.createdBy) {
+                        AuthorIcon(author: issue.createdBy, size: 14)
+                            .help(app.issueStore?.authorName(issue.createdBy) ?? "")
                     }
-                    Spacer(minLength: 0)
-                    Text("\(item.points)")
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .frame(minWidth: 18)
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(Color.primary.opacity(0.07), in: Capsule())
-                        .help("\(item.points) 點")
+                    Spacer(minLength: 4)
+                    if !issue.comments.isEmpty {
+                        Label("\(issue.comments.count)", systemImage: "bubble.left")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                    }
+                    priorityBadge
                 }
-                Text(item.title)
-                    .font(.callout)
+                Text(issue.title)
+                    .foregroundStyle(issue.status == .open ? .primary : .secondary)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    DevTypeTag(type: item.type)
-                    if let svc = item.service {
-                        Text(app.service(svc)?.name ?? svc)
-                            .font(.caption2)
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                    if !linkedPRs.isEmpty {
-                        HStack(spacing: 2) {
-                            Image(systemName: "arrow.triangle.pull")
-                            Text("\(linkedPRs.count)")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if agentName != nil || issue.repoTag != nil {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let name = agentName {
+                            BoardTag(text: name, icon: "person.crop.circle", color: .purple)
+                                .help("指派給角色:\(name)")
                         }
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .help("\(linkedPRs.count) 個相關 PR")
+                        if let r = issue.repoTag {
+                            BoardTag(text: r, icon: "chevron.left.forwardslash.chevron.right", color: .teal, monospaced: true)
+                                .help("倉庫:\(r)")
+                        }
                     }
-                    if let a = item.assignee {
-                        ActorAvatar(actor: a, size: 20)
-                    } else {
-                        Circle().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 20, height: 20)
-                            .help("未指派")
+                }
+                if !issue.labels.isEmpty {
+                    // 寬度不夠時少放幾個標籤,剩下的用 +n
+                    ViewThatFits(in: .horizontal) {
+                        labelRow(3)
+                        labelRow(2)
+                        labelRow(1)
+                        labelRow(0)
                     }
+                    .help(issue.labels.joined(separator: "、"))
                 }
             }
             .padding(10)
@@ -247,156 +394,81 @@ struct DevWorkCard: View {
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8)
-            .strokeBorder(highlighted ? Color.accentColor : Color.primary.opacity(hover ? 0.18 : 0.08),
-                          lineWidth: highlighted ? 2 : 1))
+            .strokeBorder(Color.primary.opacity(hover ? 0.18 : 0.08), lineWidth: 1))
         .shadow(color: .black.opacity(hover ? 0.12 : 0.05), radius: hover ? 4 : 1, y: 1)
         .onHover { hover = $0 }
         .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onTapGesture { showDetail = true }
-        .draggable(item.id) {
-            Text("\(item.id) \(item.title)")
+        .onTapGesture { model.showIssue(issue.id) }
+        .help("按一下在 Issue 分頁打開")
+        .onDrag {
+            onDragStart()
+            return NSItemProvider(object: issue.id as NSString)
+        } preview: {
+            Text("\(issue.id) \(issue.title)")
                 .lineLimit(1)
                 .padding(8)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
         }
         .contextMenu { menu }
-        .popover(isPresented: $showDetail, arrowEdge: .trailing) {
-            DevWorkDetail(item: item)
+    }
+
+    /// 優先度:緊急、高顯示標記;一般、低只用左邊的色條
+    @ViewBuilder private var priorityBadge: some View {
+        if issue.priority <= .high {
+            Text(issue.priority.label)
+                .font(.caption.weight(.medium))
+                .lineLimit(1).fixedSize()
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .foregroundStyle(issue.priority.color)
+                .background(issue.priority.color.opacity(0.13), in: Capsule())
         }
-        .onAppear {
-            if highlighted {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { showDetail = true }
+    }
+
+    private func labelRow(_ n: Int) -> some View {
+        HStack(spacing: 4) {
+            ForEach(issue.labels.prefix(n), id: \.self) { BoardTag(text: $0, icon: "tag", color: .secondary, maxWidth: 120) }
+            if issue.labels.count > n {
+                Text("+\(issue.labels.count - n)").font(.caption).foregroundStyle(.secondary).fixedSize()
             }
-        }
-        .onChange(of: showDetail) { _, open in
-            if !open && highlighted { model.highlightedItem = nil }
         }
     }
 
     @ViewBuilder private var menu: some View {
-        Menu("移到…") {
-            ForEach(WorkStatus.allCases) { s in
-                Button {
-                    withAnimation(.snappy) { app.moveWorkItem(id: item.id, to: s) }
-                    app.log(.person(app.me), "rectangle.split.3x1", "把 \(item.id) 移到「\(s.label)」", .development)
-                } label: {
-                    Label(s.label, systemImage: s.devIcon)
-                }
-                .disabled(s == item.status)
-            }
-        }
-        if item.assignee != .person(app.me) {
-            Button("指派給我") { DevWorkActions.assign(app, item.id, to: .person(app.me)) }
-        }
-        if item.assignee != nil {
-            Button("取消指派") { DevWorkActions.assign(app, item.id, to: nil) }
+        Button("打開詳細資料") { model.showIssue(issue.id) }
+        Divider()
+        if issue.status == .open {
+            Button("關閉 Issue") { onStatus(.closed) }
+        } else {
+            Button("重新打開") { onStatus(.open) }
         }
         Divider()
-        Button("查看詳細資料") { showDetail = true }
-        if let svc = item.service {
-            Button("前往服務「\(app.service(svc)?.name ?? svc)」") { app.go(.infrastructure, focus: svc) }
-        }
         Button("複製編號") {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(item.id, forType: .string)
+            NSPasteboard.general.setString(issue.id, forType: .string)
         }
     }
 }
 
-enum DevWorkActions {
-    @MainActor
-    static func assign(_ app: AppState, _ id: String, to actor: Actor?) {
-        guard let i = app.workItems.firstIndex(where: { $0.id == id }) else { return }
-        app.workItems[i].assignee = actor
-        let who = actor.map { app.name(of: $0) } ?? "未指派"
-        app.log(.person(app.me), "person.crop.circle.badge.checkmark", "把 \(id) 指派給 \(who)", .development)
-    }
-}
-
-// MARK: - 卡片詳細(popover)
-
-private struct DevWorkDetail: View {
-    @EnvironmentObject var app: AppState
-    @EnvironmentObject var model: DevModel
-    let item: WorkItem
-
-    private var current: WorkItem { app.workItems.first { $0.id == item.id } ?? item }
+/// 卡片上的小標記(指派、倉庫、標籤):太長時截斷,不撐開卡片
+private struct BoardTag: View {
+    let text: String
+    let icon: String
+    var color: Color = .secondary
+    var monospaced = false
+    var maxWidth: CGFloat? = nil
 
     var body: some View {
-        let w = current
-        let prs = app.pullRequests.filter { $0.linkedItem == w.id }
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text(w.id).font(.callout.monospaced()).foregroundStyle(.secondary)
-                Pill(text: w.type.label, color: w.type.color)
-                if w.createdByAI { AIBadge(text: "AI 建立") }
-                Spacer()
-                Text("\(w.points) 點").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-            }
-            Text(w.title).font(.headline).fixedSize(horizontal: false, vertical: true)
-
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                GridRow {
-                    Text("狀態").foregroundStyle(.secondary)
-                    Picker("狀態", selection: Binding(
-                        get: { w.status },
-                        set: { s in
-                            app.moveWorkItem(id: w.id, to: s)
-                            app.log(.person(app.me), "rectangle.split.3x1", "把 \(w.id) 移到「\(s.label)」", .development)
-                        })) {
-                        ForEach(WorkStatus.allCases) { s in Text(s.label).tag(s) }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                }
-                GridRow {
-                    Text("負責人").foregroundStyle(.secondary)
-                    HStack {
-                        if let a = w.assignee { ActorLabel(actor: a) } else { Text("未指派").foregroundStyle(.tertiary) }
-                        if w.assignee != .person(app.me) {
-                            Button("指派給我") { DevWorkActions.assign(app, w.id, to: .person(app.me)) }
-                                .buttonStyle(.link).font(.caption)
-                        }
-                    }
-                }
-                if let svc = w.service {
-                    GridRow {
-                        Text("服務").foregroundStyle(.secondary)
-                        Button {
-                            app.go(.infrastructure, focus: svc)
-                        } label: {
-                            HStack(spacing: 4) {
-                                if let s = app.service(svc) { HealthBadge(health: s.health, compact: true) }
-                                Text(app.service(svc)?.name ?? svc)
-                                Image(systemName: "arrow.up.forward").font(.caption2)
-                            }
-                        }
-                        .buttonStyle(.link)
-                    }
-                }
-            }
-            .font(.callout)
-
-            if !prs.isEmpty {
-                Divider()
-                Text("相關 Pull Request").font(.subheadline.weight(.medium))
-                ForEach(prs) { pr in
-                    Button { model.showPR(pr.id) } label: {
-                        HStack(spacing: 6) {
-                            Circle().fill(pr.status.color).frame(width: 7, height: 7)
-                            Text("#\(pr.id)").monospacedDigit().foregroundStyle(.secondary)
-                            Text(pr.title).lineLimit(1)
-                            Spacer(minLength: 4)
-                            DevChecksIcon(status: pr.checks)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .font(.callout)
-                }
-            }
+        HStack(spacing: 3) {
+            Image(systemName: icon).imageScale(.small)
+            Text(text)
+                .font(monospaced ? .caption.monospaced() : .caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
-        .padding(16)
-        .frame(width: 340)
+        .font(.caption)
+        .foregroundStyle(color)
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(color.opacity(0.12), in: Capsule())
+        .frame(maxWidth: maxWidth, alignment: .leading)
     }
 }

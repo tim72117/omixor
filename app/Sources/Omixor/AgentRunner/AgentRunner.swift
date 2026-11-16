@@ -230,9 +230,15 @@ final class AgentRunner: ObservableObject {
         }
     }
 
+    /// 功能開關「自動執行」(key 見 core/model/features.go)
+    static let featureKey = "automation.runner"
+    /// 功能開關開著:關掉時不領新任務、不因 @ 排回覆任務(進行中的那筆讓它做完)
+    var featureEnabled: Bool { app.isFeatureEnabled(Self.featureKey) }
+
     /// 看一次:沒有在跑的,就挑一筆開了自動執行的角色的待領取任務來處理
     func tick() {
         loadIfNeeded()
+        guard featureEnabled else { return }
         if mentionCheck == nil { Task { await checkMentions() } }   // 上一輪還沒跑完就跳過
         guard job == nil, serverReady, let store = app.agentStore else { return }
         let auto = Set(configs.filter { $0.value.autoRun }.map(\.key))
@@ -284,6 +290,7 @@ final class AgentRunner: ObservableObject {
             await gw.refreshIfNeeded()
             if let v = gw.view, v.enabled, !v.grants(of: t.agentId).isEmpty {
                 gatewayToken = gw.issueToken(agentId: t.agentId, taskId: t.id, ttl: TimeInterval(cfg.timeoutMinutes * 60 + 300))
+                if gatewayToken == nil { lastError = "產生閘道 token 失敗(系統亂數來源錯誤):這次不給外部 MCP 工具" }
             }
         }
         gwToken = gatewayToken ?? ""
@@ -456,6 +463,10 @@ struct AutoRunnerView: View {
         VStack(alignment: .leading, spacing: 6) {
             if !runner.claudeFound {
                 Label("找不到 claude(Claude Code CLI):請先安裝並用訂閱帳號登入", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+            }
+            if !runner.featureEnabled {
+                Label("「自動執行」功能在 系統 › 功能開關 關閉了:不會領取新任務,也不會因 @ 排回覆任務;進行中的那筆會做完", systemImage: "pause.circle.fill")
+                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             if !runner.serverReady {
                 Label("還連不上 omixor server(本機模式是本機服務):連上後才會自動執行", systemImage: "internaldrive").foregroundStyle(.secondary)

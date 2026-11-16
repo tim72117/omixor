@@ -5,6 +5,7 @@ import Foundation
 //
 // 一行一則 JSON-RPC 訊息(MCP stdio 規格)。app 沒開時,請求會收到 JSON-RPC 錯誤。
 // 連線位址:OPS_MCP_URL,或 OPS_MCP_PORT 指定連接埠。
+// 存取 token:OPS_MCP_TOKEN(App 的 設定 › 整合 › MCP 伺服器 可以顯示或重新產生;沒帶時 App 回 401)。
 
 let env = ProcessInfo.processInfo.environment
 let endpoint: URL = {
@@ -43,6 +44,7 @@ func post(_ body: Data) -> Result<(Int, Data), Error> {
     req.httpBody = body
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
+    if let t = env["OPS_MCP_TOKEN"], !t.isEmpty { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
     let sem = DispatchSemaphore(value: 0)
     var out: Result<(Int, Data), Error> = .failure(URLError(.unknown))
     session.dataTask(with: req) { data, resp, err in
@@ -67,6 +69,11 @@ while let line = readLine(strippingNewline: true) {
     case .success(let (status, data)):
         if status == 202 || data.isEmpty { continue }
         if status == 200 { write(data); continue }
+        if status == 401 {
+            log("HTTP 401:沒帶或帶錯 token")
+            if let id { write(errorReply(id: id, "omixor app 拒絕(401):請在環境變數 OPS_MCP_TOKEN 放 App 的 MCP 存取 token(設定 › 整合 › MCP 伺服器)")) }
+            continue
+        }
         let text = String(decoding: data, as: UTF8.self)
         log("HTTP \(status): \(text)")
         if let id { write(errorReply(id: id, "omixor app 回應 HTTP \(status):\(text)")) }

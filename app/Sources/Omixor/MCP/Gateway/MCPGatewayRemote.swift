@@ -45,18 +45,18 @@ struct CoreMCPServer: Codable, Hashable, Identifiable {
         description = (try? c.decode(String.self, forKey: .description)) ?? ""
         transport = (try? c.decode(String.self, forKey: .transport)) ?? "stdio"
         command = try? c.decode(String.self, forKey: .command)
-        args = (try? c.decode([String].self, forKey: .args)) ?? []
+        args = c.lossyArray(String.self, .args)
         cwd = try? c.decode(String.self, forKey: .cwd)
-        envNames = (try? c.decode([String].self, forKey: .envNames)) ?? []
+        envNames = c.lossyArray(String.self, .envNames)
         url = try? c.decode(String.self, forKey: .url)
-        headerNames = (try? c.decode([String].self, forKey: .headerNames)) ?? []
+        headerNames = c.lossyArray(String.self, .headerNames)
         enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? false
         toolDefault = (try? c.decode(Bool.self, forKey: .toolDefault)) ?? false
-        tools = (try? c.decode([CoreMCPToolRule].self, forKey: .tools)) ?? []
+        tools = c.lossyArray(CoreMCPToolRule.self, .tools)
         updatedBy = try? c.decode(String.self, forKey: .updatedBy)
     }
 
-    /// 這台需要的密鑰(種類、名稱)
+    /// 這台需要的密鑰(種類、名稱):http 是標頭;stdio 是環境變數(參數的 ${名稱} 佔位也只能用這些名稱)
     var secretNames: [(kind: MCPSecretVault.Kind, name: String)] {
         transport == "http" ? headerNames.map { (.header, $0) } : envNames.map { (.env, $0) }
     }
@@ -65,12 +65,15 @@ struct CoreMCPServer: Codable, Hashable, Identifiable {
 struct CoreMCPGrant: Codable, Hashable {
     var server: String
     var tools: [String]
+    /// 整台伺服器的工具都給(core 的 all;舊格式 tools 空 = all)
+    var all: Bool
 
-    init(server: String, tools: [String] = []) { self.server = server; self.tools = tools }
+    init(server: String, tools: [String] = [], all: Bool? = nil) { self.server = server; self.tools = tools; self.all = all ?? tools.isEmpty }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         server = try c.decode(String.self, forKey: .server)
-        tools = (try? c.decode([String].self, forKey: .tools)) ?? []
+        tools = c.lossyArray(String.self, .tools)
+        all = (try? c.decode(Bool.self, forKey: .all)) ?? tools.isEmpty
     }
 }
 
@@ -89,7 +92,7 @@ struct CoreMCPView: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? false
         note = try? c.decode(String.self, forKey: .note)
-        servers = (try? c.decode([CoreMCPServer].self, forKey: .servers)) ?? []
+        servers = c.lossyArray(CoreMCPServer.self, .servers)
         grants = (try? c.decode([String: [CoreMCPGrant]].self, forKey: .grants)) ?? [:]
         canEdit = (try? c.decode(Bool.self, forKey: .canEdit)) ?? false
     }
@@ -156,7 +159,8 @@ extension IssueRemote {
 
     /// POST /mcp-grants:整份取代角色的權限
     func saveMCPGrants(org: String, agent: String, grants: [CoreMCPGrant]) throws {
-        let g = grants.map { ["server": $0.server, "tools": $0.tools] as [String: Any] }
+        // 整台:送 all: true(core 的 tools 空白會回 400)
+        let g = grants.map { $0.all ? ["server": $0.server, "all": true] as [String: Any] : ["server": $0.server, "tools": $0.tools] as [String: Any] }
         _ = try send("POST", orgURL(org, ["mcp-grants"]), try json(["agentId": agent, "grants": g]))
     }
 
@@ -173,6 +177,7 @@ extension IssueRemote {
 /// 外部 MCP 伺服器需要的密鑰的值:只存在這台的鑰匙圈(core 只有名稱)。
 /// service 可以換(測試一律用暫存的名稱,不碰正式鑰匙圈);帳號是 "<組織>/<伺服器>/<env|header>:<名稱>"
 enum MCPSecretVault {
+    /// env:子程序環境變數(stdio 參數的 ${名稱} 也用它代入);header:HTTP 標頭
     enum Kind: String { case env, header }
 
     nonisolated(unsafe) static var service = ProcessInfo.processInfo.environment["OPS_MCP_KEYCHAIN_SERVICE"] ?? "com.tim72117.ops.mcp-gateway"

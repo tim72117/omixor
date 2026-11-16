@@ -126,11 +126,20 @@ struct SettingsIntegrationsPane: View {
     }
 }
 
-/// 內建 MCP 伺服器:狀態、位址、加到 Claude Code 的指令
+/// 內建 MCP 伺服器:狀態、位址、存取 token、加到 Claude Code 的指令
 private struct MCPServerSection: View {
     @EnvironmentObject var app: AppState
+    @State private var confirmRegenerate = false
+    @State private var tokenNote: String?
+    @State private var showToken = false
 
-    private var command: String { "claude mcp add --transport http ops \(app.mcp.url)" }
+    /// 畫面上顯示的指令(token 遮起來);複製的是完整的
+    private var maskedCommand: String { MCPLocalToken.claudeCommand(url: app.mcp.url, token: "omxl_••••••••") }
+
+    private func copy(_ s: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(s, forType: .string)
+    }
 
     private var stateText: (String, Color) {
         switch app.mcp.state {
@@ -159,15 +168,32 @@ private struct MCPServerSection: View {
             LabeledContent("位址") {
                 Text(app.mcp.url).font(.system(.body, design: .monospaced)).textSelection(.enabled)
             }
+            LabeledContent("存取 token") {
+                HStack {
+                    Text(showToken ? (MCPLocalToken.current() ?? "(產生失敗)") : "omxl_••••••••")
+                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled).lineLimit(1)
+                    Button(showToken ? "隱藏" : "顯示") { showToken.toggle() }
+                    Button("重新產生…") { confirmRegenerate = true }
+                }
+            }
             LabeledContent("加到 Claude Code") {
                 HStack {
-                    Text(command).font(.system(.caption, design: .monospaced)).textSelection(.enabled).lineLimit(1)
-                    Button("複製") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(command, forType: .string)
+                    Text(maskedCommand).font(.system(.caption, design: .monospaced)).lineLimit(2)
+                    Button("複製 Claude Code 設定指令") {
+                        guard let t = MCPLocalToken.current() else { tokenNote = "產生 token 失敗(系統亂數來源錯誤),請稍後再試"; return }
+                        copy(MCPLocalToken.claudeCommand(url: app.mcp.url, token: t))
+                        tokenNote = "已複製(含 token)。在終端機貼上執行即可"
                     }
                 }
             }
+            Text("""
+            /mcp 一定要帶 Authorization: Bearer <token>,沒帶或不對會被拒絕(401);token 代表「這台 Mac 的使用者」,只存在這台的鑰匙圈。
+            已經用舊指令加過 ops 的,先在終端機執行 claude mcp remove ops(當初用 -s user 加的要加 -s user),再貼上複製的指令(要全域可用可在 add 後加 -s user)。
+            只支援 stdio 的用戶端(omixor-mcp 轉接程式)在環境變數 OPS_MCP_TOKEN 放這把 token。重新產生後舊的立刻失效,用到的地方都要重新設定。
+            token 會存在 Claude Code 的設定檔(~/.claude.json),不要把那個檔案分享出去。
+            """)
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let tokenNote { Text(tokenNote).font(.caption).foregroundStyle(.orange) }
             if app.mcp.requests > 0 {
                 LabeledContent("最近使用") {
                     Text([app.mcp.lastClient, app.mcp.lastTool, app.mcp.lastRequestAt.map { $0.formatted(date: .omitted, time: .standard) }]
@@ -176,5 +202,14 @@ private struct MCPServerSection: View {
                 }
             }
         }
+        .confirmationDialog("重新產生 MCP 存取 token?", isPresented: $confirmRegenerate) {
+            Button("重新產生", role: .destructive) {
+                if MCPLocalToken.regenerate() != nil {
+                    tokenNote = "已重新產生:舊的 token 立刻失效。請重新複製 Claude Code 設定指令(先 claude mcp remove ops 再加)"
+                } else {
+                    tokenNote = "重新產生失敗(系統亂數來源錯誤),舊的 token 照舊可用"
+                }
+            }
+        } message: { Text("舊的 token 會立刻失效,Claude Code 等用戶端要用新的指令重新設定。") }
     }
 }

@@ -24,16 +24,6 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(DispatchStore.rows(tasks, scope: .all, agent: "a", now: now).map(\.id), ["T-2", "T-1"])
     }
 
-    func testIssueFilter() {
-        var a = Issue(id: "ISS-1", title: "登入壞了", labels: ["bug"])
-        a.comments = [IssueComment(id: "c", author: "x", text: "Safari 才會")]
-        let b = Issue(id: "ISS-2", title: "改版", status: "closed")
-        XCTAssertEqual(IssuesStore.filter([a, b], query: "", status: .open).map(\.id), ["ISS-1"])
-        XCTAssertEqual(IssuesStore.filter([a, b], query: "", status: .closed).map(\.id), ["ISS-2"])
-        XCTAssertEqual(IssuesStore.filter([a, b], query: "safari BUG", status: .all).map(\.id), ["ISS-1"])
-        XCTAssertEqual(IssuesStore.filter([a, b], query: "iss-2", status: .all).map(\.id), ["ISS-2"])
-    }
-
     func testMergeMessages() {
         let d = Date()
         let m = { (n: Int) in ChannelMessage(id: "M-\(n)", author: "user:a", text: "\(n)", at: d) }

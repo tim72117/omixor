@@ -3,7 +3,6 @@ package api_test
 import (
 	"testing"
 
-	"omixor-core/model"
 	"omixor-core/service"
 )
 
@@ -24,18 +23,18 @@ func TestTemplatesAPI(t *testing.T) {
 	if l, err := alice.ListOrgTemplates("home"); err != nil || len(l) != 0 {
 		t.Fatal(l, err)
 	}
-	if model.BuildEdition != model.EditionDev {
-		// 正式版:沒有家庭助理,開不了、套用 404
-		if _, err := boss.SaveSystemSettings("home", service.SystemSettingsInput{Features: map[string]bool{"familyAssistant": true}}); status(err) != 400 {
-			t.Fatal(err)
-		}
-		if _, err := boss.ApplyOrgTemplate("home", "family", service.TemplateApplyInput{}); status(err) != 404 {
-			t.Fatal(err)
-		}
-		if _, err := alice.PreviewOrgTemplate("home", "family", false); status(err) != 404 {
-			t.Fatal(err)
-		}
-		return
+	// 系統層預設沒開放家庭助理:組織層開不了、套用 404
+	if _, err := boss.SaveSystemSettings("home", service.SystemSettingsInput{Features: map[string]bool{"familyAssistant": true}}); status(err) != 400 {
+		t.Fatal(err)
+	}
+	if _, err := boss.ApplyOrgTemplate("home", "family", service.TemplateApplyInput{}); status(err) != 404 {
+		t.Fatal(err)
+	}
+	if _, err := alice.PreviewOrgTemplate("home", "family", false); status(err) != 404 {
+		t.Fatal(err)
+	}
+	if _, err := boss.SaveServerFeatures(service.SystemSettingsInput{Features: map[string]bool{"familyAssistant": true}}); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := boss.ApplyOrgTemplate("home", "family", service.TemplateApplyInput{}); status(err) != 403 {
 		t.Fatal(err)

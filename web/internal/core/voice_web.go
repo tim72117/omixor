@@ -22,7 +22,7 @@ func init() {
 	RegisterView("voice_settings", func(a *App) any { return voiceSettingsView(a) })
 	OnBadge(func(a *App) map[string]int {
 		p := VoiceOf(a)
-		if p == nil {
+		if p == nil || !a.FeatureOn("pipelines.voice") {
 			return nil
 		}
 		n := 0

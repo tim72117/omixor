@@ -1,0 +1,54 @@
+{
+  "layout": [
+    {
+      "id": "overview",
+      "label": "總覽",
+      "path": "/studio",
+      "tabs": []
+    },
+    {
+      "id": "levels",
+      "label": "課程",
+      "path": "/studio/tools",
+      "tabs": [
+        {
+          "code": "L0",
+          "group": "做出自己的軟體",
+          "label": "AI 工具介紹",
+          "path": "/studio/tools"
+        },
+        {
+          "label": "AI 工具技巧",
+          "path": "/studio/ai-tips"
+        }
+      ]
+    }
+  ],
+  "docs": [
+    {
+      "author": "agent:pm",
+      "body": "# AI 工具\n\n- Claude\n- Codex",
+      "createdAt": "2026-10-10T00:00:00Z",
+      "id": "DOC-4",
+      "section": "levels",
+      "tab": "/studio/tools",
+      "tags": [
+        "課程",
+        "L0"
+      ],
+      "title": "AI 工具介紹",
+      "updatedAt": "2026-10-11T00:00:00Z"
+    },
+    {
+      "author": "tim@example.com",
+      "body": "",
+      "createdAt": "2026-10-01T00:00:00Z",
+      "id": "DOC-1",
+      "section": "overview",
+      "tags": [],
+      "title": "放在區塊本身的文件",
+      "updatedAt": "2026-10-01T00:00:00Z"
+    }
+  ],
+  "layoutSaved": true
+}

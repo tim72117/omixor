@@ -24,15 +24,8 @@ type connState struct {
 	Scope  string // 鑰匙圈的組織前綴
 	Gen    int    // 每次重新讀組織資料加一,背景工作用來判斷是不是過期了
 
-	GH      GHSettings
-	GHSnap  GHSnapshot
-	GHETags map[string]ghCached // GitHub 條件請求的快取(ETag → 上次的內容),只在記憶體
-
 	GCP     GCPSettings
 	GCPSnap GCPSnapshot
-
-	GL     GLSettings
-	GLSnap GLSnapshot
 
 	VisitorsConn string
 	loadedOnce   bool
@@ -45,8 +38,7 @@ func (a *App) conns() *connState {
 	if s, ok := a.Ext["connections"].(*connState); ok {
 		return s
 	}
-	s := &connState{States: map[string]*ConnectionState{}, GH: DefaultGHSettings(), GCP: DefaultGCPSettings(), GL: DefaultGLSettings(),
-		GLSnap: emptyGLSnapshot(), VisitorsConn: "evoleap"}
+	s := &connState{States: map[string]*ConnectionState{}, GCP: DefaultGCPSettings(), VisitorsConn: "evoleap"}
 	a.Ext["connections"] = s
 	return s
 }
@@ -519,7 +511,7 @@ func ConnRequestWith(a *App, id, method, path string, body []byte, extra map[str
 
 // MARK: - 組織、背景確認
 
-// connBackground 讀組織資料後:讀鑰匙圈(預熱快取)、確認登入、切換組織時更新 GitHub / GCP
+// connBackground 讀組織資料後:讀鑰匙圈(預熱快取)、確認登入、切換組織時更新 GCP 與選用模組(GitHub、GitLab)的資料
 func connBackground(a *App, gen int, refreshServices bool) {
 	a.Mu.Lock()
 	s := a.conns()
@@ -547,14 +539,15 @@ func connBackground(a *App, gen int, refreshServices bool) {
 		ConnRefreshAccount(a, id)
 	}
 	if refreshServices && !stale() {
-		if ghLoggedIn(a) {
-			GHRefresh(a)
-		}
 		if gcpLoggedIn(a) && gcpConfigured(a) {
 			GCPRefresh(a)
 		}
-		if GLLoggedIn(a) {
-			GLRefresh(a)
+		// 選用模組(例如 GitHub、GitLab)的服務資料(OnConnRefresh)
+		for _, f := range connRefreshers {
+			if stale() {
+				return
+			}
+			f(a)
 		}
 	}
 }
@@ -562,9 +555,11 @@ func connBackground(a *App, gen int, refreshServices bool) {
 func init() {
 	OnOrgLoad(func(a *App) {
 		connLoad(a)
-		ghLoad(a)
+		// 選用模組(例如 GitHub、GitLab)的設定(OnConnLoad;在背景確認登入之前)
+		for _, f := range connLoadHooks {
+			f(a)
+		}
 		gcpLoad(a)
-		glLoad(a)
 		s := a.conns()
 		gen, switching := s.Gen, s.loadedOnce
 		s.loadedOnce = true
@@ -576,9 +571,8 @@ func init() {
 		if template == "copyCurrent" {
 			s := a.conns()
 			_ = WriteJSON(filepath.Join(dir, "connections.json"), s.List)
-			_ = WriteJSON(filepath.Join(dir, "github.json"), s.GH)
 			_ = WriteJSON(filepath.Join(dir, "gcp.json"), s.GCP)
-			_ = WriteJSON(filepath.Join(dir, "gitlab.json"), s.GL)
+			// github.json、gitlab.json 由選用模組 integrations 的 OnOrgCreate 複製
 			return
 		}
 		_ = WriteJSON(filepath.Join(dir, "connections.json"), []Connection{})

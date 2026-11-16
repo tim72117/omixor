@@ -1,178 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// 開發進度 › GitHub:追蹤中 repo 的真實 PR(含檢查)與 Actions 執行。只讀。
-struct DevGitHubTab: View {
-    @EnvironmentObject var app: AppState
-    @State private var mode: Mode = .runs
-    @State private var selectedRun: Int?
-    @State private var selectedPull: String?
-    @State private var failedOnly = false
-    @State private var repoFilter: String?
-    @State private var newRepo = ""
-    @State private var repoError: String?
-
-    enum Mode: String, CaseIterable, Identifiable { case runs, pulls; var id: String { rawValue } }
-
-    /// 不在畫面計算時啟動(會在更新畫面途中改 @Published);app 啟動時已經建好
-    private var store: GitHubStore { app.ghStore ?? GitHubStore(app: app) }
-    private var state: ConnectionState? { app.connectionStates[app.githubSettings.connection] }
-
-    var body: some View {
-        Group {
-            if store.connection == nil || !store.isLoggedIn {
-                ScrollView { GitHubSetupView().padding(24).frame(maxWidth: 720) }
-                    .frame(maxWidth: .infinity)
-            } else {
-                main
-            }
-        }
-        .onAppear {
-            if store.isLoggedIn, app.github.fetchedAt == nil { Task { await store.refresh() } }
-        }
-        .onChange(of: state?.account) { _, acc in
-            if acc != nil, store.isLoggedIn, app.github.fetchedAt == nil { Task { await store.refresh() } }
-        }
-        .onChange(of: app.currentOrgId) { selectedRun = nil; selectedPull = nil; repoFilter = nil }
-    }
-
-    // MARK: 主畫面
-
-    private var main: some View {
-        VStack(spacing: 0) {
-            toolbar
-            if !app.github.errors.isEmpty || app.github.error != nil || app.github.settingsError != nil {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let e = app.github.error { Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
-                    // 追蹤的 repo 是組織的設定(存在 omixor server);讀寫不到時顯示原因
-                    if let e = app.github.settingsError { Label("組織設定:\(e)", systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
-                    ForEach(app.github.errors.sorted(by: { $0.key < $1.key }), id: \.key) { r, e in
-                        Label("\(r):\(e)", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                    }
-                }
-                .font(.caption)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16).padding(.vertical, 6)
-                .background(.orange.opacity(0.08))
-            }
-            Divider()
-            if app.githubSettings.repos.isEmpty {
-                EmptyStateView(title: "還沒追蹤任何 repo", icon: "shippingbox",
-                               message: "在上面輸入 owner/name(例如 tim72117/evoleap)按「加入」。")
-            } else {
-                HStack(spacing: 0) {
-                    list.frame(width: 440)
-                    Divider()
-                    Group {
-                        if mode == .runs, let id = selectedRun, let r = app.github.runs.first(where: { $0.id == id }) {
-                            GHRunDetail(run: r).id(r.id)
-                        } else if mode == .pulls, let id = selectedPull, let p = app.github.pulls.first(where: { $0.id == id }) {
-                            GHPullDetailView(pull: p).id(p.id)
-                        } else {
-                            EmptyStateView(title: mode == .runs ? "選一筆執行" : "選一個 PR", icon: "arrow.triangle.branch",
-                                           message: "資料每 5 分鐘自動更新,也可以按右上角重新整理。")
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-        }
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "person.crop.circle.badge.checkmark").foregroundStyle(.green)
-            Text(state?.account ?? "已登入").font(.callout)
-            Divider().frame(height: 16)
-            ForEach(app.githubSettings.repos, id: \.self) { r in
-                Menu {
-                    if let u = URL(string: "https://github.com/\(r)") { Button("在 GitHub 打開") { NSWorkspace.shared.open(u) } }
-                    Button("停止追蹤", role: .destructive) { removeRepo(r) }
-                } label: { Label(r, systemImage: "shippingbox") }
-                .menuStyle(.borderlessButton).fixedSize()
-            }
-            TextField("owner/name", text: $newRepo).textFieldStyle(.roundedBorder).frame(width: 160)
-                .onSubmit(addRepo)
-            Button("加入", action: addRepo).disabled(newRepo.trimmingCharacters(in: .whitespaces).isEmpty)
-            if let repoError { Text(repoError).font(.caption).foregroundStyle(.red).lineLimit(1) }
-            Spacer()
-            if let t = app.github.fetchedAt {
-                Text("更新於 " + Fmt.relative(t)).font(.caption).foregroundStyle(.secondary)
-            }
-            if app.github.busy { ProgressView().controlSize(.small) }
-            Button { Task { await store.refresh() } } label: { Image(systemName: "arrow.clockwise") }
-                .help("重新整理").disabled(app.github.busy)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 8)
-    }
-
-    /// 停止追蹤(存到組織的設定,要組織管理員)
-    private func removeRepo(_ r: String) {
-        do {
-            try store.removeRepo(r)
-            repoError = nil
-            if repoFilter == r { repoFilter = nil }
-        } catch { repoError = error.localizedDescription }
-    }
-
-    private func addRepo() {
-        do {
-            try store.addRepo(newRepo)
-            newRepo = ""; repoError = nil
-            Task { await store.refresh() }
-        } catch { repoError = error.localizedDescription }
-    }
-
-    // MARK: 清單
-
-    private var runs: [GHRun] {
-        app.github.runs.filter { (repoFilter == nil || $0.repo == repoFilter) && (!failedOnly || $0.isFailure) }
-    }
-    private var pulls: [GHPull] { app.github.pulls.filter { repoFilter == nil || $0.repo == repoFilter } }
-
-    private var list: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Picker("", selection: $mode) {
-                    Text("Actions(\(app.github.runs.count))").tag(Mode.runs)
-                    Text("Pull Requests(\(app.github.pulls.count))").tag(Mode.pulls)
-                }
-                .pickerStyle(.segmented).labelsHidden()
-                if app.githubSettings.repos.count > 1 {
-                    Picker("", selection: $repoFilter) {
-                        Text("全部 repo").tag(String?.none)
-                        ForEach(app.githubSettings.repos, id: \.self) { Text($0).tag(String?.some($0)) }
-                    }
-                    .labelsHidden().frame(width: 130)
-                }
-            }
-            .padding(10)
-            if mode == .runs {
-                Toggle("只看失敗", isOn: $failedOnly).toggleStyle(.checkbox).font(.caption)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.bottom, 6)
-            }
-            Divider()
-            if mode == .runs {
-                if runs.isEmpty {
-                    EmptyStateView(title: app.github.fetchedAt == nil ? "讀取中…" : "沒有執行紀錄", icon: "arrow.triangle.branch")
-                        .frame(maxHeight: .infinity)
-                } else {
-                    List(runs, selection: $selectedRun) { r in GHRunRow(run: r, showRepo: app.githubSettings.repos.count > 1).tag(r.id) }
-                        .listStyle(.inset)
-                }
-            } else {
-                if pulls.isEmpty {
-                    EmptyStateView(title: app.github.fetchedAt == nil ? "讀取中…" : "沒有開著的 PR", icon: "arrow.triangle.pull")
-                        .frame(maxHeight: .infinity)
-                } else {
-                    List(pulls, selection: $selectedPull) { p in GHPullRow(pull: p).tag(p.id) }
-                        .listStyle(.inset)
-                }
-            }
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-    }
-}
+// 開發進度 › Repositories 用的 GitHub 元件:執行與 PR 的列、執行詳情(含失敗步驟與紀錄)、PR 詳情、前往設定的空狀態。
+// 原本獨立的 GitHub 分頁(DevGitHubTab)併進 Repositories(DevRepositoriesTab.swift),這裡只留共用元件。
+// 連線、登入與追蹤的 repo 在 設定 › 程式碼倉庫(Features/Settings/SettingsRepos.swift)。
 
 // MARK: - 狀態樣式
 
@@ -211,7 +42,7 @@ enum GHStyle {
     }
 }
 
-private struct GHRunRow: View {
+struct GHRunRow: View {
     let run: GHRun
     let showRepo: Bool
 
@@ -235,7 +66,7 @@ private struct GHRunRow: View {
     }
 }
 
-private struct GHPullRow: View {
+struct GHPullRow: View {
     let pull: GHPull
 
     var body: some View {
@@ -263,7 +94,7 @@ private struct GHPullRow: View {
 
 // MARK: - 執行詳情
 
-private struct GHRunDetail: View {
+struct GHRunDetail: View {
     @EnvironmentObject var app: AppState
     let run: GHRun
     @State private var jobs: [GHJob]?
@@ -359,7 +190,7 @@ private struct GHRunDetail: View {
 
 // MARK: - PR 詳情
 
-private struct GHPullDetailView: View {
+struct GHPullDetailView: View {
     @EnvironmentObject var app: AppState
     let pull: GHPull
     @State private var detail: GHPullDetail?
@@ -417,135 +248,32 @@ private struct GHPullDetailView: View {
     }
 }
 
-// MARK: - 登入引導
+// MARK: - 程式碼倉庫設定的入口
 
-/// 還沒登入時:建連線 → 註冊 OAuth App → 填 client ID / secret → 瀏覽器登入。也可以改貼個人存取權杖
-struct GitHubSetupView: View {
+/// 分頁頂端的小按鈕:到 設定 › 程式碼倉庫 管理連線與追蹤的 repo
+struct ManageReposButton: View {
     @EnvironmentObject var app: AppState
-    @State private var clientId = ""
-    @State private var secret = ""
-    @State private var useToken = false
-    @State private var token = ""
+    var body: some View {
+        Button { app.go(.settings, focus: SettingsPane.repos.rawValue) } label: { Label("管理倉庫", systemImage: "gearshape") }
+            .help("在 設定 › 程式碼倉庫 管理連線與追蹤的 repo")
+    }
+}
 
-    /// 不在畫面計算時啟動(會在更新畫面途中改 @Published);app 啟動時已經建好
-    private var store: GitHubStore { app.ghStore ?? GitHubStore(app: app) }
-    private var conn: Connection? { store.connection }
-    private var state: ConnectionState? { conn.flatMap { app.connectionStates[$0.id] } }
+/// 還沒設定、沒登入或沒追蹤時的空狀態,附「前往 設定 › 程式碼倉庫」按鈕
+struct RepoSetupEmpty: View {
+    @EnvironmentObject var app: AppState
+    let title: String
+    var icon = "chevron.left.forwardslash.chevron.right"
+    let message: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("連上 GitHub", systemImage: "chevron.left.forwardslash.chevron.right").font(.title2.weight(.semibold))
-            Text("連上後,這裡會列出追蹤中 repo 的 Actions 執行(含失敗的步驟與紀錄)和開著的 PR(含檢查結果);虛擬角色也能透過 MCP 讀。omixor 只讀,不會開 PR、留言或重跑。")
-                .foregroundStyle(.secondary)
-
-            if conn == nil {
-                Button("開始設定") { store.ensureConnection() }.buttonStyle(.borderedProminent)
-            } else if let c = conn, c.auth == .oauth {
-                if c.oauth.clientId.isEmpty || !c.oauth.hasClientSecret { registerSteps(c) } else { loginStep(c) }
-            } else if let c = conn {
-                // 已改成固定 Token 但 token 失效或還沒貼
-                tokenStep(c)
-            }
-
-            if let e = state?.error { Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
-
-            if let c = conn, c.auth == .oauth {
-                DisclosureGroup("改用個人存取權杖", isExpanded: $useToken) { tokenStep(c).padding(.top, 6) }
-                    .font(.callout)
-            }
-        }
-        .onAppear { clientId = conn?.oauth.clientId ?? "" }
-    }
-
-    private func registerSteps(_ c: Connection) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("1. 在 GitHub 註冊一個 OAuth App(只要做一次)").font(.headline)
-                Text("按下面的按鈕會打開 GitHub 的「New OAuth App」頁。名稱和網址會自動帶入;如果沒帶到,照下面填:")
-                    .font(.callout).foregroundStyle(.secondary)
-                copyRow("Application name", "omixor")
-                copyRow("Homepage URL", GitHub.homepage)
-                copyRow("Authorization callback URL", GitHub.callback)
-                Text("「Enable Device Flow」不用勾。按 Register application 後,在 App 頁按「Generate a new client secret」。")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("打開 GitHub 註冊頁") { NSWorkspace.shared.open(GitHub.registerURL) }
-                Divider()
-                Text("2. 把 Client ID 和 Client secret 貼到這裡").font(.headline)
-                TextField("Client ID", text: $clientId).textFieldStyle(.roundedBorder)
-                SecureField("Client secret(存在鑰匙圈)", text: $secret).textFieldStyle(.roundedBorder)
-                Button("儲存並用瀏覽器登入") {
-                    var n = c
-                    n.oauth.clientId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
-                    app.connStore?.upsert(n)
-                    app.connStore?.setClientSecret(secret.trimmingCharacters(in: .whitespacesAndNewlines), for: c.id)
-                    secret = ""
-                    Task { await app.connStore?.login(c.id) }
-                }
+        ContentUnavailableView {
+            Label(title, systemImage: icon)
+        } description: {
+            Text(message)
+        } actions: {
+            Button("前往 設定 › 程式碼倉庫") { app.go(.settings, focus: SettingsPane.repos.rawValue) }
                 .buttonStyle(.borderedProminent)
-                .disabled(clientId.trimmingCharacters(in: .whitespaces).isEmpty || (secret.isEmpty && !c.oauth.hasClientSecret))
-            }
-        }
-    }
-
-    private func loginStep(_ c: Connection) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("用瀏覽器登入 GitHub").font(.headline)
-                Text("會打開 GitHub 的授權頁,按 Authorize 後回到 omixor 就完成了。權限只要 read:user;公開 repo 的 PR 與 Actions 不用額外權限。")
-                    .font(.callout).foregroundStyle(.secondary)
-                HStack {
-                    Button("用瀏覽器登入") { Task { await app.connStore?.login(c.id) } }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(state?.busy == true)
-                    if state?.busy == true {
-                        ProgressView().controlSize(.small); Text("等瀏覽器授權…").font(.caption)
-                        Button("取消") { app.connStore?.cancelLogin(c.id) }
-                    }
-                    Spacer()
-                    Button("重新設定 OAuth App") {
-                        var n = c; n.oauth.clientId = ""
-                        app.connStore?.upsert(n)
-                        app.connStore?.setClientSecret(nil, for: c.id)
-                        clientId = ""
-                    }
-                    .buttonStyle(.borderless)
-                }
-            }
-        }
-    }
-
-    private func tokenStep(_ c: Connection) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("在 GitHub › Settings › Developer settings › Fine-grained tokens 建一個 token,Repository access 選要追蹤的 repo,權限給 Actions、Pull requests、Checks、Metadata 的 Read-only。")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                SecureField("github_pat_…(存在鑰匙圈)", text: $token).textFieldStyle(.roundedBorder)
-                Button("使用這個 token") {
-                    var n = c; n.auth = .bearer
-                    app.connStore?.upsert(n)
-                    app.connStore?.setBearer(token, for: c.id)
-                    token = ""
-                }
-                .disabled(token.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            if c.auth == .bearer {
-                Button("改回網頁 OAuth 登入") {
-                    var n = c; n.auth = .oauth
-                    app.connStore?.upsert(n)
-                }
-                .buttonStyle(.borderless)
-            }
-        }
-    }
-
-    private func copyRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 180, alignment: .leading)
-            Text(value).font(.callout.monospaced()).textSelection(.enabled)
-            Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string) } label: {
-                Image(systemName: "doc.on.doc")
-            }
-            .buttonStyle(.borderless).help("複製")
         }
     }
 }

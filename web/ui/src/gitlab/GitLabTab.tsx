@@ -1,13 +1,12 @@
-// 開發進度 › GitLab(公司自架):追蹤中專案的 Pipelines(jobs、stage、失敗紀錄)與開著的 Merge Requests(head pipeline、核准)。只讀,只看資料。
-// Swift 版沒有這頁;版面比照 DevGitHubTab。資料:view gitlab;動作:gitlab_refresh、gitlab_jobs、gitlab_job_log、gitlab_mr(見 docs/PORTING.md)。
-// 伺服器、登入、追蹤的專案在 設定 › 程式碼倉庫(元件在 ./gitlabSettings);這裡沒設定好時只顯示空狀態與「前往設定」。
+// GitLab(公司自架)的資料型別、狀態樣式與詳情元件(Pipeline 的 jobs / stage / 失敗原因與紀錄、MR 的 head pipeline、核准與變更檔案)。只讀。
+// 原本是開發進度 › GitLab 分頁(Swift 版沒有);已併進 開發進度 › Repositories(sections/development/DevReposTab.tsx),
+// 這裡只留給 Repositories 的 repo 詳情與 設定 › 程式碼倉庫(./gitlabSettings)用的部分。
+// 資料:view gitlab;動作:gitlab_jobs、gitlab_job_log、gitlab_mr(見 docs/PORTING.md)。
 import { useEffect, useState } from "react";
-import { action, useView } from "../api";
-import { Card, EmptyState, Pill } from "../components/ui";
-import { Banner, Check, MarkdownText, Seg, SIcon, useAct } from "../components/opsKit";
+import { action } from "../api";
+import { Card, Pill } from "../components/ui";
+import { Banner, MarkdownText, SIcon } from "../components/opsKit";
 import { relative } from "../fmt";
-import { ManageReposButton, RepoSetupEmpty } from "../sections/development/devShared";
-import { InsecureBanner } from "./gitlabSettings";
 
 type Connection = {
   id: string; name: string; baseURL: string; auth: "oauth" | "approval" | "bearer" | "basic" | "none";
@@ -16,13 +15,13 @@ type Connection = {
 };
 type ConnState = { account?: string | null; busy?: boolean; error?: string | null; lastTest?: string | null };
 export type GLProject = { id: number; key: string; name: string; path: string; description: string; defaultBranch: string; url: string; visibility: string; lastActivityAt?: string };
-type GLApproval = { approved: boolean; required: number; left: number; approvedBy: string[] };
-type GLMR = {
+export type GLApproval = { approved: boolean; required: number; left: number; approvedBy: string[] };
+export type GLMR = {
   project: string; id: number; iid: number; title: string; author: string; authorName: string; sourceBranch: string; targetBranch: string;
   draft: boolean; labels: string[]; reviewers: string[]; createdAt?: string; updatedAt?: string; url: string; sha: string;
   mergeStatus: string; hasConflicts: boolean; pipeline?: { id: number; status: string; url: string } | null; approval?: GLApproval | null;
 };
-type GLPipeline = {
+export type GLPipeline = {
   project: string; id: number; iid: number; status: string; statusLabel: string; ref: string; sha: string; source: string; sourceLabel: string;
   user: string; userName: string; createdAt?: string; updatedAt?: string; startedAt?: string; finishedAt?: string; duration?: number; url: string;
   isRunning: boolean; isFailure: boolean;
@@ -43,8 +42,8 @@ const LABELS: Record<string, string> = {
   created: "已建立", waiting_for_resource: "等待資源", preparing: "準備中", pending: "排隊中", running: "執行中", success: "成功",
   failed: "失敗", canceled: "已取消", canceling: "取消中", skipped: "略過", manual: "手動", scheduled: "排程",
 };
-const statusLabel = (s?: string) => (s ? LABELS[s] ?? s : "沒有 pipeline");
-function statusIcon(s?: string, allowFailure?: boolean): [string, string] {
+export const statusLabel = (s?: string) => (s ? LABELS[s] ?? s : "沒有 pipeline");
+export function statusIcon(s?: string, allowFailure?: boolean): [string, string] {
   switch (s) {
     case "success": return ["checkmark.circle.fill", "green"];
     case "failed": return allowFailure ? ["exclamationmark.triangle", "orange"] : ["xmark.circle.fill", "red"];
@@ -58,141 +57,7 @@ const dur = (sec?: number | null) => (sec == null || isNaN(sec) ? undefined : se
 const openURL = (u: string) => u && window.open(u, "_blank", "noopener");
 const err = (e: any) => String(e?.message ?? e);
 
-export function GitLabTab() {
-  const [gl, viewErr] = useView<GitLabView>("gitlab", ["connections"]);
-  useEffect(() => {
-    if (gl?.loggedIn && !gl.snapshot?.fetchedAt && !gl.snapshot?.busy) action("gitlab_refresh").catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gl?.loggedIn, gl?.state?.account]);
-  if (viewErr && !gl) return <EmptyState title="讀不到 GitLab 資料" icon="chevron.left.forwardslash.chevron.right" message={viewErr} />;
-  if (!gl) return <EmptyState title="讀取中…" icon="chevron.left.forwardslash.chevron.right" />;
-  if (!gl.connection || !gl.configured || !gl.loggedIn) {
-    return (
-      <div className="col" style={{ flex: 1, minHeight: 0 }}>
-        {gl.insecure && <div style={{ padding: "8px 16px 0" }}><InsecureBanner gl={gl} /></div>}
-        <RepoSetupEmpty title={!gl.connection || !gl.configured ? "還沒設定公司的 GitLab" : "還沒登入 GitLab"}
-          message="GitLab 伺服器、登入與要追蹤的專案在 設定 › 程式碼倉庫 設定。" />
-      </div>
-    );
-  }
-  return <GitLabMain gl={gl} />;
-}
-
-// MARK: - 主畫面
-
-function GitLabMain({ gl }: { gl: GitLabView }) {
-  const [mode, setMode] = useState<"pipelines" | "mrs">("pipelines");
-  const [selPipeline, setSelPipeline] = useState<string>();
-  const [selMR, setSelMR] = useState<string>();
-  const [failedOnly, setFailedOnly] = useState(false);
-  const [rawProjectFilter, setProjectFilter] = useState("");
-  const { run, toastEl } = useAct();
-  const snap = gl.snapshot ?? { projects: [], mrs: [], pipelines: [], busy: false, errors: {} };
-  const projects = gl.settings?.projects ?? [];
-  // 在設定頁停止追蹤後,篩選值可能已不在清單裡,當成「全部專案」
-  const projectFilter = projects.includes(rawProjectFilter) ? rawProjectFilter : "";
-  const nameOf = (key: string) => snap.projects?.find((p) => p.key === key)?.path ?? key;
-  const pipelines = (snap.pipelines ?? []).filter((p) => (!projectFilter || p.project === projectFilter) && (!failedOnly || p.isFailure));
-  const mrs = (snap.mrs ?? []).filter((m) => !projectFilter || m.project === projectFilter);
-  const errs = Object.entries(snap.errors ?? {}).sort(([a], [b]) => a.localeCompare(b));
-  const pSel = snap.pipelines?.find((p) => `${p.project}#${p.id}` === selPipeline);
-  const mSel = snap.mrs?.find((m) => `${m.project}!${m.iid}` === selMR);
-  return (
-    <div className="ops-page">
-      <div className="row gap8 wrap" style={{ padding: "8px 16px", gap: 10 }}>
-        <SIcon name="person.crop.circle.badge.checkmark" color="green" />
-        <span>{gl.state?.account ?? "已登入"}</span>
-        <span className="caption muted mono">{gl.baseURL}</span>
-        <span style={{ width: 1, height: 16, background: "var(--line)" }} />
-        <span className="caption muted">追蹤 {projects.length} 個專案</span>
-        {gl.settingsError && <span className="caption ellipsis" style={{ color: "var(--orange)" }} title={gl.settingsError}>組織設定:{gl.settingsError}</span>}
-        <span className="grow" />
-        {snap.fetchedAt && <span className="caption muted">更新於 {relative(snap.fetchedAt)}</span>}
-        {snap.busy && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
-        <ManageReposButton />
-        <button className="btn" title="重新整理" disabled={snap.busy} onClick={() => run(() => action("gitlab_refresh"))}><SIcon name="arrow.clockwise" /></button>
-      </div>
-      {gl.insecure && <div style={{ padding: "0 16px 6px" }}><InsecureBanner gl={gl} /></div>}
-      {(errs.length > 0 || snap.error) && (
-        <div className="col" style={{ background: "color-mix(in srgb, var(--orange) 8%, transparent)" }}>
-          {snap.error && <Banner>{snap.error}</Banner>}
-          {errs.map(([k, e]) => <Banner key={k}>{k}:{e}</Banner>)}
-        </div>
-      )}
-      <div className="divider" />
-      {projects.length === 0 ? (
-        <RepoSetupEmpty title="還沒追蹤任何專案" icon="shippingbox" message="要追蹤的專案在 設定 › 程式碼倉庫 › GitLab 加入。" />
-      ) : (
-        <div className="ops-fill">
-          <div className="col" style={{ width: 440, flex: "none", borderRight: "1px solid var(--line)", minHeight: 0 }}>
-            <div className="row gap8" style={{ padding: 10 }}>
-              <div className="grow"><Seg value={mode} onChange={setMode} options={[{ value: "pipelines", label: `Pipelines(${snap.pipelines?.length ?? 0})` }, { value: "mrs", label: `Merge Requests(${snap.mrs?.length ?? 0})` }]} /></div>
-              {projects.length > 1 && (
-                <select className="select" style={{ minWidth: 140 }} value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
-                  <option value="">全部專案</option>{projects.map((k) => <option key={k} value={k}>{nameOf(k)}</option>)}
-                </select>
-              )}
-            </div>
-            {mode === "pipelines" && <div style={{ padding: "0 12px 6px" }}><Check on={failedOnly} onChange={setFailedOnly}><span className="caption">只看失敗</span></Check></div>}
-            <div className="divider" />
-            {mode === "pipelines" ? (
-              pipelines.length === 0 ? <EmptyState title={snap.fetchedAt ? "沒有 pipeline" : "讀取中…"} icon="arrow.triangle.branch" /> : (
-                <div className="ops-list">
-                  {pipelines.map((p) => {
-                    const id = `${p.project}#${p.id}`;
-                    const [icon, c] = statusIcon(p.status);
-                    return (
-                      <div key={id} className={"ops-list-row row gap8" + (id === selPipeline ? " on" : "")} style={{ alignItems: "flex-start" }} onClick={() => setSelPipeline(id)}>
-                        <SIcon name={icon} color={c} style={{ marginTop: 2 }} />
-                        <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
-                          <span className="row gap6"><span className="mono ellipsis">{p.ref}</span><span className="caption muted">#{p.iid || p.id}</span><span className="caption">{p.statusLabel}</span></span>
-                          <div className="row gap6 caption muted">
-                            <span>{p.sourceLabel}</span>{p.user && <span>{p.user}</span>}<span className="mono">{p.sha.slice(0, 8)}</span>
-                            {projects.length > 1 && <span className="faint ellipsis">{nameOf(p.project)}</span>}
-                            <span className="grow" />{p.createdAt && <span style={{ flex: "none" }}>{relative(p.createdAt)}</span>}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )
-            ) : mrs.length === 0 ? <EmptyState title={snap.fetchedAt ? "沒有開著的 MR" : "讀取中…"} icon="arrow.triangle.pull" /> : (
-              <div className="ops-list">
-                {mrs.map((m) => {
-                  const id = `${m.project}!${m.iid}`;
-                  const [icon, c] = statusIcon(m.pipeline?.status);
-                  return (
-                    <div key={id} className={"ops-list-row row gap8" + (id === selMR ? " on" : "")} style={{ alignItems: "flex-start" }} onClick={() => setSelMR(id)}>
-                      <SIcon name="arrow.triangle.pull" color={m.draft ? "secondary" : "green"} style={{ marginTop: 2 }} />
-                      <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
-                        <span className="row gap4"><span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{m.title}</span>{m.draft && <Pill text="草稿" />}</span>
-                        <div className="row gap6 caption muted">
-                          <span className="mono">!{m.iid}</span><span>{m.author}</span><span className="mono ellipsis">{m.sourceBranch}</span>
-                          <span title={`pipeline:${statusLabel(m.pipeline?.status)}`}><SIcon name={icon} color={c} size={12} /></span>
-                          <ApprovalMark a={m.approval} />
-                          <span className="grow" />{m.updatedAt && <span style={{ flex: "none" }}>{relative(m.updatedAt)}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          <div className="ops-scroll">
-            {mode === "pipelines" && pSel ? <PipelineDetail key={selPipeline} p={pSel} projectName={nameOf(pSel.project)} />
-              : mode === "mrs" && mSel ? <MRDetail key={selMR} m={mSel} />
-                : <EmptyState title={mode === "pipelines" ? "選一個 pipeline" : "選一個 MR"} icon="arrow.triangle.branch" message="資料每 5 分鐘自動更新,也可以按右上角重新整理。" />}
-          </div>
-        </div>
-      )}
-      {toastEl}
-    </div>
-  );
-}
-
-function ApprovalMark({ a }: { a?: GLApproval | null }) {
+export function ApprovalMark({ a }: { a?: GLApproval | null }) {
   if (!a) return null;
   if (a.approved && a.left === 0) return <span title="已核准"><SIcon name="checkmark.seal" color="green" size={12} /></span>;
   return <span title={`還要 ${a.left} 個核准`}>{a.required - a.left}/{a.required}</span>;
@@ -205,7 +70,7 @@ function approvalText(a?: GLApproval | null) {
   return `還要 ${a.left} 個核准,共要 ${a.required} 個` + by;
 }
 
-function PipelineDetail({ p, projectName }: { p: GLPipeline; projectName: string }) {
+export function PipelineDetail({ p, projectName }: { p: GLPipeline; projectName: string }) {
   const [jobs, setJobs] = useState<GLJob[]>();
   const [stages, setStages] = useState<string[]>([]);
   const [error, setError] = useState<string>();
@@ -273,7 +138,7 @@ function PipelineDetail({ p, projectName }: { p: GLPipeline; projectName: string
   );
 }
 
-function MRDetail({ m }: { m: GLMR }) {
+export function MRDetail({ m }: { m: GLMR }) {
   const [detail, setDetail] = useState<GLMRDetail>();
   const [error, setError] = useState<string>();
   useEffect(() => {

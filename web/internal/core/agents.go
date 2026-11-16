@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"omixor-core/backend"
-	"omixor-core/client"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -48,15 +47,7 @@ func TaskIsOpen(status string) bool { return model.TaskIsOpen(status) }
 // ---- 核心的連線 ----
 
 // agentBackend 目前的核心:遠端模式是 omixor server,本機模式是同一個程式裡的核心;本機沒有資料庫回 errNoDB
-func agentBackend() (backend.Backend, error) {
-	switch b := currentIssueBackend().(type) {
-	case *remoteBackend:
-		return &backend.Remote{Client: func() *client.Client { return b.client("") }, OrgID: serverOrgID}, nil
-	case *localBackend:
-		return &backend.Local{Svc: b.svc, P: localPrincipal, EnsureOrg: true}, nil
-	}
-	return nil, errNoDB
-}
+func agentBackend() (backend.Backend, error) { return coreBackend("") }
 
 // AgentEndpointURL 領取任務時告訴呼叫端的角色端點:遠端模式是雲端的 /mcp/agent;本機是本機 MCP 的 /mcp/agent(呼叫時要拿著 Mu)
 func (a *App) AgentEndpointURL() string {
@@ -72,7 +63,7 @@ func AgentService() *service.Service {
 		return nil
 	}
 	if l := localCore(); l != nil {
-		return l.svc
+		return l.Svc
 	}
 	return nil
 }
@@ -632,6 +623,10 @@ func init() {
 		return "", false
 	})
 	OnBadge(func(a *App) map[string]int {
+		// 需要協助的角色任務:角色或派發分頁開著才算(同 App 的 badge(for:))
+		if !a.FeatureOn("automation.agents") && !a.FeatureOn("automation.dispatch") {
+			return nil
+		}
 		n := 0
 		for _, t := range a.AgentTasks() {
 			if t.Status == "blocked" {
@@ -649,7 +644,7 @@ func init() {
 			for {
 				if !IsRemote() {
 					if l := localCore(); l != nil {
-						if created, err := l.svc.RunDueRoutines(time.Now()); err != nil {
+						if created, err := l.Svc.RunDueRoutines(time.Now()); err != nil {
 							fmt.Fprintf(os.Stderr, "例行任務排程:%v\n", err)
 						} else if len(created) > 0 {
 							a.AgentsChanged()

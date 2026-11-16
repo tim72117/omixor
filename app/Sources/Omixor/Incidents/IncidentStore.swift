@@ -19,7 +19,7 @@ final class IncidentStore {
     /// 目前連的 core server 的用戶端(連線換了會換新的)
     var remote: IssueRemote {
         let cfg = IssueServerConfig.current
-        if let c = remoteClient, c.config == cfg { return c }
+        if let c = remoteClient, c.matches(cfg) { return c }   // 連線設定與組織的 token 範圍都相同才沿用
         let c = IssueRemote(config: cfg)
         remoteClient = c
         return c
@@ -67,18 +67,9 @@ final class IncidentStore {
         guard useServer else { return }
         let org = app.currentOrgId, r = remote, before = app.incidents
         do {
-            var list = try await r.run { try $0.listIncidents(org: org) }
+            let list = try await r.run { try $0.listIncidents(org: org) }
             guard app.currentOrgId == org else { return }
             remoteError = nil
-            if list.isEmpty, let seed = seedPlan(org) {
-                list = try await r.run { r in
-                    do { try r.importIncidents(org: org, seed) } catch {
-                        NSLog("事件範例資料沒有匯入本機服務:%@", error.localizedDescription)
-                    }
-                    return try r.listIncidents(org: org)
-                }
-                guard app.currentOrgId == org else { return }
-            }
             // 讀的期間畫面上的資料被寫入改過:這次讀到的可能比較舊,等下一輪
             guard app.incidents == before else { return }
             apply(list)
@@ -97,9 +88,8 @@ final class IncidentStore {
         guard useServer else { return }
         let org = app.currentOrgId
         do {
-            var list = try remote.listIncidents(org: org)
+            let list = try remote.listIncidents(org: org)
             remoteError = nil
-            if list.isEmpty, seedIfNeeded(org) { list = try remote.listIncidents(org: org) }
             apply(list)
         } catch { remoteFailed(error) }
     }
@@ -125,39 +115,6 @@ final class IncidentStore {
         }
         for aid in one.alertIds {
             if let i = app.alerts.firstIndex(where: { $0.id == aid }) { app.alerts[i].incidentId = one.incident.id }
-        }
-    }
-
-    /// 匯入過範例資料的記號(本機服務的連接埠每次啟動可能不同,所以只依組織);測試時只記在記憶體,不碰 UserDefaults
-    static func seededKey(_ org: String) -> String { "omixor.incidentsSeeded.local.\(org)" }
-    private static var seededInMemory = Set<String>()
-    private static let isTesting = NSClassFromString("XCTestCase") != nil
-    private static func seeded(_ key: String) -> Bool {
-        isTesting ? seededInMemory.contains(key) : UserDefaults.standard.bool(forKey: key)
-    }
-    private static func markSeeded(_ key: String) {
-        if isTesting { seededInMemory.insert(key) } else { UserDefaults.standard.set(true, forKey: key) }
-    }
-
-    /// 本機守護服務的預設組織:伺服器沒有事件、畫面上有範例資料、還沒匯入過 → 回傳要匯入的範例資料(並記下做過了)
-    private func seedPlan(_ org: String) -> [Incident]? {
-        let cfg = remote.config
-        guard cfg.localCore, org == OrgFiles.defaultId, !app.incidents.isEmpty else { return nil }
-        let key = Self.seededKey(org) + (Self.isTesting ? "|\(cfg.url.absoluteString)" : "")
-        guard !Self.seeded(key) else { return nil }
-        Self.markSeeded(key)
-        return app.incidents
-    }
-
-    /// 同 seedPlan,同步匯入。回傳有沒有匯入
-    private func seedIfNeeded(_ org: String) -> Bool {
-        guard seedPlan(org) != nil else { return false }
-        do {
-            try remote.importIncidents(org: org, app.incidents)
-            return true
-        } catch {
-            NSLog("事件範例資料沒有匯入本機服務:%@", error.localizedDescription)
-            return false
         }
     }
 

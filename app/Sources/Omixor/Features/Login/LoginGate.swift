@@ -123,29 +123,47 @@ extension AppState {
     }
 
     /// 切到遠端:還沒登入就開瀏覽器用 evoleap 核准;登入失敗就留在原本的模式。
-    /// 登入成功但伺服器上還沒有我能用的組織:顯示「還沒有組織」畫面(不擋在登入,也不進入沒有組織的遠端模式)
+    /// 登入成功但伺服器上還沒有我能用的組織:顯示「還沒有組織」畫面(不擋在登入,也不進入沒有組織的遠端模式)。
+    /// 整段(確認既有登入、瀏覽器核准、讀組織清單)放在一個可取消的 Task,cancelConnect() 隨時取消都立即生效:
+    /// 不再開瀏覽器、不切模式;這次才換到的 omixor token 撤銷且不留
     func connectRemote(_ s: OmixorMode.Server, auth: String?) async {
         connectError = nil
         if let auth, auth != "evoleap" { connectError = "還不支援授權方式「\(auth)」"; return }
+        guard connectLogin == nil else { return }   // 已經在連接中
         connecting = s.name
-        defer { connecting = nil }
+        let task = Task { @MainActor in try await self.connectRemoteSteps(s) }
+        connectLogin = task
+        defer {
+            // 取消後可能已經開始了新的一次連接:只清自己的
+            if connectLogin == task { connectLogin = nil; connecting = nil }
+        }
+        do { try await task.value } catch where task.isCancelled || error is CancellationError {
+            // 取消時可能停在等回呼(CancellationError)或某個 HTTP 請求(URLError.cancelled):一律當作使用者取消,不顯示錯誤
+            if connectLogin == task || connectLogin == nil { connectError = nil }
+        } catch {
+            connectError = error.localizedDescription
+        }
+    }
+
+    /// connectRemote 的各步驟(在可取消的 Task 裡跑);每一步之後都檢查是否已取消
+    private func connectRemoteSteps(_ s: OmixorMode.Server) async throws {
+        var account = await OmixorAuth.check(server: s.url).account
+        try Task.checkCancellation()   // 確認既有登入期間按了取消:不開瀏覽器
+        var fresh: String?             // 這次才換到的 omixor token(取消時要撤銷)
+        if account == nil {
+            // 換 token 之後才取消的情況,OmixorAuth.exchange 會撤銷剛換到的 token 並丟 CancellationError
+            account = try await OmixorAuth.login(self, server: s.url)
+            fresh = OmixorAuth.token(server: s.url)?.accessToken
+        }
         do {
-            var account = await OmixorAuth.check(server: s.url).account
-            if account == nil {
-                // 等瀏覽器核准:放在可取消的 Task,使用者按「取消」時 cancelConnect() 取消它
-                let login = Task { try await OmixorAuth.login(self, server: s.url) }
-                connectLogin = login
-                defer { connectLogin = nil }
-                do { account = try await login.value } catch {
-                    // 取消時可能停在等回呼(CancellationError)或某個 HTTP 請求(URLError.cancelled):一律當作使用者取消
-                    if login.isCancelled { throw CancellationError() }
-                    throw error
-                }
-            }
+            try Task.checkCancellation()
             let list: [ServerOrg]
             do { list = try await OmixorAuth.listOrgs(server: s.url) } catch {
+                try Task.checkCancellation()
                 throw ConnectionError("讀不到 \(s.name) 的組織清單:\(error.localizedDescription)")
             }
+            // 下面到切換模式之間沒有 await:這裡沒被取消,就一定是完整做完
+            try Task.checkCancellation()
             guard !list.isEmpty else {
                 if let account { noOrgsServer = (s, account) } else { throw ConnectionError("\(s.name) 的登入失效,請再試一次") }
                 return
@@ -153,15 +171,19 @@ extension AppState {
             enterRemote(s, list, account: account)
             if let w = OmixorAuth.takeKeychainWarning() { errorNotice = "已登入 \(s.name),但\(w)" }
         } catch is CancellationError {
-            connectError = nil   // 使用者取消:留在原本的畫面,不顯示錯誤
-        } catch {
-            connectError = error.localizedDescription
+            // 已經存了新 token 才取消:撤銷並刪掉(原本就存著、確認有效的登入不動)
+            if let fresh { await OmixorAuth.discard(server: s.url, token: fresh) }
+            throw CancellationError()
         }
     }
 
-    /// 取消等待瀏覽器核准(停止等 evoleap 回呼,回到原本的畫面)
+    /// 取消連接遠端(確認登入、等瀏覽器核准、讀組織清單都會停下,回到原本的畫面)。立即生效:畫面馬上回到可選擇的狀態
     func cancelConnect() {
-        connectLogin?.cancel()
+        guard let t = connectLogin else { return }
+        t.cancel()
+        connectLogin = nil
+        connecting = nil
+        connectError = nil
     }
 
     /// 進入遠端模式(已經讀到組織清單)

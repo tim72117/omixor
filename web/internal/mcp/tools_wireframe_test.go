@@ -7,7 +7,7 @@ import (
 	"omixor-web/internal/core"
 )
 
-// /mcp 也有 wireframe_render(spec/tools.json 沒有,由核心加上);存文件走 web 的文件櫃,畫面用 wireframe_svg 動作畫圖
+// /mcp 也有 wireframe_render(規格取自核心);存文件走 web 的文件櫃,畫面用 wireframe_svg 動作畫圖
 func TestWireframeToolAndAction(t *testing.T) {
 	a := iaApp(t)
 	spec := `{"device": "mobile", "root": {"type": "col", "children": [{"type": "header", "title": "登入"}, {"type": "button", "text": "送出"}]}}`

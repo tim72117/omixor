@@ -29,6 +29,7 @@ private struct MCPGatewaySectionBody: View {
                 }
             }
             if let e = error ?? gateway.loadError { Text(e).font(.caption).foregroundStyle(.orange) }
+            if let e = gateway.trustError { Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
             if let v = gateway.view {
                 if !v.enabled, let n = v.note { Text(n).font(.caption).foregroundStyle(.secondary) }
                 if v.servers.isEmpty, v.enabled {
@@ -94,12 +95,9 @@ private struct MCPServerRow: View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 8) {
                 if !server.description.isEmpty { Text(server.description).font(.caption).foregroundStyle(.secondary) }
-                LabeledContent(server.transport == "http" ? "網址" : "指令") {
-                    Text(server.transport == "http" ? (server.url ?? "") : ([server.command ?? ""] + server.args).joined(separator: " "))
-                        .font(.caption.monospaced()).textSelection(.enabled).lineLimit(2)
-                }
+                MCPServerConfigDetail(server: server)
                 if !server.secretNames.isEmpty {
-                    Text(server.transport == "http" ? "這台裝置的標頭值(存在鑰匙圈)" : "這台裝置的環境變數值(存在鑰匙圈)")
+                    Text(server.transport == "http" ? "這台裝置的標頭值(存在鑰匙圈)" : "這台裝置的環境變數值(存在鑰匙圈;參數的 ${名稱} 也用它)")
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     ForEach(server.secretNames, id: \.name) { n in
                         let has = gateway.secret(server.id, n.kind, n.name) != nil
@@ -125,7 +123,10 @@ private struct MCPServerRow: View {
                     if case .connected = st.phase {
                         Button("中斷連線") { gateway.disconnect(server.id) }
                     } else if !gateway.isTrusted(server) {
-                        Button("信任並連線") { gateway.trust(server.id); Task { await gateway.connect(server.id) } }.disabled(!server.enabled)
+                        // 信任的是畫面上顯示的這份(server 是這次畫面的值);登記在背景變了就拒絕,要重新檢視
+                        Button("信任並連線") {
+                            if gateway.trust(server.id, shown: MCPGateway.fingerprint(server)) { Task { await gateway.connect(server.id) } }
+                        }.disabled(!server.enabled)
                     } else {
                         Button("連線") { Task { await gateway.connect(server.id) } }.disabled(!server.enabled)
                     }
@@ -225,7 +226,7 @@ private struct MCPServerEditor: View {
                 }
                 if transport == "stdio" {
                     TextField("指令", text: $command)
-                    TextField("參數(一行一個)", text: $args, axis: .vertical).lineLimit(2...5)
+                    TextField("參數(一行一個;密鑰寫 ${名稱})", text: $args, axis: .vertical).lineLimit(2...5)
                     TextField("工作目錄(可空白)", text: $cwd)
                     TextField("需要的環境變數名稱(逗號分隔)", text: $envNames)
                 } else {
@@ -234,7 +235,7 @@ private struct MCPServerEditor: View {
                 }
                 Toggle("啟用", isOn: $enabled)
                 Toggle("新工具預設開(不建議;預設不開)", isOn: $toolDefault)
-                Text("不要把密鑰寫進指令、參數或網址:這裡只登記需要的名稱,值在每台裝置輸入,存在鑰匙圈。")
+                Text("不要把密鑰寫進指令、參數或網址:這裡只登記需要的名稱,值在每台裝置輸入,存在鑰匙圈。參數需要密鑰時寫 ${名稱}(名稱要是上面登記的環境變數),連線時才用這台的值代入。注意:放在參數的密鑰在本機程序列表(ps)看得到,能用環境變數就用環境變數。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
@@ -279,9 +280,75 @@ private struct MCPServerEditor: View {
     }
 }
 
+// MARK: - 連線設定的完整內容(信任前要看得到所有會影響執行的欄位)
+
+/// 傳輸、指令、每個參數(逐一列出、標出邊界)、工作目錄、網址、需要的密鑰名稱
+struct MCPServerConfigDetail: View {
+    let server: CoreMCPServer
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            row("傳輸方式", server.transport == "http" ? "HTTP(Streamable HTTP)" : "stdio(App 在這台啟動子程序)")
+            if server.transport == "http" {
+                row("網址", server.url ?? "(沒有)", mono: true)
+                row("標頭(值存在這台)", server.headerNames.isEmpty ? "(沒有)" : server.headerNames.joined(separator: "、"), mono: true)
+            } else {
+                row("指令", server.command ?? "(沒有)", mono: true)
+                LabeledContent("參數(\(server.args.count) 個)") {
+                    if server.args.isEmpty {
+                        Text("(沒有)").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(server.args.enumerated()), id: \.offset) { i, a in
+                                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                    Text("[\(i + 1)]").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                    // 用 ⟨ ⟩ 標出每個參數的邊界(空白、空字串都看得出來)
+                                    Text("⟨\(a)⟩").font(.caption.monospaced()).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                    }
+                }
+                row("工作目錄", (server.cwd ?? "").isEmpty ? "(App 預設)" : server.cwd!, mono: true)
+                row("環境變數(值存在這台)", server.envNames.isEmpty ? "(沒有)" : server.envNames.joined(separator: "、"), mono: true)
+                let ph = MCPGateway.placeholders(server.args)
+                if !ph.isEmpty {
+                    let bad = badPlaceholders(ph)
+                    Text(placeholderNote(ph, bad))
+                        .font(.caption).foregroundStyle(bad.isEmpty ? Color.secondary : Color.red).fixedSize(horizontal: false, vertical: true)
+                    Text("放在參數的密鑰在本機程序列表(ps)看得到,能用環境變數就用環境變數。")
+                        .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func badPlaceholders(_ ph: [String]) -> [String] {
+        let declared = Set(server.envNames)
+        return ph.filter { !declared.contains($0) }
+    }
+
+    private func placeholderNote(_ ph: [String], _ bad: [String]) -> String {
+        let all: String = ph.map { "${" + $0 + "}" }.joined(separator: "、")
+        var out = "連線時參數裡的 " + all + " 會換成這台鑰匙圈裡同名環境變數的值"
+        if !bad.isEmpty {
+            let b: String = bad.map { "${" + $0 + "}" }.joined(separator: "、")
+            out += ";" + b + " 沒有登記在環境變數名稱,不會連線"
+        }
+        return out
+    }
+
+    private func row(_ label: String, _ value: String, mono: Bool = false) -> some View {
+        LabeledContent(label) {
+            Text(value).font(mono ? .caption.monospaced() : .caption).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 // MARK: - 確認卡片(需要人確認的外部工具呼叫)
 
-/// 疊在主視窗右下角:顯示角色、工具、參數摘要,人按允許才執行;逾時當作拒絕
+/// 疊在主視窗右下角:顯示誰、工具、完整參數(高風險欄位在前並醒目),人按允許才執行;逾時當作拒絕。
+/// 沒有預設按鈕(Return 不會等於允許);Esc 是拒絕
 struct MCPConfirmOverlay: View {
     @ObservedObject var gateway: MCPGateway
 
@@ -292,17 +359,37 @@ struct MCPConfirmOverlay: View {
                     Label("外部工具要求執行", systemImage: "hand.raised.fill").font(.headline).foregroundStyle(.orange)
                     Text("\(r.who) 要呼叫「\(r.serverName)」的 \(r.tool)").font(.callout)
                     if let t = r.taskId { Text("任務 \(t)").font(.caption).foregroundStyle(.secondary) }
-                    Text(r.argsSummary).font(.caption.monospaced()).lineLimit(6).textSelection(.enabled)
-                        .padding(6).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                    Text("參數(\(r.fields.count) 個,完整內容;捲動看全部)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if r.fields.isEmpty { Text("(沒有參數)").font(.caption).foregroundStyle(.secondary) }
+                            ForEach(r.fields) { f in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 4) {
+                                        if f.risky { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red) }
+                                        Text(f.key).font(.caption.monospaced().weight(f.risky ? .bold : .regular))
+                                            .foregroundStyle(f.risky ? Color.red : Color.secondary)
+                                    }
+                                    Text(f.value).font(.caption.monospaced()).textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .padding(4).frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(f.risky ? Color.red.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+                                }
+                            }
+                        }
+                        .padding(6).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 320)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                     HStack {
                         Text("\(Int(MCPGateway.confirmTimeout)) 秒內沒回應當作拒絕").font(.caption2).foregroundStyle(.secondary)
                         Spacer()
-                        Button("拒絕", role: .cancel) { gateway.answer(r.id, allow: false) }
-                        Button("允許") { gateway.answer(r.id, allow: true) }.keyboardShortcut(.defaultAction)
+                        Button("拒絕", role: .cancel) { gateway.answer(r.id, allow: false) }.keyboardShortcut(.cancelAction)
+                        Button("允許") { gateway.answer(r.id, allow: true) }
                     }
                 }
                 .padding(12)
-                .frame(width: 380)
+                .frame(width: 440)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 .shadow(radius: 6)
             }

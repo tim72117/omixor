@@ -1,8 +1,6 @@
 package mcp
 
 import (
-	"slices"
-
 	"omixor-core/tools/flowchart"
 )
 
@@ -42,7 +40,7 @@ func flowchartDef() map[string]any {
 // RegisterFlowchartTools 登記 flowchart_render。規格裡沒有(例如 omixor-web 的 /mcp 用 Swift 匯出的規格)時連規格一起加上。
 func RegisterFlowchartTools(s *Server) {
 	fn := func(c *Call) (any, error) { return flowchartRender(s, c) }
-	if slices.Contains(s.ToolNames(), "flowchart_render") {
+	if s.InSpec("flowchart_render") {
 		s.Register("flowchart_render", fn)
 		return
 	}

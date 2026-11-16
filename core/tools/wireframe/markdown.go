@@ -31,15 +31,17 @@ func FenceLang(line string) string {
 func isOpen(line string) bool { return FenceLang(line) == Lang }
 
 // FirstBlock 第一個 ```wireframe 區塊的完整原文(含開頭與結尾的 ``` 行);沒有回 ok=false。
-// 用來在文件裡「只換掉這一段」(字串取代),不用整份內文覆寫
+// 用來在文件裡「只換掉這一段」(字串取代),不用整份內文覆寫。
+// 回傳的是內文裡逐字的那一段:不把 \r\n 統一成 \n(內文是 \r\n 時字串取代才找得到);
+// 最後一行(結尾的 ``` 行)行尾的 \r 不算在內,換行留在原文裡
 func FirstBlock(md string) (block string, ok bool) {
-	lines := strings.Split(strings.ReplaceAll(md, "\r\n", "\n"), "\n")
+	lines := strings.Split(md, "\n") // 只依 \n 切行:\r\n 的 \r 留在行尾,接回去就是原文
 	spans := blockSpans(lines)
 	if len(spans) == 0 {
 		return "", false
 	}
 	s := spans[0]
-	return strings.Join(lines[s[0]:min(s[1]+1, len(lines))], "\n"), true
+	return strings.TrimSuffix(strings.Join(lines[s[0]:min(s[1]+1, len(lines))], "\n"), "\r"), true
 }
 
 // blockSpans 每個 ```wireframe 區塊:開頭行、結尾行(沒有結尾就是最後一行之後)

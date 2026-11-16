@@ -1,0 +1,58 @@
+[
+  {
+    "active": true,
+    "color": "teal",
+    "createdAt": "2026-10-01T00:00:00Z",
+    "docAccess": {
+      "/studio/tools": "read",
+      "docs": "write",
+      "overview": "none"
+    },
+    "id": "eng",
+    "instructions": "你是工程師。**先寫測試**再改程式。",
+    "name": "工程師",
+    "role": "寫程式、修 bug",
+    "routines": [
+      {
+        "createdAt": "2026-10-01T00:00:00Z",
+        "enabled": true,
+        "everyHours": 6,
+        "hour": 9,
+        "id": "r-daily",
+        "instructions": "整理昨天的進度",
+        "kind": "daily",
+        "lastRunAt": "2026-11-14T01:30:00Z",
+        "minute": 30,
+        "priority": "normal",
+        "title": "每日站會摘要",
+        "weekday": 2
+      },
+      {
+        "createdAt": "2026-10-02T00:00:00Z",
+        "enabled": false,
+        "everyHours": 4,
+        "hour": 0,
+        "id": "r-hourly",
+        "instructions": "",
+        "kind": "hourly",
+        "minute": 0,
+        "priority": "low",
+        "title": "檢查 CI",
+        "weekday": 1
+      }
+    ],
+    "symbol": "hammer"
+  },
+  {
+    "active": false,
+    "color": "blue",
+    "createdAt": "2026-10-01T00:00:00Z",
+    "docAccess": {},
+    "id": "pm",
+    "instructions": "",
+    "name": "產品經理",
+    "role": "",
+    "routines": [],
+    "symbol": ""
+  }
+]

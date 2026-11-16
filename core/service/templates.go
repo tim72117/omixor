@@ -10,7 +10,7 @@ import (
 // 組織樣板(定義在 model/orgtemplates.go):
 //
 //	列表、預覽:組織成員;樣板的功能開關(OrgTemplate.Feature)關閉時列表不列出、預覽與套用回 403;
-//	      這次編譯的版本沒有那個功能(例如正式版沒有 familyAssistant)時列表不列出、預覽與套用回 404
+//	      系統層沒開放那個功能(例如預設不開放的 familyAssistant)時列表不列出、預覽與套用回 404
 //	套用:組織管理員;用現有的 service(SaveAgent、SaveCabinetLayout、CreateDoc、CreateChannel、SaveChain)逐項建立,
 //	      已存在的略過並回報(角色:同 id 或同名稱;頻道:同名稱;區塊:同 id;文件:同區塊同標題;組織鏈:同一條邊)
 //	      重複套用不會重複建立。
@@ -70,11 +70,7 @@ func (s *Service) templateEnabled(org string, t model.OrgTemplate) (bool, error)
 	if t.Feature == "" {
 		return true, nil
 	}
-	x, err := s.loadSystem(org)
-	if err != nil {
-		return false, err
-	}
-	return x.Enabled(t.Feature), nil
+	return s.featureEnabled(org, t.Feature)
 }
 
 // ListOrgTemplates 可用的樣板(組織成員;功能開關關閉的不列)
@@ -101,9 +97,14 @@ func (s *Service) usableTemplate(org, id string) (model.OrgTemplate, error) {
 	if !ok {
 		return t, fail(404, "沒有這個樣板:%s", id)
 	}
-	if f, ok := model.FeatureByKey(t.Feature); ok && !f.Available() {
-		return t, fail(404, "這個版本(%s)沒有「%s」功能,「%s」樣板不能用;要用請改用開發版(-tags dev)編譯",
-			model.EditionLabel(model.BuildEdition), f.Name, t.Name)
+	if f, ok := model.FeatureByKey(t.Feature); ok {
+		srv, err := s.loadServerFeatures()
+		if err != nil {
+			return t, err
+		}
+		if !srv.Has(f.Key) {
+			return t, fail(404, "這台伺服器沒有開放「%s」功能,「%s」樣板不能用;請伺服器管理員到 系統 開啟", f.Name, t.Name)
+		}
 	}
 	on, err := s.templateEnabled(org, t)
 	if err != nil {
@@ -114,7 +115,7 @@ func (s *Service) usableTemplate(org, id string) (model.OrgTemplate, error) {
 		if f, ok := model.FeatureByKey(t.Feature); ok {
 			name = f.Name
 		}
-		return t, fail(403, "「%s」功能還沒開啟:請組織管理員先到「系統」頁開啟「%s」", t.Name, name)
+		return t, fail(403, "「%s」功能還沒開啟:請組織管理員先到 設定 › 功能 開啟「%s」", t.Name, name)
 	}
 	return t, nil
 }

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test": "tsc -p contract && node --experimental-strip-types --test contract/contract.test.ts"
   },
   "dependencies": {
     "lucide-react": "^0.460.0",

@@ -1,16 +1,19 @@
 import AppKit
 import SwiftUI
 
-// 設定:組織、整合、連線、LINE、團隊與值班、AI 治理、通知、一般。
+// 設定:組織、整合、程式碼倉庫、連線、LINE、團隊與值班、AI 治理、通知、一般。
+// 其他頁用 app.go(.settings, focus: <分頁 rawValue>) 跳到指定分頁,例如開發進度的「前往 設定 › 程式碼倉庫」帶 "repos"。
 // 不在 AppState 裡的偏好設定存在 UserDefaults(@AppStorage),鍵名都以 ops.settings. 開頭。
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case orgs, integrations, connections, line, team, ai, notifications, general
+    case orgs, features, integrations, repos, connections, line, team, ai, notifications, general
     var id: String { rawValue }
     var title: String {
         switch self {
         case .orgs: return "組織"
+        case .features: return "功能"
         case .integrations: return "整合"
+        case .repos: return "程式碼倉庫"
         case .connections: return "連線"
         case .line: return "LINE"
         case .team: return "團隊與值班"
@@ -22,13 +25,22 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .orgs: return "building.2"
+        case .features: return "switch.2"
         case .integrations: return "puzzlepiece.extension"
+        case .repos: return "chevron.left.forwardslash.chevron.right"
         case .connections: return "key.horizontal"
         case .line: return "message"
         case .team: return "person.2"
         case .ai: return "sparkles"
         case .notifications: return "bell.badge"
         case .general: return "gearshape"
+        }
+    }
+    /// 屬於哪個選用模組(server 沒編進該模組時不顯示,同 web 的 SettingsView 的 PANE_MODULE;nil = 核心)
+    var module: String? {
+        switch self {
+        case .repos: return ServerModule.integrations
+        default: return nil
         }
     }
 }
@@ -64,7 +76,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             HStack {
                 Picker("設定分類", selection: $pane) {
-                    ForEach(SettingsPane.allCases) { p in
+                    ForEach(shownPanes) { p in
                         Label(p.title, systemImage: p.icon).tag(p)
                     }
                 }
@@ -79,7 +91,10 @@ struct SettingsView: View {
             Group {
                 switch pane {
                 case .orgs: SettingsOrgsPane()
+                case .features: SettingsFeaturesPane()
                 case .integrations: SettingsIntegrationsPane()
+                case .repos:
+                    if app.hasModule(ServerModule.integrations) { SettingsReposPane() } else { ModuleMissingView(text: IntegrationModuleMissing.text) }
                 case .connections: SettingsConnectionsPane()
                 case .line: SettingsLinePane()
                 case .team: SettingsTeamPane()
@@ -90,6 +105,32 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onAppear { applyFocus(app.focusId) }
+        .onChange(of: app.focusId) { _, f in applyFocus(f) }
+    }
+
+    /// 要列出的分頁:server 沒編進的選用模組的分頁不列(目前所在的分頁照樣列,免得選單沒有選到的項目)
+    private var shownPanes: [SettingsPane] {
+        SettingsPane.allCases.filter { p in p == pane || p.module.map(app.hasModule) ?? true }
+    }
+
+    /// 其他頁跳過來時:focusId 是分頁的 rawValue(例如 "repos"、"features")就打開那個分頁
+    private func applyFocus(_ focus: String?) {
+        guard let focus, let p = SettingsPane(rawValue: focus) else { return }
+        pane = p
+        app.focusId = nil
+    }
+}
+
+/// 這台伺服器沒有編進某個選用模組時的說明(不是錯誤)
+struct ModuleMissingView: View {
+    let text: String
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "puzzlepiece.extension").font(.largeTitle).foregroundStyle(.secondary)
+            Text(text).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

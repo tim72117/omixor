@@ -215,11 +215,11 @@ func TestRunDueRoutines(t *testing.T) {
 		t.Fatalf("預設角色 %d", n)
 	}
 	count := func() int { return len(a.TasksOf(org)) }
-	if got, err := l.svc.RunDueRoutines(time.Now()); err != nil || len(got) != 0 {
+	if got, err := l.Svc.RunDueRoutines(time.Now()); err != nil || len(got) != 0 {
 		t.Fatalf("剛建立的例行任務還沒到時間:%v %v", got, err)
 	}
 	later := time.Now().Add(8 * 24 * time.Hour)
-	if got, err := l.svc.RunDueRoutines(later); err != nil || len(got) != 5 {
+	if got, err := l.Svc.RunDueRoutines(later); err != nil || len(got) != 5 {
 		t.Fatalf("一週後每個角色都要排一筆,得到 %d %v", len(got), err)
 	}
 	a.agentRefresh(org)
@@ -228,7 +228,7 @@ func TestRunDueRoutines(t *testing.T) {
 			t.Fatalf("例行任務的建立者不對:%+v", x)
 		}
 	}
-	if got, _ := l.svc.RunDueRoutines(later.Add(8 * 24 * time.Hour)); len(got) != 0 {
+	if got, _ := l.Svc.RunDueRoutines(later.Add(8 * 24 * time.Hour)); len(got) != 0 {
 		t.Fatalf("上一筆沒做完不重複排,得到 %d", len(got))
 	}
 	// 停用的角色不排
@@ -243,7 +243,7 @@ func TestRunDueRoutines(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got, _ := l.svc.RunDueRoutines(later.Add(16 * 24 * time.Hour)); len(got) != 4 {
+	if got, _ := l.Svc.RunDueRoutines(later.Add(16 * 24 * time.Hour)); len(got) != 4 {
 		t.Fatalf("做完後再排(停用的不排),得到 %d", len(got))
 	}
 	a.agentRefresh(org)
@@ -309,7 +309,7 @@ func TestIssueBadgeAndDelete(t *testing.T) {
 	a.CreateIssue("b", "", "high", nil, "", "", "tim")
 	a.CreateIssue("c", "", "normal", nil, "", "", "tim")
 	base := testBadges(a)["development"] - 2
-	a.UpdateIssue("ISS-1", "tim", func(i *OpsIssue) { i.Status = "closed" })
+	a.UpdateIssue("ISS-1", "tim", func(i *model.Issue) { i.Status = "closed" })
 	if testBadges(a)["development"] != base+1 || a.Issue("ISS-1").ClosedAt == nil {
 		t.Fatal("關閉後不算")
 	}
@@ -412,4 +412,54 @@ func testBadges(a *App) map[string]int {
 		}
 	}
 	return out
+}
+
+// ImportIssuesPath 交給本機核心(service.ImportIssuesWith):可以重跑、-overwrite 覆蓋、新的排在既有的後面、沒寫 createdBy 的當作 mcp
+func TestImportIssuesPathViaCore(t *testing.T) {
+	a := newTestApp(t)
+	a.Mu.Lock()
+	org := a.CurrentOrgID()
+	a.CreateIssue("既有的", "", "", nil, "", "", "tim")
+	a.Mu.Unlock()
+	src := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(src, "orgs", org), 0o755)
+	file := `[
+	 {"id":"ISS-30","title":"三十","status":"closed","priority":"urgent","labels":["x"," x "],"createdBy":"tim","createdAt":"2026-11-10T00:00:03Z","updatedAt":"2026-11-10T00:00:04Z","closedAt":"2026-11-10T00:00:04Z",
+	  "comments":[{"id":"c1","author":"tim","text":"嗨","at":"2026-11-10T00:00:05Z"},{"author":"tim","text":"沒有 id"}]},
+	 {"id":"ISS-1","title":"和既有的同號"},
+	 {"title":"沒有 id"}
+	]`
+	_ = os.WriteFile(filepath.Join(src, "orgs", org, "issues.json"), []byte(file), 0o644)
+
+	res, err := ImportIssuesPath(src, "", false)
+	if err != nil || len(res) != 1 || res[0].Inserted != 1 || res[0].Skipped != 2 || res[0].Updated != 0 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	res, err = ImportIssuesPath(src, "", false) // 重跑不重複
+	if err != nil || res[0].Inserted != 0 || res[0].Skipped != 3 {
+		t.Fatalf("重跑:%+v %v", res, err)
+	}
+	a.Mu.Lock()
+	a.ReloadIssues()
+	list := append([]model.Issue{}, a.Issues()...)
+	a.Mu.Unlock()
+	if len(list) != 2 || list[0].ID != "ISS-1" || list[0].Title != "既有的" || list[1].ID != "ISS-30" {
+		t.Fatalf("順序:%+v", list)
+	}
+	n := list[1]
+	if n.Status != "closed" || n.ClosedAt == nil || len(n.Labels) != 1 || len(n.Comments) != 2 || n.Comments[0].ID != "c1" || n.Comments[1].ID == "" {
+		t.Fatalf("欄位:%+v", n)
+	}
+	// -overwrite:ISS-1 用檔案內容覆蓋;沒寫 createdBy 的是 mcp
+	res, err = ImportIssuesPath(filepath.Join(src, "orgs", org, "issues.json"), org, true)
+	if err != nil || res[0].Updated != 2 {
+		t.Fatalf("覆蓋:%+v %v", res, err)
+	}
+	a.Mu.Lock()
+	a.ReloadIssues()
+	first := a.Issues()[0]
+	a.Mu.Unlock()
+	if first.Title != "和既有的同號" || first.CreatedBy != MCPAuthor {
+		t.Fatalf("覆蓋後:%+v", first)
+	}
 }

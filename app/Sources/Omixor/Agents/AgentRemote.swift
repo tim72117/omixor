@@ -38,12 +38,12 @@ extension IssueRemote {
     // MARK: 角色
 
     func listAgents(org: String) throws -> [Agent] {
-        try decode([Agent].self, try send("GET", orgURL(org, ["agents"]), nil))
+        try decode(LossyList<Agent>.self, try send("GET", orgURL(org, ["agents"]), nil)).elements
     }
 
     /// 角色在角色端點(/mcp/agent)能用的工具與不能用的原因(依角色設定、組織鏈、頻道成員算)
     func agentTools(org: String, id: String) throws -> [AgentToolInfo] {
-        try decode([AgentToolInfo].self, try send("GET", orgURL(org, ["agents", id, "tools"]), nil))
+        try decode(LossyList<AgentToolInfo>.self, try send("GET", orgURL(org, ["agents", id, "tools"]), nil)).elements
     }
 
     /// 新增或修改(組織管理員);沒給的欄位伺服器用預設值
@@ -68,7 +68,7 @@ extension IssueRemote {
     func listTasks(org: String) throws -> [AgentTask] {
         var c = URLComponents(url: orgURL(org, ["agent-tasks"]), resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "status", value: "all")]
-        return try decode([AgentTask].self, try send("GET", c.url!, nil))
+        return try decode(LossyList<AgentTask>.self, try send("GET", c.url!, nil)).elements
     }
 
     /// 派任務(組織管理員)

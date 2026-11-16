@@ -14,6 +14,7 @@ func TestMain(m *testing.M) {
 	dir, _ := os.MkdirTemp("", "ops-auth-test")
 	os.Setenv("OPS_DATA_DIR", dir)
 	core.Vault = core.NewMemoryVault()
+	core.UseMemoryCores() // 沒有資料庫時用記憶體的核心
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

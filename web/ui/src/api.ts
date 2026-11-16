@@ -2,6 +2,7 @@
 //   useView(名稱)      讀 GET /api/view/<名稱>,收到 SSE 通知(主題 = view 名稱,或 "*")就自動重讀
 //   tool(名稱, 參數)    以目前使用者身分執行 MCP 工具(POST /api/tool/<名稱>)
 //   action(名稱, 參數)  只有畫面能做的動作(POST /api/action/<名稱>)
+//   useActionQuery(名稱, 參數, 主題)  用參數查詢的 action(例如 issue_board),參數變了或收到主題通知就重查
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type Listener = (topics: string[]) => void;
@@ -127,6 +128,53 @@ export function useView<T = any>(name: string, topics: string[] = [], opts: { th
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, topics.join(",")]);
   return [data, error, load];
+}
+
+/**
+ * 用參數呼叫一個「查詢用」的 action(例如 issue_query、issue_board:規則在後端,畫面只顯示結果),
+ * 參數變了、或收到 topics 的 SSE 通知(或 "*")就重新呼叫;舊的請求晚回來會丟掉。
+ * 回傳 [資料, 錯誤, 重新讀取];資料第一次讀到前是 undefined(之後重新讀取期間保留上一次的結果)。
+ */
+export function useActionQuery<T = any>(name: string, args: Record<string, unknown>, topics: string[] = []): [T | undefined, string | undefined, () => void] {
+  const [data, setData] = useState<T>();
+  const [error, setError] = useState<string>();
+  const seq = useRef(0);
+  const key = JSON.stringify(args);
+  const load = () => {
+    const n = ++seq.current;
+    action<T>(name, JSON.parse(key))
+      .then((d) => n === seq.current && (setData(d), setError(undefined)))
+      .catch((e) => n === seq.current && setError(String(e?.message ?? e)));
+  };
+  useEffect(() => {
+    connect();
+    load();
+    const watch = new Set(topics);
+    let timer: number | undefined;
+    const l: Listener = (ts) => {
+      if (ts.includes("*") || ts.some((t) => watch.has(t))) {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(load, 80);
+      }
+    };
+    listeners.add(l);
+    return () => {
+      listeners.delete(l);
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, key, topics.join(",")]);
+  return [data, error, load];
+}
+
+/** value 停止變動 ms 毫秒後才回傳新的值(搜尋輸入用) */
+export function useDebounced<T>(value: T, ms = 250): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = window.setTimeout(() => setV(value), ms);
+    return () => window.clearTimeout(t);
+  }, [value, ms]);
+  return v;
 }
 
 /** 執行非同步動作並追蹤忙碌與錯誤(按鈕用) */

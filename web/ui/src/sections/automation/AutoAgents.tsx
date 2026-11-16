@@ -252,7 +252,7 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
       <div className="bx-field">
         <span>文件櫃存取範圍</span>
         <DocAccessEditor layout={Array.isArray(cab?.layout) ? cab!.layout : []} access={draft.docAccess} onChange={(docAccess) => set({ docAccess })} />
-        <span className="caption muted">對應研發基地的區塊與頁籤。頁籤沒設定時跟著區塊。角色用 MCP 讀寫文件時只能碰這些範圍。</span>
+        <span className="caption muted">對應這個組織文件櫃的區塊與頁籤。頁籤沒設定時跟著區塊。角色用 MCP 讀寫文件時只能碰這些範圍。</span>
       </div>
       <div className="bx-field">
         <span>例行任務</span>

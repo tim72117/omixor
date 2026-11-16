@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 對話:左邊頻道清單(未讀數)、右邊訊息串與輸入框。人與虛擬角色在同一個頻道對話;@ 角色只通知、不排任務。
-/// 本機存在 channels.json,遠端在 omixor server(規則見 Channels/Channels.swift)。每 5 秒或有變動時更新。
+/// 資料在 core server(遠端 omixor 或本機守護服務;規則見 Channels/Channels.swift)。每 5 秒或有變動時更新。
 struct ChannelsView: View {
     @EnvironmentObject var app: AppState
     @State private var selected: String?
@@ -118,6 +118,8 @@ private struct ChannelDetail: View {
     @State private var error: String?
     @State private var showSettings = false
     @State private var loaded = false
+    @State private var reloading = false
+    @State private var loadingOlder = false
     @FocusState private var composerFocused: Bool
 
     private var store: ChannelStore { app.startChannels() }
@@ -156,13 +158,15 @@ private struct ChannelDetail: View {
             Divider()
             composer
         }
-        .onAppear { reload(); composerFocused = true }
-        .onChange(of: app.channelsVersion) { reload() }
+        .onAppear { composerFocused = true }
+        .onChange(of: app.channelsVersion) { Task { await reload() } }
         .task(id: summary.id) {
-            // 每 5 秒讀新訊息(core server)
+            // 先讀一次,之後每 5 秒讀新訊息(core server;請求在背景跑,不擋主執行緒)
+            await reload()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
-                reload()
+                if Task.isCancelled { break }
+                await reload()
             }
         }
         .sheet(isPresented: $showSettings) { ChannelSettingsSheet(summary: summary) }
@@ -302,35 +306,58 @@ private struct ChannelDetail: View {
         } catch { self.error = error.localizedDescription }
     }
 
-    /// 第一次讀最新的 50 則;之後只讀最後一則之後的。有新訊息就標已讀
-    private func reload() {
+    /// 第一次讀最新的 50 則;之後只讀最後一則之後的。有新訊息就標已讀。
+    /// 請求在背景跑;回主執行緒時組織換了、頻道不在了或訊息串被別的讀取改過,就丟掉這次的結果
+    private func reload() async {
+        guard !reloading else { return }
+        reloading = true
+        defer { reloading = false }
+        let org = app.currentOrgId, id = channel.id
+        let lastId = messages.last?.id
         do {
+            guard let p = try await store.messagesInBackground(id, since: lastId, limit: lastId == nil ? nil : ChannelStore.maxLimit),
+                  stillShowing(org, id), messages.last?.id == lastId else { return }
             var fresh = false
-            if let last = messages.last {
-                let p = try store.messages(channel.id, since: last.id, limit: ChannelStore.maxLimit)
+            if lastId != nil {
                 let known = Set(messages.map(\.id))
                 let add = p.messages.filter { !known.contains($0.id) }
                 if !add.isEmpty { messages += add; fresh = true }
             } else {
-                let p = try store.messages(channel.id)
                 messages = p.messages
                 hasMore = p.hasMore
                 fresh = !p.messages.isEmpty
             }
             loaded = true
             error = nil
-            if fresh || summary.unread > 0 { _ = try? store.markRead(channel.id) }
-        } catch { self.error = error.localizedDescription }
+            // 未讀數從目前的頻道清單拿(這個 task 抓住的 summary 可能是舊的)
+            let unread = app.channels.first { $0.id == id }?.unread ?? 0
+            if fresh || unread > 0 { await store.markReadInBackground(id) }
+        } catch {
+            if stillShowing(org, id) { self.error = error.localizedDescription }
+        }
+    }
+
+    /// 背景讀回來時,畫面還是同一個組織的同一個頻道
+    private func stillShowing(_ org: String, _ id: String) -> Bool {
+        app.currentOrgId == org && app.channels.contains { $0.id == id }
     }
 
     private func loadOlder() {
-        guard let first = messages.first else { return }
-        do {
-            let p = try store.messages(channel.id, before: first.id)
-            let known = Set(messages.map(\.id))
-            messages = p.messages.filter { !known.contains($0.id) } + messages
-            hasMore = p.hasMore
-        } catch { self.error = error.localizedDescription }
+        guard let first = messages.first, !loadingOlder else { return }
+        loadingOlder = true
+        let org = app.currentOrgId, id = channel.id
+        Task {
+            defer { loadingOlder = false }
+            do {
+                guard let p = try await store.messagesInBackground(id, before: first.id),
+                      stillShowing(org, id), messages.first?.id == first.id else { return }
+                let known = Set(messages.map(\.id))
+                messages = p.messages.filter { !known.contains($0.id) } + messages
+                hasMore = p.hasMore
+            } catch {
+                if stillShowing(org, id) { self.error = error.localizedDescription }
+            }
+        }
     }
 }
 

@@ -113,31 +113,9 @@ final class ChannelTests: XCTestCase {
         status({ try store.post("CH-99", text: "x") }, 404)
     }
 
-    /// @ 解析:角色名稱、角色 id、email、完整節點;取最長、邊界、只算成員、作者不算、去重
-    func testMentionParsing() throws {
+    /// 發訊息時 core 解析 @(規則在 core 的 model.ParseMentions)並記下 mentions,@ 角色寫進動態牆
+    func testPostRecordsMentions() throws {
         let (app, store) = setup()
-        var boss = Agent(id: "marketing-lead", name: "行銷主管")
-        boss.active = true
-        store.app.startAgents().upsert(boss)
-        let members = ["user:tim", "user:pm@example.com", "agent:marketing", "agent:marketing-lead", "agent:course-dev"]
-        func p(_ t: String, author: String = "user:tim") -> [String] {
-            ChannelMention.parse(t, members: members, agents: app.agents, author: author)
-        }
-        XCTAssertEqual(p("@行銷 看一下"), ["agent:marketing"])
-        XCTAssertEqual(p("請@行銷主管處理"), ["agent:marketing-lead"], "前面是中文(非英數)也算;取最長的")
-        XCTAssertEqual(p("@marketing-lead 與 @marketing,還有 @MARKETING"), ["agent:marketing-lead", "agent:marketing"], "不分大小寫、去重")
-        XCTAssertEqual(p("@marketingx @marketing.y @marketing-x"), [], "id 後面接英數或 ._- 不算")
-        XCTAssertEqual(p("@marketing。"), ["agent:marketing"])
-        XCTAssertEqual(p("cc @PM@example.com 看一下"), ["user:pm@example.com"])
-        XCTAssertEqual(p("@pm@example.comx @pm@example.com.tw"), [], "email 後面接英數或 ._- 不算")
-        XCTAssertEqual(p("寄到 tim@example.com"), [], "@ 前面是英數不算")
-        XCTAssertEqual(p("@agent:course-dev @user:pm@example.com"), ["agent:course-dev", "user:pm@example.com"])
-        XCTAssertEqual(p("@narrator 不是成員"), [], "不是成員的忽略")
-        XCTAssertEqual(p("@tim 我自己"), [], "作者自己不算")
-        XCTAssertEqual(p("@tim", author: "agent:marketing"), ["user:tim"])
-        XCTAssertEqual(p("@"), [])
-
-        // 發訊息時記下 mentions,@ 角色寫進動態牆
         let c = try store.create(name: "x", members: ["marketing", "narrator"]).channel
         let m = try store.post(c.id, text: "@行銷 @narrator 請看 @course-dev")
         XCTAssertEqual(m.mentions, ["agent:marketing", "agent:narrator"])
@@ -203,6 +181,25 @@ final class ChannelTests: XCTestCase {
     }
 
     /// 綁 Issue:Issue 要存在;同一個 Issue 只能有一個頻道:看得到就回傳既有的,看不到 409;Issue 詳情的「開對話頻道」
+    /// 訊息串畫面用的背景讀寫:讀訊息、標已讀都不在主執行緒等網路;回來時組織換了就丟掉結果
+    func testMessagesAndMarkReadInBackground() async throws {
+        let (app, store) = setup()
+        let c = try store.create(name: "x", members: ["marketing"]).channel
+        try store.post(c.id, text: "大家好")
+        try store.post(c.id, text: "收到", as: "agent:marketing")
+        XCTAssertEqual(app.channels.first?.unread, 1)
+        let all = try await store.messagesInBackground(c.id)
+        XCTAssertEqual(all?.messages.map(\.id), ["M-1", "M-2"])
+        let after = try await store.messagesInBackground(c.id, since: "M-1", limit: ChannelStore.maxLimit)
+        XCTAssertEqual(after?.messages.map(\.id), ["M-2"])
+        await store.markReadInBackground(c.id)
+        XCTAssertEqual(app.channels.first?.unread, 0, "標已讀後在背景重讀頻道清單")
+        // 錯誤照樣丟出(ChannelError,保留狀態碼)
+        do { _ = try await store.messagesInBackground("CH-99"); XCTFail("應該 404") } catch let e as ChannelError {
+            XCTAssertEqual(e.status, 404)
+        }
+    }
+
     func testIssueBinding() throws {
         let (app, store) = setup()
         let issues = app.startIssues()
@@ -241,8 +238,10 @@ final class ChannelTests: XCTestCase {
     func testMCPTools() async throws {
         let (app, store) = setup()
         let mcp = MCPHandler(app: app)
+        // 頻道工具屬於 core:App 沒有實作,一律轉給 core server(這裡是 TestCore 的本機守護服務)
         for n in ["channels", "channel_create", "channel_messages", "channel_post"] {
-            XCTAssertTrue(MCPHandler.tools.contains { $0.name == n }, n)
+            XCTAssertTrue(MCPHandler.coreTools.contains(n), n)
+            XCTAssertFalse(MCPHandler.tools.contains { $0.name == n }, n)
         }
 
         var (o, text, err) = try await call(mcp, "channel_create", ["name": "上線", "topic": "週五上線", "members": ["行銷", "narrator"]])

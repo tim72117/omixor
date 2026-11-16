@@ -61,6 +61,14 @@ type UserError struct{ Message string }
 
 func (e UserError) Error() string { return e.Message }
 
+// StatusError 給畫面看、而且要用特定 HTTP 狀態碼回應的錯誤(例如 409:畫面顯示的組織已經不是目前的組織)
+type StatusError struct {
+	Status  int
+	Message string
+}
+
+func (e StatusError) Error() string { return e.Message }
+
 // 基本的 View:範例資料集合、導覽、MCP 狀態
 func init() {
 	RegisterView("nav", func(a *App) any { return a.Nav })
@@ -106,6 +114,7 @@ func init() {
 }
 
 // 側邊欄徽章:各功能登記自己的數字(呼叫時拿著 Mu),同一頁的數字相加。
+// 只算開著的頁面與分頁(各功能用 a.FeatureOn 看自己的分頁;關掉的頁面整個不顯示)。
 // 對應 Swift 的 badge(for:):監控=觸發中告警、事件=未結束事件、AI 自動化=待核准+需要協助的角色任務、
 // CI/CD=執行中流程+待發佈旁白、開發進度=開著的 urgent/high Issue。
 var badgeFuncs []func(a *App) map[string]int
@@ -121,7 +130,8 @@ func init() {
 			}
 		}
 		for k, v := range out {
-			if v <= 0 {
+			// 關掉的頁面不顯示徽章(同 App 的 badge(for:) 先看 isVisible)
+			if v <= 0 || !a.SectionVisible(k) {
 				delete(out, k)
 			}
 		}

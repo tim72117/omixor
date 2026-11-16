@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 文件櫃:依 evoleap 研發基地的區塊/頁籤放純文字文件;每個位置標出哪些角色可以讀寫
+/// 文件櫃:依組織文件櫃結構(CabinetLayout)的區塊/頁籤放純文字文件;每個位置標出哪些角色可以讀寫
 struct CabinetView: View {
     @EnvironmentObject var app: AppState
     /// 選中的位置:區塊 id 或頁籤網址(/ 開頭)
@@ -136,7 +136,7 @@ struct CabinetView: View {
                     Spacer()
                     Button { creating = true } label: { Image(systemName: "plus") }.help("新增文件")
                 }
-                Text("研發基地 " + (tab?.path ?? section?.path ?? "")).font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text("位置 " + (tab?.path ?? section?.path ?? "")).font(.caption.monospaced()).foregroundStyle(.secondary)
                 let rs = readers(section?.id ?? "", tab?.path)
                 if !rs.isEmpty {
                     Text(rs.map { "\($0.0.name)(\($0.1 == .write ? "讀寫" : "讀"))" }.joined(separator: "、"))

@@ -32,6 +32,7 @@ func TestAssistFmtRelative(t *testing.T) {
 
 func TestAssistBriefingAndReplies(t *testing.T) {
 	a := New()
+	sysForceFeatures(t, a) // 範例資料的實驗分頁全開(關掉時的行為見 TestAssistClosedFeatures)
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
 
@@ -92,6 +93,7 @@ func TestAssistBriefingAndReplies(t *testing.T) {
 
 func TestAssistActions(t *testing.T) {
 	a := New()
+	sysForceFeatures(t, a)
 	out, err := Action(a, "assistant_briefing", map[string]any{"section": "automation"})
 	if err != nil {
 		t.Fatal(err)

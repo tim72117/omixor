@@ -1,8 +1,6 @@
 package mcp
 
 import (
-	"slices"
-
 	"omixor-core/tools/wireframe"
 )
 
@@ -55,7 +53,7 @@ func wireframeDef() map[string]any {
 // 執行環境(Call.Ctx)只有存文件、讀文件時才用到(交給同一個 Server 的 docs、doc_save)。
 func RegisterWireframeTools(s *Server) {
 	fn := func(c *Call) (any, error) { return wireframeRender(s, c) }
-	if slices.Contains(s.ToolNames(), "wireframe_render") {
+	if s.InSpec("wireframe_render") {
 		s.Register("wireframe_render", fn)
 		return
 	}

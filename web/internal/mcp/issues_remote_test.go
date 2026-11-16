@@ -10,13 +10,18 @@ import (
 	"time"
 
 	"omixor-web/internal/core"
+
+	"omixor-core/model"
 )
 
 // 假的 Issue 伺服器(omixor-issues 的 /api/issues/<組織>):記住收到的 token,資料放記憶體
 type fakeIssueServer struct {
 	mu     sync.Mutex
-	issues map[string][]core.OpsIssue
+	issues map[string][]model.Issue
 	tokens []string
+	// patches 收到的修改(PATCH/POST …/issues/{id})內容;commentPosts 只附加留言的次數
+	patches      []map[string]any
+	commentPosts int
 }
 
 func (f *fakeIssueServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -50,17 +55,30 @@ func (f *fakeIssueServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == "GET":
 		if list == nil {
-			list = []core.OpsIssue{}
+			list = []model.Issue{}
 		}
 		reply(list)
 	case len(parts) == 1:
-		now := core.Time{Time: time.Now().UTC().Truncate(time.Second)}
-		i := core.OpsIssue{ID: "ISS-" + string(rune('0'+len(list)+1)), Title: in["title"].(string), Status: "open", Priority: "normal",
-			Labels: []string{}, Comments: []core.IssueComment{}, CreatedBy: in["author"].(string), CreatedAt: now, UpdatedAt: now}
-		f.issues[org] = append([]core.OpsIssue{i}, list...)
+		now := model.Time{Time: time.Now().UTC().Truncate(time.Second)}
+		i := model.Issue{ID: "ISS-" + string(rune('0'+len(list)+1)), Title: in["title"].(string), Status: "open", Priority: "normal",
+			Labels: []string{}, Comments: []model.Comment{}, CreatedBy: in["author"].(string), CreatedAt: now, UpdatedAt: now}
+		f.issues[org] = append([]model.Issue{i}, list...)
 		reply(i)
+	case len(parts) == 3 && parts[2] == "comments" && r.Method == "POST": // 只附加一則留言
+		f.commentPosts++
+		for k := range list {
+			if list[k].ID == parts[1] {
+				who, _ := in["author"].(string)
+				list[k].Comments = append(list[k].Comments, model.Comment{ID: "C" + string(rune('0'+len(list[k].Comments)+1)),
+					Author: who, Text: in["text"].(string), At: model.Time{Time: time.Now().UTC()}})
+				reply(list[k])
+				return
+			}
+		}
+		w.WriteHeader(404)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "找不到 Issue " + parts[1]})
 	case len(parts) == 3 && parts[2] == "delete":
-		kept := []core.OpsIssue{}
+		kept := []model.Issue{}
 		for _, i := range list {
 			if i.ID != parts[1] {
 				kept = append(kept, i)
@@ -69,6 +87,7 @@ func (f *fakeIssueServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.issues[org] = kept
 		reply(true)
 	default:
+		f.patches = append(f.patches, in)
 		for k := range list {
 			if list[k].ID == parts[1] {
 				b, _ := json.Marshal(in)
@@ -85,7 +104,7 @@ func (f *fakeIssueServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestIssueServerMode(t *testing.T) {
-	f := &fakeIssueServer{issues: map[string][]core.OpsIssue{}}
+	f := &fakeIssueServer{issues: map[string][]model.Issue{}}
 	srv := httptest.NewServer(f)
 	t.Setenv("OPS_ISSUE_SERVER", srv.URL)
 	t.Setenv("OPS_ISSUE_SERVER_TOKEN", "tok-123")
@@ -99,7 +118,7 @@ func TestIssueServerMode(t *testing.T) {
 	}
 	// 別處(例如 Swift app)直接在伺服器上新增:查詢時看得到
 	f.mu.Lock()
-	f.issues["default"] = append([]core.OpsIssue{{ID: "ISS-2", Title: "別處新增", Status: "open", Priority: "high", Labels: []string{}, Comments: []core.IssueComment{}}}, f.issues["default"]...)
+	f.issues["default"] = append([]model.Issue{{ID: "ISS-2", Title: "別處新增", Status: "open", Priority: "high", Labels: []string{}, Comments: []model.Comment{}}}, f.issues["default"]...)
 	f.mu.Unlock()
 	l := iaRun(t, a, core.MCPActor, "issues", map[string]any{})
 	if l["total"].(float64) != 2 {
@@ -130,7 +149,7 @@ func iaErrPrefix(t *testing.T, a *core.App, name string, args map[string]any, wa
 
 // omixor 自己的授權:沒有 omixor token 時用 evoleap 連線換一個;被撤銷(401)時自動再換(同 Swift)
 func TestIssueServerOmixorToken(t *testing.T) {
-	f := &fakeIssueServer{issues: map[string][]core.OpsIssue{}}
+	f := &fakeIssueServer{issues: map[string][]model.Issue{}}
 	var mu sync.Mutex
 	valid := map[string]bool{}
 	exchanges := 0

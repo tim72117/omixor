@@ -105,13 +105,21 @@ final class ConnectionStore {
 
     // MARK: - 登入
 
-    /// 進行中的瀏覽器登入(連線 id → 等瀏覽器的工作),cancelLogin 用來取消
+    /// 進行中的瀏覽器登入(「組織|連線 id」→ 等瀏覽器的工作),cancelLogin 用來取消。
+    /// 以組織加連線 id 為鍵:不同組織有同 id 的連線(例如都叫 evoleap)時各自獨立
     private var loginTasks: [String: Task<(TokenSet, OAuthSettings?)?, Error>] = [:]
 
+    private func loginKey(_ org: String, _ id: String) -> String { "\(org)|\(id)" }
+
+    /// 瀏覽器登入。開始時就固定組織(鑰匙圈的組織前綴)與連線設定,登入完成後一律寫進「開始登入時的組織」。
+    /// 等核准期間切換了組織:不取消(使用者可能已經在瀏覽器按了核准),token 與探索到的設定照樣存回原本的組織,
+    /// 不會寫到切換後的組織;畫面狀態(忙碌、錯誤、帳號)只在仍是同一個組織時更新
     func login(_ id: String) async {
-        guard let c = connection(id), loginTasks[id] == nil else { return }
+        let org = app.currentOrgId, scope = TokenVault.scope, key = loginKey(org, id)
+        guard let c = connection(id), loginTasks[key] == nil else { return }
+        let sameOrg = { [app] in app.currentOrgId == org }
         setState(id) { $0.busy = true; $0.error = nil; $0.lastTest = nil }
-        defer { setState(id) { $0.busy = false } }
+        defer { if sameOrg() { setState(id) { $0.busy = false } } }
         // 等瀏覽器的部分放在可取消的 Task:使用者按「取消」時 cancelLogin 取消它(LoopbackCallback 停止等回呼、關掉本機的回呼伺服器)
         let task = Task { () throws -> (TokenSet, OAuthSettings?)? in
             switch c.auth {
@@ -124,32 +132,49 @@ final class ConnectionStore {
                 return nil
             }
         }
-        loginTasks[id] = task
-        defer { loginTasks[id] = nil }
+        loginTasks[key] = task
+        defer { loginTasks[key] = nil }
         do {
             let got: (TokenSet, OAuthSettings?)?
-            do { got = try await task.value } catch where task.isCancelled { return }   // 使用者取消:不顯示錯誤
+            do { got = try await task.value } catch where task.isCancelled || error is CancellationError { return }   // 使用者取消:不顯示錯誤
             if let (tokens, settings) = got {
-                if let settings, var n = connection(id) {
-                    n.oauth = settings
-                    if let i = app.connections.firstIndex(where: { $0.id == id }) { app.connections[i] = n; save() }
-                }
-                TokenVault.setTokens(tokens, id)
+                if let settings { saveOAuthSettings(settings, id: id, org: org) }
+                TokenVault.setTokens(tokens, id, scope: scope)   // 用開始登入時的組織前綴,不是現在的
+            }
+            guard sameOrg() else {
+                let name = app.orgs.first { $0.id == org }?.name ?? org
+                app.log(.person(app.me), "person.badge.key", "omixor 登入「\(c.name)」(登入期間切換了組織,登入已存回組織「\(name)」)", .settings)
+                return
             }
             await refreshAccount(id)
             app.log(.person(app.me), "person.badge.key", "omixor 登入「\(c.name)」" + (app.connectionStates[id]?.account.map { "(\($0))" } ?? ""), .settings)
         } catch {
-            setState(id) { $0.error = error.localizedDescription }
+            if sameOrg() { setState(id) { $0.error = error.localizedDescription } }
         }
     }
 
-    /// 取消等瀏覽器的登入(畫面的「取消」按鈕)
-    func cancelLogin(_ id: String) {
-        loginTasks[id]?.cancel()
+    /// 登入探索到的 OAuth 設定寫回連線:還在同一個組織就改目前的清單;已切到別的組織就直接改原組織資料夾裡的 connections.json
+    private func saveOAuthSettings(_ settings: OAuthSettings, id: String, org: String) {
+        if app.currentOrgId == org {
+            if let i = app.connections.firstIndex(where: { $0.id == id }) { app.connections[i].oauth = settings; save() }
+            return
+        }
+        let file = OrgFiles.dir(org).appendingPathComponent("connections.json")
+        guard let d = try? Data(contentsOf: file), var list = try? JSONDecoder().decode([Connection].self, from: d),
+              let i = list.firstIndex(where: { $0.id == id }) else { return }
+        list[i].oauth = settings
+        let e = JSONEncoder()
+        e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let out = try? e.encode(list) { try? out.write(to: file, options: .atomic) }
     }
 
-    /// 這個連線正在等瀏覽器登入
-    func isLoggingIn(_ id: String) -> Bool { loginTasks[id] != nil }
+    /// 取消等瀏覽器的登入(畫面的「取消」按鈕;目前組織的這個連線)
+    func cancelLogin(_ id: String) {
+        loginTasks[loginKey(app.currentOrgId, id)]?.cancel()
+    }
+
+    /// 目前組織的這個連線正在等瀏覽器登入
+    func isLoggingIn(_ id: String) -> Bool { loginTasks[loginKey(app.currentOrgId, id)] != nil }
 
     func logout(_ id: String) async {
         guard let c = connection(id) else { return }

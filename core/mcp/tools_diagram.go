@@ -98,30 +98,53 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 		return nil, ToolError{err.Error()}
 	}
 	args := withAgent(map[string]any{})
-	if tags, ok := sv.Strings("tags"); ok {
+	// 標籤照原樣([]any)交給 doc_save:它用 Args.Strings 讀,[]string 認不得,標籤會被當成沒給
+	tags, hasTags := sv.Raw["tags"]
+	if hasTags {
 		args["tags"] = tags
 	}
+	// meta 更新既有文件時要另外改的標題、標籤:doc_save 的局部修改(edits)不能和 title、tags 一起送,
+	// 所以先存圖,成功後再用一次 doc_save 只帶 id + title/tags
+	var meta map[string]any
 	if id := sv.Str("id"); id != "" {
 		body, version, err := readDoc(id)
 		if err != nil {
 			return nil, Errorf("%s畫好了,但讀不到要更新的文件:%v", k.noun, err)
 		}
+		args["id"] = id
 		// 不整份覆寫:只把第一個這種圖的區塊換掉(字串取代,帶讀到的版本;期間別人改了文件其他地方,
 		// 取代會套在最新的內文上,不會蓋掉別人的修改);沒有區塊就接在最後
+		// first 回的是內文裡逐字的那一段(保留原文的 \r\n),edits 才套得上
 		if old, lang, ok := k.first(body); ok {
-			if strings.Count(strings.ReplaceAll(body, "\r\n", "\n"), old) != 1 {
+			if strings.Count(body, old) != 1 {
 				return nil, Errorf("%s畫好了,但文件 %s 裡有兩段一模一樣的 ```%s 區塊,不知道要換哪一段;請先手動刪掉多的那段", k.noun, id, lang)
 			}
-			args["edits"] = []any{map[string]any{"old": old, "new": k.fenceLike(lang, src)}}
+			open, _, _ := strings.Cut(old, "\n")
+			blk := k.fenceLike(strings.TrimSuffix(open, "\r"), src)
+			if strings.Contains(old, "\r\n") { // 原本的區塊用 \r\n 換行:新區塊跟著用,不混用
+				blk = strings.ReplaceAll(blk, "\n", "\r\n")
+			}
+			args["edits"] = []any{map[string]any{"old": old, "new": blk}}
 			if version != "" {
 				args["base_version"] = version
 			}
+			delete(args, "tags")
+			meta = withAgent(map[string]any{"id": id})
+			if t := sv.Str("title"); t != "" {
+				meta["title"] = t
+			}
+			if hasTags {
+				meta["tags"] = tags
+			}
+			if len(meta) == len(withAgent(map[string]any{"id": id})) {
+				meta = nil // 沒有要改的標題、標籤
+			}
 		} else {
+			// 接在最後(append_body)可以和 title、tags 一起送,一次存完
 			args["append_body"] = k.fence(src)
-		}
-		args["id"] = id
-		if t := sv.Str("title"); t != "" {
-			args["title"] = t
+			if t := sv.Str("title"); t != "" {
+				args["title"] = t
+			}
 		}
 		if n, lang := k.others(body); n > 0 {
 			warns = append(warns, fmt.Sprintf("文件 %s 裡另有 %d 個 ```%s 區塊,這次沒有更動;不要了請自己刪掉", id, n, lang))
@@ -149,6 +172,11 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 	d, err := s.RunNested(c, "doc_save", args)
 	if err != nil {
 		return nil, Errorf("%s畫好了,但存到文件櫃失敗:%v", k.noun, err)
+	}
+	if meta != nil {
+		if d, err = s.RunNested(c, "doc_save", meta); err != nil {
+			return nil, Errorf("%s已存進文件 %s,但改標題/標籤失敗:%v", k.noun, args["id"], err)
+		}
 	}
 	out["doc"] = d
 	return out, nil

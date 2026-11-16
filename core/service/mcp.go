@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"strings"
-	"sync"
 
 	"omixor-core/model"
 	"omixor-core/store"
@@ -11,17 +10,15 @@ import (
 
 // 外部 MCP 閘道的登記(資料見 model/mcp.go;實際連線在用戶端,也就是 macOS App)。
 //
-//	讀:組織成員(角色憑證也可以,只能讀自己組織的,而且只看到自己的權限)
+//	讀:組織成員看完整設定(App 連線需要);角色憑證只看到自己有權限的伺服器,而且不含連線細節
+//	   (command、args、cwd、envNames、url、headerNames 一律拿掉,工具規則也只留它能用的)
 //	改(伺服器、工具規則、角色權限):組織管理員
 //
 // 要開「外部 MCP 閘道」功能開關(開發版、實驗、預設關):沒開時讀回空清單(enabled = false 並附說明),
 // 寫入回 403 說明要先開功能;判斷工具能不能用(resolve)一律不放行。
 // 任何密鑰都不收:輸入裡有 env、headers、secrets 這類帶值的欄位一律 400(只登記名稱 envNames、headerNames)。
 
-// mcpMu 「讀了再改」在這把鎖裡(單一程式內)
-var mcpMu sync.Mutex
-
-const mcpOffNote = "「外部 MCP 閘道」功能沒開:請組織管理員到「系統」打開(開發版的實驗功能)"
+const mcpOffNote = "「外部 MCP 閘道」功能沒開:伺服器管理員要先到 系統 開放,組織管理員再到 設定 › 功能 打開(實驗功能)"
 
 // MCPView GET /api/orgs/{org}/mcp-servers 的回應
 type MCPView struct {
@@ -115,11 +112,7 @@ type MCPResolveResult struct {
 }
 
 func (s *Service) mcpEnabled(org string) (bool, error) {
-	x, err := s.loadSystem(org)
-	if err != nil {
-		return false, err
-	}
-	return x.Enabled(model.FeatureMCPGateway), nil
+	return s.featureEnabled(org, model.FeatureMCPGateway)
 }
 
 func (s *Service) loadMCP(org string) (model.OrgMCPConfig, error) {
@@ -148,7 +141,7 @@ func (s *Service) needMCPAdmin(p *model.Principal, org string) error {
 	return nil
 }
 
-// GetMCP 組織的外部 MCP 登記(成員;角色身分只看到自己的權限)
+// GetMCP 組織的外部 MCP 登記(成員看完整設定;角色身分只看到自己有權限的伺服器、自己的權限,不含連線細節)
 func (s *Service) GetMCP(p *model.Principal, org string) (*MCPView, error) {
 	if err := s.viewer(p, org); err != nil {
 		return nil, err
@@ -166,14 +159,48 @@ func (s *Service) GetMCP(p *model.Principal, org string) (*MCPView, error) {
 	if err != nil {
 		return nil, err
 	}
-	v.Enabled, v.Servers, v.UpdatedAt, v.UpdatedBy = true, c.Servers, c.UpdatedAt, c.UpdatedBy
-	for k, g := range c.Grants {
-		if p.Agent != nil && !strings.EqualFold(k, p.Agent.AgentID) {
-			continue
+	v.Enabled, v.UpdatedAt, v.UpdatedBy = true, c.UpdatedAt, c.UpdatedBy
+	if p.Agent == nil {
+		v.Servers, v.Grants = c.Servers, c.Grants
+		return v, nil
+	}
+	// 角色憑證:只有自己的權限、有權限的伺服器,而且拿掉連線細節
+	mine := grantsOf(c, p.Agent.AgentID)
+	if len(mine) > 0 {
+		v.Grants[p.Agent.AgentID] = mine
+	}
+	for _, srv := range c.Servers {
+		for _, g := range mine {
+			if strings.EqualFold(g.Server, srv.ID) {
+				v.Servers = append(v.Servers, mcpAgentView(srv, g))
+				break
+			}
 		}
-		v.Grants[k] = g
 	}
 	return v, nil
+}
+
+// mcpAgentView 給角色看的伺服器:只有名稱、說明、啟用與工具規則(只留權限內的工具),沒有任何連線細節
+func mcpAgentView(srv model.MCPServerReg, g model.MCPGrant) model.MCPServerReg {
+	out := model.MCPServerReg{ID: srv.ID, Name: srv.Name, Description: srv.Description, Transport: srv.Transport,
+		Args: []string{}, EnvNames: []string{}, HeaderNames: []string{}, Enabled: srv.Enabled, ToolDefault: srv.ToolDefault,
+		Tools: []model.MCPToolRule{}, UpdatedAt: srv.UpdatedAt}
+	for _, r := range srv.Tools {
+		if g.All || containsTool(g.Tools, r.Name) {
+			out.Tools = append(out.Tools, r)
+		}
+	}
+	return out
+}
+
+// containsTool 工具清單裡有沒有這個工具(不分大小寫、- 與 _ 視為相同)
+func containsTool(l []string, tool string) bool {
+	for _, t := range l {
+		if model.MCPSameTool(t, tool) {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanNames 名稱清單:去空白、去重複、檢查格式
@@ -209,8 +236,8 @@ func (s *Service) SaveMCPServer(p *model.Principal, org string, in MCPServerInpu
 	if !model.ValidMCPServerID(id) {
 		return nil, fail(400, "伺服器 id 要是 1–32 個小寫英文、數字或 -(不能有底線)")
 	}
-	mcpMu.Lock()
-	defer mcpMu.Unlock()
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
 	c, err := s.loadMCP(org)
 	if err != nil {
 		return nil, err
@@ -271,6 +298,9 @@ func (s *Service) SaveMCPServer(p *model.Principal, org string, in MCPServerInpu
 		if x.Command == "" {
 			return nil, fail(400, "stdio 伺服器要有啟動指令(command)")
 		}
+		if why := model.CheckMCPLaunch(x.Command, x.Args, x.Cwd, x.EnvNames); why != "" {
+			return nil, fail(400, "%s", why)
+		}
 		x.URL, x.HeaderNames = "", []string{}
 	case model.MCPTransportHTTP:
 		u, why := model.NormalizeMCPURL(x.URL)
@@ -303,8 +333,8 @@ func (s *Service) DeleteMCPServer(p *model.Principal, org, id string) error {
 	if err := s.needMCPAdmin(p, org); err != nil {
 		return err
 	}
-	mcpMu.Lock()
-	defer mcpMu.Unlock()
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
 	c, err := s.loadMCP(org)
 	if err != nil {
 		return err
@@ -341,8 +371,8 @@ func (s *Service) SaveMCPTools(p *model.Principal, org, id string, in MCPToolsIn
 	if err := s.needMCPAdmin(p, org); err != nil {
 		return nil, err
 	}
-	mcpMu.Lock()
-	defer mcpMu.Unlock()
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
 	c, err := s.loadMCP(org)
 	if err != nil {
 		return nil, err
@@ -359,10 +389,10 @@ func (s *Service) SaveMCPTools(p *model.Principal, org, id string, in MCPToolsIn
 			if !model.ValidMCPToolName(name) {
 				return nil, fail(400, "工具名稱格式不對:%s", name)
 			}
-			seen[name] = true
+			seen[model.MCPToolKey(name)] = true
 			found := false
 			for i := range x.Tools {
-				if x.Tools[i].Name == name {
+				if model.MCPSameTool(x.Tools[i].Name, name) {
 					x.Tools[i].Title, x.Tools[i].Description = model.ClipMCPText(t.Title, true), model.ClipMCPText(t.Description, false)
 					found = true
 				}
@@ -375,7 +405,7 @@ func (s *Service) SaveMCPTools(p *model.Principal, org, id string, in MCPToolsIn
 		if in.Prune {
 			kept := []model.MCPToolRule{}
 			for _, r := range x.Tools {
-				if seen[r.Name] {
+				if seen[model.MCPToolKey(r.Name)] {
 					kept = append(kept, r)
 				}
 			}
@@ -385,7 +415,7 @@ func (s *Service) SaveMCPTools(p *model.Principal, org, id string, in MCPToolsIn
 	for _, r := range in.Rules {
 		i := -1
 		for j := range x.Tools {
-			if x.Tools[j].Name == strings.TrimSpace(r.Name) {
+			if model.MCPSameTool(x.Tools[j].Name, r.Name) {
 				i = j
 			}
 		}
@@ -423,12 +453,15 @@ func (s *Service) SaveMCPGrants(p *model.Principal, org string, in MCPGrantsInpu
 	if err := s.needMCPAdmin(p, org); err != nil {
 		return nil, err
 	}
+	// 找角色和寫入在同一把鎖內(順序同 DeleteAgent:先 s.agents.mu 再 s.mcpMu;見 locks.go),避免刪角色的同時寫入權限、留下孤兒權限
+	s.agents.mu.Lock()
+	defer s.agents.mu.Unlock()
 	g, err := s.findAgent(org, in.AgentID)
 	if err != nil {
 		return nil, fail(400, "找不到角色 %s", in.AgentID)
 	}
-	mcpMu.Lock()
-	defer mcpMu.Unlock()
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
 	c, err := s.loadMCP(org)
 	if err != nil {
 		return nil, err
@@ -443,15 +476,26 @@ func (s *Service) SaveMCPGrants(p *model.Principal, org string, in MCPGrantsInpu
 		if err != nil {
 			return nil, err
 		}
+		all := gr.All
+		switch {
+		case all:
+			tools = []string{}
+		case len(gr.Tools) == 0:
+			// 舊用戶端相容:沒給 tools(也沒給 all)= 全部,存成 all = true
+			all = true
+		case len(tools) == 0:
+			// 給了 tools 但清掉空白後是空的(例如 [" "]):不能默默變成全部
+			return nil, fail(400, "伺服器 %s 的工具清單是空的;要給全部工具請明確帶 all: true", srv.ID)
+		}
 		merged := false
 		for i := range out {
 			if out[i].Server == srv.ID {
 				// 同一台給兩次:任何一次是「全部」就是全部,否則合併
-				if len(out[i].Tools) == 0 || len(tools) == 0 {
-					out[i].Tools = []string{}
+				if out[i].All || all {
+					out[i].All, out[i].Tools = true, []string{}
 				} else {
 					for _, t := range tools {
-						if !containsFold(out[i].Tools, t) {
+						if !containsTool(out[i].Tools, t) {
 							out[i].Tools = append(out[i].Tools, t)
 						}
 					}
@@ -460,15 +504,11 @@ func (s *Service) SaveMCPGrants(p *model.Principal, org string, in MCPGrantsInpu
 			}
 		}
 		if !merged {
-			out = append(out, model.MCPGrant{Server: srv.ID, Tools: tools})
+			out = append(out, model.MCPGrant{Server: srv.ID, All: all, Tools: tools})
 		}
 	}
 	// key 用角色的正式 id(大小寫照角色);同一個角色別的大小寫寫法的舊 key 一併拿掉
-	for k := range c.Grants {
-		if strings.EqualFold(k, g.ID) {
-			delete(c.Grants, k)
-		}
-	}
+	dropAgentGrants(&c, g.ID)
 	if len(out) > 0 {
 		c.Grants[g.ID] = out
 	}
@@ -481,6 +521,35 @@ func (s *Service) SaveMCPGrants(p *model.Principal, org string, in MCPGrantsInpu
 	return out, nil
 }
 
+// dropAgentGrants 拿掉一個角色的權限(key 不分大小寫);有拿掉回 true
+func dropAgentGrants(c *model.OrgMCPConfig, agentID string) bool {
+	dropped := false
+	for k := range c.Grants {
+		if strings.EqualFold(k, agentID) {
+			delete(c.Grants, k)
+			dropped = true
+		}
+	}
+	return dropped
+}
+
+// pruneAgentMCPGrants 刪除角色時清掉它的外部 MCP 權限(不管功能開關;避免同 id 重建的角色繼承)。
+// 呼叫端要拿著 s.agents.mu(DeleteAgent)
+func (s *Service) pruneAgentMCPGrants(org, agentID string) error {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	c, err := s.loadMCP(org)
+	if err != nil {
+		return err
+	}
+	if !dropAgentGrants(&c, agentID) {
+		return nil
+	}
+	now := s.mt()
+	c.UpdatedAt = &now
+	return s.Store.SaveMCPConfig(org, c)
+}
+
 // grantsOf 角色的權限(key 不分大小寫)
 func grantsOf(c model.OrgMCPConfig, agentID string) []model.MCPGrant {
 	for k, g := range c.Grants {
@@ -491,8 +560,8 @@ func grantsOf(c model.OrgMCPConfig, agentID string) []model.MCPGrant {
 	return nil
 }
 
-// mcpDecide 判斷一個工具:agentID 空 = 一般成員
-func mcpDecide(c model.OrgMCPConfig, agentID, server, tool string) MCPResolved {
+// mcpDecide 判斷一個工具:agentID 空 = 一般成員;agentOff = 角色停用(一律不放行)
+func mcpDecide(c model.OrgMCPConfig, agentID string, agentOff bool, server, tool string) MCPResolved {
 	r := MCPResolved{Server: server, Name: tool, Qualified: model.MCPQualifiedName(server, tool)}
 	srv, _, ok := c.Server(server)
 	if !ok {
@@ -517,19 +586,21 @@ func mcpDecide(c model.OrgMCPConfig, agentID, server, tool string) MCPResolved {
 		r.Allowed = true
 		return r
 	}
+	if agentOff {
+		r.Reason = "角色已停用"
+		return r
+	}
 	for _, g := range grantsOf(c, agentID) {
 		if !strings.EqualFold(g.Server, srv.ID) {
 			continue
 		}
-		if len(g.Tools) == 0 {
+		if g.All || len(g.Tools) == 0 {
 			r.Allowed = true
 			return r
 		}
-		for _, t := range g.Tools {
-			if t == tool {
-				r.Allowed = true
-				return r
-			}
+		if containsTool(g.Tools, tool) {
+			r.Allowed = true
+			return r
 		}
 		r.Reason = "角色沒有勾選這個工具(在角色設定的「可用工具」勾選)"
 		return r
@@ -550,12 +621,13 @@ func (s *Service) ResolveMCPTools(p *model.Principal, org string, in MCPResolveI
 		}
 		agentID = p.Agent.AgentID
 	}
+	agentOff := false
 	if agentID != "" {
 		g, err := s.findAgent(org, agentID)
 		if err != nil {
 			return nil, fail(404, "找不到角色 %s", agentID)
 		}
-		agentID = g.ID
+		agentID, agentOff = g.ID, !g.Active
 	}
 	out := &MCPResolveResult{Tools: []MCPResolved{}}
 	on, err := s.mcpEnabled(org)
@@ -578,7 +650,7 @@ func (s *Service) ResolveMCPTools(p *model.Principal, org string, in MCPResolveI
 		return nil, err
 	}
 	for _, t := range in.Tools {
-		out.Tools = append(out.Tools, mcpDecide(c, agentID, strings.TrimSpace(t.Server), strings.TrimSpace(t.Name)))
+		out.Tools = append(out.Tools, mcpDecide(c, agentID, agentOff, strings.TrimSpace(t.Server), strings.TrimSpace(t.Name)))
 	}
 	return out, nil
 }
@@ -596,7 +668,7 @@ func (s *Service) mcpAgentTools(org string, g model.Agent) []AgentTool {
 	out := []AgentTool{}
 	for _, srv := range c.Servers {
 		for _, r := range srv.Tools {
-			d := mcpDecide(c, g.ID, srv.ID, r.Name)
+			d := mcpDecide(c, g.ID, !g.Active, srv.ID, r.Name)
 			label := r.Title
 			if label == "" {
 				label = r.Name

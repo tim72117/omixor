@@ -58,14 +58,16 @@ final class MCPHandler {
         case "ping":
             return result(id: id, [:])
         case "tools/list":
-            // 核心工具用 core server 的定義(只有核心一份),App 自己的工具照舊;讀不到 server 時先列 App 裡的定義(呼叫會回錯誤)
+            // 核心工具用 core server 的定義(只有核心一份,App 沒有自己的實作),App 自己的工具照舊;讀不到 server 時只列 App 自己的工具
             // 外部 MCP 閘道開著時,再加上組織設定裡開著的外部工具(<伺服器>__<工具>,見 MCP/Gateway)
+            // 範例資料工具:目前組織對應的功能關了就不列(見 sampleToolFeatures)
             let external = app.isFeatureEnabled("mcpGateway") ? await app.mcpGateway.toolDefinitions(agent: nil) : []
+            let local = Self.tools.filter { toolEnabled($0.name) }
             guard let (_, remote) = await serverTools(), !remote.isEmpty else {
-                return result(id: id, ["tools": Self.tools.map(\.definition) + external])
+                return result(id: id, ["tools": local.map(\.definition) + external])
             }
             let names = Set(remote.compactMap { $0["name"] as? String })
-            return result(id: id, ["tools": Self.tools.filter { !names.contains($0.name) }.map(\.definition) + remote + external])
+            return result(id: id, ["tools": local.filter { !names.contains($0.name) }.map(\.definition) + remote + external])
         case "tools/call":
             guard let raw = params["name"] as? String else {
                 return errorResponse(id: id, code: -32602, message: "缺少工具名稱")
@@ -75,22 +77,31 @@ final class MCPHandler {
                 await app.mcpGateway.refreshIfNeeded()
                 if app.mcpGateway.isGatewayTool(raw) {
                     app.mcp.lastTool = raw
-                    return result(id: id, await app.mcpGateway.call(raw, params["arguments"] as? [String: Any] ?? [:], caller: .member(app.mcp.lastClient)))
+                    // 身分是本機 MCP token 代表的「這台 Mac 的使用者」(HTTP 層已驗證);clientInfo 是自報的,不拿來當身分
+                    return result(id: id, await app.mcpGateway.call(raw, params["arguments"] as? [String: Any] ?? [:], caller: .member))
                 }
             }
             if let proxied = await callOnServer(id: id, raw, params["arguments"] as? [String: Any] ?? [:]) { return proxied }
             let name = Self.legacyToolName(raw)
-            // 核心工具一律由 core server 執行;server 現在不能用時回錯誤(不會碰本機檔案)
-            if Self.coreTools.contains(name), await serverTools() == nil {
+            // 核心工具一律由 core server 執行(App 沒有自己的實作):server 連不上,或連得上但工具清單沒有這個工具時回錯誤
+            if Self.coreTools.contains(name) {
                 app.mcp.lastTool = name
-                let why = serverToolError ?? "讀不到 core server 的工具清單"
-                return result(id: id, ["content": [["type": "text", "text": "\(name) 由 omixor core server 處理,現在連不上:\(why)"]], "isError": true])
+                let why: String
+                if await serverTools() == nil {
+                    why = "現在連不上:" + (serverToolError ?? "讀不到 core server 的工具清單")
+                } else {
+                    why = "但 core server 的工具清單裡沒有這個工具(server 版本可能比 App 舊,請更新 server)"
+                }
+                return result(id: id, ["content": [["type": "text", "text": "\(name) 由 omixor core server 處理,\(why)"]], "isError": true])
             }
             guard Self.tools.contains(where: { $0.name == name }) else {
                 return errorResponse(id: id, code: -32602, message: "沒有這個工具:\(name)")
             }
             let args = MCPArgs(raw: params["arguments"] as? [String: Any] ?? [:])
             app.mcp.lastTool = name
+            if !toolEnabled(name) {
+                return result(id: id, ["content": [["type": "text", "text": featureOffMessage(name)]], "isError": true])
+            }
             do {
                 let out = try await call(name, args)
                 return result(id: id, ["content": [["type": "text", "text": MCPJSON.string(out)]], "isError": false])
@@ -112,13 +123,82 @@ final class MCPHandler {
 
     /// 連 server 時也留在 App 處理的工具:App 自己的組織清單(含本機與各伺服器)、版本
     static let keepLocal: Set<String> = ["orgs", "server"]
-    /// 屬於 core 的工具(Issue、角色與任務、文件櫃、組織鏈、頻道):server 的管理端點有的一律轉給 core server(遠端 omixor 或本機守護服務);
-    /// 讀不到 server 的工具清單時回錯誤。App 裡同名的 Swift 實作只剩 server 管理端點沒開放的(agent_task_delegate:core 只給角色身分用,
-    /// App 代角色委派走 REST /agent-tasks/delegate),而且它們讀寫的 Store 一律透過 core server,不會碰本機檔案
+    /// 屬於 core 的工具(Issue、角色與任務、文件櫃、組織鏈、頻道、事件、繪圖):一律轉給 core server 的管理端點(遠端 omixor 或本機守護服務),
+    /// App 沒有這些工具的 Swift 實作;server 連不上、或工具清單裡沒有時回錯誤。
+    /// agent_task_delegate 不在這裡:core 的管理端點只開放給角色身分,App 代角色委派用自己的實作(走 REST /agent-tasks/delegate)
     static let coreTools: Set<String> = ["issues", "issue_create", "issue_update", "agents", "agent_context", "agent_tasks",
                                           "agent_task_claim", "agent_task_report", "agent_upsert", "agent_task_create",
                                           "cabinet", "docs", "doc_save", "chain", "chain_save",
-                                          "channels", "channel_create", "channel_messages", "channel_post"]
+                                          "channels", "channel_create", "channel_messages", "channel_post",
+                                          // 事件(存在 core;core/mcp/tools_incident.go)
+                                          "incident_declare", "incident_update",
+                                          // 繪圖工具(core/tools/wireframe、flowchart 的渲染器)
+                                          "wireframe_render", "flowchart_render"]
+    // MARK: - 範例資料工具與功能開關
+
+    /// 集合 → 所屬的範例功能(core/model/features.go 的 key)。沒列的(people、incidents、activity、integrations)不擋:
+    /// 人員、動態牆與整合不是哪個範例分頁的資料,事件存在 core
+    static let collectionFeatures: [String: String] = [
+        "services": "infrastructure.services",
+        "servers": "infrastructure.servers",
+        "repos": "development.pulls",
+        "pull_requests": "development.pulls",
+        "work_items": "development.overview",
+        "sprint": "development.overview",
+        "pipeline_runs": "pipelines.runs",
+        "deployments": "pipelines.deployments",
+        "alerts": "monitoring.alerts",
+        "alert_rules": "monitoring.rules",
+        "logs": "monitoring.logs",
+        "dashboards": "monitoring.dashboards",
+        "on_call": "incidents.oncall",
+        "automations": "automation.flows",
+        "automation_runs": "automation.runs",
+        "approvals": "automation.inbox",
+    ]
+
+    /// 所有範例功能(集合用到的)
+    static var sampleFeatureKeys: [String] { Array(Set(collectionFeatures.values)).sorted() }
+
+    /// App 的範例資料工具 → 需要的功能(任一個開著就能用)。沒列的工具不擋(navigate、activity_post、GCP、GitHub、旁白等;
+    /// 核心工具 coreTools 由 server 處理,這裡也不擋)。
+    /// overview、list、get 讀所有範例集合:任一個範例功能開著就列;list、get 再依集合擋(collectionFeatures)
+    static let sampleToolFeatures: [String: [String]] = [
+        "overview": sampleFeatureKeys,
+        "list": sampleFeatureKeys,
+        "get": sampleFeatureKeys,
+        "alert_update": ["monitoring.alerts"],
+        "alert_create": ["monitoring.alerts"],
+        "work_item_create": ["development.overview"],
+        "work_item_move": ["development.overview"],
+        "pipeline_update": ["pipelines.runs"],
+        "request_approval": ["automation.inbox"],
+        "log_append": ["monitoring.logs"],
+    ]
+
+    /// 這個 App 工具在目前組織能不能用(依兩層功能開關的有效值)
+    func toolEnabled(_ name: String) -> Bool {
+        guard let keys = Self.sampleToolFeatures[name] else { return true }
+        return keys.contains { app.isFeatureEnabled($0) }
+    }
+
+    /// 集合在目前組織能不能讀
+    func collectionEnabled(_ collection: String) -> Bool {
+        guard let key = Self.collectionFeatures[collection] else { return true }
+        return app.isFeatureEnabled(key)
+    }
+
+    private func featureName(_ key: String) -> String {
+        FeatureFallback.entry(key)?.name ?? key
+    }
+
+    /// 工具的功能關了時回給用戶端的錯誤
+    func featureOffMessage(_ name: String) -> String {
+        let keys = Self.sampleToolFeatures[name] ?? []
+        let which = keys.count == 1 ? "(\(featureName(keys[0])),\(keys[0]))" : ""
+        return "\(name):這個功能已關閉\(which)。目前組織沒有開啟對應的範例功能,請在 omixor 的 設定 › 功能(或系統頁)打開後再用"
+    }
+
     /// 最近一次讀 server 工具清單的錯誤
     private var serverToolError: String?
     /// server 工具清單的快取秒數(讀不到時的快取較短,之後再試)
@@ -161,7 +241,7 @@ final class MCPHandler {
         nonisolated(unsafe) let sendArgs = args
         do {
             let res = try await r.run { try $0.mcp(org: org, method: "tools/call", params: ["name": name, "arguments": sendArgs]) }
-            await refreshAfterServerTool(name)
+            await refreshAfterServerTool(name, savedDoc: args["save"] != nil && !(args["save"] is NSNull))
             return result(id: id, res)
         } catch {
             return result(id: id, ["content": [["type": "text", "text": error.localizedDescription]], "isError": true])
@@ -169,8 +249,14 @@ final class MCPHandler {
     }
 
     /// server 上改了資料:馬上重讀對應的畫面資料(不用等定時更新;請求在背景跑,回應前等它更新好)
-    private func refreshAfterServerTool(_ name: String) async {
+    /// savedDoc:繪圖工具(wireframe_render、flowchart_render)帶了 save,會透過 doc_save 改文件櫃
+    private func refreshAfterServerTool(_ name: String, savedDoc: Bool = false) async {
         if name.hasPrefix("incident_") { await app.startIncidents().reload() }   // incident_declare、incident_update
+        if name.hasSuffix("_render"), savedDoc {
+            if !app.cabinetLoaded { Cabinet.begin(app) }
+            await Cabinet.reload(app)
+            return
+        }
         // channel_messages 也會標已讀
         let writes = ["create", "update", "save", "report", "claim", "upsert", "delegate", "post", "channel_messages"]
         guard writes.contains(where: { name.contains($0) }) else { return }
@@ -199,7 +285,7 @@ final class MCPHandler {
     GitHub(github、github_runs、github_run、github_pull)只讀:看 PR、檢查與 Actions 失敗原因;omixor 不會開 PR、留言或重跑 workflow。
     Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織(orgs 看是哪一個);切換組織只能由人在 app 裡做。
     omixor 有虛擬角色(agents)。使用者請你以某角色身分工作時:可先用 agent_context 取得該角色能讀取的資訊,再用 agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 agent_task_report 回報;需要人決定時回報 blocked。以角色身分開 Issue 或留言時,issue_create / issue_update 帶上 agent(角色 id),才會署名該角色。
-    文件櫃(cabinet、docs、doc_save)依 evoleap 研發基地的區塊分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。
+    文件櫃(cabinet、docs、doc_save)依目前組織的文件櫃結構(區塊與頁籤)分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。
     發現值得追蹤的問題(例如從 site_visitors 的數字看到異常)時,用 issue_create 存成 Issue;先用 issues 搜尋避免重複,已有就用 issue_update 加留言。
     旁白語音(shuttle 專案的 npm run voice)可以用 voice_submit 分派成批次:omixor 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。
     訊息頻道(channels、channel_messages、channel_post、channel_create)把人與角色拉進同一個對話;@ 角色只通知、不排任務。以角色身分工作時,agent_context 的 mentions 列出提到它的未讀訊息,讀(channel_messages)與回覆(channel_post)都帶 agent。
@@ -247,11 +333,13 @@ final class MCPHandler {
         "incidents", "on_call", "automations", "automation_runs", "approvals", "activity", "integrations",
     ]
 
-    /// 舊的工具名稱(ops_ 開頭)換成現在的名稱:工具改名後過渡用,tools/list 只列新名稱,舊名稱還能呼叫(同核心的 LegacyToolName)
+    /// 舊的工具名稱(ops_ 開頭)換成現在的名稱:工具改名後過渡用,tools/list 只列新名稱,舊名稱還能呼叫(同核心的 LegacyToolName)。
+    /// 核心工具(coreTools)也換,讓 server 連不上時的錯誤訊息用現在的名稱
     static func legacyToolName(_ name: String) -> String {
-        guard name.hasPrefix("ops_"), !tools.contains(where: { $0.name == name }) else { return name }
+        func known(_ n: String) -> Bool { tools.contains(where: { $0.name == n }) || coreTools.contains(n) }
+        guard name.hasPrefix("ops_"), !known(name) else { return name }
         let n = String(name.dropFirst(4))
-        return tools.contains(where: { $0.name == n }) ? n : name
+        return known(n) ? n : name
     }
 
     static let tools: [Tool] = [
@@ -298,26 +386,6 @@ final class MCPHandler {
                  "value": prop("string", "目前數值"),
                  "ai_note": prop("string", "AI 初步判讀"),
              ], required: ["title", "severity", "service", "rule", "value"]),
-        Tool(name: "incident_declare", title: "宣告事件",
-             description: "宣告新事件,回傳事件 id。可關聯告警。",
-             properties: [
-                 "title": prop("string", "標題"),
-                 "sev": prop("integer", "嚴重度 1–4,1 最嚴重"),
-                 "services": strings("受影響的服務 id"),
-                 "impact": prop("string", "對使用者的影響"),
-                 "commander": prop("string", "指揮官 person id,預設為目前的 Primary 值班"),
-                 "alert_ids": strings("關聯的告警 id"),
-             ], required: ["title", "sev", "impact"]),
-        Tool(name: "incident_update", title: "更新事件",
-             description: "更新事件狀態、在時間軸加註記或 AI 發現、或寫入 AI 摘要。至少給一項。",
-             properties: [
-                 "incident_id": prop("string", "事件 id"),
-                 "status": prop("string", "新狀態", enum: cases(IncidentStatus.self)),
-                 "note": prop("string", "時間軸註記"),
-                 "finding": prop("string", "加到時間軸的 AI 發現"),
-                 "ai_summary": prop("string", "取代事件的 AI 摘要"),
-                 "impact": prop("string", "更新影響說明"),
-             ], required: ["incident_id"]),
         Tool(name: "work_item_create", title: "建立工作項目",
              description: "在看板建立工作項目,可掛到事件的後續工作。",
              properties: [
@@ -387,138 +455,12 @@ final class MCPHandler {
                  "range": prop("string", "時間範圍,預設 1d", enum: ["all", "30m", "12h", "1d", "7d"]),
                  "connection": prop("string", "連線 id,預設 omixor 網站訪客頁選的那個(evoleap)"),
              ], required: [], readOnly: true),
-        Tool(name: "issue_create", title: "建立 Issue",
-             description: "把發現的問題或待辦存成 Issue(omixor 的真實資料,存在本機,重開 app 也還在;出現在 開發 › Issue)。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 issues 搜尋,避免重複。",
-             properties: [
-                 "title": prop("string", "標題,一句話說明問題"),
-                 "body": prop("string", "內文(Markdown)"),
-                 "priority": prop("string", "優先度,預設 normal", enum: cases(IssuePriority.self)),
-                 "labels": strings("標籤,例如 [\"evoleap\", \"訪客\"]"),
-                 "source": prop("string", "從哪裡發現的,例如「網站訪客 7d」"),
-                 "link": prop("string", "相關網址"),
-                 "agent": prop("string", "以虛擬角色身分工作時填角色 id 或名稱,Issue 會署名該角色"),
-                 "assignee": prop("string", "指派給的虛擬角色 id;連 omixor server 時伺服器會自動替它排任務(角色必須存在)"),
-             ], required: ["title"]),
-        Tool(name: "issue_update", title: "更新 Issue",
-             description: "更新 Issue:改標題、內文、優先度、標籤、指派,加留言,或關閉/重新打開。只給要改的欄位。",
-             properties: [
-                 "id": prop("string", "Issue id,例如 ISS-3"),
-                 "title": prop("string", "新標題"),
-                 "body": prop("string", "取代內文(Markdown)"),
-                 "append_body": prop("string", "接在內文後面的文字"),
-                 "priority": prop("string", "優先度", enum: cases(IssuePriority.self)),
-                 "labels": strings("取代全部標籤"),
-                 "add_labels": strings("加上的標籤"),
-                 "status": prop("string", "open 重新打開,closed 關閉", enum: cases(IssueStatus.self)),
-                 "comment": prop("string", "加一則留言"),
-                 "agent": prop("string", "以虛擬角色身分工作時填角色 id 或名稱,留言與變更會署名該角色"),
-                 "assignee": prop("string", "改指派給的角色 id(空字串 = 取消指派);連 omixor server 時會自動替新角色排任務、取消舊角色還沒領取的任務"),
-             ], required: ["id"]),
-        Tool(name: "issues", title: "查 Issue",
-             description: "給 id 回傳完整內容(含留言);不給 id 則列出符合條件的 Issue(預設只列未解決,依優先度與時間排序)。",
-             properties: [
-                 "id": prop("string", "Issue id"),
-                 "status": prop("string", "open、closed 或 all,預設 open", enum: ["open", "closed", "all"]),
-                 "label": prop("string", "只列有這個標籤的"),
-                 "query": prop("string", "標題、內文或留言包含這段文字"),
-                 "limit": prop("integer", "最多幾筆,預設 30"),
-             ], required: [], readOnly: true),
-        Tool(name: "agents", title: "列出虛擬角色",
-             description: "列出 omixor 的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。以角色身分工作前先讀它的 instructions。",
-             properties: ["id": prop("string", "只看這個角色")], required: [], readOnly: true),
-        Tool(name: "agent_context", title: "角色能讀取的資訊",
-             description: "用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與頁籤(read / write),能讀的文件清單,以及頻道裡提到它的未讀訊息與它所在頻道的未讀數(mentions)。include_bodies 為 true 時附上文件全文(最多 20 份,其餘只列清單)。文件權限依角色的 docAccess;Issue、範例資料等其他工具不分角色。",
-             properties: [
-                 "agent": prop("string", "角色 id 或名稱"),
-                 "include_bodies": prop("boolean", "附上文件全文,預設 false"),
-             ], required: ["agent"], readOnly: true),
-        Tool(name: "agent_tasks", title: "查角色任務",
-             description: "給 id 回傳任務完整內容;否則列出任務(預設未完成的:待領取、進行中、需要協助)。",
-             properties: [
-                 "id": prop("string", "任務 id,例如 T-3"),
-                 "agent": prop("string", "只列這個角色的"),
-                 "status": prop("string", "open(預設)、all 或單一狀態",
-                                enum: ["open", "all"] + cases(AgentTaskStatus.self)),
-             ], required: [], readOnly: true),
-        Tool(name: "agent_task_claim", title: "以角色身分領取任務",
-             description: "以某個虛擬角色的身分領取任務(狀態改成進行中)。給 id 就領那筆;不給就領該角色最優先的待領取任務。回傳角色設定與任務說明,照著做,做完用 agent_task_report 回報。沒有任務時 task 為 null。連 omixor server 時另外回傳 credential(agentId、taskId、secret、expiresAt、endpoint):綁這筆任務的角色憑證,secret 只給這一次,不要寫進 Issue、留言或檔案。",
-             properties: [
-                 "agent": prop("string", "角色 id 或名稱"),
-                 "id": prop("string", "任務 id(選填)"),
-             ], required: ["agent"]),
-        Tool(name: "agent_task_report", title: "回報任務",
-             description: "回報任務進度或結果。note 是過程紀錄;result 是最終結果(Markdown);做完設 status=done,卡住需要人決定設 blocked 並在 note 說明。",
-             properties: [
-                 "id": prop("string", "任務 id"),
-                 "status": prop("string", "新狀態", enum: ["inProgress", "blocked", "done"]),
-                 "note": prop("string", "過程紀錄"),
-                 "result": prop("string", "結果(Markdown)"),
-                 "links": strings("相關的 Issue id 或網址"),
-             ], required: ["id"]),
-        Tool(name: "agent_upsert", title: "新增或修改角色",
-             description: "新增虛擬角色,或修改既有角色(給 id 或名稱)。只給要改的欄位。routines 會取代全部例行任務;add_routines 是加在後面。例行任務格式:{title, instructions, kind: daily|weekly|hourly, hour, minute, weekday(1=週日…7=週六), every_hours, enabled}。",
-             properties: [
-                 "id": prop("string", "要修改的角色 id 或名稱;新增時可指定英文 id(例如 product-manager),不給就自動產生"),
-                 "name": prop("string", "名稱(新增時必填)"),
-                 "role": prop("string", "一句話職責"),
-                 "instructions": prop("string", "角色設定(給 AI 的說明,Markdown)"),
-                 "symbol": prop("string", "SF Symbol 名稱"),
-                 "color": prop("string", "顏色", enum: AgentPalette.names),
-                 "active": ["type": "boolean", "description": "啟用"],
-                 "routines": ["type": "array", "items": ["type": "object"], "description": "取代全部例行任務"],
-                 "add_routines": ["type": "array", "items": ["type": "object"], "description": "加上的例行任務"],
-                 "doc_access": ["type": "object", "additionalProperties": ["type": "string", "enum": cases(DocAccess.self)],
-                                "description": "文件櫃存取範圍,會合併進現有設定:key 是區塊 id(levels、dev、ideas、docs、overview、todo、members、tools)或頁籤網址(例如 /studio/tools、/docs/course-goals),值是 read、write 或 none(移除)。頁籤的設定優先於區塊。"],
-             ], required: []),
         Tool(name: "server", title: "伺服器與連線資訊",
              description: "目前連線資訊與版本:模式(本機/遠端)、遠端 server 名稱(不含網址)、登入狀態(帳號、角色、token 到期時間)與目前組織,以及 omixor app 與遠端 server 的版本(version、commit、buildTime)。不會顯示任何密鑰。",
              properties: [:], required: [], readOnly: true),
         Tool(name: "orgs", title: "組織",
              description: "列出 omixor 的組織與目前使用中的組織。Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織;切換組織只能由人在 app 裡做。",
              properties: [:], required: [], readOnly: true),
-        Tool(name: "cabinet", title: "文件櫃結構",
-             description: "列出文件櫃的區塊與頁籤(對應 evoleap 研發基地 /studio 的區塊),以及各處有幾份文件。給 agent 時只列該角色能存取的位置並標出權限(read / write)。",
-             properties: ["agent": prop("string", "以角色身分查看時填角色 id 或名稱")], required: [], readOnly: true),
-        Tool(name: "docs", title: "查文件",
-             description: "給 id 回傳文件全文;否則依區塊、頁籤、關鍵字列出文件。給 agent 時只看得到該角色有權限的文件。",
-             properties: [
-                 "id": prop("string", "文件 id,例如 DOC-3"),
-                 "section": prop("string", "區塊 id 或名稱,例如 levels、課程"),
-                 "tab": prop("string", "頁籤網址或名稱,例如 /studio/tools、L0、課程目標"),
-                 "query": prop("string", "標題、內文或標籤包含這段文字"),
-                 "agent": prop("string", "以角色身分查看時填角色 id 或名稱"),
-             ], required: [], readOnly: true),
-        Tool(name: "doc_save", title: "存文件到文件櫃",
-             description: "新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在研發基地對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置。文件存在本機,重開 omixor 也還在。內文開頭可以有欄位(--- 之間一行一個 key: value),kind 是文件類型:有對應範本(kind: template、for: <類型> 的文件,內含 ```html 版面與 ```css 樣式)時,畫面依範本顯示,存檔前也會檢查範本的 required 欄位。要新增一種類型,存一份範本文件就好。",
-             properties: [
-                 "id": prop("string", "要修改的文件 id;新增時不給"),
-                 "title": prop("string", "標題(新增時必填)"),
-                 "body": prop("string", "取代內文(Markdown)"),
-                 "append_body": prop("string", "接在內文後面的文字"),
-                 "section": prop("string", "區塊 id 或名稱(新增時必填,或只給 tab)"),
-                 "tab": prop("string", "頁籤網址或名稱"),
-                 "tags": strings("標籤"),
-                 "agent": prop("string", "以角色身分工作時填角色 id 或名稱"),
-             ], required: []),
-        Tool(name: "agent_task_create", title: "指派任務給角色",
-             description: "建立一筆任務指派給虛擬角色,等它被領取。assign_to 是接任務的角色;agent 是你自己正在扮演的角色(用來署名,和其他工具的 agent 意思一樣)。",
-             properties: [
-                 "assign_to": prop("string", "接這個任務的角色 id 或名稱"),
-                 "agent": prop("string", "以角色身分工作時填你自己的角色 id(署名用);不是接任務的角色"),
-                 "title": prop("string", "標題"),
-                 "instructions": prop("string", "任務說明(Markdown)"),
-                 "priority": prop("string", "優先度,預設 normal", enum: cases(IssuePriority.self)),
-             ], required: ["assign_to", "title"]),
-        Tool(name: "chain", title: "組織鏈",
-             description: "列出組織鏈(資訊流動方向):每條邊 from → to 表示 from 可以派工作給 to(label 例如 目標、任務;空白 = 任務),to 做完回報給 from。節點是 agent:<角色 id> 或 user:<email>;fromName、toName 是顯示名稱。",
-             properties: [:], required: [], readOnly: true),
-        Tool(name: "chain_save", title: "修改組織鏈",
-             description: "修改組織鏈(組織管理員)。edges 取代全部邊;或用 add 加上(同 from、to 的會被取代)、remove 拿掉(依 from、to)。每條邊 {from, to, label}:節點寫 agent:<角色 id> 或 user:<email>,label 例如 目標、任務(空白 = 任務)。不能指向自己、不能重複、不能有循環,節點要存在(角色存在、人是組織成員)。",
-             properties: [
-                 "edges": ["type": "array", "items": ["type": "object"], "description": "取代全部邊:[{from, to, label}]"],
-                 "add": ["type": "array", "items": ["type": "object"], "description": "加上的邊:[{from, to, label}]"],
-                 "remove": ["type": "array", "items": ["type": "object"], "description": "拿掉的邊:[{from, to}]"],
-             ], required: []),
         Tool(name: "agent_task_delegate", title: "依組織鏈委派任務",
              description: "以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 agent_context 的 chain.downstream。",
              properties: [
@@ -530,7 +472,7 @@ final class MCPHandler {
                  "task": prop("string", "委派它的來源任務 id(選填;不給就用你的角色進行中的任務)"),
              ], required: ["agent", "to", "title"]),
         Tool(name: "github", title: "GitHub 概況",
-             description: "列出 omixor 追蹤的 GitHub repo(目前組織的)、開著的 PR(含檢查結果)與最近的 Actions 執行。資料是 omixor 最近一次讀到的(約 5 分鐘更新一次);refresh=true 先重新讀。只讀。需要人先在 omixor 的 開發進度 › GitHub 登入。",
+             description: "列出 omixor 追蹤的 GitHub repo(目前組織的)、開著的 PR(含檢查結果)與最近的 Actions 執行。資料是 omixor 最近一次讀到的(約 5 分鐘更新一次);refresh=true 先重新讀。只讀。需要人先在 omixor 的 設定 › 程式碼倉庫 登入 GitHub。",
              properties: [
                  "refresh": prop("boolean", "先向 GitHub 重新讀一次"),
                  "repo": prop("string", "只看這個 repo(owner/name)"),
@@ -619,7 +561,7 @@ final class MCPHandler {
                  "source": prop("string", "草稿從哪裡來,例如 doc:DOC-3、task:T-5"),
                  "agent": prop("string", "以虛擬角色身分工作時填角色 id 或名稱,草稿會署名該角色"),
              ], required: []),
-    ] + channelTools   // 訊息頻道(MCPChannels.swift)
+    ]
 
     // MARK: - 工具實作
 
@@ -631,8 +573,6 @@ final class MCPHandler {
         case "navigate": return try navigate(a)
         case "alert_update": return try alertUpdate(a)
         case "alert_create": return try alertCreate(a)
-        case "incident_declare": return try incidentDeclare(a)
-        case "incident_update": return try incidentUpdate(a)
         case "work_item_create": return try workItemCreate(a)
         case "work_item_move": return try workItemMove(a)
         case "pipeline_update": return try pipelineUpdate(a)
@@ -642,28 +582,9 @@ final class MCPHandler {
         case "voice_submit": return try await voiceSubmit(a)
         case "voice_jobs": return try voiceJobs(a)
         case "site_visitors": return try await siteVisitors(a)
-        case "issue_create": return try issueCreate(a)
-        case "issue_update": return try issueUpdate(a)
-        case "issues": return try issuesQuery(a)
-        case "agents": return try agentsList(a)
-        case "agent_context": return try agentContext(a)
-        case "agent_tasks": return try agentTasks(a)
-        case "agent_task_claim": return try agentClaim(a)
-        case "agent_task_report": return try agentReport(a)
-        case "agent_task_create": return try agentCreate(a)
-        case "agent_upsert": return try agentUpsert(a)
-        case "chain": return chainList()
-        case "chain_save": return try chainSave(a)
         case "agent_task_delegate": return try agentDelegate(a)
-        case "channels": return try channelsList(a)
-        case "channel_create": return try channelCreate(a)
-        case "channel_messages": return try channelMessages(a)
-        case "channel_post": return try channelPost(a)
         case "orgs": return orgsInfo()
         case "server": return serverInfo()
-        case "cabinet": return try cabinet(a)
-        case "docs": return try docs(a)
-        case "doc_save": return try docSave(a)
         case "github": return try await githubSummary(a)
         case "github_runs": return try await githubRuns(a)
         case "github_run": return try await githubRun(a)
@@ -681,6 +602,10 @@ final class MCPHandler {
     }
 
     private func items(_ collection: String) throws -> [Any] {
+        if Self.collections.contains(collection), !collectionEnabled(collection) {
+            let key = Self.collectionFeatures[collection] ?? ""
+            throw MCPToolError("\(collection):這個功能已關閉(\(featureName(key)),\(key))。請在 omixor 的 設定 › 功能(或系統頁)打開後再用")
+        }
         let o: Any
         switch collection {
         case "people": o = MCPJSON.object(app.people)
@@ -781,8 +706,8 @@ final class MCPHandler {
         if let range = try a.optionalEnum("time_range", TimeRange.self) { app.timeRange = range }
         var notice: String?
         if let section = try a.optionalEnum("section", AppSection.self) {
-            // 系統設定關掉的頁面:改去總覽(回傳 notice 說明)
-            if !app.go(section, focus: a.string("focus_id")) { notice = "「\(section.title)」在系統設定裡關閉了,已改去總覽" }
+            // 關掉的頁面(系統層沒開放或組織層關了):改去總覽(回傳 notice 說明)
+            if !app.go(section, focus: a.string("focus_id")) { notice = app.featureOffText(section.rawValue, name: section.title) + ",已改去總覽" }
         } else if let focus = a.string("focus_id") {
             app.focusId = focus
         }
@@ -818,44 +743,6 @@ final class MCPHandler {
         app.alerts.insert(alert, at: 0)
         app.log(.mcp, "bell.badge.fill", "新告警「\(alert.title)」(\(alert.severity.label))", .monitoring)
         return MCPJSON.object(alert)
-    }
-
-    /// 連 server 時這兩個工具會轉給 server 的核心實作;這裡是 server 工具清單讀不到時的後備,一樣透過 IncidentStore 寫(連線能用就寫進 core server)
-    private func incidentDeclare(_ a: MCPArgs) throws -> Any {
-        let title = try a.require("title")
-        let sev = try a.requireInt("sev")
-        guard (1...4).contains(sev) else { throw MCPToolError("sev 必須是 1–4") }
-        let services = try (a.strings("services") ?? []).map(serviceId)
-        let commander = a.string("commander") ?? app.currentOnCall?.person ?? app.me
-        guard app.person(commander) != nil else { throw MCPToolError("找不到 person \(commander)") }
-        let alertIds = a.strings("alert_ids") ?? []
-        for id in alertIds where !app.alerts.contains(where: { $0.id == id }) { throw MCPToolError("找不到告警 \(id)") }
-        let impact = try a.require("impact")
-        let inc: Incident
-        do {
-            inc = try app.startIncidents().declare(title: title, sev: sev, services: services, commander: commander,
-                                                   impact: impact, alertIds: alertIds, by: .mcp)
-        } catch { throw MCPToolError("事件沒有存起來:\(error.localizedDescription)") }
-        app.log(.mcp, "flame.fill", "宣告 SEV\(sev) 事件 \(inc.id)「\(title)」", .incidents)
-        return MCPJSON.object(inc)
-    }
-
-    private func incidentUpdate(_ a: MCPArgs) throws -> Any {
-        let id = try a.require("incident_id")
-        guard app.incidents.contains(where: { $0.id == id }) else { throw MCPToolError("找不到事件 \(id)") }
-        let status = try a.optionalEnum("status", IncidentStatus.self)
-        let note = a.string("note"), finding = a.string("finding")
-        let summary = a.string("ai_summary"), impact = a.string("impact")
-        if status == nil && note == nil && finding == nil && summary == nil && impact == nil {
-            throw MCPToolError("status、note、finding、ai_summary、impact 至少要給一項")
-        }
-        let inc: Incident
-        do {
-            inc = try app.startIncidents().update(id: id, status: status, note: note, finding: finding,
-                                                  aiSummary: summary, impact: impact, by: .mcp)
-        } catch { throw MCPToolError("事件沒有改成:\(error.localizedDescription)") }
-        if let status { app.log(.mcp, "flame", "\(inc.id) 狀態改為\(status.label)", .incidents) }
-        return MCPJSON.object(inc)
     }
 
     private func workItemCreate(_ a: MCPArgs) throws -> Any {
@@ -989,22 +876,9 @@ final class MCPHandler {
         return d
     }
 
-    // MARK: 虛擬角色
+    // MARK: 虛擬角色(agent_task_delegate;其他角色、任務、組織鏈、文件櫃、Issue、頻道工具由 core server 處理)
 
     private var agentStore: AgentStore { app.startAgents() }
-
-    private func agentJSON(_ g: Agent) -> [String: Any] {
-        var d = MCPJSON.object(g) as? [String: Any] ?? [:]
-        let ts = agentStore.tasks(for: g.id)
-        var counts: [String: Int] = [:]
-        for t in ts where t.status.isOpen { counts[t.status.rawValue, default: 0] += 1 }
-        d["openTasks"] = counts
-        d["docAccess"] = docScope(g)
-        d["routines"] = g.routines.map { r -> [String: Any] in
-            ["title": r.title, "schedule": r.scheduleLabel, "enabled": r.enabled, "instructions": r.instructions]
-        }
-        return d
-    }
 
     private func taskJSON(_ t: AgentTask) -> [String: Any] {
         var d = MCPJSON.object(t) as? [String: Any] ?? [:]
@@ -1013,187 +887,6 @@ final class MCPHandler {
         d["notes"] = t.notes.map { ["author": agentStore.authorName($0.author), "text": $0.text,
                                     "at": ISO8601DateFormatter().string(from: $0.at)] }
         return d
-    }
-
-    private func agentsList(_ a: MCPArgs) throws -> Any {
-        if let id = a.string("id") {
-            guard let g = agentStore.agent(id) else { throw MCPToolError("找不到角色 \(id)") }
-            return agentJSON(g)
-        }
-        return ["agents": app.agents.map(agentJSON)]
-    }
-
-    private func agentTasks(_ a: MCPArgs) throws -> Any {
-        if let id = a.string("id") {
-            guard let t = agentStore.task(id) else { throw MCPToolError("找不到任務 \(id)") }
-            return taskJSON(t)
-        }
-        var list = app.agentTasks
-        if let ag = a.string("agent") {
-            guard let g = agentStore.agent(ag) else { throw MCPToolError("找不到角色 \(ag)") }
-            list = list.filter { $0.agentId == g.id }
-        }
-        let st = a.string("status") ?? "open"
-        if st == "open" { list = list.filter { $0.status.isOpen } }
-        else if st != "all" {
-            guard let s = AgentTaskStatus(rawValue: st) else { throw MCPToolError("status 不正確:\(st)") }
-            list = list.filter { $0.status == s }
-        }
-        return ["total": list.count, "tasks": list.prefix(50).map { t -> [String: Any] in
-            ["id": t.id, "title": t.title, "agent": t.agentId, "status": t.status.rawValue, "priority": t.priority.rawValue,
-             "updatedAt": ISO8601DateFormatter().string(from: t.updatedAt)]
-        }]
-    }
-
-    private func agentClaim(_ a: MCPArgs) throws -> Any {
-        let ag = try a.require("agent")
-        let c = try agentStore.claimWithCredential(agent: ag, task: a.string("id"))
-        let t = c.task
-        let g = agentStore.agent(ag) ?? c.agent
-        var out: [String: Any] = ["agent": g.map(agentJSON) ?? [:], "task": t.map { taskJSON($0) as Any } ?? NSNull(),
-                                  "message": t == nil ? "\(g?.name ?? ag) 目前沒有待領取的任務"
-                                      : "已領取,做完用 agent_task_report 回報。開 Issue 或留言時帶 agent: \"\(g?.id ?? ag)\",才會署名這個角色"]
-        if let cr = c.credential {
-            out["credential"] = ["agentId": cr.agentId, "taskId": cr.taskId, "secret": cr.secret,
-                                 "expiresAt": cr.expiresAt, "endpoint": cr.endpoint]
-            out["message"] = "已領取。用 credential 連角色端點(\(cr.endpoint),HTTP 標頭 Authorization: Bearer <agentId>:<secret>)以角色身分工作;secret 只給這一次,不要寫進 Issue、留言、任務結果或檔案。至少每小時用 agent_task_report status=inProgress 回報以續約,做完回報 done、需要人決定回報 blocked(之後憑證失效)。"
-        }
-        return out
-    }
-
-    private func agentReport(_ a: MCPArgs) throws -> Any {
-        let id = try a.require("id")
-        var status: AgentTaskStatus?
-        if let s = a.string("status") {
-            guard let v = AgentTaskStatus(rawValue: s), [.inProgress, .blocked, .done].contains(v) else {
-                throw MCPToolError("status 必須是 inProgress、blocked、done 之一")
-            }
-            status = v
-        }
-        let t = try agentStore.report(id, status: status, result: a.raw["result"] as? String, note: a.string("note"), links: a.strings("links"))
-        return t.map(taskJSON) ?? [:]
-    }
-
-    private func agentUpsert(_ a: MCPArgs) throws -> Any {
-        var g: Agent
-        let isNew: Bool
-        if let id = a.string("id"), let found = agentStore.agent(id) {
-            g = found; isNew = false
-        } else if let id = a.string("id") {
-            // 新增並指定 id:只能用小寫英數與連字號
-            guard let name = a.string("name"), !name.isEmpty else { throw MCPToolError("找不到角色 \(id);要新增就一起給 name") }
-            guard !id.isEmpty, id.allSatisfy({ ($0.isASCII && ($0.isLowercase || $0.isNumber)) || $0 == "-" }) else {
-                throw MCPToolError("新角色的 id 只能用小寫英文、數字與 -")
-            }
-            g = Agent(id: id, name: name); isNew = true
-        } else {
-            let name = try a.require("name")
-            g = Agent(id: agentStore.newId(for: name), name: name); isNew = true
-        }
-        if let v = a.string("name"), !v.isEmpty { g.name = v }
-        if let v = a.string("role") { g.role = v }
-        if let v = a.raw["instructions"] as? String { g.instructions = v }
-        if let v = a.string("symbol"), !v.isEmpty { g.symbol = v }
-        if let v = a.string("color") {
-            guard AgentPalette.names.contains(v) else { throw MCPToolError("color 必須是 \(AgentPalette.names.joined(separator: "、")) 之一") }
-            g.color = v
-        }
-        if let v = a.raw["active"] as? Bool { g.active = v }
-        if let list = a.raw["routines"] as? [[String: Any]] { g.routines = try list.map(routine) }
-        if let list = a.raw["add_routines"] as? [[String: Any]] { g.routines += try list.map(routine) }
-        if let m = a.raw["doc_access"] as? [String: Any] {
-            for (k, v) in m {
-                guard let level = (v as? String).flatMap(DocAccess.init) else { throw MCPToolError("doc_access 的值必須是 read、write 或 none") }
-                let key: String
-                if let sec = CabinetLayout.section(k) { key = sec.id }
-                else if let (_, t) = try? CabinetLayout.resolve(section: nil, tab: k), let t { key = t.path }
-                else { throw MCPToolError("文件櫃沒有「\(k)」這個區塊或頁籤") }
-                g.docAccess[key] = level == .none ? nil : level
-            }
-        }
-        do { g = try agentStore.save(agent: g) } catch { throw MCPToolError("角色沒有存起來:\(error.localizedDescription)") }
-        app.log(.mcp, "person.badge.plus", "\(isNew ? "新增" : "修改")角色「\(g.name)」", .automation)
-        return agentJSON(g)
-    }
-
-    private func routine(_ d: [String: Any]) throws -> AgentRoutine {
-        let r = MCPArgs(raw: d)
-        var x = AgentRoutine(title: try r.require("title"))
-        x.instructions = r.raw["instructions"] as? String ?? ""
-        x.kind = try r.optionalEnum("kind", RoutineKind.self) ?? .daily
-        x.hour = min(23, max(0, r.int("hour") ?? 9))
-        x.minute = min(59, max(0, r.int("minute") ?? 0))
-        x.weekday = min(7, max(1, r.int("weekday") ?? 2))
-        x.everyHours = max(1, r.int("every_hours") ?? 6)
-        x.priority = try r.optionalEnum("priority", IssuePriority.self) ?? .normal
-        if let e = r.raw["enabled"] as? Bool { x.enabled = e }
-        return x
-    }
-
-    private func agentCreate(_ a: MCPArgs) throws -> Any {
-        guard let ag = a.string("assign_to"), !ag.isEmpty else {
-            throw MCPToolError("要用 assign_to 指定接任務的角色(agent 是你自己扮演的角色,用來署名)")
-        }
-        guard let target = agentStore.agent(ag) else { throw MCPToolError("找不到角色 \(ag)") }
-        let by = try issueAuthor(a)
-        if by == IssueStore.agentPrefix + target.id {
-            throw MCPToolError("不能把任務派給自己(\(target.name));要派給別的角色請改 assign_to")
-        }
-        let t = agentStore.assign(to: ag, title: try a.require("title"), instructions: a.raw["instructions"] as? String ?? "",
-                                  priority: try a.optionalEnum("priority", IssuePriority.self) ?? .normal, by: by)
-        if t == nil, let e = agentStore.remoteError { throw MCPToolError("任務沒有派出去:\(e)") }
-        return t.map(taskJSON) ?? [:]
-    }
-
-    // MARK: 組織鏈
-
-    private func chainEdgeJSON(_ e: ChainEdge) -> [String: Any] {
-        ["from": e.from, "to": e.to, "label": e.label, "fromName": agentStore.chainName(e.from), "toName": agentStore.chainName(e.to)]
-    }
-
-    private func chainList() -> Any {
-        let store = agentStore
-        store.loadChain()
-        var out: [String: Any] = ["edges": app.orgChain.edges.map(chainEdgeJSON)]
-        if let u = app.orgChain.updatedAt { out["updatedAt"] = ISO8601DateFormatter().string(from: u) }
-        if let e = app.orgChainError { out["error"] = e }
-        return out
-    }
-
-    private func chainEdges(_ v: Any?, _ key: String) throws -> [ChainEdge]? {
-        guard let v else { return nil }
-        guard let list = v as? [[String: Any]] else { throw MCPToolError("\(key) 必須是 [{from, to, label}] 陣列") }
-        return list.map { ChainEdge(from: $0["from"] as? String ?? "", to: $0["to"] as? String ?? "", label: $0["label"] as? String ?? "") }
-    }
-
-    private func chainSave(_ a: MCPArgs) throws -> Any {
-        let store = agentStore
-        let replace = try chainEdges(a.raw["edges"], "edges")
-        let add = try chainEdges(a.raw["add"], "add")
-        let remove = try chainEdges(a.raw["remove"], "remove")
-        guard replace != nil || add != nil || remove != nil else { throw MCPToolError("要給 edges(取代全部)或 add / remove") }
-        store.loadChain()
-        // 比對 add、remove 前先把節點正規化(沒有前綴的 agent 名稱、email 大小寫)
-        func key(_ raw: String) -> String {
-            let s = raw.trimmingCharacters(in: .whitespaces)
-            if let id = ChainNode.agentId(s) ?? (s.hasPrefix(ChainNode.userPrefix) || s.contains("@") ? nil : s) {
-                return ChainNode.agent(store.agent(id)?.id ?? id)
-            }
-            return ChainNode.user(ChainNode.userId(s) ?? s)
-        }
-        var edges = replace ?? app.orgChain.edges
-        for r in remove ?? [] { edges.removeAll { $0.from == key(r.from) && $0.to == key(r.to) } }
-        for e in add ?? [] {
-            let n = ChainEdge(from: key(e.from), to: key(e.to), label: e.label)
-            if let i = edges.firstIndex(where: { $0.from == n.from && $0.to == n.to }) { edges[i] = n } else { edges.append(n) }
-        }
-        do {
-            let saved = try store.saveChain(edges)
-            app.log(.mcp, "arrow.triangle.branch", "更新組織鏈(\(saved.edges.count) 條)", .automation)
-            var out: [String: Any] = ["edges": saved.edges.map(chainEdgeJSON)]
-            if let u = saved.updatedAt { out["updatedAt"] = ISO8601DateFormatter().string(from: u) }
-            return out
-        } catch { throw MCPToolError(error.localizedDescription) }
     }
 
     private func agentDelegate(_ a: MCPArgs) throws -> Any {
@@ -1205,14 +898,6 @@ final class MCPHandler {
                                             priority: try a.optionalEnum("priority", IssuePriority.self) ?? .normal, sourceTask: a.string("task"))
             return taskJSON(t)
         } catch let e as MCPToolError { throw e } catch { throw MCPToolError(error.localizedDescription) }
-    }
-
-    /// agent_context 的 chain:上游(回報給誰)與下游(可以派給誰)
-    private func chainContext(_ g: Agent) -> [String: Any] {
-        let node = ChainNode.agent(g.id)
-        func row(_ n: String, _ label: String) -> [String: Any] { ["node": n, "name": agentStore.chainName(n), "label": label] }
-        return ["upstream": app.orgChain.upstream(of: node).map { row($0.from, $0.labelText) },
-                "downstream": app.orgChain.downstream(of: node).map { row($0.to, $0.labelText) }]
     }
 
     // MARK: 組織
@@ -1245,247 +930,13 @@ final class MCPHandler {
                 "orgs": app.orgs.map { ["id": $0.id, "name": $0.name, "note": $0.note, "current": $0.id == app.currentOrgId] }]
     }
 
-    // MARK: 文件櫃
+    // MARK: 署名
 
-    /// 角色的存取範圍,給人看得懂的樣子
-    private func docScope(_ g: Agent) -> [[String: Any]] {
-        g.docAccess.sorted { $0.key < $1.key }.compactMap { k, v in
-            if let sec = CabinetLayout.section(k) { return ["section": sec.id, "label": sec.label, "access": v.rawValue] }
-            if let t = CabinetLayout.tab(k) { return ["tab": t.path, "label": t.title, "access": v.rawValue] }
-            return nil
-        }
-    }
-
-    private func docAgent(_ a: MCPArgs) throws -> Agent? {
-        guard let name = a.string("agent"), !name.isEmpty else { return nil }
-        guard let g = agentStore.agent(name) else { throw MCPToolError("找不到角色 \(name)") }
-        return g
-    }
-
-    private func docJSON(_ d: CabinetDoc, full: Bool) -> [String: Any] {
-        var o: [String: Any] = ["id": d.id, "title": d.title, "section": d.section, "location": d.location, "tags": d.tags,
-                                "author": Cabinet.authorName(app, d.author),
-                                "updatedAt": ISO8601DateFormatter().string(from: d.updatedAt)]
-        if let t = d.tab { o["tab"] = t }
-        if full { o["body"] = d.body } else { o["chars"] = d.body.count }
-        return o
-    }
-
-    private func cabinet(_ a: MCPArgs) throws -> Any {
-        app.startCabinet()
-        let g = try docAgent(a)
-        return ["organization": app.currentOrg?.name ?? app.currentOrgId, "sections": cabinetSections(g)]
-    }
-
-    /// 文件櫃的區塊與頁籤;給角色時只列它能存取的位置並標出權限
-    private func cabinetSections(_ g: Agent?) -> [[String: Any]] {
-        func count(_ s: String, _ t: String?) -> Int { app.cabinetDocs.filter { $0.section == s && $0.tab == t }.count }
-        var out: [[String: Any]] = []
-        for s in CabinetLayout.sections {
-            let tabs: [[String: Any]] = s.tabs.compactMap { t in
-                let acc = g.map { $0.access(section: s.id, tab: t.path)?.rawValue as Any } ?? "write"
-                if g != nil, acc as? String == nil { return nil }
-                return ["tab": t.path, "label": t.title, "docs": count(s.id, t.path), "access": acc]
-            }
-            let secAcc = g.map { $0.access(section: s.id, tab: nil)?.rawValue as Any } ?? "write"
-            if g != nil, secAcc as? String == nil, tabs.isEmpty { continue }
-            var o: [String: Any] = ["section": s.id, "label": s.label, "studioPath": s.path,
-                                    "docs": count(s.id, nil), "tabs": tabs]
-            o["access"] = secAcc as? String ?? "none"
-            out.append(o)
-        }
-        return out
-    }
-
-    /// 角色能讀取的資訊:角色設定、未完成的任務、文件櫃權限與能讀的文件
-    private func agentContext(_ a: MCPArgs) throws -> Any {
-        let name = try a.require("agent")
-        guard let g = agentStore.agent(name) else { throw MCPToolError("找不到角色 \(name)") }
-        app.startCabinet()
-        let tasks = app.agentTasks.filter { $0.agentId == g.id && $0.status.isOpen }
-        let docs = app.cabinetDocs.filter { g.canRead(section: $0.section, tab: $0.tab) }
-        let bodies = a.raw["include_bodies"] as? Bool ?? false
-        let bodyLimit = 20
-        return [
-            "organization": app.currentOrg?.name ?? app.currentOrgId,
-            "agent": agentJSON(g),
-            "tasks": ["total": tasks.count, "tasks": tasks.prefix(50).map { t -> [String: Any] in
-                ["id": t.id, "title": t.title, "status": t.status.rawValue, "priority": t.priority.rawValue,
-                 "updatedAt": ISO8601DateFormatter().string(from: t.updatedAt)]
-            }],
-            "chain": chainContext(g),
-            "mentions": channelMentions(g),
-            "cabinet": cabinetSections(g),
-            "docs": ["total": docs.count, "docs": docs.prefix(50).enumerated().map { i, d -> [String: Any] in
-                var o = docJSON(d, full: bodies && i < bodyLimit)
-                o["access"] = g.canWrite(section: d.section, tab: d.tab) ? "write" : "read"
-                return o
-            }],
-        ]
-    }
-
-    private func docs(_ a: MCPArgs) throws -> Any {
-        app.startCabinet()
-        let g = try docAgent(a)
-        func visible(_ d: CabinetDoc) -> Bool { g?.canRead(section: d.section, tab: d.tab) ?? true }
-        if let id = a.string("id") {
-            guard let d = Cabinet.doc(app, id) else { throw MCPToolError("找不到文件 \(id)") }
-            guard visible(d) else { throw MCPToolError("\(g!.name)沒有權限讀「\(d.location)」的文件") }
-            return docJSON(d, full: true)
-        }
-        var list = app.cabinetDocs.filter(visible)
-        if a.string("section") != nil || a.string("tab") != nil {
-            let (s, t) = try loc(a)
-            list = list.filter { $0.section == s.id && (t == nil || $0.tab == t?.path) }
-        }
-        if let q = a.string("query")?.lowercased(), !q.isEmpty {
-            list = list.filter { $0.title.lowercased().contains(q) || $0.body.lowercased().contains(q) || $0.tags.contains { $0.lowercased().contains(q) } }
-        }
-        return ["total": list.count, "docs": list.prefix(50).map { docJSON($0, full: false) }]
-    }
-
-    private func loc(_ a: MCPArgs) throws -> (CabinetSection, CabinetTab?) {
-        do { return try CabinetLayout.resolve(section: a.string("section"), tab: a.string("tab")) }
-        catch let e as CabinetError { throw MCPToolError(e.message) }
-    }
-
-    /// 文件櫃寫入的錯誤(例如遠端伺服器拒絕)轉成工具錯誤,原文給呼叫端
-    private func cabinetCall<T>(_ f: () throws -> T) throws -> T {
-        do { return try f() } catch let e as MCPToolError { throw e } catch { throw MCPToolError(error.localizedDescription) }
-    }
-
-    private func docSave(_ a: MCPArgs) throws -> Any {
-        app.startCabinet()
-        let g = try docAgent(a)
-        let author = g.map { IssueStore.agentPrefix + $0.id } ?? IssueStore.mcpAuthor
-        func checkWrite(_ s: String, _ t: String?) throws {
-            if let g, !g.canWrite(section: s, tab: t) {
-                let where_ = CabinetDoc(id: "", title: "", section: s, tab: t, author: "").location
-                throw MCPToolError("\(g.name)沒有權限寫入「\(where_)」;它可以寫的範圍:\(docScope(g).filter { $0["access"] as? String == "write" }.compactMap { $0["label"] as? String }.joined(separator: "、"))")
-            }
-        }
-        if let id = a.string("id") {
-            guard let d = Cabinet.doc(app, id) else { throw MCPToolError("找不到文件 \(id)") }
-            try checkWrite(d.section, d.tab)
-            var newLoc: (CabinetSection, CabinetTab?)?
-            if a.string("section") != nil || a.string("tab") != nil {
-                newLoc = try loc(a)
-                try checkWrite(newLoc!.0.id, newLoc!.1?.path)
-            }
-            if let t = a.string("title"), t.isEmpty { throw MCPToolError("標題不能是空的") }
-            var newBody = a.raw["body"] as? String ?? d.body
-            if let b = a.raw["append_body"] as? String, !b.isEmpty { newBody += (newBody.isEmpty ? "" : "\n\n") + b }
-            if let e = DocTemplates.validate(newBody, in: app.cabinetDocs) { throw MCPToolError(e) }
-            let updated = try cabinetCall { try Cabinet.update(app, d.id) { x in
-                if let t = a.string("title") { x.title = t }
-                if let b = a.raw["body"] as? String { x.body = b }
-                if let b = a.raw["append_body"] as? String, !b.isEmpty { x.body += (x.body.isEmpty ? "" : "\n\n") + b }
-                if let l = newLoc { x.section = l.0.id; x.tab = l.1?.path }
-                if let tags = a.strings("tags") { x.tags = tags }
-            } }
-            return updated.map { docJSON($0, full: false) } ?? [:]
-        }
-        let title = try a.require("title")
-        let (s, t) = try loc(a)
-        try checkWrite(s.id, t?.path)
-        let body = a.raw["body"] as? String ?? ""
-        if let e = DocTemplates.validate(body, in: app.cabinetDocs) { throw MCPToolError(e) }
-        let d = try cabinetCall { try Cabinet.create(app, title: title, body: body, section: s.id, tab: t?.path,
-                                                     tags: a.strings("tags") ?? [], by: author) }
-        return docJSON(d, full: false)
-    }
-
-    // MARK: Issue
-
-    /// Issue 的署名:有給 agent 就是該角色,否則是 MCP 用戶端
+    /// 署名(fb_draft_save 用):有給 agent 就是該角色,否則是 MCP 用戶端:有給 agent 就是該角色,否則是 MCP 用戶端
     private func issueAuthor(_ a: MCPArgs) throws -> String {
         guard let name = a.string("agent"), !name.isEmpty else { return IssueStore.mcpAuthor }
         guard let g = agentStore.agent(name) else { throw MCPToolError("找不到角色 \(name)") }
         return IssueStore.agentPrefix + g.id
-    }
-
-    /// assignee 參數:nil = 沒給;"" = 取消指派;其他換成角色 id(找不到角色就報錯)
-    private func issueAssignee(_ a: MCPArgs) throws -> String? {
-        guard let v = a.raw["assignee"] as? String else { return nil }
-        let s = v.trimmingCharacters(in: .whitespaces)
-        if s.isEmpty { return "" }
-        guard let g = agentStore.agent(s) else { throw MCPToolError("找不到角色 \(s)") }
-        return g.id
-    }
-
-    private func issueCreate(_ a: MCPArgs) throws -> Any {
-        let store = app.startIssues()
-        let author = try issueAuthor(a)
-        let issue = store.create(title: try a.require("title"), body: a.raw["body"] as? String ?? "",
-                                 priority: try a.optionalEnum("priority", IssuePriority.self) ?? .normal,
-                                 labels: a.strings("labels") ?? [], source: a.string("source") ?? "",
-                                 link: a.string("link") ?? "", assignee: try issueAssignee(a), by: author)
-        // Issue 伺服器模式連不上時,create 回傳沒存起來的草稿(id 是空的)
-        if issue.id.isEmpty { throw MCPToolError("Issue 沒有存起來:\(store.remoteError ?? "Issue 伺服器沒有回應")") }
-        return issueJSON(issue)
-    }
-
-    private func issueUpdate(_ a: MCPArgs) throws -> Any {
-        let store = app.startIssues()
-        let id = try a.require("id")
-        guard store.issue(id) != nil else { throw MCPToolError("找不到 Issue \(id)") }
-        let author = try issueAuthor(a)
-        let priority = try a.optionalEnum("priority", IssuePriority.self)
-        let status = try a.optionalEnum("status", IssueStatus.self)
-        if let t = a.string("title"), t.isEmpty { throw MCPToolError("標題不能是空的") }
-        let assignee = try issueAssignee(a)
-        var updated = store.update(id, by: author) { i in
-            if let v = assignee { i.assignee = v.isEmpty ? nil : v }
-            if let t = a.string("title") { i.title = t }
-            if let b = a.raw["body"] as? String { i.body = b }
-            if let b = a.raw["append_body"] as? String, !b.isEmpty { i.body += (i.body.isEmpty ? "" : "\n\n") + b }
-            if let p = priority { i.priority = p }
-            if let l = a.strings("labels") { i.labels = l }
-            if let l = a.strings("add_labels") { i.labels += l }
-            if let s = status { i.status = s }
-        }
-        if let c = a.string("comment") { updated = store.comment(id, c, by: author) }
-        if updated == nil, let e = store.remoteError { throw MCPToolError("Issue 沒有改成:\(e)") }
-        return updated.map(issueJSON) ?? [:]
-    }
-
-    private func issuesQuery(_ a: MCPArgs) throws -> Any {
-        let store = app.startIssues()
-        if let id = a.string("id") {
-            guard let i = store.issue(id) else { throw MCPToolError("找不到 Issue \(id)") }
-            return issueJSON(i)
-        }
-        store.refreshIfStale(0)   // Issue 伺服器模式:清單也用最新的
-        let status = a.string("status") ?? "open"
-        guard ["open", "closed", "all"].contains(status) else { throw MCPToolError("status 必須是 open、closed、all 之一") }
-        let label = a.string("label")?.lowercased()
-        let q = a.string("query")?.lowercased() ?? ""
-        let list = app.issues.filter { i in
-            (status == "all" || i.status.rawValue == status)
-                && (label == nil || i.labels.contains { $0.lowercased() == label })
-                && (q.isEmpty || i.title.lowercased().contains(q) || i.body.lowercased().contains(q)
-                    || i.comments.contains { $0.text.lowercased().contains(q) })
-        }
-        .sorted { ($0.priority, $1.updatedAt) < ($1.priority, $0.updatedAt) }
-        let limit = max(1, a.int("limit") ?? 30)
-        return [
-            "total": list.count,
-            "issues": list.prefix(limit).map { i -> [String: Any] in
-                ["id": i.id, "title": i.title, "status": i.status.rawValue, "priority": i.priority.rawValue,
-                 "labels": i.labels, "source": i.source, "comments": i.comments.count,
-                 "updatedAt": ISO8601DateFormatter().string(from: i.updatedAt)]
-            },
-        ]
-    }
-
-    private func issueJSON(_ i: OpsIssue) -> Any {
-        guard var d = MCPJSON.object(i) as? [String: Any] else { return [:] }
-        d["createdBy"] = app.issueStore?.authorName(i.createdBy) ?? i.createdBy
-        d["comments"] = i.comments.map { c -> [String: Any] in
-            ["author": app.issueStore?.authorName(c.author) ?? c.author, "text": c.text,
-             "at": ISO8601DateFormatter().string(from: c.at)]
-        }
-        return d
     }
 
     private func siteVisitors(_ a: MCPArgs) async throws -> Any {
@@ -1523,7 +974,7 @@ final class MCPHandler {
     private func ghStore() throws -> GitHubStore {
         let g = app.startGitHub(timer: false)
         guard g.connection != nil, g.isLoggedIn else {
-            throw MCPToolError("omixor 還沒登入 GitHub。請人在 omixor 的 開發進度 › GitHub 設定並登入")
+            throw MCPToolError("omixor 還沒登入 GitHub。請人在 omixor 的 設定 › 程式碼倉庫 設定並登入")
         }
         return g
     }

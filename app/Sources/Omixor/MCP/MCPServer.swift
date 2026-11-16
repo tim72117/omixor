@@ -17,6 +17,8 @@ struct MCPStatus: Equatable {
 /// MCP 的 Streamable HTTP 傳輸:只聽 127.0.0.1,`POST /mcp` 收 JSON-RPC、回 application/json。
 /// 不開 SSE 串流(GET 回 405),也不用 session;規格允許這樣的最小實作。
 /// 每個連線處理一個請求就關閉(Connection: close)。
+/// /mcp 一律要帶 `Authorization: Bearer <本機 MCP token>`(MCPLocalToken;只聽 127.0.0.1 擋不住這台的其他程式),
+/// 沒帶或不對回 401;/mcp/gateway 用角色的一次性閘道 token(MCPGatewayEndpoint)。
 final class MCPServer: @unchecked Sendable {
     static let defaultPort: UInt16 = 3765
     static let maxBody = 4 << 20
@@ -35,12 +37,16 @@ final class MCPServer: @unchecked Sendable {
     /// 外部 MCP 閘道的角色端點 /mcp/gateway(body, Authorization 標頭)→ (HTTP 狀態, 內容);nil = 不開這個端點
     private let gateway: (@Sendable (Data, String?) async -> (Int, Data?))?
     private let onState: @Sendable (MCPStatus.State) -> Void
+    /// /mcp 的認證(Authorization 標頭 → 是否放行)
+    private let authorize: @Sendable (String?) -> Bool
 
     init(port: UInt16,
+         authorize: @escaping @Sendable (String?) -> Bool,
          handle: @escaping @Sendable (Data) async -> Data?,
          gateway: (@Sendable (Data, String?) async -> (Int, Data?))? = nil,
          onState: @escaping @Sendable (MCPStatus.State) -> Void) {
         self.port = port
+        self.authorize = authorize
         self.handle = handle
         self.gateway = gateway
         self.onState = onState
@@ -119,8 +125,8 @@ final class MCPServer: @unchecked Sendable {
             case .invalid(let status, let msg):
                 self.send(conn, HTTPResponse(status: status, body: Data(msg.utf8), contentType: "text/plain; charset=utf-8"))
             case .complete(let req):
-                Task { [handle, gateway] in
-                    let resp = await Self.route(req, handle: handle, gateway: gateway)
+                Task { [handle, gateway, authorize] in
+                    let resp = await Self.route(req, authorize: authorize, handle: handle, gateway: gateway)
                     self.queue.async { self.send(conn, resp) }
                 }
             }
@@ -133,7 +139,7 @@ final class MCPServer: @unchecked Sendable {
 
     // MARK: - 路由
 
-    static func route(_ req: HTTPRequest, handle: @Sendable (Data) async -> Data?,
+    static func route(_ req: HTTPRequest, authorize: @Sendable (String?) -> Bool, handle: @Sendable (Data) async -> Data?,
                       gateway: (@Sendable (Data, String?) async -> (Int, Data?))? = nil) async -> HTTPResponse {
         // 防 DNS rebinding:瀏覽器送來的請求帶 Origin,只接受本機來源
         if let origin = req.headers["origin"], !isLocalOrigin(origin) {
@@ -151,6 +157,11 @@ final class MCPServer: @unchecked Sendable {
         }
         guard req.path == "/mcp" else {
             return HTTPResponse(status: 404, body: Data("Not found. MCP endpoint is /mcp".utf8), contentType: "text/plain")
+        }
+        // 本機 MCP token:沒帶或不對一律 401(不分方法,不透露任何內容)
+        guard authorize(req.headers["authorization"]) else {
+            return HTTPResponse(status: 401, body: Data("Unauthorized: send Authorization: Bearer <omixor MCP token>(到 omixor App 的 設定 › 整合 › MCP 伺服器 複製)".utf8),
+                                contentType: "text/plain; charset=utf-8", extra: ["WWW-Authenticate": "Bearer realm=\"omixor-mcp\""])
         }
         switch req.method {
         case "POST":
@@ -248,8 +259,10 @@ extension AppState {
         mcp.port = port
         let handler = MCPHandler(app: self)
         let gateway = MCPGatewayEndpoint(app: self)
+        _ = MCPLocalToken.current()   // 先讀(或產生)一次,之後請求用記憶體裡的
         let server = MCPServer(
             port: port,
+            authorize: { MCPLocalToken.authorizes($0) },
             handle: { data in await handler.handle(data) },
             gateway: { data, auth in await gateway.handle(data, authorization: auth) },
             onState: { [weak self] state in Task { @MainActor in self?.mcp.state = state } }

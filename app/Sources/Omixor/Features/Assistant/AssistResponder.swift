@@ -88,7 +88,7 @@ struct AssistResponder {
             let fs = app.features.features
             let off = fs.filter { !$0.enabled }.count, exp = fs.filter { $0.experimental && $0.enabled }.count
             var lines: [AssistBriefLine] = [.init(icon: "switch.2", color: .secondary, text: "\(fs.count) 項功能,\(off) 項關閉、\(exp) 項實驗功能開著")]
-            if let e = app.features.error { lines.append(.init(icon: "exclamationmark.triangle", color: .orange, text: "讀不到系統設定:\(e)")) }
+            if let e = app.features.error { lines.append(.init(icon: "exclamationmark.triangle", color: .orange, text: "讀不到功能設定:\(e)")) }
             return AssistBriefing(headline: "系統", tone: app.features.error == nil ? .secondary : .orange, lines: lines)
         }
     }
@@ -280,7 +280,7 @@ struct AssistResponder {
 
     // MARK: - 建議問題
 
-    /// 建議問題:系統設定關掉的功能不建議
+    /// 建議問題:關掉的功能不建議
     func suggestions() -> [String] {
         allSuggestions().filter { topicFeature($0).map(app.isFeatureEnabled) ?? true }
     }
@@ -336,14 +336,18 @@ struct AssistResponder {
 
     // MARK: - 回答
 
-    /// 回答;問到系統設定關掉的功能時說明,不回範例資料。跳到關掉的頁面的按鈕拿掉
+    /// 回答;問到關掉的功能(系統層沒開放或組織層關了)時說明,不回範例資料。跳到關掉的頁面的按鈕拿掉
     func reply(to raw: String) -> AssistReply {
         if let key = topicFeature(raw), !app.isFeatureEnabled(key) {
-            let f = app.features.features.first { $0.key == key }
-            let name = f?.name ?? key
-            let why = f?.experimental == true ? "(實驗功能,目前是範例資料)" : ""
-            return AssistReply(text: "「\(name)」在系統設定裡關閉了\(why)。需要的話請組織管理員在「系統」頁打開。",
-                               actions: [.go(.system, focus: nil, label: "前往系統")])
+            let f = app.features.features.first { $0.key == key }, sf = app.features.server.features.first { $0.key == key }
+            let name = f?.name ?? sf?.name ?? key
+            let why = (f?.experimental ?? sf?.experimental) == true ? "(實驗功能,目前是範例資料)" : ""
+            if !app.features.serverHas(key) {
+                return AssistReply(text: "這台伺服器沒有開放「\(name)」\(why)。需要的話請伺服器管理員在「系統」頁開放。",
+                                   actions: [.go(.system, focus: nil, label: "前往系統")])
+            }
+            return AssistReply(text: "「\(name)」在 設定 › 功能 關閉了\(why)。需要的話請組織管理員在 設定 › 功能 打開。",
+                               actions: [.go(.settings, focus: "features", label: "前往 設定 › 功能")])
         }
         var r = routedReply(to: raw)
         r.actions = r.actions.filter { a in

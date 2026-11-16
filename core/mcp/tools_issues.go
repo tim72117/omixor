@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +29,37 @@ func PriorityRank(p string) int {
 
 // iso 同 Swift 的 MCPJSON.iso:UTC、到秒
 func iso(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05Z07:00") }
+
+// IssueAppendBodySupporter 不是核心自己的 Backend 實作,但認得 IssuePatch.AppendBody 時實作這個介面宣告
+// (例如 omixor-web 的 appBackend:交給核心在 Issue 的鎖裡附加)
+type IssueAppendBodySupporter interface{ SupportsIssueAppendBody() bool }
+
+// atomicIssueBackend 核心自己的實作(Local、Remote)與宣告了 IssueAppendBodySupporter 的實作支援 IssuePatch.AppendBody
+// (在 Issue 的鎖裡以最新內文附加);其他實作不一定認得,照舊由這裡算好整段 body 送出
+func atomicIssueBackend(bk backend.Backend) bool {
+	switch x := bk.(type) {
+	case *backend.Local, *backend.Remote:
+		return true
+	case IssueAppendBodySupporter:
+		return x.SupportsIssueAppendBody()
+	}
+	return false
+}
+
+// addIssueComment 新增一則留言:走 Backend.AddIssueComment(只附加這一則);實作還沒有這個操作(backend.Unsupported)時
+// 才退回舊的做法(讀整份 → 加一則 → 整份送回)
+func addIssueComment(bk backend.Backend, org, id, text, author string) (*model.Issue, error) {
+	updated, err := bk.AddIssueComment(org, id, text, author)
+	if !backend.IsUnsupported(err) {
+		return updated, err
+	}
+	cur, err := bk.GetIssue(org, id)
+	if err != nil {
+		return nil, err
+	}
+	comments := append(slices.Clone(cur.Comments), model.Comment{ID: uuid(), Author: author, Text: text, At: model.Time{Time: time.Now().UTC()}})
+	return bk.UpdateIssue(org, id, service.IssuePatch{Comments: &comments, Author: author})
+}
 
 // RegisterIssueTools 登記 Issue 工具:issue_create、issue_update、issues
 func RegisterIssueTools(s *Server) {
@@ -98,17 +128,24 @@ func RegisterIssueTools(s *Server) {
 			patch.Title = title
 		}
 		body := cur.Body
-		if b, ok := c.Args.RawString("body"); ok {
-			body = b
+		newBody, hasBody := c.Args.RawString("body")
+		if hasBody {
+			body = newBody
 		}
-		if b, ok := c.Args.RawString("append_body"); ok && b != "" {
-			if body != "" {
-				body += "\n\n"
+		appendBody, _ := c.Args.RawString("append_body")
+		if appendBody != "" && !hasBody && atomicIssueBackend(bk) {
+			// 只附加:交給核心在 Issue 的鎖裡以最新內文附加(不用這裡先讀到的,才不會蓋掉同時進來的修改)
+			patch.AppendBody = &appendBody
+		} else {
+			if appendBody != "" {
+				if body != "" {
+					body += "\n\n"
+				}
+				body += appendBody
 			}
-			body += b
-		}
-		if body != cur.Body {
-			patch.Body = &body
+			if body != cur.Body {
+				patch.Body = &body
+			}
 		}
 		if priority != "" && priority != cur.Priority {
 			patch.Priority = &priority
@@ -138,9 +175,7 @@ func RegisterIssueTools(s *Server) {
 		}
 		if cm := c.Args.Opt("comment"); cm != nil {
 			if t := strings.TrimSpace(*cm); t != "" { // 空白留言不做事
-				comments := append(slices.Clone(updated.Comments),
-					model.Comment{ID: uuid(), Author: author, Text: t, At: model.Time{Time: time.Now().UTC()}})
-				updated, err = bk.UpdateIssue(org, id, service.IssuePatch{Comments: &comments, Author: author})
+				updated, err = addIssueComment(bk, org, id, t, author)
 				if err != nil {
 					return nil, Errorf("Issue 沒有改成:%s", err.Error())
 				}
@@ -175,41 +210,12 @@ func RegisterIssueTools(s *Server) {
 		if err != nil {
 			return nil, ToolError{err.Error()}
 		}
-		all = service.FilterIssuesByRepo(all, c.Args.Str("repo"))
-		label := c.Args.Opt("label")
-		q := strings.ToLower(c.Args.Str("query"))
-		list := []model.Issue{}
-		for _, i := range all {
-			if status != "all" && i.Status != status {
-				continue
-			}
-			if label != nil {
-				found := false
-				for _, l := range i.Labels {
-					found = found || strings.EqualFold(l, *label)
-				}
-				if !found {
-					continue
-				}
-			}
-			if q != "" {
-				hit := strings.Contains(strings.ToLower(i.Title), q) || strings.Contains(strings.ToLower(i.Body), q)
-				for _, cm := range i.Comments {
-					hit = hit || strings.Contains(strings.ToLower(cm.Text), q)
-				}
-				if !hit {
-					continue
-				}
-			}
-			list = append(list, i)
+		// 篩選、排序規則同 GET …/issues(model.QueryIssues):query 搜尋標題、內文、留言、編號、標籤,空白分隔的每個字都要有
+		q := model.IssueQuery{Q: c.Args.Str("query"), Status: status, Repo: c.Args.Str("repo"), Sort: model.IssueSortPriority}
+		if label := c.Args.Opt("label"); label != nil {
+			q.Label = *label
 		}
-		sort.SliceStable(list, func(x, y int) bool {
-			px, py := PriorityRank(list[x].Priority), PriorityRank(list[y].Priority)
-			if px != py {
-				return px < py
-			}
-			return list[y].UpdatedAt.Before(list[x].UpdatedAt.Time)
-		})
+		list := model.QueryIssues(all, q)
 		limit := 30
 		if n, ok := c.Args.Int("limit"); ok {
 			limit = n

@@ -92,6 +92,21 @@ final class FakeIssueServer: URLProtocol {
             i["updatedAt"] = Self.iso()
             list[k] = i
             out = ["result": i]
+        case ("POST", 5) where parts[4] == "comments":
+            // 核心的 POST …/issues/<id>/comments:只附加一則
+            guard let k = list.firstIndex(where: { ($0["id"] as? String)?.caseInsensitiveCompare(parts[3]) == .orderedSame }) else {
+                status = 404
+                out = ["error": "找不到 Issue \(parts[3])"]
+                break
+            }
+            var i = list[k]
+            let now = Self.iso()
+            i["comments"] = (i["comments"] as? [[String: Any]] ?? []) + [[
+                "id": UUID().uuidString, "author": body["author"] ?? "tim", "text": body["text"] ?? "", "at": now,
+            ]]
+            i["updatedAt"] = now
+            list[k] = i
+            out = ["result": i]
         case ("POST", 5):
             list.removeAll { $0["id"] as? String == parts[3] }
             out = ["result": true]
@@ -159,6 +174,33 @@ final class IssueRemoteTests: XCTestCase {
         OmixorMode.save(OmixorMode.File(mode: OmixorMode.local))
     }
 
+    /// 切換組織(Orgs 改 TokenVault.scope)但連線設定沒變:各 Store 要換新的 IssueRemote(evoleapScope 是新組織的);
+    /// 沿用舊的用戶端的話,之後 401 換 token 會拿到前一個組織的 evoleap 登入
+    func testStoresRenewRemoteWhenOrgScopeChanges() {
+        let saved = TokenVault.scope
+        defer { TokenVault.scope = saved }
+        let app = AppState()
+        let clients: [(String, () -> IssueRemote)] = [
+            ("Issue", { app.startIssues().remote }),
+            ("Channel", { app.startChannels().remote }),
+            ("Agent", { app.startAgents(timer: false).remote }),
+            ("Incident", { app.startIncidents().remote }),
+            ("System", { app.startSystem().remote }),
+            ("GitHub", { app.startGitHub(timer: false).remote }),
+            ("Cabinet", { Cabinet.remote }),
+        ]
+        for (name, get) in clients {
+            TokenVault.scope = ""
+            let a = get()
+            XCTAssertTrue(a === get(), "\(name):同一個組織要沿用同一個用戶端")
+            TokenVault.scope = "org-b/"
+            let b = get()
+            XCTAssertFalse(a === b, "\(name):切換組織後要換新的用戶端")
+            XCTAssertEqual(b.evoleapScope, "org-b/", name)
+            XCTAssertEqual(b.config, a.config, name)
+        }
+    }
+
     /// 遠端組織 id 的 "~" 前綴不送給伺服器
     func testRemoteOrgPrefixStripped() throws {
         let r = IssueRemote(config: IssueServerConfig(url: URL(string: "http://127.0.0.1:5999")!, token: "tok-123"))
@@ -208,6 +250,15 @@ final class IssueRemoteTests: XCTestCase {
         let ids = (FakeIssueServer.orgs["default"]?.first { $0["id"] as? String == "ISS-4" }?["comments"] as? [[String: Any]])?.compactMap { $0["id"] as? String }
         XCTAssertEqual(ids?.first, "jira-77")
         XCTAssertEqual(ids?.count, 2)
+        // 留言只送這一則到 …/comments(不整份送回);修改不送留言
+        let last = try XCTUnwrap(FakeIssueServer.requests.last)
+        XCTAssertTrue(last.path.hasSuffix("/ISS-4/comments"), last.path)
+        XCTAssertEqual(last.body["text"] as? String, "第二則")
+        XCTAssertNil(last.body["comments"])
+        XCTAssertEqual(store.comment("ISS-4", "第三則", by: "tim")?.comments.count, 3)
+        XCTAssertNotNil(store.update("ISS-4", by: "tim") { $0.title = "改標題" })
+        XCTAssertNil(FakeIssueServer.requests.last?.body["comments"], "修改不送留言")
+        XCTAssertEqual((FakeIssueServer.orgs["default"]?.first?["comments"] as? [[String: Any]])?.count, 3, "修改不會動到留言")
         // 伺服器上別人(網頁)改的,下次讀就看得到
         FakeIssueServer.orgs["default"]![0]["title"] = "網頁上改的標題"
         XCTAssertEqual(store.issue("ISS-4")?.title, "網頁上改的標題")

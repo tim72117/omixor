@@ -7,8 +7,8 @@ import (
 )
 
 // 核心自己的工具規格(tools/list)與 initialize 資訊:給核心掛載的端點用(AgentEndpoint、AdminEndpoint)。
-// omixor-web 的 /mcp 仍用它自己從 Swift 版匯出的規格,不受這裡影響。
-// 欄位、說明、參數照 web/spec/tools.json 的同名工具(多了 Issue 的 assignee)。
+// omixor-web 的 /mcp 也用這裡的核心工具定義(加上 web 自己的工具,見 web/internal/mcp/handler.go 的 webSpec),
+// Swift App 的 /mcp 則把核心工具轉給 core server 的管理端點,列出的也是這一份。核心工具的定義只在這裡維護。
 
 func obj(props map[string]any, required ...string) map[string]any {
 	if required == nil {
@@ -87,7 +87,7 @@ func CoreToolDefs() []any {
 				"id":     pStr("Issue id"),
 				"label":  pStr("只列有這個標籤的"),
 				"limit":  pInt("最多幾筆,預設 30"),
-				"query":  pStr("標題、內文或留言包含這段文字"),
+				"query":  pStr("搜尋標題、內文、留言、編號與標籤(不分大小寫;以空白分隔的每個字都要出現)"),
 				"repo":   pStr("只列標記這個程式碼倉庫的(不分大小寫;github:、gitlab: 前綴一邊沒寫就忽略)"),
 				"status": pEnum("open、closed 或 all,預設 open", "open", "closed", "all"),
 			})),

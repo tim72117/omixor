@@ -9,7 +9,7 @@ struct IssueListView: View {
     @State private var path: [String] = []
 
     var body: some View {
-        let rows = IssuesStore.filter(store.issues, query: query, status: filter)
+        let rows = store.rows   // core 篩選、搜尋、排序好的(同 macOS App 與 web)
         NavigationStack(path: $path) {
             List {
                 if let e = store.error { ErrorBanner(message: e).listRowInsets(EdgeInsets()) }
@@ -18,7 +18,7 @@ struct IssueListView: View {
                 }
                 .pickerStyle(.segmented)
                 .listRowSeparator(.hidden)
-                if store.loaded && rows.isEmpty {
+                if store.rowsLoaded && rows.isEmpty {
                     ContentUnavailableView(query.isEmpty ? "沒有 Issue" : "找不到符合的 Issue", systemImage: "magnifyingglass")
                 }
                 ForEach(rows) { i in
@@ -27,17 +27,30 @@ struct IssueListView: View {
             }
             .listStyle(.plain)
             .navigationTitle("Issue")
-            .searchable(text: $query, prompt: "搜尋編號、標題、內容、標籤")
+            .searchable(text: $query, prompt: "搜尋編號、標題、內容、標籤、留言")
             .navigationDestination(for: String.self) { id in IssueDetailView(store: store, id: id) }
             .refreshable { await store.refresh() }
             .task {
                 await store.refresh()
                 if path.isEmpty, let id = DebugLaunch.openId, store.issue(id) != nil { path = [id] }
             }
+            .task(id: SearchKey(query: query, filter: filter)) {
+                // 搜尋字變了等 250ms 再查(期間再打字,這次就被取消)
+                if query != store.query {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    if Task.isCancelled { return }
+                }
+                if query != store.query || filter != store.status { await store.search(query: query, status: filter) }
+            }
             .foregroundPolling(every: 30) { await store.refresh() }
             .overlay { if !store.loaded { ProgressView() } }
         }
     }
+}
+
+private struct SearchKey: Equatable {
+    var query: String
+    var filter: IssuesStore.Filter
 }
 
 struct IssueRow: View {

@@ -1,11 +1,11 @@
 // 開發 › Issue:存在本機的真實 Issue(人或 AI 透過 MCP 建立)。Swift 的 DevIssuesTab.swift。
 // 建立、修改、留言、關閉走 MCP 工具(issue_create / issue_update),刪除是畫面專用的 issue_delete。
 import { useEffect, useState } from "react";
-import { action, tool, useView } from "../../api";
+import { action, tool, useActionQuery, useDebounced, useView } from "../../api";
 import { color, EmptyState, Modal, Pill } from "../../components/ui";
 import { Banner, MarkdownText, MenuButton, monthDayTime, Seg, SIcon, useAct, useConfirm, useList, useOps, type Agent } from "../../components/opsKit";
 import { relative } from "../../fmt";
-import { useDev } from "./devShared";
+import { repoKey, RepoFilterSelect, usedRepos, useDev } from "./devShared";
 import { JiraImport } from "./JiraImport";
 import { MdTextarea } from "../../components/MdTextarea";
 import { go } from "../../components/bits";
@@ -16,12 +16,14 @@ export type OpsIssue = {
   source: string; link: string; assignee?: string; repo?: string; createdBy: string; createdAt: string; updatedAt: string; closedAt?: string | null; comments: IssueComment[];
 };
 type Priority = "urgent" | "high" | "normal" | "low";
-export const PRIORITY: Record<Priority, { label: string; color: string; rank: number }> = {
-  urgent: { label: "緊急", color: "red", rank: 0 }, high: { label: "高", color: "orange", rank: 1 },
-  normal: { label: "一般", color: "blue", rank: 2 }, low: { label: "低", color: "gray", rank: 3 },
+/** 優先度的顯示文字與顏色(排序規則在核心,畫面不排) */
+export const PRIORITY: Record<Priority, { label: string; color: string }> = {
+  urgent: { label: "緊急", color: "red" }, high: { label: "高", color: "orange" },
+  normal: { label: "一般", color: "blue" }, low: { label: "低", color: "gray" },
 };
 const PRIORITIES: Priority[] = ["urgent", "high", "normal", "low"];
-const prRank = (p: Priority) => PRIORITY[p]?.rank ?? 2;
+/** 緊急、高在列表與卡片上顯示標記;一般、低只用顏色 */
+export const showPriorityPill = (p: Priority) => p === "urgent" || p === "high";
 const isAIAuthor = (a: string) => a === "mcp" || a.startsWith("agent:");
 const splitLabels = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
@@ -30,18 +32,8 @@ type Filter = "open" | "closed" | "all";
 // 所屬倉庫(repo):owner/name(GitHub)或 group/sub/project(GitLab),可加 github:、gitlab: 前綴;"" = 未標記。
 // 格式同核心 model.CleanRepo(只允許英數與 - _ . / :,最長 200);存的時候核心會再檢查一次
 const REPO_RE = /^[A-Za-z0-9._/:-]{0,200}$/;
-/** 去重用的鍵:不分大小寫(平台前綴保留,github:x 與 gitlab:x 是不同倉庫) */
-const repoKey = (r: string) => r.trim().toLowerCase();
-/** 篩選比對,規則同核心的 model.RepoMatch:不分大小寫;平台前綴(github:、gitlab:)有一邊沒寫就忽略前綴比較,兩邊都寫就要相同 */
-function repoMatch(repo: string, filter: string): boolean {
-  const a = repo.trim().toLowerCase(), b = filter.trim().toLowerCase();
-  if (a === b) return true;
-  const strip = (x: string): [string, boolean] => { const m = x.match(/^(github|gitlab):(.*)$/); return m ? [m[2], true] : [x, false]; };
-  const [ra, pa] = strip(a), [rb, pb] = strip(b);
-  return ra !== "" && ra === rb && (!pa || !pb);
-}
-/** 篩選「未標記倉庫」用的值:含空白,核心的 CleanRepo 不接受,所以不會和真的 repo 名稱撞到 */
-const NO_REPO = " none ";
+/** issue_query 的回應(後端用核心的 model.QueryIssues 篩選、排序;counts、total 是全部 Issue 的) */
+type IssueQueryResult = { issues: OpsIssue[]; total: number; counts: Record<"open" | "closed" | "all", number> };
 type IssueRepos = { github: string[]; gitlab: string[]; used: string[] };
 
 /** 候選倉庫:GitHub 追蹤的 repos、GitLab 追蹤的專案(加 gitlab: 前綴)、其他 Issue 用過的(去重,不分大小寫與前綴) */
@@ -86,26 +78,26 @@ function RepoPicker({ value, onChange }: { value: string; onChange: (v: string) 
 
 export function DevIssuesTab() {
   const dev = useDev();
-  const [issues, err, ready] = useList<OpsIssue>("issues");
+  const [issues, err] = useList<OpsIssue>("issues"); // 全部(詳細資料、倉庫選單用);列表本身照 issue_query 的結果
   const [filter, setFilter] = useState<Filter>("open");
   const [query, setQuery] = useState("");
-  const [repo, setRepo] = useState(""); // "" = 全部倉庫;NO_REPO = 未標記;其他 = 只列這個倉庫(比對規則見 repoMatch)
+  const [repo, setRepo] = useState(""); // "" = 全部倉庫;NO_REPO = 未標記;其他 = 只列這個倉庫(比對規則在核心的 model.RepoMatch)
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
-  const q = query.trim().toLowerCase();
-  const repos = [...new Map(issues.filter((i) => i.repo).map((i) => [repoKey(i.repo!), i.repo!])).values()].sort((a, b) => a.localeCompare(b));
-  const repoOK = (i: OpsIssue) => !repo || (repo === NO_REPO ? !i.repo : !!i.repo && repoMatch(i.repo, repo));
-  const list = issues
-    .filter((i) => (filter === "all" || i.status === filter) && repoOK(i) && (!q || i.title.toLowerCase().includes(q) || i.id.toLowerCase().includes(q) || (i.labels ?? []).some((l) => l.toLowerCase().includes(q)) || (i.repo ?? "").toLowerCase().includes(q) || (i.body ?? "").toLowerCase().includes(q)))
-    .sort((a, b) => (a.status === "open" ? 0 : 1) - (b.status === "open" ? 0 : 1) || prRank(a.priority) - prRank(b.priority) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const q = useDebounced(query, 250);
+  // 篩選、搜尋、排序在後端(核心的 model.QueryIssues):未解決的在前 → 優先度 → 最近更新 → 編號
+  const [res, qErr] = useActionQuery<IssueQueryResult>("issue_query", { q, status: filter, repo, sort: "status" }, ["issues"]);
+  const list = res?.issues ?? [];
+  const total = res?.total ?? issues.length;
+  const repos = usedRepos(issues);
   const count = (f: Filter) => {
-    const n = f === "all" ? issues.length : issues.filter((i) => i.status === f).length;
+    const n = res?.counts?.[f] ?? 0;
     return n > 0 ? ` ${n}` : "";
   };
   useEffect(() => {
-    if (ready && !dev.selectedIssue && list[0]) dev.setSelectedIssue(list[0].id);
+    if (res && !dev.selectedIssue && list[0]) dev.setSelectedIssue(list[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+  }, [res !== undefined]);
   const sel = issues.find((i) => i.id === dev.selectedIssue);
   return (
     <div className="ops-fill">
@@ -113,23 +105,17 @@ export function DevIssuesTab() {
         <div className="col gap8" style={{ padding: 10 }}>
           <Seg value={filter} onChange={setFilter} options={(["open", "closed", "all"] as Filter[]).map((f) => ({ value: f, label: (f === "open" ? "未解決" : f === "closed" ? "已關閉" : "全部") + count(f) }))} />
           <div className="row gap6">
-            <input className="input grow" placeholder="搜尋標題、標籤、倉庫、內文" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input className="input grow" placeholder="搜尋編號、標題、內文、標籤、留言" value={query} onChange={(e) => setQuery(e.target.value)} />
             <button className="btn" title="新增 Issue" onClick={() => setCreating(true)}><SIcon name="plus" /></button>
             <button className="btn" title="從 Jira 匯入" onClick={() => setImporting(true)}><SIcon name="square.and.arrow.down" /></button>
           </div>
-          {(repos.length > 0 || repo) && (
-            <select className="select" title="依所屬倉庫篩選" value={repo} onChange={(e) => setRepo(e.target.value)}>
-              <option value="">全部倉庫</option>
-              <option value={NO_REPO}>未標記倉庫</option>
-              {repos.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          )}
+          <RepoFilterSelect value={repo} onChange={setRepo} repos={repos} />
         </div>
         <div className="divider" />
-        {err && issues.length === 0 ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={err} />
-          : list.length === 0 ? (
-            <EmptyState title={issues.length === 0 ? "還沒有 Issue" : "沒有符合的 Issue"} icon="exclamationmark.bubble"
-              message={issues.length === 0 ? "按 + 新增、從 Jira 匯入,或讓 AI 透過 MCP 的 issue_create 存進來。" : undefined} />
+        {(err || qErr) && !res ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={qErr ?? err} />
+          : !res ? null : list.length === 0 ? (
+            <EmptyState title={total === 0 ? "還沒有 Issue" : "沒有符合的 Issue"} icon="exclamationmark.bubble"
+              message={total === 0 ? "按 + 新增、從 Jira 匯入,或讓 AI 透過 MCP 的 issue_create 存進來。" : undefined} />
           ) : (
             <div className="ops-list">
               {list.map((i) => <IssueRow key={i.id} issue={i} on={i.id === dev.selectedIssue} onClick={() => dev.setSelectedIssue(i.id)} />)}
@@ -184,7 +170,7 @@ function IssueRow({ issue, on, onClick }: { issue: OpsIssue; on: boolean; onClic
       <div className="row gap6">
         <span className="caption mono muted">{issue.id}</span>
         {isAIAuthor(issue.createdBy) && <span title={name(issue.createdBy)}><AuthorIcon author={issue.createdBy} size={14} /></span>}
-        {prRank(issue.priority) <= 1 && <Pill text={p.label} color={p.color} />}
+        {showPriorityPill(issue.priority) && <Pill text={p.label} color={p.color} />}
         {issue.repo && <span className="caption mono muted" title={"倉庫:" + issue.repo} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>{issue.repo}</span>}
         {(issue.labels ?? []).slice(0, 3).map((l) => <Pill key={l} text={l} />)}
         <span className="grow" />

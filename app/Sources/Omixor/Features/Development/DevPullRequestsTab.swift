@@ -451,7 +451,7 @@ struct DevPRDetail: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("在 Sprint 看板中顯示")
+            .help("在 看板中顯示")
         }
     }
 

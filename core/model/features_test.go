@@ -39,7 +39,7 @@ func TestFeatureCatalog(t *testing.T) {
 		if f.Required && (!f.Default || f.Experimental) {
 			t.Fatalf("必要的預設開:%s", f.Key)
 		}
-		if _, ok := editionRank[f.Edition]; !ok {
+		if f.Edition != EditionStable && f.Edition != EditionDev {
 			t.Fatalf("版本要是 stable 或 dev:%s %q", f.Key, f.Edition)
 		}
 		if f.Experimental && f.Edition != EditionDev {
@@ -49,7 +49,7 @@ func TestFeatureCatalog(t *testing.T) {
 			t.Fatalf("必要的功能要在正式版:%s", f.Key)
 		}
 		if f.Parent != "" {
-			if p, _ := FeatureByKey(f.Parent); !EditionIncludes(f.Edition, p.Edition) {
+			if p, _ := FeatureByKey(f.Parent); p.Edition == EditionDev && f.Edition != EditionDev {
 				t.Fatalf("分頁的版本不能比所屬頁面低(頁面是開發版,分頁也要是):%s", f.Key)
 			}
 		}
@@ -80,79 +80,126 @@ func TestFeatureCatalog(t *testing.T) {
 	}
 }
 
+// allOn 系統層全部開放(測試用)
+func allOn() ServerFeatures {
+	m := map[string]bool{}
+	for _, f := range Features {
+		m[f.Key] = true
+	}
+	return ServerFeatures{Features: m}
+}
+
 // Enabled:必要的一律開;頁面關了分頁不顯示;分頁全關時頁面也不顯示;沒登記的 key 當作開
 func TestFeatureEnabled(t *testing.T) {
+	srv := allOn()
 	s := OrgSystemSettings{Features: map[string]bool{"settings": false, "overview": false}}
-	if !s.Enabled("settings") || !s.Enabled("overview") || !s.Enabled("system") {
+	if !s.Enabled(srv, "settings") || !s.Enabled(srv, "overview") || !s.Enabled(srv, "system") {
 		t.Fatal("必要的一律開")
 	}
-	if !s.Enabled("development") || !s.Enabled("development.issues") || s.Enabled("development.board") {
+	if !s.Enabled(srv, "development") || !s.Enabled(srv, "development.issues") || s.Enabled(srv, "development.overview") {
 		t.Fatal("預設:已實作的開、實驗的關")
 	}
-	if !s.Enabled("nope.unknown") {
+	if !s.Enabled(srv, "nope.unknown") {
 		t.Fatal("沒登記的 key 當作開")
 	}
 	s.Features["development"] = false
-	if s.Enabled("development") || s.Enabled("development.issues") || !s.Own("development.issues") {
+	if s.Enabled(srv, "development") || s.Enabled(srv, "development.issues") || !s.Own(srv, "development.issues") {
 		t.Fatal("頁面關了分頁不顯示(分頁自己的開關不變)")
 	}
 	s.Features["development"] = true
 	s.Features["pipelines.voice"] = false
-	if s.Enabled("pipelines") {
+	if s.Enabled(srv, "pipelines") {
 		t.Fatal("分頁全關時頁面也不顯示")
 	}
 	s.Features["pipelines.runs"] = true
-	if BuildEdition == EditionDev {
-		if !s.Enabled("pipelines") || !s.Enabled("pipelines.runs") {
-			t.Fatal("開發版:打開實驗分頁")
-		}
-	} else {
-		if s.Enabled("pipelines") || s.Enabled("pipelines.runs") || s.Own("pipelines.runs") {
-			t.Fatal("正式版:沒編進來的分頁存著開也不生效,也不算頁面的分頁")
-		}
-		if !s.Features["pipelines.runs"] {
-			t.Fatal("存著的值保留")
-		}
+	if !s.Enabled(srv, "pipelines") || !s.Enabled(srv, "pipelines.runs") {
+		t.Fatal("系統層開放時:打開實驗分頁")
 	}
-	if !s.Enabled("channels") {
+	// 系統層用預設(實驗分頁不開放):組織存著開也不生效,也不算頁面的分頁
+	def := ServerFeatures{}
+	if s.Enabled(def, "pipelines") || s.Enabled(def, "pipelines.runs") || s.Own(def, "pipelines.runs") {
+		t.Fatal("系統層沒開放的分頁存著開也不生效")
+	}
+	if !s.Features["pipelines.runs"] {
+		t.Fatal("存著的值保留")
+	}
+	if !s.Enabled(srv, "channels") {
 		t.Fatal("沒有分頁的頁面")
+	}
+	// 頁面的分頁系統層全部沒開放:頁面自己開著就顯示(就像以前沒編進去的分頁不算)
+	off := ServerFeatures{Features: map[string]bool{"pipelines.voice": false}}
+	s2 := OrgSystemSettings{Features: map[string]bool{}}
+	if !s2.Enabled(off, "pipelines") || s2.Enabled(off, "pipelines.voice") {
+		t.Fatal("系統層沒開放的分頁不算頁面的分頁")
+	}
+	// 系統層關掉頁面:頁面與分頁都不可用
+	off = ServerFeatures{Features: map[string]bool{"incidents": false}}
+	if s2.Enabled(off, "incidents") || s2.Enabled(off, "incidents.list") || off.Has("incidents.list") || !off.Own("incidents.list") {
+		t.Fatal("系統層關掉頁面,分頁也沒開放(分頁自己的開關不變)")
 	}
 }
 
-// 版本:大的版本包含小的;不認得的一律不包含;這次編譯可用的清單照 BuildEdition 過濾
-func TestEdition(t *testing.T) {
-	if !EditionIncludes(EditionDev, EditionStable) || !EditionIncludes(EditionDev, EditionDev) || !EditionIncludes(EditionStable, EditionStable) {
-		t.Fatal("包含自己與較小的版本")
-	}
-	if EditionIncludes(EditionStable, EditionDev) || EditionIncludes(EditionDev, "beta") || EditionIncludes("beta", EditionStable) {
-		t.Fatal("正式版不含開發版;不認得的不包含")
-	}
-	avail := AvailableFeatures()
-	for _, f := range avail {
-		if !f.Available() {
-			t.Fatal(f.Key)
+// 系統層:預設照 Edition(原本正式版的開放、原本只有開發版的不開放);必要的永遠開放;沒登記的 key 當作開
+func TestServerFeatures(t *testing.T) {
+	def := ServerFeatures{}
+	for _, f := range Features {
+		want := f.Edition == EditionStable
+		if f.SystemDefault() != want || def.Own(f.Key) != want {
+			t.Fatalf("系統層預設:%s %v", f.Key, def.Own(f.Key))
 		}
 	}
-	fa, _ := FeatureByKey("familyAssistant")
-	switch BuildEdition {
-	case EditionDev:
-		if len(avail) != len(Features) || !fa.Available() {
-			t.Fatal("開發版有全部功能")
+	for _, k := range []string{"familyAssistant", "mcpGateway", "development.overview"} {
+		if def.Has(k) {
+			t.Fatalf("%s 預設不開放", k)
 		}
-	case EditionStable:
-		if len(avail) >= len(Features) || fa.Available() {
-			t.Fatal("正式版沒有開發版的功能")
+	}
+	if len(def.Available()) >= len(Features) || def.LegacyEdition() != EditionStable {
+		t.Fatal("預設不是全部開放;相容的 edition 是 stable")
+	}
+	s := ServerFeatures{Features: map[string]bool{"settings": false, "familyAssistant": true, "channels": false}}
+	if !s.Own("settings") || !s.Has("system") || !s.Has("familyAssistant") || s.Has("channels") || !s.Has("nope") {
+		t.Fatal("必要的永遠開放;改過的照改過的;沒登記的當作開")
+	}
+	if s.LegacyEdition() != EditionDev {
+		t.Fatal("開放了原本開發版的功能,相容的 edition 是 dev")
+	}
+	if len(allOn().Available()) != len(Features) {
+		t.Fatal("全部開放時列全部")
+	}
+	c := s.Clone()
+	c.Features["channels"] = true
+	if s.Features["channels"] {
+		t.Fatal("Clone 要深拷貝")
+	}
+}
+
+// 退場的 key:存著的舊值當作新 key 的值(新 key 有值時以新 key 為準);搬移後只剩新 key
+func TestLegacyFeatureKeys(t *testing.T) {
+	if CanonicalFeatureKey("development.github") != "development.repos" || CanonicalFeatureKey("cabinet") != "cabinet" {
+		t.Fatal("CanonicalFeatureKey")
+	}
+	if v, ok := StoredFeature(map[string]bool{"development.github": false}, "development.repos"); !ok || v {
+		t.Fatal("只有舊 key 時用舊值")
+	}
+	if v, ok := StoredFeature(map[string]bool{"development.github": false, "development.repos": true}, "development.repos"); !ok || !v {
+		t.Fatal("新 key 有值時以新 key 為準")
+	}
+	if _, ok := StoredFeature(map[string]bool{}, "development.repos"); ok {
+		t.Fatal("都沒有時 ok = false")
+	}
+	m := map[string]bool{"development.github": false}
+	MigrateLegacyFeatures(m)
+	if v, ok := m["development.repos"]; !ok || v || len(m) != 1 {
+		t.Fatal(m)
+	}
+	m = map[string]bool{"development.github": false, "development.repos": true}
+	MigrateLegacyFeatures(m)
+	if !m["development.repos"] || len(m) != 1 {
+		t.Fatal(m)
+	}
+	for old := range LegacyFeatureKeys {
+		if _, ok := FeatureByKey(old); ok {
+			t.Fatal("退場的 key 不該再登記:", old)
 		}
-		for _, f := range avail {
-			if f.Edition != EditionStable || f.Experimental {
-				t.Fatal("正式版只有正式版的功能:", f.Key)
-			}
-		}
-		s := OrgSystemSettings{Features: map[string]bool{"familyAssistant": true}}
-		if s.Enabled("familyAssistant") || s.Own("familyAssistant") {
-			t.Fatal("正式版:存著開也不生效")
-		}
-	default:
-		t.Fatal("BuildEdition 不認得:", BuildEdition)
 	}
 }

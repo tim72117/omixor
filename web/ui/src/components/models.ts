@@ -134,6 +134,8 @@ export type AgentRunnerView = {
   org: string; loop: boolean; claudeFound: boolean; claudeBin: string; efforts: string[];
   agents: { id: string; name: string; active: boolean; config: AgentRunConfig }[];
   current: RunnerCurrent | null; history: RunnerRecord[]; lastError?: string; error?: string;
+  /** 系統設定關掉了「自動執行」:不領新任務(進行中的做完) */
+  disabled?: boolean; disabledReason?: string;
 };
 
 /** 組織鏈的一條邊:from 可以派工作給 to(label 空白 = 任務),to 做完回報給 from。節點是 "agent:<角色 id>" 或 "user:<email 小寫>" */
@@ -198,3 +200,7 @@ export type OrgIndex = { current: string; orgs: Organization[] };
 
 /** 陣列型 view 的安全取值(後端回了別的格式也不會壞) */
 export const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+/** 看板拖放:把 status 這張 Issue 拖進 dropStatus 的欄,放下後要改成的狀態;null = 不能放(原欄、待處理 ↔ 進行中、欄沒有 dropStatus) */
+export const boardDropStatus = (dropStatus: "open" | "closed" | null | undefined, status: "open" | "closed"): "open" | "closed" | null =>
+  dropStatus && dropStatus !== status ? dropStatus : null;

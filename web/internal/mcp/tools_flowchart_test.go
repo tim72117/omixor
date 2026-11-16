@@ -7,7 +7,7 @@ import (
 	"omixor-web/internal/core"
 )
 
-// /mcp 也有 flowchart_render(spec/tools.json 沒有,由核心加上);存文件走 web 的文件櫃,畫面用 diagram_svg 動作畫圖
+// /mcp 也有 flowchart_render(規格取自核心);存文件走 web 的文件櫃,畫面用 diagram_svg 動作畫圖
 func TestFlowchartToolAndAction(t *testing.T) {
 	a := iaApp(t)
 	spec := "flowchart TD\n  A([開始]) --> B{通過?}\n  B -->|是| C[完成]\n  B -->|否| A"

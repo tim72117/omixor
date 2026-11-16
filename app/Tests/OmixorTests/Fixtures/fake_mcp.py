@@ -4,6 +4,8 @@
 #   python3 fake_mcp.py http    在 127.0.0.1 的隨機埠開 Streamable HTTP(第一行印出 "PORT <埠>"),
 #                               要帶標頭 Authorization: Bearer <環境變數 EXPECT_AUTH>,否則 401;
 #                               initialize 回 Mcp-Session-Id,之後的請求都要帶;tools/call 用 SSE 回應
+#                               環境變數 REDIRECT_TO:每個 POST 都回 307 導到那個網址(測不跟隨重新導向)
+#                               環境變數 REQUEST_LOG:收到的每個請求把 Authorization 標頭附加寫進那個檔案
 # 工具:echo(回傳 text)、whoami(回報有沒有拿到環境變數 FAKE_TOKEN、命令列裡有沒有它)、write_note(高風險,寫入類)
 import json
 import os
@@ -94,6 +96,12 @@ def http():
             self._send(200)
 
         def do_POST(self):
+            log = os.environ.get("REQUEST_LOG")
+            if log:
+                with open(log, "a") as f:
+                    f.write("POST %s Authorization=%s\n" % (self.path, self.headers.get("Authorization")))
+            if os.environ.get("REDIRECT_TO"):
+                return self._send(307, b"", None, {"Location": os.environ["REDIRECT_TO"]})
             if self.headers.get("Authorization") != expect:
                 return self._send(401, b"unauthorized", "text/plain")
             n = int(self.headers.get("Content-Length") or 0)

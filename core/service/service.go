@@ -63,6 +63,19 @@ type Service struct {
 	cabinetMu sync.Mutex
 	// channelMu 訊息頻道的「讀了再改」(成員、綁 Issue 不重複、已讀不倒退)在這把鎖裡(單一程式內;PostgreSQL 另有唯一索引擋重複綁 Issue)
 	channelMu sync.Mutex
+	// incidentMu 事件的「讀了再改」在這把鎖裡(單一程式內)
+	incidentMu sync.Mutex
+	// moduleLocks 選用模組各自的「讀了再改」鎖(見 module.go 的 ModuleLock;moduleMu 只保護這個 map)
+	moduleMu    sync.Mutex
+	moduleLocks map[string]*sync.Mutex
+	// mcpMu 外部 MCP 伺服器登記、工具清單與角色權限的「讀了再改」在這把鎖裡(單一程式內)
+	mcpMu sync.Mutex
+	// systemMu 系統設定的「讀了再改」在這把鎖裡(單一程式內)
+	systemMu sync.Mutex
+	// issueLocks 每個 Issue 的「讀了再改」鎖(見 issues.go 的 issueLock;issueMu 只保護這個 map)
+	issueMu    sync.Mutex
+	issueLocks map[string]*sync.Mutex
+	// 以上各把鎖的取得順序見 locks.go
 
 	// 登入端點的頻率限制(每個來源每分鐘、整個服務每分鐘)
 	LoginPerIP, LoginTotal int

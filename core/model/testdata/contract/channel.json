@@ -1,0 +1,15 @@
+{
+  "id": "CH-2",
+  "name": "登入頁改版",
+  "topic": "討論 Safari 白畫面",
+  "issueId": "ISS-12",
+  "members": [
+    "user:tim@example.com",
+    "agent:eng"
+  ],
+  "createdBy": "user:tim@example.com",
+  "createdAt": "2026-11-01T10:00:00Z",
+  "updatedAt": "2026-11-02T10:00:00Z",
+  "unread": 3,
+  "lastMessageAt": "2026-11-03T08:00:00Z"
+}

@@ -6,7 +6,13 @@ enum TokenVault {
     /// OPS_KEYCHAIN_SERVICE 可以換成別的名稱(比對或測試用的實例不要碰到正式 Ops 的登入)
     nonisolated(unsafe) static var service = ProcessInfo.processInfo.environment["OPS_KEYCHAIN_SERVICE"] ?? "com.tim72117.ops.connection"
     /// 組織的前綴:預設組織是空字串(沿用舊的帳號名稱,登入不會掉),其他組織是 "<組織 id>/"
-    nonisolated(unsafe) static var scope = ""
+    /// 主執行緒切換組織時改,背景的請求也會讀:用鎖保護(原本是沒保護的靜態變數,會有資料競爭)
+    static var scope: String {
+        get { scopeLock.lock(); defer { scopeLock.unlock() }; return _scope }
+        set { scopeLock.lock(); _scope = newValue; scopeLock.unlock() }
+    }
+    private static let scopeLock = NSLock()
+    nonisolated(unsafe) private static var _scope = ""
 
     private static func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]

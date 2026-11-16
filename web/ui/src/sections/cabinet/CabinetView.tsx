@@ -1,4 +1,4 @@
-// 文件櫃:依 evoleap 研發基地的區塊/頁籤放純文字文件;每個位置標出哪些角色可以讀寫(Swift 的 CabinetView)
+// 文件櫃:依這個組織自訂的文件櫃結構(區塊/頁籤)放純文字文件;每個位置標出哪些角色可以讀寫(Swift 的 CabinetView)
 import { useEffect, useState } from "react";
 import { action, tool, useRun, useView } from "../../api";
 import { AgentAvatar, AuthorIcon, Markdown, SearchField, useDirectory } from "../../components/bits";
@@ -86,7 +86,7 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
         <div className="col gap8" style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
           <div className="row"><span className="h3 ellipsis grow" style={{ fontSize: 14 }}>{tab ? tabTitle(tab) : section?.label}</span>
             <button className="bx-icon-btn" title="新增文件" onClick={() => setCreating(true)}><Icon name="plus" size={14} /></button></div>
-          <span className="mono caption muted">研發基地 {tab?.path ?? section?.path ?? ""}</span>
+          <span className="mono caption muted">位置 {tab?.path ?? section?.path ?? ""}</span>
           {(() => {
             const rs = readers(section?.id ?? "", tab?.path);
             return rs.length ? <span className="caption muted">{rs.map(([a, acc]) => `${a.name}(${acc === "write" ? "讀寫" : "讀"})`).join("、")}</span>

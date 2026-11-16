@@ -34,7 +34,7 @@ func sysFeature(v SystemViewData, key string) *service.FeatureState {
 	return nil
 }
 
-// 本機核心:讀到清單(和這次編譯可用的一致)、管理員可以改;頁面的分頁全關 → 頁面不顯示,目前在那頁的切回總覽並提示;
+// 本機核心:讀到清單(和系統層預設開放的一致)、管理員可以改;頁面的分頁全關 → 頁面不顯示,目前在那頁的切回總覽並提示;
 // navigate 去關掉的頁面改去總覽;必要功能不能關;reset 回到預設
 func TestSystemLocalReadWrite(t *testing.T) {
 	a := connTestApp(t)
@@ -42,20 +42,24 @@ func TestSystemLocalReadWrite(t *testing.T) {
 		t.Fatal("第一次讀應該要更新畫面")
 	}
 	v := sysView(t, a)
-	if v.Source != SysSourceCore || v.Error != "" || !v.CanEdit || v.Mode != "local" || v.Edition != model.BuildEdition || v.EditionLabel == "" || v.WebEdition != model.BuildEdition {
+	if v.Source != SysSourceCore || v.Error != "" || !v.CanEdit || v.Mode != "local" || v.Edition != model.EditionStable {
 		t.Fatalf("讀取狀態:%+v", v)
 	}
-	if len(v.Features) != len(model.AvailableFeatures()) {
-		t.Fatalf("清單 %d 項,這次編譯可用 %d 項", len(v.Features), len(model.AvailableFeatures()))
+	def := model.ServerFeatures{}
+	if len(v.Features) != len(def.Available()) {
+		t.Fatalf("清單 %d 項,系統層預設開放 %d 項", len(v.Features), len(def.Available()))
+	}
+	if v.Server.Source != SysSourceCore || v.Server.Error != "" || !v.Server.CanEdit || len(v.Server.Features) != len(model.Features) {
+		t.Fatalf("系統層:本機使用者是伺服器管理員:%+v", v.Server)
 	}
 
-	// 先停在開發進度,再把它的分頁全關
-	if _, err := Action(a, "navigate", map[string]any{"section": "development", "focusId": "issues"}); err != nil {
+	// 先停在事件,再把它的分頁全關
+	if _, err := Action(a, "navigate", map[string]any{"section": "incidents", "focusId": "INC-1"}); err != nil {
 		t.Fatal(err)
 	}
 	off := map[string]any{}
-	for _, f := range model.AvailableFeatures() {
-		if f.Parent == "development" {
+	for _, f := range def.Available() {
+		if f.Parent == "incidents" {
 			off[f.Key] = false
 		}
 	}
@@ -63,26 +67,26 @@ func TestSystemLocalReadWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	v = sysView(t, a)
-	if p := sysFeature(v, "development"); p == nil || !p.On || p.Enabled {
-		t.Fatalf("development 自己開著但分頁全關,應該不顯示:%+v", p)
+	if p := sysFeature(v, "incidents"); p == nil || !p.On || p.Enabled {
+		t.Fatalf("incidents 自己開著但分頁全關,應該不顯示:%+v", p)
 	}
 	a.Mu.Lock()
-	nav, visible := a.Nav, a.SectionVisible("development")
+	nav, visible := a.Nav, a.SectionVisible("incidents")
 	a.Mu.Unlock()
 	if visible || nav.Section != "overview" || nav.FocusID != "" {
 		t.Fatalf("所在頁被關掉要切回總覽:%+v visible=%v", nav, visible)
 	}
-	if v.Notice.Seq == 0 || !strings.Contains(v.Notice.Text, "開發進度") {
+	if v.Notice.Seq == 0 || !strings.Contains(v.Notice.Text, "事件") {
 		t.Fatalf("要有提示:%+v", v.Notice)
 	}
 
 	// navigate 去關掉的頁面:改去總覽並回傳 notice
-	out, err := Action(a, "navigate", map[string]any{"section": "development", "focusId": "ISS-1"})
+	out, err := Action(a, "navigate", map[string]any{"section": "incidents", "focusId": "INC-2"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m, _ := out.(map[string]any)
-	if m["section"] != "overview" || !strings.Contains(m["notice"].(string), "開發進度") {
+	if m["section"] != "overview" || !strings.Contains(m["notice"].(string), "事件") {
 		t.Fatalf("navigate:%+v", out)
 	}
 	seq := sysView(t, a).Notice.Seq
@@ -107,14 +111,14 @@ func TestSystemLocalReadWrite(t *testing.T) {
 	if _, err := Action(a, "system_save", map[string]any{"features": map[string]any{"nope": true}}); err == nil {
 		t.Fatal("沒登記的 key 應該失敗")
 	}
-	if _, err := Action(a, "system_save", map[string]any{"features": map[string]any{"development.issues": "x"}}); err == nil {
+	if _, err := Action(a, "system_save", map[string]any{"features": map[string]any{"incidents.list": "x"}}); err == nil {
 		t.Fatal("值不是 bool 應該失敗")
 	}
 	if _, err := Action(a, "system_save", map[string]any{}); err == nil {
 		t.Fatal("沒有要改的應該失敗")
 	}
 
-	// 回到預設:development 又顯示
+	// 回到預設:incidents 又顯示
 	reset := []any{}
 	for k := range off {
 		reset = append(reset, k)
@@ -122,8 +126,8 @@ func TestSystemLocalReadWrite(t *testing.T) {
 	if _, err := Action(a, "system_save", map[string]any{"reset": reset}); err != nil {
 		t.Fatal(err)
 	}
-	if !a.FeatureEnabledNow("development") {
-		t.Fatal("reset 後 development 應該顯示")
+	if !a.FeatureEnabledNow("incidents") {
+		t.Fatal("reset 後 incidents 應該顯示")
 	}
 	// 別的地方(例如 App)改了核心:重讀後跟著變
 	be, _ := agentBackend()
@@ -140,9 +144,17 @@ func TestSystemLocalReadWrite(t *testing.T) {
 
 type sysFakeBackend struct {
 	backend.Unsupported
-	view    *service.SystemSettingsView
-	err     error
-	saveErr error
+	view      *service.SystemSettingsView
+	err       error
+	saveErr   error
+	serverErr error
+}
+
+func (f *sysFakeBackend) GetServerFeatures() (*service.ServerFeaturesView, error) {
+	if f.serverErr != nil {
+		return nil, f.serverErr
+	}
+	return ServerFallback(), nil
 }
 
 func (f *sysFakeBackend) GetSystemSettings(string) (*service.SystemSettingsView, error) {
@@ -210,14 +222,14 @@ func TestSystemFallbackAndCache(t *testing.T) {
 	}
 }
 
-// 非管理員:canEdit = false;存的時候核心回權限錯誤,原文帶給畫面。清單沒列的功能(這個版本沒有)當作關,沒登記的 key 當作開
-func TestSystemPermissionAndEdition(t *testing.T) {
+// 非管理員:canEdit = false;存的時候核心回權限錯誤,原文帶給畫面。清單沒列的功能(系統層沒開放)當作關,沒登記的 key 當作開
+func TestSystemPermissionAndServerOff(t *testing.T) {
 	a := connTestApp(t)
 	v := SystemFallback()
 	v.CanEdit = false
 	kept := v.Features[:0]
 	for _, f := range v.Features {
-		if f.Key != "development.github" {
+		if f.Key != "pipelines.voice" {
 			kept = append(kept, f)
 		}
 	}
@@ -232,7 +244,7 @@ func TestSystemPermissionAndEdition(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "只有組織管理員") {
 		t.Fatalf("非管理員存:%v", err)
 	}
-	if a.FeatureEnabledNow("development.github") {
+	if a.FeatureEnabledNow("pipelines.voice") {
 		t.Fatal("清單沒列的登記功能要當作關")
 	}
 	if !a.FeatureEnabledNow("development.gitlab") {
@@ -254,5 +266,58 @@ func TestAssistHidesClosedSections(t *testing.T) {
 	a.Mu.Unlock()
 	if len(r.Actions) != 1 || r.Actions[0]["section"] != "incidents" {
 		t.Fatalf("%+v", r.Actions)
+	}
+}
+
+// 系統層:本機使用者(伺服器管理員)改系統層 → 組織層的清單跟著變;系統層關掉的功能,組織層開不了(400 並說明)、畫面當作關
+func TestServerFeaturesLocal(t *testing.T) {
+	a := connTestApp(t)
+	a.SystemRefresh()
+	if a.FeatureEnabledNow("familyAssistant") || sysFeature(sysView(t, a), "familyAssistant") != nil {
+		t.Fatal("家庭助理預設系統層不開放、組織層不列")
+	}
+	if _, err := Action(a, "system_save", map[string]any{"features": map[string]any{"familyAssistant": true}}); err == nil || !strings.Contains(err.Error(), "這台伺服器沒有開放") {
+		t.Fatalf("系統層沒開放時組織層開不了:%v", err)
+	}
+	if _, err := Action(a, "server_features_save", map[string]any{"features": map[string]any{"familyAssistant": true, "cabinet": false}}); err != nil {
+		t.Fatal(err)
+	}
+	v := sysView(t, a)
+	if f := sysFeature(v, "familyAssistant"); f == nil || f.On || !v.ServerFeatures["familyAssistant"] {
+		t.Fatalf("系統層開放後組織層列出(組織層預設關):%+v", f)
+	}
+	if sysFeature(v, "cabinet") != nil || v.ServerFeatures["cabinet"] || a.FeatureEnabledNow("cabinet") {
+		t.Fatal("系統層關掉文件櫃:組織層不列、畫面當作關")
+	}
+	if _, err := Action(a, "system_save", map[string]any{"features": map[string]any{"familyAssistant": true}}); err != nil || !a.FeatureEnabledNow("familyAssistant") {
+		t.Fatalf("兩層都開:%v", err)
+	}
+	if _, err := Action(a, "server_features_save", map[string]any{"features": map[string]any{"settings": false}}); err == nil || !strings.Contains(err.Error(), "不能關") {
+		t.Fatalf("必要功能:%v", err)
+	}
+	if _, err := Action(a, "server_features_save", map[string]any{}); err == nil {
+		t.Fatal("沒有要改的應該失敗")
+	}
+	if _, err := Action(a, "server_features_save", map[string]any{"reset": []any{"cabinet", "familyAssistant"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !a.FeatureEnabledNow("cabinet") || a.FeatureEnabledNow("familyAssistant") {
+		t.Fatal("系統層 reset 回預設")
+	}
+}
+
+// 系統層讀不到(例如舊版 server 沒有 /api/system/features):用保守預設、不能改;組織層照常
+func TestServerFeaturesUnavailable(t *testing.T) {
+	a := connTestApp(t)
+	fake := &sysFakeBackend{view: SystemFallback(), serverErr: errors.New("404 沒有這個路徑")}
+	fake.view.CanEdit = true
+	systemUseBackend(t, func() (backend.Backend, error) { return fake, nil })
+	a.SystemRefresh()
+	v := sysView(t, a)
+	if v.Source != SysSourceCore || !v.CanEdit {
+		t.Fatalf("組織層照常:%+v", v)
+	}
+	if v.Server.Source != SysSourceFallback || v.Server.CanEdit || !strings.Contains(v.Server.Error, "404") || len(v.Server.Features) != len(model.Features) {
+		t.Fatalf("系統層讀不到:%+v", v.Server)
 	}
 }

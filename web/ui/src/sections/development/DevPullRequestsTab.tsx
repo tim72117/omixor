@@ -232,7 +232,7 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
       {pr.linkedItem && (
         <DetailSection title="相關工作項目">
           {linked ? (
-            <button className="ops-plain row gap8" title="在 Sprint 看板中顯示" onClick={() => dev.showItem(linked.id)}>
+            <button className="ops-plain row gap8" title="在看板中顯示" onClick={() => dev.showItem(linked.id)}>
               <span style={{ width: 3, height: 30, borderRadius: 2, background: color(WORK_TYPE[linked.type].color), flex: "none" }} />
               <div className="col grow" style={{ gap: 2 }}>
                 <span>{linked.title}</span>

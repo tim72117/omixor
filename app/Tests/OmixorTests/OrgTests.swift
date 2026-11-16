@@ -156,6 +156,7 @@ final class OrgTests: XCTestCase {
     func testMockDataPerOrgOverMCP() async throws {
         let app = AppState()
         app.ensureOrgs()
+        app.features = .allOnForTests   // list 的範例集合要對應的功能開著
         let h = MCPHandler(app: app)
         func list(_ c: String) async throws -> [[String: Any]] {
             let req = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -171,6 +172,7 @@ final class OrgTests: XCTestCase {
         XCTAssertNil(a0.first?["org"])
         let org = app.createOrg(name: "Lab", template: .blank)
         app.switchOrg(org.id)
+        app.features = .allOnForTests   // 換組織會重讀功能開關
         let svcs = try await list("services")
         XCTAssertEqual(svcs.count, 0)
         let sprint = try await list("sprint")

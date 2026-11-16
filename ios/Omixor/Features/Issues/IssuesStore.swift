@@ -15,28 +15,21 @@ final class IssuesStore: ObservableObject {
         }
     }
 
+    /// 全部 Issue(詳情、留言用)
     @Published private(set) var issues: [Issue] = []
+    /// 清單畫面顯示的:core 依目前的搜尋與狀態篩選、排序好的(規則只在 core 的 model/issue_query.go)
+    @Published private(set) var rows: [Issue] = []
+    @Published private(set) var rowsLoaded = false
     @Published var error: String?
     @Published private(set) var loaded = false
     let session: Session
     let org: String
+    /// 目前清單的搜尋與狀態
+    private(set) var query = ""
+    private(set) var status: Filter = .open
+    private var rowsSeq = 0
 
     init(session: Session, org: String) { self.session = session; self.org = org }
-
-    /// 搜尋:編號、標題、內文、標籤、留言(不分大小寫,空白分開的每個字都要符合)
-    nonisolated static func filter(_ l: [Issue], query: String, status: Filter) -> [Issue] {
-        let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
-        return l.filter { i in
-            switch status {
-            case .open: if !i.isOpen { return false }
-            case .closed: if i.isOpen { return false }
-            case .all: break
-            }
-            guard !words.isEmpty else { return true }
-            let hay = ([i.id, i.title, i.body] + i.labels + i.comments.map(\.text)).joined(separator: "\n").lowercased()
-            return words.allSatisfy { hay.contains($0) }
-        }
-    }
 
     func refresh() async {
         guard let api = session.api else { return }
@@ -48,6 +41,33 @@ final class IssuesStore: ObservableObject {
             self.error = session.handle(error)
         }
         loaded = true
+        await loadRows()
+    }
+
+    /// 換搜尋或狀態:向 core 重新查清單
+    func search(query: String, status: Filter) async {
+        self.query = query
+        self.status = status
+        await loadRows()
+    }
+
+    /// 向 core 查清單(未解決的在前 → 優先度 → 最近更新 → 編號);晚回來的舊查詢丟掉
+    func loadRows() async {
+        guard let api = session.api else { return }
+        rowsSeq += 1
+        let seq = rowsSeq
+        do {
+            let l = try await api.issues(org: org, query: query, status: status.rawValue, sort: "status")
+            guard seq == rowsSeq else { return }
+            rows = l
+            error = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            guard seq == rowsSeq else { return }
+            self.error = session.handle(error)
+        }
+        rowsLoaded = true
     }
 
     func issue(_ id: String) -> Issue? { issues.first { $0.id == id } }
@@ -78,5 +98,6 @@ final class IssuesStore: ObservableObject {
 
     private func replace(_ i: Issue) {
         if let k = issues.firstIndex(where: { $0.id == i.id }) { issues[k] = i } else { issues.insert(i, at: 0) }
+        if let k = rows.firstIndex(where: { $0.id == i.id }) { rows[k] = i }
     }
 }

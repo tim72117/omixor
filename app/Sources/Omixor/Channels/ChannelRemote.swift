@@ -25,7 +25,7 @@ extension IssueRemote {
 
     /// GET /channels(?issue=):我看得到的頻道
     func listChannels(org: String, issue: String?) throws -> [ChannelSummary] {
-        try decodeChannel([ChannelSummary].self, try send("GET", channelsURL(org, query: ["issue": issue]), nil))
+        try decodeChannel(LossyList<ChannelSummary>.self, try send("GET", channelsURL(org, query: ["issue": issue]), nil)).elements
     }
 
     /// POST /channels:建立(綁的 Issue 已有我看得到的頻道時,伺服器回傳那個)

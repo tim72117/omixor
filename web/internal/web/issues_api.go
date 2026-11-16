@@ -7,6 +7,9 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
+
+	"omixor-core/model"
 
 	"omixor-web/internal/core"
 )
@@ -76,8 +79,8 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 			return
 		}
 		app.Mu.Lock()
-		var list []core.OpsIssue
-		app.WithOrgIssues(o, func() { list = append([]core.OpsIssue{}, app.Issues()...) })
+		var list []model.Issue
+		app.WithOrgIssues(o, func() { list = append([]model.Issue{}, app.Issues()...) })
 		app.Mu.Unlock()
 		writeJSON(w, 200, map[string]any{"result": list})
 	})
@@ -98,14 +101,14 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 			return
 		}
 		priority := str(in, "priority")
-		if priority != "" && !slices.Contains(core.IssuePriorities, priority) {
-			writeJSON(w, 400, map[string]any{"error": "priority 必須是 " + strings.Join(core.IssuePriorities, "、") + " 之一"})
+		if priority != "" && !slices.Contains(model.IssuePriorities, priority) {
+			writeJSON(w, 400, map[string]any{"error": "priority 必須是 " + strings.Join(model.IssuePriorities, "、") + " 之一"})
 			return
 		}
 		labels, _ := strs(in, "labels")
 		author := issueAPIAuthor(r, app, in)
 		app.Mu.Lock()
-		var issue core.OpsIssue
+		var issue model.Issue
 		app.WithOrgIssues(o, func() {
 			issue = app.CreateIssueFor(str(in, "title"), str(in, "body"), priority, labels, str(in, "source"), str(in, "link"), author, "", str(in, "repo"))
 		})
@@ -123,18 +126,27 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 			writeJSON(w, 400, map[string]any{"error": err.Error()})
 			return
 		}
-		if p, ok := in["priority"]; ok && !slices.Contains(core.IssuePriorities, fmt.Sprint(p)) {
-			writeJSON(w, 400, map[string]any{"error": "priority 必須是 " + strings.Join(core.IssuePriorities, "、") + " 之一"})
+		if p, ok := in["priority"]; ok && !slices.Contains(model.IssuePriorities, fmt.Sprint(p)) {
+			writeJSON(w, 400, map[string]any{"error": "priority 必須是 " + strings.Join(model.IssuePriorities, "、") + " 之一"})
 			return
 		}
-		if st, ok := in["status"]; ok && !slices.Contains(core.IssueStatuses, fmt.Sprint(st)) {
+		if st, ok := in["status"]; ok && !slices.Contains(model.IssueStatuses, fmt.Sprint(st)) {
 			writeJSON(w, 400, map[string]any{"error": "status 必須是 open、closed 之一"})
 			return
 		}
-		var patch core.OpsIssue
+		var patch model.Issue
 		if err := core.ReadInto(in, &patch); err != nil {
 			writeJSON(w, 400, map[string]any{"error": err.Error()})
 			return
+		}
+		// 給的留言沒有 id 或時間時補上(同以前的寬鬆讀法:id 是新的 UUID、時間是現在)
+		for k := range patch.Comments {
+			if patch.Comments[k].ID == "" {
+				patch.Comments[k].ID = core.UUID()
+			}
+			if patch.Comments[k].At.IsZero() {
+				patch.Comments[k].At = model.Time{Time: time.Now().UTC()}
+			}
 		}
 		if _, ok := in["title"]; ok && strings.TrimSpace(patch.Title) == "" {
 			writeJSON(w, 400, map[string]any{"error": "標題不能是空的"})
@@ -143,9 +155,13 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		author := issueAPIAuthor(r, app, in)
 		id := r.PathValue("id")
 		app.Mu.Lock()
-		var updated *core.OpsIssue
+		var updated *model.Issue
 		app.WithOrgIssues(o, func() {
-			updated = app.UpdateIssue(id, author, func(i *core.OpsIssue) {
+			update := app.UpdateIssue
+			if _, ok := in["comments"]; ok { // 給了整份留言:照 API 的約定整份取代(保留給的 id 與時間)
+				update = app.UpdateIssueReplacingComments
+			}
+			updated = update(id, author, func(i *model.Issue) {
 				if _, ok := in["title"]; ok {
 					i.Title = patch.Title
 				}

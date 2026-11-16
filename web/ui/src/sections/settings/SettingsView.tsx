@@ -1,4 +1,4 @@
-// 設定:組織、認證、整合、程式碼倉庫、連線、團隊與值班、AI 治理、通知、一般(Swift 的 SettingsView)
+// 設定:組織、功能(組織層的功能開關)、認證、整合、程式碼倉庫、連線、團隊與值班、AI 治理、通知、一般(Swift 的 SettingsView)
 // 打開哪個分頁記在 localStorage(PANE_KEY);其他頁用 navigate 帶 focusId = 分頁 id 跳過來,例如開發進度的「前往設定」帶 "repos"。
 import { useEffect } from "react";
 import { action, useView } from "../../api";
@@ -7,32 +7,40 @@ import { Icon } from "../../components/Icon";
 import { EmptyState, Segmented } from "../../components/ui";
 import { useAssistantVisible } from "../../assistant/store";
 import { useAuth } from "../../auth/auth";
+import { useFeatures } from "../../features";
 import { AuthSettings } from "../../auth/AuthSettings";
 import type { Nav } from "../../types";
 import type { SectionProps } from "../index";
 import { Form, Row, Section } from "./form";
 import { SettingsAI } from "./SettingsAI";
 import { SettingsConnections } from "./SettingsConnections";
+import { SettingsFeatures } from "./SettingsFeatures";
 import { SettingsIntegrations } from "./SettingsIntegrations";
 import { SettingsNotifications } from "./SettingsNotifications";
 import { SettingsOrgs } from "./SettingsOrgs";
 import { SettingsRepos } from "./SettingsRepos";
 import { SettingsTeam } from "./SettingsTeam";
 
-export type Pane = "orgs" | "auth" | "integrations" | "repos" | "connections" | "team" | "ai" | "notifications" | "general";
+export type Pane = "orgs" | "features" | "auth" | "integrations" | "repos" | "connections" | "team" | "ai" | "notifications" | "general";
 const PANES: { id: Pane; title: string; icon: string }[] = [
-  { id: "orgs", title: "組織", icon: "building.2" }, { id: "auth", title: "認證", icon: "lock" }, { id: "integrations", title: "整合", icon: "puzzlepiece.extension" },
+  { id: "orgs", title: "組織", icon: "building.2" }, { id: "features", title: "功能", icon: "switch.2" }, { id: "auth", title: "認證", icon: "lock" }, { id: "integrations", title: "整合", icon: "puzzlepiece.extension" },
   { id: "repos", title: "程式碼倉庫", icon: "chevron.left.forwardslash.chevron.right" },
   { id: "connections", title: "連線", icon: "key.horizontal" }, { id: "team", title: "團隊與值班", icon: "person.2" },
   { id: "ai", title: "AI 治理", icon: "sparkles" }, { id: "notifications", title: "通知", icon: "bell.badge" }, { id: "general", title: "一般", icon: "gearshape" },
 ];
 export const PANE_KEY = "ops.settings.pane";
 
+/** 屬於選用模組的設定頁(後端沒編進該模組時不顯示,見 features.ts 的 hasModule) */
+const PANE_MODULE: Partial<Record<Pane, string>> = { repos: "integrations" };
+
 export default function SettingsView({ focusId, clearFocus }: SectionProps) {
-  const [pane, setPane] = useStored<Pane>(PANE_KEY, "integrations");
+  const [stored, setPane] = useStored<Pane>(PANE_KEY, "integrations");
+  const { hasModule } = useFeatures();
+  const panes = PANES.filter((p) => !PANE_MODULE[p.id] || hasModule(PANE_MODULE[p.id]!));
+  const pane: Pane = panes.some((p) => p.id === stored) ? stored : "integrations";
   useEffect(() => {
     if (!focusId) return;
-    if (PANES.some((p) => p.id === focusId)) setPane(focusId as Pane);
+    if (panes.some((p) => p.id === focusId)) setPane(focusId as Pane);
     clearFocus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId]);
@@ -40,11 +48,12 @@ export default function SettingsView({ focusId, clearFocus }: SectionProps) {
     <div className="col" style={{ flex: 1, minHeight: 0 }}>
       <div className="row" style={{ justifyContent: "center", padding: "12px 20px", borderBottom: "1px solid var(--line)" }}>
         <div style={{ maxWidth: 860, width: "100%", textAlign: "center" }}>
-          <Segmented value={pane} onChange={setPane} options={PANES.map((p) => ({ value: p.id, label: <span className="row gap4" style={{ justifyContent: "center" }}><Icon name={p.icon} size={12} />{p.title}</span> }))} />
+          <Segmented value={pane} onChange={setPane} options={panes.map((p) => ({ value: p.id, label: <span className="row gap4" style={{ justifyContent: "center" }}><Icon name={p.icon} size={12} />{p.title}</span> }))} />
         </div>
       </div>
       <div className="col" style={{ flex: 1, minHeight: 0 }}>
         {pane === "orgs" && <SettingsOrgs setPane={setPane} />}
+        {pane === "features" && <SettingsFeatures />}
         {pane === "auth" && <AuthPane />}
         {pane === "integrations" && <SettingsIntegrations />}
         {pane === "repos" && <SettingsRepos />}

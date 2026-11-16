@@ -66,12 +66,13 @@ final class MCPGatewayTests: XCTestCase {
     }
 
     /// 啟動 HTTP 版的假伺服器,回傳網址
-    private func startHTTPFake(expectAuth: String) throws -> URL {
+    private func startHTTPFake(expectAuth: String, env extra: [String: String] = [:]) throws -> URL {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = ["python3", "-I", Self.fixture, "http"]
         var env = ProcessInfo.processInfo.environment
         env["EXPECT_AUTH"] = expectAuth
+        for (k, v) in extra { env[k] = v }
         p.environment = env
         let out = Pipe()
         p.standardOutput = out
@@ -105,20 +106,52 @@ final class MCPGatewayTests: XCTestCase {
         c.close()
     }
 
+    /// 重新導向一律不跟隨:跨主機(另一個埠)與同主機都回錯誤,密鑰標頭不會送到 Location
+    func testHTTPClientRefusesRedirects() async throws {
+        let log = dataDir.appendingPathComponent("evil.log")
+        let evil = try startHTTPFake(expectAuth: "good-key-999", env: ["REQUEST_LOG": log.path])
+        let redir = try startHTTPFake(expectAuth: "good-key-999", env: ["REDIRECT_TO": evil.absoluteString + "?x=1"])
+        let c = MCPClient(transport: MCPHTTPTransport(url: redir, secretHeaders: ["Authorization": "Bearer good-key-999", "X-Api-Key": "k-777"]),
+                          secrets: ["good-key-999", "k-777"])
+        do { try await c.connect(); XCTFail("重新導向要失敗") } catch {
+            let m = error.localizedDescription
+            XCTAssertTrue(m.contains("重新導向") && m.contains("307"), m)
+            XCTAssertTrue(m.contains(evil.host ?? "127.0.0.1"), "說明導向哪裡:\(m)")
+            XCTAssertFalse(m.contains("x=1"), "不顯示 query")
+            XCTAssertFalse(m.contains("good-key-999") || m.contains("k-777"))
+        }
+        c.close()
+        try await Task.sleep(for: .milliseconds(200))
+        let got = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        XCTAssertTrue(got.isEmpty, "別台主機不能收到任何請求:\(got)")
+
+        // 同主機換路徑也不跟隨
+        let same = try startHTTPFake(expectAuth: "good-key-999", env: ["REDIRECT_TO": "/other"])
+        let c2 = MCPClient(transport: MCPHTTPTransport(url: same, secretHeaders: ["Authorization": "Bearer good-key-999"]))
+        do { try await c2.connect(); XCTFail("同主機的重新導向也要失敗") } catch {
+            XCTAssertTrue(error.localizedDescription.contains("重新導向"), error.localizedDescription)
+        }
+        c2.close()
+    }
+
     /// MCPServer 的路由:/mcp/gateway 交給閘道(帶 Authorization);別的來源(Origin)一律 403;沒開閘道時是 404
     func testGatewayRoute() async {
         let gate: @Sendable (Data, String?) async -> (Int, Data?) = { _, auth in auth == "Bearer omxgw_ok" ? (200, Data("{}".utf8)) : (401, Data("Unauthorized".utf8)) }
         let echo: @Sendable (Data) async -> Data? = { $0 }
         func req(_ path: String, _ headers: [String: String]) -> HTTPRequest { HTTPRequest(method: "POST", path: path, headers: headers, body: Data("{}".utf8)) }
-        let r1 = await MCPServer.route(req("/mcp/gateway", [:]), handle: echo, gateway: gate)
+        let auth: @Sendable (String?) -> Bool = { _ in false }   // 本機 MCP token 一律不對:閘道端點不受影響
+        let r1 = await MCPServer.route(req("/mcp/gateway", [:]), authorize: auth, handle: echo, gateway: gate)
         XCTAssertEqual(r1.status, 401)
         XCTAssertNotNil(r1.extra["WWW-Authenticate"])
-        let r2 = await MCPServer.route(req("/mcp/gateway", ["authorization": "Bearer omxgw_ok"]), handle: echo, gateway: gate)
+        let r2 = await MCPServer.route(req("/mcp/gateway", ["authorization": "Bearer omxgw_ok"]), authorize: auth, handle: echo, gateway: gate)
         XCTAssertEqual(r2.status, 200)
-        let r3 = await MCPServer.route(req("/mcp/gateway", ["authorization": "Bearer omxgw_ok", "origin": "https://evil.example.com"]), handle: echo, gateway: gate)
+        let r3 = await MCPServer.route(req("/mcp/gateway", ["authorization": "Bearer omxgw_ok", "origin": "https://evil.example.com"]), authorize: auth, handle: echo, gateway: gate)
         XCTAssertEqual(r3.status, 403)
-        let r4 = await MCPServer.route(req("/mcp/gateway", ["authorization": "Bearer omxgw_ok"]), handle: echo)
+        let r4 = await MCPServer.route(req("/mcp/gateway", ["authorization": "Bearer omxgw_ok"]), authorize: auth, handle: echo)
         XCTAssertEqual(r4.status, 404)
+        // 閘道 token 不能用在 /mcp
+        let r5 = await MCPServer.route(req("/mcp", ["authorization": "Bearer omxgw_ok"]), authorize: auth, handle: echo, gateway: gate)
+        XCTAssertEqual(r5.status, 401)
     }
 
     func testGrantToggling() {
@@ -134,19 +167,11 @@ final class MCPGatewayTests: XCTestCase {
         XCTAssertEqual(g, [], "都取消就拿掉")
     }
 
-    // MARK: - 整個流程(要開發版:外部 MCP 閘道是開發版的實驗功能)
+    // MARK: - 整個流程(外部 MCP 閘道是實驗功能:系統層預設不開放,測試裡先開放)
 
     /// 登記 → 設密鑰 → 連線 → 列工具 → 一般呼叫 → 需確認的呼叫(自動允許/拒絕)→ 角色權限過濾 → 閘道端點 token →
     /// AgentRunner 暫存設定帶上閘道與 token(不啟動 Claude)
     func testGatewayFlow() async throws {
-        #if !OMIXOR_DEV
-        let cfg = try TestCore.start(self)
-        // 正式版:核心沒有這個功能,列表是空的、寫入 403
-        let v = try IssueRemote(config: cfg).mcpView(org: OrgFiles.defaultId)
-        XCTAssertFalse(v.enabled)
-        XCTAssertThrowsError(try IssueRemote(config: cfg).saveMCPServer(org: OrgFiles.defaultId, id: "fake", fields: ["transport": "stdio", "command": "x"]))
-        throw XCTSkip("外部 MCP 閘道的完整流程只在開發版測(swift test -Xswiftc -DOMIXOR_DEV)")
-        #else
         let cfg = try TestCore.start(self)
         let org = OrgFiles.defaultId
         let rem = IssueRemote(config: cfg)
@@ -163,6 +188,10 @@ final class MCPGatewayTests: XCTestCase {
         do { try await gw.saveServer("fake", fields: ["transport": "stdio", "command": "python3"]); XCTFail("沒開時寫入要失敗") } catch {
             XCTAssertTrue(error.localizedDescription.contains("外部 MCP 閘道"), error.localizedDescription)
         }
+        // 系統層預設不開放:組織層開不了(400);伺服器管理員(本機使用者)在系統層開放後,組織再打開
+        XCTAssertThrowsError(try sys.set(["mcpGateway": true]))
+        try sys.setServer(["mcpGateway": true])
+        XCTAssertFalse(app.isFeatureEnabled("mcpGateway"), "系統層開放了,組織層還是預設關")
         try sys.set(["mcpGateway": true])
         XCTAssertTrue(app.isFeatureEnabled("mcpGateway"))
 
@@ -174,7 +203,12 @@ final class MCPGatewayTests: XCTestCase {
         // 這台還沒信任這個指令:不會執行
         await gw.connect("fake")
         if case .failed(let why) = gw.state("fake").phase { XCTAssertTrue(why.contains("信任"), why) } else { XCTFail("沒信任不能連") }
-        gw.trust("fake")
+        // 信任的是畫面上那份:和目前登記不同就拒絕
+        XCTAssertFalse(gw.trust("fake", shown: "舊的指紋"))
+        XCTAssertNotNil(gw.trustError)
+        XCTAssertFalse(gw.isTrusted(reg))
+        XCTAssertTrue(gw.trust("fake", shown: MCPGateway.fingerprint(reg)))
+        XCTAssertNil(gw.trustError)
         await gw.connect("fake")
         if case .failed(let why) = gw.state("fake").phase { XCTAssertTrue(why.contains("FAKE_TOKEN"), "還沒輸入密鑰:\(why)") } else { XCTFail() }
         gw.setSecret("tok-12345", server: "fake", kind: .env, name: "FAKE_TOKEN")
@@ -194,6 +228,9 @@ final class MCPGatewayTests: XCTestCase {
         XCTAssertEqual(rules.map(\.name), ["echo", "whoami", "write_note"])
         XCTAssertEqual(rules.first { $0.name == "write_note" }?.confirm, true, "寫入類預設要確認")
         for n in ["echo", "write_note"] { try await gw.setRule("fake", tool: n, enabled: true) }
+        // core 只有唯讀動詞開頭的工具預設免確認(echo 不是):管理員明確設成不用確認
+        try await gw.setRule("fake", tool: "echo", confirm: false)
+        XCTAssertEqual(gw.view?.server("fake")?.tools.first { $0.name == "echo" }?.confirm, false)
 
         // 一般用戶端(App 的 /mcp):看得到開著的
         let handler = MCPHandler(app: app)
@@ -204,28 +241,46 @@ final class MCPGatewayTests: XCTestCase {
         let echoed = try await mcpCall(handler, "tools/call", ["name": "fake__echo", "arguments": ["text": "嗨"]])
         XCTAssertEqual(text(echoed), "echo:嗨")
         XCTAssertTrue(app.activity.first?.text.contains("fake__echo") ?? false, "記在動態牆")
-        let off = await gw.call("fake__whoami", [:], caller: .member(nil))
+        let off = await gw.call("fake__whoami", [:], caller: .member)
         XCTAssertEqual(off["isError"] as? Bool, true)
 
         // 需要確認:自動拒絕 → 錯誤;自動允許 → 執行
         var asked: [MCPConfirmRequest] = []
         gw.confirmer = { r in asked.append(r); return false }
-        let denied = await gw.call("fake__write_note", ["note": "x"], caller: .member("claude-code"))
+        let denied = await gw.call("fake__write_note", ["note": "x"], caller: .member)
         XCTAssertEqual(denied["isError"] as? Bool, true)
         XCTAssertTrue(text(denied).contains("blocked"), text(denied))
         XCTAssertEqual(asked.first?.tool, "fake__write_note")
         XCTAssertTrue(asked.first?.argsSummary.contains("x") ?? false)
         gw.confirmer = { _ in true }
-        let allowed = await gw.call("fake__write_note", ["note": "好"], caller: .member(nil))
+        let allowed = await gw.call("fake__write_note", ["note": "好"], caller: .member)
         XCTAssertEqual(text(allowed), "已寫入:好")
         XCTAssertTrue(gw.calls.contains { !$0.ok && $0.tool == "fake__write_note" } && gw.calls.contains { $0.ok && $0.tool == "fake__write_note" })
         XCTAssertFalse(app.activity.contains { $0.text.contains("tok-12345") }, "動態牆沒有密鑰")
+
+        // 確認卡片拿到完整參數(不截斷)
+        asked = []
+        gw.confirmer = { r in asked.append(r); return true }
+        let longNote = String(repeating: "長", count: 2000)
+        _ = await gw.call("fake__write_note", ["note": longNote], caller: .member)
+        XCTAssertEqual(asked.first?.fields.first { $0.key == "note" }?.value, longNote)
+        XCTAssertEqual(asked.first?.who, MCPGateway.memberName, "身分是 token 對應的使用者")
+        // 參數太大:不問人,直接拒絕
+        asked = []
+        MCPGateway.maxConfirmArgsBytes = 1024
+        defer { MCPGateway.maxConfirmArgsBytes = 20 * 1024 }
+        let big = await gw.call("fake__write_note", ["note": String(repeating: "x", count: 4096)], caller: .member)
+        XCTAssertEqual(big["isError"] as? Bool, true)
+        XCTAssertTrue(text(big).contains("參數太大"), text(big))
+        XCTAssertTrue(asked.isEmpty, "太大的不會跳確認")
+        MCPGateway.maxConfirmArgsBytes = 20 * 1024
+        gw.confirmer = { _ in true }
 
         // 逾時沒人回應(用 UI 的確認流程)= 拒絕
         gw.confirmer = nil
         MCPGateway.confirmTimeout = 0.3
         defer { MCPGateway.confirmTimeout = 120 }
-        let timedOut = await gw.call("fake__write_note", ["note": "y"], caller: .member(nil))
+        let timedOut = await gw.call("fake__write_note", ["note": "y"], caller: .member)
         XCTAssertEqual(timedOut["isError"] as? Bool, true)
         XCTAssertTrue(gw.pending.isEmpty)
         gw.confirmer = { _ in true }
@@ -245,7 +300,7 @@ final class MCPGatewayTests: XCTestCase {
 
         // 閘道端點:一次性 token 綁定角色與任務;只列、只放行角色可用的
         let ep = MCPGatewayEndpoint(app: app)
-        let tok = gw.issueToken(agentId: "writer", taskId: "T-9", ttl: 60)
+        let tok = try XCTUnwrap(gw.issueToken(agentId: "writer", taskId: "T-9", ttl: 60))
         func gwCall(_ method: String, _ params: [String: Any], token: String?) async throws -> (Int, [String: Any]) {
             let body = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 7, "method": method, "params": params])
             let (st, d) = await ep.handle(body, authorization: token.map { "Bearer \($0)" })
@@ -270,7 +325,7 @@ final class MCPGatewayTests: XCTestCase {
         gw.revokeToken(tok)
         let u4 = try await gwCall("tools/list", [:], token: tok).0
         XCTAssertEqual(u4, 401, "任務結束 token 失效")
-        let expired = gw.issueToken(agentId: "writer", taskId: "T-9", ttl: -1)
+        let expired = try XCTUnwrap(gw.issueToken(agentId: "writer", taskId: "T-9", ttl: -1))
         let u5 = try await gwCall("tools/list", [:], token: expired).0
         XCTAssertEqual(u5, 401, "過期")
 
@@ -301,6 +356,45 @@ final class MCPGatewayTests: XCTestCase {
         XCTAssertNil(gw.grant(forToken: token), "任務結束 token 失效")
         XCTAssertFalse(FileManager.default.fileExists(atPath: o.mcpConfigFile!.path), "暫存設定用完刪掉")
 
+        // 登記在背景被改(別台改的)→ 重讀時斷開已建立的連線
+        await gw.connect("fake")
+        XCTAssertEqual(gw.state("fake").phase, .connected)
+        _ = try rem.saveMCPServer(org: org, id: "fake", fields: ["args": ["-I", Self.fixture, "stdio", "--by-other"]])
+        await gw.reload()
+        XCTAssertEqual(gw.state("fake").phase, .idle, "登記改了要斷線")
+
+        // 參數的 ${名稱}:沒登記的名稱不連;登記的(envNames)用這台的值代入
+        // core 會擋沒登記的名稱;萬一登記裡還是有(舊資料),App 也不連
+        do {
+            try await gw.saveServer("fake", fields: ["args": ["-I", Self.fixture, "stdio", "--k=${NOPE}"]])
+            let bad = try XCTUnwrap(gw.view?.server("fake"))
+            XCTAssertTrue(gw.trust("fake", shown: MCPGateway.fingerprint(bad)))
+            await gw.connect("fake")
+            if case .failed(let why) = gw.state("fake").phase { XCTAssertTrue(why.contains("NOPE"), why) } else { XCTFail("沒登記的佔位不能連") }
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("NOPE"), error.localizedDescription)
+        }
+        try await gw.saveServer("fake", fields: ["args": ["-I", Self.fixture, "stdio", "--k=${FAKE_TOKEN}"]])
+        let cur = try XCTUnwrap(gw.view?.server("fake"))
+        XCTAssertTrue(gw.trust("fake", shown: MCPGateway.fingerprint(cur)))
+        await gw.connect("fake")
+        XCTAssertEqual(gw.state("fake").phase, .connected)
+        gw.disconnect("fake")
+
+        // 連線中取消信任:取消連線中的 Task、停掉子程序
+        try await gw.saveServer("slow", fields: ["name": "慢", "transport": "stdio", "command": "python3", "args": ["-I", "-c", "import time; time.sleep(30)"]])
+        let slow = try XCTUnwrap(gw.view?.server("slow"))
+        XCTAssertTrue(gw.trust("slow", shown: MCPGateway.fingerprint(slow)))
+        let started = Date()
+        let pending = Task { await gw.connect("slow") }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(gw.state("slow").phase, .connecting)
+        gw.untrust("slow")
+        await pending.value
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10, "不用等到握手逾時")
+        XCTAssertEqual(gw.state("slow").phase, .idle)
+        try await gw.deleteServer("slow")
+
         // 登記被改過(例如換了指令):這台要重新信任
         try await gw.saveServer("fake", fields: ["args": ["-I", Self.fixture, "stdio", "--changed"]])
         XCTAssertFalse(gw.isTrusted(try XCTUnwrap(gw.view?.server("fake"))), "改過要重新信任")
@@ -312,7 +406,6 @@ final class MCPGatewayTests: XCTestCase {
         XCTAssertNil(MCPSecretVault.get(org: org, server: "fake", kind: .env, name: "FAKE_TOKEN"))
         XCTAssertEqual(gw.state("fake").phase, .idle)
         gw.stopAll()
-        #endif
     }
 
     private func mcpCall(_ h: MCPHandler, _ method: String, _ params: [String: Any]) async throws -> [String: Any] {

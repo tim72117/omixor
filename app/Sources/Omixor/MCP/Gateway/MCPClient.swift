@@ -6,6 +6,8 @@ import Foundation
 //          子程序拿不到 App 自己的 token 類環境變數(只帶 PATH、HOME 這些基本的)。
 //   http :Streamable HTTP:POST JSON-RPC,回應是 application/json 或 text/event-stream(SSE,取對應 id 的那則);
 //          記住伺服器給的 Mcp-Session-Id。密鑰(標頭的值)只放在請求標頭。
+//          不跟隨任何重新導向(3xx 一律回錯誤):URLSession 預設會帶著自訂標頭(密鑰)跟過去,可能送到別台主機;
+//          登記的網址要直接寫最終位址。
 //
 // 流程:initialize → notifications/initialized → tools/list(有 nextCursor 就繼續)→ tools/call。
 // 每個請求都有逾時;子程序結束時所有等待中的請求回錯誤;close() 停掉子程序(App 結束時 MCPGateway.stopAll 會呼叫)。
@@ -236,6 +238,14 @@ final class MCPStdioTransport: MCPTransport, @unchecked Sendable {
 
 // MARK: - HTTP(Streamable HTTP)
 
+/// 拒絕所有重新導向:回傳 nil 讓 URLSession 把 3xx 原樣交回(不會帶著密鑰標頭去 Location)
+final class MCPNoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 final class MCPHTTPTransport: MCPTransport, @unchecked Sendable {
     let url: URL
     private let headers: [String: String]
@@ -271,21 +281,33 @@ final class MCPHTTPTransport: MCPTransport, @unchecked Sendable {
         return req
     }
 
-    private func send(_ msg: [String: Any], timeout: TimeInterval) async throws -> (Int, String, Data) {
+    private func send(_ msg: [String: Any], timeout: TimeInterval) async throws -> (Int, String, Data, String?) {
         let req = try makeRequest(msg, timeout: timeout)
         let (data, resp): (Data, URLResponse)
-        do { (data, resp) = try await session.data(for: req) } catch {
+        // 每個請求都帶「拒絕重新導向」的 delegate
+        do { (data, resp) = try await session.data(for: req, delegate: MCPNoRedirectDelegate()) } catch {
             throw MCPClientError(message: "連不到外部 MCP 伺服器(\(url.host ?? "")):\(MCPClientError.masked(error.localizedDescription, secrets))")
         }
         let h = resp as? HTTPURLResponse
         if let s = h?.value(forHTTPHeaderField: "Mcp-Session-Id"), !s.isEmpty {
             lock.withLock { sessionId = s }
         }
-        return (h?.statusCode ?? 0, h?.value(forHTTPHeaderField: "Content-Type") ?? "", data)
+        return (h?.statusCode ?? 0, h?.value(forHTTPHeaderField: "Content-Type") ?? "", data, h?.value(forHTTPHeaderField: "Location"))
+    }
+
+    /// 3xx:不跟隨,說明要把網址改成最終位址(Location 只顯示 scheme://host:port/path,不帶 query)
+    private func redirectError(_ status: Int, _ location: String?) -> MCPClientError {
+        var whereTo = ""
+        if let location, let u = URL(string: location, relativeTo: url)?.absoluteURL, var c = URLComponents(url: u, resolvingAgainstBaseURL: true) {
+            c.query = nil; c.fragment = nil; c.user = nil; c.password = nil
+            whereTo = "到 \(c.string ?? "")"
+        }
+        return MCPClientError(message: "外部 MCP 伺服器要求重新導向(HTTP \(status))\(whereTo);為了不把密鑰標頭送到別的地方,omixor 不跟隨重新導向。請把登記的網址改成最終位址")
     }
 
     func request(_ msg: [String: Any], id: Int, timeout: TimeInterval) async throws -> [String: Any] {
-        let (status, type, data) = try await send(msg, timeout: timeout)
+        let (status, type, data, location) = try await send(msg, timeout: timeout)
+        if (300..<400).contains(status) { throw redirectError(status, location) }
         guard (200..<300).contains(status) else {
             let body = MCPClientError.masked(String(decoding: data.prefix(300), as: UTF8.self), secrets)
             throw MCPClientError(message: status == 401 || status == 403
@@ -306,7 +328,8 @@ final class MCPHTTPTransport: MCPTransport, @unchecked Sendable {
     }
 
     func notify(_ msg: [String: Any]) async throws {
-        let (status, _, _) = try await send(msg, timeout: 10)
+        let (status, _, _, location) = try await send(msg, timeout: 10)
+        if (300..<400).contains(status) { throw redirectError(status, location) }
         guard (200..<300).contains(status) else { throw MCPClientError(message: "外部 MCP 伺服器不接受通知(HTTP \(status))") }
     }
 
@@ -339,7 +362,9 @@ final class MCPHTTPTransport: MCPTransport, @unchecked Sendable {
         req.httpMethod = "DELETE"
         req.setValue(sid, forHTTPHeaderField: "Mcp-Session-Id")
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
-        session.dataTask(with: req).resume()
+        let s = session
+        let r = req
+        Task.detached { _ = try? await s.data(for: r, delegate: MCPNoRedirectDelegate()) }
     }
 }
 

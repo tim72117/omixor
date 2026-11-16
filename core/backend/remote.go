@@ -83,6 +83,19 @@ func (r *Remote) ListIssues(org string) ([]model.Issue, error) {
 	return l, wrap(err)
 }
 
+func (r *Remote) QueryIssues(org string, q model.IssueQuery) ([]model.Issue, error) {
+	l, err := r.Client().QueryIssues(r.org(org), q)
+	return l, wrap(err)
+}
+
+func (r *Remote) IssueBoard(org string, q model.IssueQuery) (*model.IssueBoard, error) {
+	b, err := r.Client().IssueBoard(r.org(org), q)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return b, nil
+}
+
 func (r *Remote) GetIssue(org, id string) (*model.Issue, error) {
 	i, err := r.Client().GetIssue(r.org(org), id)
 	if err != nil {
@@ -101,6 +114,14 @@ func (r *Remote) CreateIssue(org string, in service.IssueInput) (*model.Issue, e
 
 func (r *Remote) UpdateIssue(org, id string, p service.IssuePatch) (*model.Issue, error) {
 	i, err := r.Client().UpdateIssue(r.org(org), id, p)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return i, nil
+}
+
+func (r *Remote) AddIssueComment(org, id, text, author string) (*model.Issue, error) {
+	i, err := r.Client().AddIssueComment(r.org(org), id, service.CommentInput{Text: text, Author: author})
 	if err != nil {
 		return nil, wrap(err)
 	}

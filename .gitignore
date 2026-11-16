@@ -17,6 +17,8 @@ build/
 .swiftpm/
 *.xcodeproj/xcuserdata/
 DerivedData/
+# iOS 專案檔由 xcodegen 從 ios/project.yml 產生(來源是 project.yml),不進版控
+ios/*.xcodeproj/
 *.app/
 *.dSYM/
 

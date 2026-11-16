@@ -28,7 +28,7 @@ export function runConfigSummary(c: AgentRunConfig): string {
 
 /** 角色頁的「自動執行」卡片:目前設定與「設定…」 */
 export function AgentAutoRunCard({ agent }: { agent: Agent }) {
-  const [v] = useView<AgentRunnerView>("agent_runner", ["agents", "orgs"]);
+  const [v] = useView<AgentRunnerView>("agent_runner", ["agents", "orgs", "system"]);
   const [editing, setEditing] = useState(false);
   const row = v?.agents?.find((a) => a.id === agent.id);
   const cfg = row?.config ?? blankConfig();
@@ -42,6 +42,7 @@ export function AgentAutoRunCard({ agent }: { agent: Agent }) {
         {running && <Pill text={`處理中 ${running.taskId}`} color="blue" icon="arrow.triangle.2.circlepath" />}
       </div>
       {cfg.autoRun && <span className="caption muted">{runConfigSummary(cfg)}</span>}
+      {v?.disabled && cfg.autoRun && <span className="caption" style={{ color: "var(--orange)" }}>{v.disabledReason ?? "「自動執行」在系統設定裡關閉了,不會領新的任務"}</span>}
       {v && !v.claudeFound && cfg.autoRun && <span className="caption" style={{ color: "var(--orange)" }}>找不到 claude(Claude Code CLI),任務會留在待領取</span>}
       {editing && v && <AutoRunSheet agent={agent} original={cfg} efforts={v.efforts?.length ? v.efforts : EFFORTS} onClose={() => setEditing(false)} />}
     </Card>
@@ -100,7 +101,7 @@ function AutoRunSheet({ agent, original, efforts, onClose }: { agent: Agent; ori
 
 /** 自動化區的「自動執行」狀態:找不到 claude、在跑的任務(停止)、最近的執行紀錄 */
 export function AgentRunnerCard({ openTask }: { openTask?: (taskId: string) => void }) {
-  const [v, err] = useView<AgentRunnerView>("agent_runner", ["agents", "orgs"]);
+  const [v, err] = useView<AgentRunnerView>("agent_runner", ["agents", "orgs", "system"]);
   const { busy, error, run } = useRun();
   const [confirmStop, setConfirmStop] = useState(false);
   if (!v) return err ? <Card title="自動執行"><ErrorText>{err}</ErrorText></Card> : null;
@@ -110,8 +111,10 @@ export function AgentRunnerCard({ openTask }: { openTask?: (taskId: string) => v
     <Card title="自動執行" subtitle="開了自動執行的角色被派發任務時,omixor 在這台 Mac 上以 Claude Code 自動處理,一次一筆"
       right={<div className="row gap6">
         {v.claudeFound ? <Pill text="claude 已就緒" color="green" icon="checkmark.circle" /> : <Pill text="找不到 claude" color="orange" icon="exclamationmark.triangle" />}
+        {v.disabled && <Pill text="系統設定已關閉" color="orange" icon="slash.circle" />}
         {!v.loop && <Pill text="背景排程未啟動" color="gray" />}
       </div>}>
+      {v.disabled && <span className="caption" style={{ color: "var(--orange)" }}>{v.disabledReason ?? "「自動執行」在系統設定裡關閉了,不會領新的任務(進行中的會做完)"}</span>}
       {v.error && <ErrorText>{v.error}</ErrorText>}
       {!v.claudeFound && <span className="caption muted">請先安裝 Claude Code 並用訂閱帳號登入(終端機執行 claude 再輸入 /login),或設定環境變數 OMIXOR_CLAUDE_BIN。</span>}
       <span className="caption muted">{on.length ? `開啟的角色:${on.map((a) => a.name).join("、")}` : "還沒有角色開啟自動執行(在「虛擬角色」的角色頁設定)"}</span>

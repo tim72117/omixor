@@ -507,7 +507,8 @@ func TestRedirectToOtherHostDropsAuthorization(t *testing.T) {
 		return 200, RawBody("line1\nline2")
 	})
 	defer f.Close()
-	ConnUpsert(a, GHPresetConnection())
+	// GitHub 的連線(GitHub 是選用模組;這裡只測連線層,自己建一個同網址的連線)
+	ConnUpsert(a, NewConnection("github", "GitHub", "https://api.github.com"))
 	ConnSetBearer(a, "github", "secret")
 	r, err := ConnRequestRaw(a, "github", "GET", "/repos/a/b/actions/jobs/1/logs", nil)
 	if err != nil || string(r.Data) != "line1\nline2" {
@@ -739,22 +740,9 @@ func TestConnectionViewsAndActions(t *testing.T) {
 	if v := view("connections"); len(v["connections"].([]any)) != 2 {
 		t.Fatalf("%v", v)
 	}
-	gh := view("github")
-	if gh["connection"] != nil || gh["loggedIn"] != false || gh["settings"].(map[string]any)["connection"] != "github" {
-		t.Fatalf("%v", gh)
-	}
-	if _, err := Action(a, "github_ensure_connection", nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Action(a, "connection_bearer", map[string]any{"id": "github", "token": "gho_x"}); err != nil {
-		t.Fatal(err)
-	}
-	gh = view("github")
-	if gh["loggedIn"] != true || gh["state"].(map[string]any)["account"] != "octo" {
-		t.Fatalf("%v", gh)
-	}
-	if _, err := Action(a, "github_add_repo", map[string]any{"repo": "x"}); err == nil {
-		t.Fatal("格式錯誤要擋")
+	// GitHub 的 view、action 屬於選用模組 integrations(測試在 internal/modules/integrations);這裡沒編進模組
+	if _, ok := View(a, "github"); ok {
+		t.Fatal("沒編進 integrations 模組時不該有 view github")
 	}
 	if out, err := Action(a, "connection_upsert", map[string]any{"name": "Payments API", "baseURL": "https://pay.example", "auth": "bearer"}); err != nil || out.(Connection).ID != "payments-api" {
 		t.Fatalf("%v %v", out, err)
@@ -775,7 +763,7 @@ func TestConnectionViewsAndActions(t *testing.T) {
 	if _, err := Action(a, "connection_delete", map[string]any{"id": "payments-api"}); err != nil {
 		t.Fatal(err)
 	}
-	if v := view("connections"); len(v["connections"].([]any)) != 3 {
+	if v := view("connections"); len(v["connections"].([]any)) != 2 {
 		t.Fatalf("%v", v)
 	}
 }

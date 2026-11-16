@@ -12,6 +12,16 @@ struct RemoteCabinet: Decodable {
     var layout: [CabinetSection]
     var docs: [CabinetDoc]
     var layoutSaved: Bool?
+
+    private enum CodingKeys: String, CodingKey { case layout, docs, layoutSaved }
+
+    // 寬鬆解碼(LossyDecoding.swift):layout、docs 是 null → [],壞掉的那筆略過
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        layout = c.lossyArray(CabinetSection.self, .layout)
+        docs = c.lossyArray(CabinetDoc.self, .docs)
+        layoutSaved = c.lossyOptional(Bool.self, .layoutSaved)
+    }
 }
 
 extension IssueRemote {
@@ -29,7 +39,7 @@ extension IssueRemote {
     /// 改結構(組織管理員;被拿掉的區塊、頁籤裡不能還有文件)
     func saveCabinetLayout(org: String, _ sections: [CabinetSection]) throws -> [CabinetSection] {
         let body = try JSONSerialization.data(withJSONObject: ["layout": try JSONSerialization.jsonObject(with: try Self.encoder().encode(sections))])
-        return try decodeCabinet([CabinetSection].self, try send("POST", orgURL(org, ["cabinet", "layout"]), body))
+        return try decodeCabinet(LossyList<CabinetSection>.self, try send("POST", orgURL(org, ["cabinet", "layout"]), body)).elements
     }
 
     /// 新增文件(id 由伺服器編 DOC-<n>)

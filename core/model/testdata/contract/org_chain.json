@@ -1,0 +1,15 @@
+{
+  "edges": [
+    {
+      "from": "user:tim@example.com",
+      "to": "agent:pm",
+      "label": "目標"
+    },
+    {
+      "from": "agent:pm",
+      "to": "agent:eng",
+      "label": ""
+    }
+  ],
+  "updatedAt": "2026-11-01T00:00:00Z"
+}

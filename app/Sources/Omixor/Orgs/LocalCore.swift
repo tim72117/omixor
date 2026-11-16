@@ -54,6 +54,15 @@ final class LocalCore: @unchecked Sendable {
 
     /// 可用時的連線(網址與這次的 token);還沒好是 nil
     var config: IssueServerConfig? { lock.lock(); defer { lock.unlock() }; return _config }
+
+    /// 第幾次啟動的程序(每次真的啟動新程序就加一)。App 用它確認「同步完回來時,還是同一個程序在跑」
+    private var _generation = 0
+    /// 目前可用的程序是第幾次啟動的;沒有可用的程序是 nil
+    var readyGeneration: Int? {
+        lock.lock(); defer { lock.unlock() }
+        guard _config != nil, _state == .ready, process?.isRunning == true else { return nil }
+        return _generation
+    }
     var state: LocalCoreState { lock.lock(); defer { lock.unlock() }; return _state }
 
     /// 還沒好時給各 Store 的連線:每個請求直接回這個錯誤(不會退回本機 JSON)
@@ -92,15 +101,18 @@ final class LocalCore: @unchecked Sendable {
         lock.lock(); _state = s; _config = c; lock.unlock()
     }
 
-    /// 啟動守護服務並等它可用(會擋住呼叫的執行緒,不要在主執行緒呼叫)。已經在跑就直接回傳
+    /// 啟動守護服務並等它可用(會擋住呼叫的執行緒,不要在主執行緒呼叫)。已經在跑就直接回傳。
+    /// org:守護服務的預設組織(OMIXOR_LOCAL_ORG;nil = 守護服務的預設 default)。App 不給;測試共用一個守護服務時
+    /// 給別的 id,讓 default 可以在每個測試前刪掉重建
     func start(binary: URL? = LocalCore.binary(), dataDir: URL = LocalCore.dataDir, user: String, name: String = "",
-               timeout: TimeInterval = 20) throws -> IssueServerConfig {
+               org: String? = nil, timeout: TimeInterval = 20) throws -> IssueServerConfig {
         lock.lock()
         if let c = _config, process?.isRunning == true { lock.unlock(); return c }
         _state = .starting; _config = nil
+        _generation += 1
         lock.unlock()
         do {
-            let c = try launch(binary: binary, dataDir: dataDir, user: user, name: name, timeout: timeout)
+            let c = try launch(binary: binary, dataDir: dataDir, user: user, name: name, org: org, timeout: timeout)
             set(.ready, c)
             return c
         } catch {
@@ -109,7 +121,7 @@ final class LocalCore: @unchecked Sendable {
         }
     }
 
-    private func launch(binary: URL?, dataDir: URL, user: String, name: String, timeout: TimeInterval) throws -> IssueServerConfig {
+    private func launch(binary: URL?, dataDir: URL, user: String, name: String, org: String?, timeout: TimeInterval) throws -> IssueServerConfig {
         guard let bin = binary else {
             throw IssueRemoteError(message: "找不到 omixor-local(本機守護服務)。請用 app/scripts/build-app.sh 打包,或設 OMIXOR_LOCAL_BIN 指向編好的執行檔")
         }
@@ -126,6 +138,7 @@ final class LocalCore: @unchecked Sendable {
             "OMIXOR_LOCAL_NAME": name,
             "OMIXOR_EXIT_ON_STDIN_EOF": "1",
         ]
+        if let org { env["OMIXOR_LOCAL_ORG"] = org }
         for k in ["HOME", "TMPDIR", "PATH"] { if let v = ProcessInfo.processInfo.environment[k] { env[k] = v } }
         p.environment = env
         let input = Pipe(), output = Pipe(), errors = Pipe()
@@ -238,7 +251,7 @@ enum LocalCoreImport {
         if let v = raw("issues.json") as? [Any] { out["issues"] = v }
         if let v = raw("agents.json") as? [String: Any] { out["agents"] = v }
         if let v = raw("cabinet.json") as? [Any] { out["docs"] = v }
-        // 結構:沒有檔案時 App 原本用研發基地的結構(Cabinet.load),照舊
+        // 結構:沒有檔案時 App 原本用 evoleap 研發基地的結構(Cabinet.load),照舊
         if let v = raw("cabinet-layout.json") as? [Any] {
             out["cabinetLayout"] = v
         } else if let data = try? OrgFiles.encoder().encode(CabinetLayout.evoleapStudio), let v = try? JSONSerialization.jsonObject(with: data) {
@@ -327,8 +340,17 @@ extension AppState {
     func startLocalCore() {
         guard mode.mode == OmixorMode.local, NSClassFromString("XCTestCase") == nil || Self.localCoreInTests else { return }
         watchLocalCore()
-        if LocalCore.shared.config != nil { if localCore != .ready { localCoreBecameReady() }; return }
+        // 守護服務已經在跑(例如按「重試」時其實還活著):不用重新啟動,重新同步後設可用。
+        // 已經在啟動或同步中(.starting)就不重複做
         guard localCore != .starting else { return }
+        if LocalCore.shared.config != nil {
+            guard localCore != .ready else { return }
+            localCoreRestartTask?.cancel()
+            localCoreRestartTask = nil
+            localCore = .starting
+            localCoreBecameReady()
+            return
+        }
         localCoreRestartTask?.cancel()
         localCoreRestartTask = nil
         localCore = .starting
@@ -355,6 +377,8 @@ extension AppState {
     /// 守護服務意外結束:切回「無法使用」(畫面回到 LocalCoreGate 顯示原因),排定自動重啟
     func localCoreDied(_ msg: String) {
         guard mode.mode == OmixorMode.local else { return }
+        // 同一次結束可能收到兩次(意外結束的通知、啟動回來時自己發現):已經是失敗且排了重啟就不重複排
+        if localCore.error != nil, localCoreRestartTask != nil { return }
         NSLog("本機服務:%@", msg)
         // 穩定跑了一陣子才掉:重新計算重啟次數(一直起來又馬上掉的,次數會用完而停下)
         if let at = localCoreReadyAt, Date().timeIntervalSince(at) > Self.localCoreStableAfter { localCoreRestarts = 0 }
@@ -394,13 +418,27 @@ extension AppState {
         t == t.rounded() ? "\(Int(t)) 秒" : String(format: "%.1f 秒", t)
     }
 
+    /// 守護服務啟動好了:同步組織、匯入舊資料,做完才設「可用」。
+    /// 只有「這一次啟動的程序還活著、而且狀態仍是啟動中」才設 ready:同步期間守護服務掉了的話,
+    /// localCoreDied 已設 failed 並排定重啟,不能被這裡蓋回 ready(否則畫面卡在可用、也不會再自動重啟)
     private func localCoreBecameReady() {
+        guard localCore == .starting, let gen = LocalCore.shared.readyGeneration else {
+            // 啟動回來時程序已經掉了:還沒收到意外結束的通知就自己標成失敗並排重啟(收到通知的話 localCoreDied 已處理)
+            if localCore == .starting { localCoreDied("本機服務啟動後隨即結束") }
+            return
+        }
         ensureOrgs()
         let orgs = self.orgs
+        let remote = IssueRemote(config: IssueServerConfig.current)   // 在主執行緒建立(不在背景讀組織前綴)
         Task.detached(priority: .userInitiated) {
-            let problems = LocalCoreImport.sync(IssueRemote(config: IssueServerConfig.current), orgs: orgs)
+            let problems = LocalCoreImport.sync(remote, orgs: orgs)
             await MainActor.run {
                 for p in problems { NSLog("本機服務:%@", p) }
+                // 同步期間守護服務掉了(或已換成重啟後的新程序):不設 ready,交給 localCoreDied/新的啟動處理
+                guard self.localCore == .starting, LocalCore.shared.readyGeneration == gen else {
+                    NSLog("本機服務:同步期間服務已結束或已重啟,這次的同步結果不採用")
+                    return
+                }
                 self.localCoreProblems = problems
                 self.localCoreReadyAt = .now
                 self.localCoreNotice = nil

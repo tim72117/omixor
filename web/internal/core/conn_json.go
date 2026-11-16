@@ -76,3 +76,19 @@ func jBool(v any) bool {
 }
 
 func timePtr(t time.Time) *Time { return &Time{t} }
+
+// timeOrPast 排序用:nil 當作最早(原本在 github.go;GCP 也用)
+func timeOrPast(t *Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return t.Time
+}
+
+// derefStr nil 當作空字串(原本在 github.go)
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}

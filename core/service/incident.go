@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"omixor-core/model"
@@ -24,9 +23,6 @@ import (
 //	  status → 時間軸加一筆狀態(文字是 note,沒給是「狀態改為「…」」);改成 resolved 記 resolvedAt,改回其他狀態清掉
 //	  沒給 status 時 note 是一筆註記(空白不加);finding 是一筆 AI 發現;events 是任意種類的項目
 //	  aiSummary 給 "" 是清掉;addFollowUps、addAlertIds 附加(去重)
-
-// incidentMu 事件的「讀了再改」在這把鎖裡(單一程式內)
-var incidentMu sync.Mutex
 
 // IncidentEventInput 時間軸的一筆(宣告時的 timeline、更新時的 events)
 type IncidentEventInput struct {
@@ -309,8 +305,8 @@ func (s *Service) UpdateIncident(p *model.Principal, org, id string, in Incident
 		events = append(events, ev)
 	}
 
-	incidentMu.Lock()
-	defer incidentMu.Unlock()
+	s.incidentMu.Lock()
+	defer s.incidentMu.Unlock()
 	cur, err := s.findIncident(org, id)
 	if err != nil {
 		return nil, err
@@ -431,8 +427,8 @@ func (s *Service) ImportIncidents(p *model.Principal, org string, list []model.I
 		}
 		out = append(out, i)
 	}
-	incidentMu.Lock()
-	defer incidentMu.Unlock()
+	s.incidentMu.Lock()
+	defer s.incidentMu.Unlock()
 	cur, err := s.Store.ListIncidents(org)
 	if err != nil {
 		return nil, err

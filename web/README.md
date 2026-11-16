@@ -75,7 +75,10 @@ docker compose up -d --build
 
 ## MCP 規格一致
 
-- `spec/tools.json`、`spec/initialize.json` 是從執行中的 Swift 版匯出的(`python3 spec/dump_spec.py`),Go 版的 `tools/list`、`initialize` 直接回傳它們。Swift 版改了工具就重新匯出。
+- `tools/list` = web 自己的工具(`spec/tools.json`)+ 核心工具(定義直接取自 `omixor-core/mcp.CoreToolDefs`,和 `/mcp/org` 同一份;
+  開放 `model.CoreTools` 裡 Admin 的,另加 `agent_task_delegate`,見 `internal/mcp/handler.go`)。核心改了工具定義,web 自動跟著變,不用匯出。
+- `spec/tools.json`(只有 web 自己的工具,和 Swift App 自己的工具同一份定義)、`spec/initialize.json` 是從執行中的 Swift 版匯出的
+  (`python3 spec/dump_spec.py`,會濾掉核心工具)。Swift 版改了自己的工具就重新匯出;web 自己的工具不能和核心工具同名(`internal/mcp/spec_test.go` 擋)。
 - 範本(文件櫃結構、示範資料、文件轉換器)在 repo 最外層的 `../templates/`,預設不載入;要用就設 `OMIXOR_TEMPLATES=1`(或指定資料夾),執行時才從磁碟讀,不編進執行檔。示範資料載入時時間平移到現在。細節見 `../templates/README.md`。
 - 傳輸同 Swift 版:只聽 127.0.0.1、POST /mcp、通知回 202、GET/DELETE 回 405、帶非本機 Origin 回 403、不接受 chunked、body 上限 4 MB、Connection: close。
 - `conformance/`:同一串呼叫送給兩個版本比對回應(見 `docs/PORTING.md`)。
@@ -83,3 +86,9 @@ docker compose up -d --build
 ## 程式結構
 
 見 `docs/PORTING.md`。
+
+選用模組(編譯時決定,見 `internal/core/modules.go`):`cmd/omixor-web/modules.go` 用 `import _` 列出要編進去的模組,
+`go build -tags omixor_minimal ./cmd/omixor-web` 只有核心。目前有 `internal/modules/integrations`(GitHub、GitLab:
+PR、Actions、MR、Pipeline、設定 › 程式碼倉庫、github* MCP 工具)。沒編進來時 view / action 不存在、github* 工具不列在
+tools/list(規格 `spec/tools.json` 照舊有,呼叫回「這台伺服器沒有編進這個工具」),畫面依 view「system」的 `modules`、
+`webOnlyTabs` 與功能清單隱藏。

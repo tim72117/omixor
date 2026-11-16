@@ -27,3 +27,25 @@ func (m *Mem) SaveSystemSettings(org string, s model.OrgSystemSettings) error {
 	m.system[org] = c
 	return nil
 }
+
+// ---- 系統層的功能設定(整台伺服器一份) ----
+
+func (m *Mem) GetServerFeatures() (*model.ServerFeatures, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.server == nil {
+		return nil, ErrNotFound
+	}
+	c := m.server.Clone()
+	c.Saved = true
+	return &c, nil
+}
+
+func (m *Mem) SaveServerFeatures(s model.ServerFeatures) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := s.Clone()
+	c.Saved = true
+	m.server = &c
+	return nil
+}

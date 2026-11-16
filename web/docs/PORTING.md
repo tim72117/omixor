@@ -5,7 +5,7 @@ Swift 版在 `../app`(macOS SwiftUI app)。Go 版的 **MCP 規格必須和 Swift
 ## 架構
 
 ```
-spec/                 從 Swift 版匯出的標準答案(不要手改):tools.json、initialize.json
+spec/                 從 Swift 版匯出的標準答案(不要手改):tools.json(只有 web 自己的工具;核心工具的定義取自 omixor-core/mcp)、initialize.json
 ../templates/         範本資料(文件櫃結構、示範資料、文件轉換器),預設不載入,OMIXOR_TEMPLATES=1 才讀
 internal/core/        狀態與功能邏輯(package core,一個功能一個檔案)
 internal/mcp/         MCP 協定與工具(package mcp,一個功能一個 tools_<功能>.go)
@@ -60,7 +60,8 @@ View 的資料格式 = Swift 模型經 MCPJSON 編出來的 JSON(欄位名看 Sw
 | `connections` | `{"connections":[Connection],"states":{"<id>":{"account","busy","error","lastTest"}}}` | 連線 |
 | `github` | `{"settings":GHSettings,"snapshot":{"repos","pulls","runs","fetchedAt","busy","errors","error"},"connection":Connection或null,"loggedIn":bool,"state":ConnectionState或null}` | 連線 |
 | `gcp` | `{"settings":GCPSettings,"snapshot":{"services","jobs","fetchedAt","busy","error"},"connection","loggedIn","configured","state"}` | 連線 |
-| `gitlab` | `{"settings":{"projects","connection"},"snapshot":{"projects","mrs","pipelines","fetchedAt","busy","errors","error"},"connection","loggedIn","configured","state","baseURL","caCert","insecure","callback","scopes","applicationsURL","tokenURL"}`(Go 版才有,Swift 沒有、也沒有 MCP 工具;元件 web/src/gitlab/GitLabTab.tsx) | 連線 |
+| `gitlab` | `{"settings":{"projects","connection"},"snapshot":{"projects","mrs","pipelines","fetchedAt","busy","errors","error"},"connection","loggedIn","configured","state","baseURL","caCert","insecure","callback","scopes","applicationsURL","tokenURL"}`(Go 版才有,Swift 沒有、也沒有 MCP 工具;設定元件 web/ui/src/gitlab/gitlabSettings.tsx) | 連線 |
+| `code_repos` | `{"github":平台狀態,"gitlab":平台狀態,"repos":[{platform,key,name,description,url,defaultBranch,visibility,loaded,error?,openPulls,failingPulls,failedRuns,lastBuild:{id,state,status,label,title,branch,sha,url,at}或null,activityAt?}]}`;平台狀態 `{configured,loggedIn,account?,error?,settingsError?,fetchedAt?,busy,tracked,baseURL?,insecure?}`。開發進度 › Repositories(功能 development.repos;選用模組 integrations,整理 github、gitlab 的快照,repo 詳情沿用那兩個 view 與 github_* / gitlab_* 動作) | 連線 |
 | `voice_jobs` | `[VoiceJob]`(完整內容,含 baseline;最新的在最前面) | 旁白 |
 | `voice_settings` | `{connection, pollMinutes, shuttlePath, target: {id,name,baseURL,production} 或 null, hasToken}`(發佈目的地與輪詢設定,Swift 存在 UserDefaults;Go 存在資料夾根目錄的 voice-settings.json) | 旁白 |
 | `facebook` | `{settings: {apiVersion, mode, pages: [FBPage]}, drafts: [草稿,格式同 fb_drafts 的一筆], snapshot: {posts: {pageId: [貼文]}, scheduled: {pageId: [貼文]}, insights: {pageId: {pageId,period,since,until,metrics}}, errors: {pageId: 訊息}, error, busy, fetchedAt, tokenExpired}, tokens: {pageId: bool}, connected, notConnected, connection: Connection 或 null, hasAppSecret, callback, scopes, periods, minLeadSeconds, maxLeadSeconds}`。貼文 / 指標格式同 fb_posts / fb_insights。設定與草稿存組織資料夾的 facebook.json(格式同 Swift);專頁權杖存 core.Vault,帳號 `<組織前綴>facebook:page:<id>`,Meta 登入的使用者權杖是連線 `facebook` 的 `:token`。tokens 只看鑰匙圈快取 | 粉絲專頁 |
@@ -92,6 +93,7 @@ View 的資料格式 = Swift 模型經 MCPJSON 編出來的 JSON(欄位名看 Sw
 | `gcp_revisions` `gcp_executions` `gcp_logs` `gcp_metrics` | `{service}` / `{job}` / `{service?,job?,severity,hours,contains?,limit}` / `{service,hours}` → 資料 | 連線 |
 | `gitlab_ensure_connection` `gitlab_settings` `gitlab_add_project` `gitlab_remove_project` `gitlab_refresh` | `{baseURL?}` / `{baseURL?, caCert?, insecure?}` / `{project}` / `{project}` / `{}` | 連線 |
 | `gitlab_jobs` `gitlab_job_log` `gitlab_mr` | `{project,pipeline}` → `{jobs,stages}` / `{project,job,lines?}` → `{tail}` / `{project,iid}` → MR 詳情 | 連線 |
+| `code_repos_refresh` | `{}` → 同 view `code_repos`(有登入的平台同時重新讀) | 連線 |
 | `site_visitors` | `{range, connection?}` → SiteOverview(網站訪客頁) | 連線 |
 | `voice_publish` `voice_cancel` `voice_retry` `voice_discard` | `{id}` → VoiceJob(discard 回 `{}`)。publish 只能由人按,等全部送完才回傳(state 是 ready 才會動;結果寫在 job 的 log 與 changes[].publish);cancel 只對 queued / failed;retry = Swift 的「立即檢查」(processing 時顯示);discard 從清單移除已結束的批次(Go 版才有)。找不到 id 回「找不到旁白批次 <id>」 | 旁白 |
 | `voice_settings` | `{connection?, pollMinutes?(1–120), shuttlePath?}` → 同 View voice_settings | 旁白 |

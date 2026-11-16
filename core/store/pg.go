@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -31,8 +32,9 @@ import (
 //	omixor_channel_messages                       頻道訊息(主鍵 (org, channel_id, id) = M-<n>,每個頻道各自編號;mentions 是 jsonb)
 //	omixor_channel_reads                          已讀(主鍵 (org, channel_id, member);last_read 是讀到的訊息號碼)
 //	omixor_incidents                              事件(主鍵 (org, id) = INC-<n>;pos 大的在前;整筆事件存在 data jsonb,方法在 pg_incident.go)
-//	omixor_org_integrations                       組織的 GitHub、GitLab 設定與外部 MCP 登記(主鍵 (org, kind),kind 是 github、gitlab、mcp;設定存在 data jsonb,方法在 pg_integration.go、pg_mcp.go)
+//	omixor_org_integrations                       組織設定文件(選用模組的設定,例如 GitHub、GitLab 模組的 github、gitlab)與外部 MCP 登記(主鍵 (org, kind),kind 是 github、gitlab、mcp;設定存在 data jsonb,方法在 pg_integration.go、pg_mcp.go)
 //	omixor_org_system                             組織的系統設定(功能開關;主鍵 org;有改過的開關存在 features jsonb,方法在 pg_system.go)
+//	omixor_server_features                        系統層的功能設定(整台伺服器一列,主鍵 id 固定是 'server';有改過的開關存在 features jsonb,方法在 pg_system.go)
 const pgSchema = `
 create table if not exists omixor_users (
   id text primary key,
@@ -245,6 +247,12 @@ create table if not exists omixor_org_integrations (
 );
 create table if not exists omixor_org_system (
   org text primary key,
+  features jsonb not null,
+  updated_at timestamptz not null,
+  updated_by text not null default ''
+);
+create table if not exists omixor_server_features (
+  id text primary key check (id = 'server'),
   features jsonb not null,
   updated_at timestamptz not null,
   updated_by text not null default ''
@@ -755,15 +763,22 @@ func writeIssue(c context.Context, tx pgx.Tx, org string, i model.Issue, pos int
 			return err
 		}
 	} else {
-		tag, err := tx.Exec(c, `update ops_issues set title = $3, body = $4, status = $5, priority = $6, labels = $7, source = $8,
-			link = $9, created_by = $10, created_at = $11, updated_at = $12, closed_at = $13, assignee = $14, repo = $15 where org = $1 and id = $2`,
+		// id 不分大小寫(同 GetIssue);這一列的鎖一直拿到交易結束,和 AddIssueComment 互斥
+		var id string
+		err := tx.QueryRow(c, `update ops_issues set title = $3, body = $4, status = $5, priority = $6, labels = $7, source = $8,
+			link = $9, created_by = $10, created_at = $11, updated_at = $12, closed_at = $13, assignee = $14, repo = $15
+			where org = $1 and lower(id) = lower($2) returning id`,
 			org, i.ID, i.Title, i.Body, i.Status, i.Priority, labels, i.Source, i.Link, i.CreatedBy,
-			secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee, i.Repo)
+			secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee, i.Repo).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
+		i.ID = id
+		if i.Comments == nil { // nil = 留言不動(見 Store.UpdateIssue)
+			return nil
 		}
 		if _, err := tx.Exec(c, `delete from ops_issue_comments where org = $1 and issue_id = $2`, org, i.ID); err != nil {
 			return err
@@ -816,10 +831,47 @@ func (p *PG) UpdateIssue(org string, i model.Issue) error {
 	return tx.Commit(c)
 }
 
+// AddIssueComment 單筆 insert:先更新 Issue 的 updated_at(同時鎖住這一列,同一個 Issue 的留言在這裡排隊),
+// 再取 pos = max + 1 插入;READ COMMITTED 下每個語句看得到前一筆已提交的留言,所以 pos 不會撞
+func (p *PG) AddIssueComment(org, issueID string, cm model.Comment) (*model.Issue, error) {
+	c, cancel := ctx()
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(c)
+	var id string
+	err = tx.QueryRow(c, `update ops_issues set updated_at = $3 where org = $1 and lower(id) = lower($2) returning id`,
+		org, issueID, secs(cm.At.Time)).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(c, `insert into ops_issue_comments (org, issue_id, pos, id, author, text, at)
+		select $1, $2, coalesce(max(pos), -1) + 1, $3, $4, $5, $6 from ops_issue_comments where org = $1 and issue_id = $2`,
+		org, id, cm.ID, cm.Author, cm.Text, secs(cm.At.Time)); err != nil {
+		return nil, err
+	}
+	l, err := listIssues(c, tx, org, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(l) == 0 {
+		return nil, ErrNotFound
+	}
+	if err := tx.Commit(c); err != nil {
+		return nil, err
+	}
+	return &l[0], nil
+}
+
 func (p *PG) DeleteIssue(org, id string) error {
 	c, cancel := ctx()
 	defer cancel()
-	tag, err := p.pool.Exec(c, `delete from ops_issues where org = $1 and id = $2`, org, id)
+	tag, err := p.pool.Exec(c, `delete from ops_issues where org = $1 and lower(id) = lower($2)`, org, id)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
@@ -850,6 +902,69 @@ func (p *PG) ImportIssues(org string, list []model.Issue) (int, error) {
 		}
 	}
 	return len(list), tx.Commit(c)
+}
+
+func (p *PG) MergeIssues(org string, list []model.Issue, overwrite bool) (MergeCounts, error) {
+	var res MergeCounts
+	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return res, err
+	}
+	defer tx.Rollback(c)
+	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-issues:' || $1))`, org); err != nil {
+		return res, err
+	}
+	existing := map[string]bool{}
+	var minPos int64
+	rows, err := tx.Query(c, `select id, pos from ops_issues where org = $1`, org)
+	if err != nil {
+		return res, err
+	}
+	for rows.Next() {
+		var id string
+		var pos int64
+		if err := rows.Scan(&id, &pos); err != nil {
+			rows.Close()
+			return res, err
+		}
+		if len(existing) == 0 || pos < minPos {
+			minPos = pos
+		}
+		existing[strings.ToLower(id)] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return res, err
+	}
+	if len(existing) == 0 {
+		minPos = int64(len(list)) + 1
+	}
+	k := int64(0)
+	for _, i := range list {
+		if existing[strings.ToLower(i.ID)] {
+			if !overwrite {
+				res.Skipped++
+				continue
+			}
+			if i.Comments == nil {
+				i.Comments = []model.Comment{}
+			}
+			if err := writeIssue(c, tx, org, i, 0, false); err != nil {
+				return res, fmt.Errorf("%s:%w", i.ID, err)
+			}
+			res.Updated++
+			continue
+		}
+		k++
+		if err := writeIssue(c, tx, org, i, minPos-k, true); err != nil {
+			return res, fmt.Errorf("%s:%w", i.ID, err)
+		}
+		existing[strings.ToLower(i.ID)] = true
+		res.Inserted++
+	}
+	return res, tx.Commit(c)
 }
 
 func (p *PG) IssueOrgs() ([]string, error) {

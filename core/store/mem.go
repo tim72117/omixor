@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -33,10 +34,13 @@ type Mem struct {
 	reads    map[string]map[string]map[string]model.ChannelRead
 	// 事件:org → 新的在前(方法在 mem_incident.go;nil 時第一次寫入才建)
 	incidents map[string][]model.Incident
-	// 組織的 GitHub、GitLab 設定:org → 設定(方法在 mem_integration.go;nil 時第一次寫入才建)
-	integrations map[string]model.OrgIntegrations
+	// 組織設定文件(選用模組的設定,例如 GitHub、GitLab):org → kind → 設定 + updatedAt + updatedBy 的 JSON 物件
+	// (方法在 mem_integration.go;nil 時第一次寫入才建)
+	integrations map[string]map[string]json.RawMessage
 	// 組織的系統設定(功能開關):org → 設定(方法在 mem_system.go;nil 時第一次寫入才建)
 	system map[string]model.OrgSystemSettings
+	// 系統層的功能設定(整台伺服器一份;方法在 mem_system.go;nil = 還沒存過)
+	server *model.ServerFeatures
 	// 組織的外部 MCP 登記:org → 設定(方法在 mem_mcp.go;nil 時第一次寫入才建)
 	mcp map[string]model.OrgMCPConfig
 }
@@ -100,6 +104,10 @@ func (m *Mem) SaveUser(u model.User) error {
 	for id, o := range m.users {
 		if id != u.ID && o.Email == u.Email {
 			return fmt.Errorf("email 重複:%s", u.Email)
+		}
+		// 同 PG(evoleap_id unique;空字串存成 null,不算重複)
+		if id != u.ID && u.EvoleapID != "" && o.EvoleapID == u.EvoleapID {
+			return fmt.Errorf("evoleap id 重複:%s", u.EvoleapID)
 		}
 	}
 	m.users[u.ID] = u
@@ -315,14 +323,34 @@ func (m *Mem) OrgsOfUser(userID string) ([]model.Org, error) {
 			out = append(out, o)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	// 同 ListOrgs 與 PG:建立時間,同時間依 id
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.Before(out[j].CreatedAt.Time) || (out[i].CreatedAt.Equal(out[j].CreatedAt.Time) && out[i].ID < out[j].ID)
+	})
 	return out, nil
 }
 
 func cloneIssue(i model.Issue) model.Issue {
 	i.Labels = append([]string{}, i.Labels...)
 	i.Comments = append([]model.Comment{}, i.Comments...)
+	i.ClosedAt = optTime(i.ClosedAt)
 	return i
+}
+
+// optTime 選填時間的拷貝;零值當作沒有(nil),同 PG 與 File 讀回的結果
+func optTime(t *model.Time) *model.Time {
+	if t == nil || t.IsZero() {
+		return nil
+	}
+	c := *t
+	return &c
+}
+
+// cloneTask 任務的深拷貝;選填時間的零值當作沒有(同 PG 的 optSecs)
+func cloneTask(t model.AgentTask) model.AgentTask {
+	t = t.Clone()
+	t.ClaimedAt, t.CompletedAt, t.LockedUntil = optTime(t.ClaimedAt), optTime(t.CompletedAt), optTime(t.LockedUntil)
+	return t
 }
 
 func (m *Mem) ListIssues(org string) ([]model.Issue, error) {
@@ -363,12 +391,34 @@ func (m *Mem) UpdateIssue(org string, i model.Issue) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for k, x := range m.issues[org] {
-		if x.ID == i.ID {
-			m.issues[org][k] = cloneIssue(i)
+		if strings.EqualFold(x.ID, i.ID) {
+			keep := i.Comments == nil // nil = 留言不動(見 Store.UpdateIssue)
+			i.ID = x.ID
+			n := cloneIssue(i)
+			if keep {
+				n.Comments = append([]model.Comment{}, x.Comments...)
+			}
+			m.issues[org][k] = n
 			return nil
 		}
 	}
 	return ErrNotFound
+}
+
+func (m *Mem) AddIssueComment(org, issueID string, c model.Comment) (*model.Issue, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, x := range m.issues[org] {
+		if strings.EqualFold(x.ID, issueID) {
+			n := cloneIssue(x)
+			n.Comments = append(n.Comments, c)
+			n.UpdatedAt = c.At
+			m.issues[org][k] = n
+			out := cloneIssue(n)
+			return &out, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (m *Mem) DeleteIssue(org, id string) error {
@@ -377,7 +427,7 @@ func (m *Mem) DeleteIssue(org, id string) error {
 	kept := []model.Issue{}
 	found := false
 	for _, x := range m.issues[org] {
-		if x.ID == id {
+		if strings.EqualFold(x.ID, id) {
 			found = true
 			continue
 		}
@@ -402,6 +452,35 @@ func (m *Mem) ImportIssues(org string, list []model.Issue) (int, error) {
 	}
 	m.issues[org] = cp
 	return len(cp), nil
+}
+
+func (m *Mem) MergeIssues(org string, list []model.Issue, overwrite bool) (MergeCounts, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var res MergeCounts
+	cur := append([]model.Issue{}, m.issues[org]...)
+	idx := map[string]int{}
+	for k, x := range cur {
+		idx[strings.ToLower(x.ID)] = k
+	}
+	for _, i := range list {
+		if k, ok := idx[strings.ToLower(i.ID)]; ok {
+			if !overwrite {
+				res.Skipped++
+				continue
+			}
+			n := cloneIssue(i)
+			n.ID = cur[k].ID
+			cur[k] = n
+			res.Updated++
+			continue
+		}
+		idx[strings.ToLower(i.ID)] = len(cur)
+		cur = append(cur, cloneIssue(i))
+		res.Inserted++
+	}
+	m.issues[org] = cur
+	return res, nil
 }
 
 func (m *Mem) IssueOrgs() ([]string, error) {
@@ -447,6 +526,11 @@ func (m *Mem) ListAgents(org string) ([]model.Agent, error) {
 	for _, g := range m.agents[org] {
 		out = append(out, g.Clone())
 	}
+	// 依建立時間(同 PG:到秒,同時間依 id);匯入或存了較早時間的角色時,順序才不會和 PG 不同
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := secs(out[i].CreatedAt.Time), secs(out[j].CreatedAt.Time)
+		return a.Before(b) || (a.Equal(b) && out[i].ID < out[j].ID)
+	})
 	return out, nil
 }
 
@@ -502,6 +586,8 @@ func (m *Mem) ListAgentTasks(org string) ([]model.AgentTask, error) {
 	for _, t := range m.tasks[org] {
 		out = append(out, t.Clone())
 	}
+	// 新的在前(同 PG:號碼大的在前);匯入的任務不一定照號碼排
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Number() > out[j].Number() })
 	return out, nil
 }
 
@@ -527,7 +613,7 @@ func (m *Mem) ImportAgents(org string, agents []model.Agent, tasks []model.Agent
 		m.agents[org] = append(m.agents[org], g.Clone())
 	}
 	for _, t := range tasks {
-		m.tasks[org] = append(m.tasks[org], t.Clone())
+		m.tasks[org] = append(m.tasks[org], cloneTask(t))
 	}
 	return nil
 }
@@ -540,7 +626,7 @@ func (m *Mem) CreateAgentTask(org string, t model.AgentTask) (model.AgentTask, e
 		n = max(n, x.Number())
 	}
 	t.ID = fmt.Sprintf("T-%d", n+1)
-	m.tasks[org] = append([]model.AgentTask{t.Clone()}, m.tasks[org]...)
+	m.tasks[org] = append([]model.AgentTask{cloneTask(t)}, m.tasks[org]...)
 	return t, nil
 }
 
@@ -549,7 +635,7 @@ func (m *Mem) UpdateAgentTask(org string, t model.AgentTask) error {
 	defer m.mu.Unlock()
 	for k, x := range m.tasks[org] {
 		if x.ID == t.ID {
-			m.tasks[org][k] = t.Clone()
+			m.tasks[org][k] = cloneTask(t)
 			return nil
 		}
 	}
@@ -564,7 +650,7 @@ func (m *Mem) ClaimAgentTask(org string, t model.AgentTask, now time.Time) error
 			if x.Locked(now) {
 				return ErrLocked
 			}
-			m.tasks[org][k] = t.Clone()
+			m.tasks[org][k] = cloneTask(t)
 			return nil
 		}
 	}
@@ -615,6 +701,7 @@ func (m *Mem) AgentCredentialByHash(h []byte) (*model.AgentCredential, error) {
 	for _, c := range m.creds {
 		if bytes.Equal(c.Hash, h) {
 			x := c
+			x.Hash = append([]byte(nil), c.Hash...)
 			return &x, nil
 		}
 	}

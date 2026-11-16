@@ -1,5 +1,6 @@
-// 設定 › 程式碼倉庫:GitHub 與 GitLab 的連線、登入與追蹤的 repo / 專案(原本在開發進度的 GitHub、GitLab 分頁裡)。
-// 開發進度那兩個分頁只看資料(執行紀錄、PR/MR、Pipeline),沒設定好時用「前往設定」跳到這裡(focusId "repos")。
+// 設定 › 程式碼倉庫:GitHub 與 GitLab 的連線、登入與追蹤的 repo / 專案。
+// 資料在 開發進度 › Repositories(兩個平台的 repo 一起列,只看資料:PR/MR、Actions/Pipeline);那裡沒設定好時用「前往設定」
+// 跳到這裡(focusId "repos"),這裡用「前往 開發進度 › Repositories」跳回去(focusId "repos")。
 // GitHub 的設定元件在這個檔;GitLab 的在 gitlab/gitlabSettings.tsx(GitLab 只有 web 版)。
 // 資料:view github、view gitlab;動作:github_ensure_connection、github_add_repo、github_remove_repo、gitlab_*、connection_*(見 docs/PORTING.md)。
 import { useState } from "react";
@@ -10,6 +11,8 @@ import { GitLabProjects, GitLabSetup, InsecureBanner, LogoutRow, ServerCard } fr
 import type { GitLabView } from "../../gitlab/GitLabTab";
 import type { Connection, GitHubView } from "../development/DevGitHubTab";
 import { Form, Row, Section } from "./form";
+import { go } from "../../components/bits";
+import { useFeatures } from "../../features";
 
 const HOMEPAGE = "http://127.0.0.1";
 const CALLBACK = "http://127.0.0.1/callback";
@@ -19,9 +22,22 @@ const openURL = (u: string) => u && window.open(u, "_blank", "noopener");
 export function SettingsRepos() {
   return (
     <Form>
+      <ReposLink />
       <GitHubPane />
       <GitLabPane />
     </Form>
+  );
+}
+
+/** 前往 開發進度 › Repositories(頁面或分頁關掉時不顯示) */
+function ReposLink() {
+  const flags = useFeatures();
+  if (!flags.visible("development") || !flags.enabled("development.repos")) return null;
+  return (
+    <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+      <span className="caption muted">追蹤中 repo 的 PR/MR 與 Actions/Pipeline 在開發進度看</span>
+      <button className="btn" onClick={() => go("development", "repos")}><SIcon name="shippingbox" size={12} />前往 開發進度 › Repositories</button>
+    </div>
   );
 }
 
@@ -43,7 +59,7 @@ function GitHubPane() {
   return (
     <>
       <Section header="GitHub" icon="chevron.left.forwardslash.chevron.right"
-        footer="omixor 只讀 GitHub:看追蹤中 repo 的 Actions 執行與開著的 PR,不會開 PR、留言或重跑。資料在 開發進度 › GitHub。">
+        footer="omixor 只讀 GitHub:看追蹤中 repo 的 Actions 執行與開著的 PR,不會開 PR、留言或重跑。資料在 開發進度 › Repositories。">
         {!gh ? <Row><span className="muted">{err ?? "讀取中…"}</span></Row>
           : loggedIn ? <GitHubAccountRow gh={gh} />
             : <NotConnectedRow text={!gh.connection ? "還沒設定" : "還沒登入"} />}
@@ -124,7 +140,7 @@ function GitHubSetup({ gh }: { gh: GitHubView }) {
   );
   return (
     <div className="col" style={{ gap: 12 }}>
-      <div className="caption muted">連上後,開發進度 › GitHub 會列出追蹤中 repo 的 Actions 執行(含失敗的步驟與紀錄)和開著的 PR(含檢查結果);虛擬角色也能透過 MCP 讀。</div>
+      <div className="caption muted">連上後,開發進度 › Repositories 會列出追蹤中 repo 的 Actions 執行(含失敗的步驟與紀錄)和開著的 PR(含檢查結果);虛擬角色也能透過 MCP 讀。</div>
       {!conn ? (
         <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => run(() => action("github_ensure_connection"))}>開始設定</button>
       ) : conn.auth === "oauth" ? (
@@ -204,7 +220,7 @@ function GitLabPane() {
   return (
     <>
       <Section header="GitLab(公司自架)" icon="chevron.left.forwardslash.chevron.right"
-        footer="omixor 只讀 GitLab:看追蹤中專案的 Pipelines 與開著的 Merge Requests,不會開 MR、留言或重跑 pipeline。資料在 開發進度 › GitLab。">
+        footer="omixor 只讀 GitLab:看追蹤中專案的 Pipelines 與開著的 Merge Requests,不會開 MR、留言或重跑 pipeline。資料在 開發進度 › Repositories。">
         {!gl ? <Row><span className="muted">{err ?? "讀取中…"}</span></Row>
           : ready ? <LogoutRow gl={gl} />
             : <NotConnectedRow text={!gl.connection || !gl.configured ? "還沒設定伺服器" : "還沒登入"} />}

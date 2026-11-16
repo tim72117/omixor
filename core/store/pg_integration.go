@@ -7,8 +7,9 @@ import (
 	"omixor-core/model"
 )
 
-// ---- 組織的 GitHub、GitLab 設定(PG;表 omixor_org_integrations 的定義在 pg.go 的 pgSchema) ----
-// 一列一份設定(kind = github、gitlab),設定本身存在 data(jsonb);updated_at、updated_by 另外存一份。
+// ---- 組織設定文件(PG;表 omixor_org_integrations 的定義在 pg.go 的 pgSchema) ----
+// 一列一份設定(kind = github、gitlab 等選用模組的設定,外部 MCP 登記是 mcp),設定本身存在 data(jsonb);updated_at、updated_by 另外存一份。
+// 表與資料格式沒變:以前 GitHub、GitLab 的專屬方法存的資料照讀(GitHub、GitLab 模組存的 data 和以前一模一樣)。
 
 func (p *PG) getIntegration(org, kind string, out any) (time.Time, string, error) {
 	c, cancel := ctx()
@@ -36,40 +37,28 @@ func (p *PG) saveIntegration(org, kind string, data any, updatedAt *model.Time, 
 	return err
 }
 
-func (p *PG) GetGitHubSettings(org string) (*model.GitHubSettings, error) {
-	var s model.GitHubSettings
-	at, by, err := p.getIntegration(org, "github", &s)
+// GetOrgDoc 組織設定文件(通用;選用模組用,見 mem_integration.go 的 OrgDoc)
+func (p *PG) GetOrgDoc(org, kind string) (*OrgDoc, error) {
+	if err := checkDocKind(kind); err != nil {
+		return nil, err
+	}
+	var raw json.RawMessage
+	at, by, err := p.getIntegration(org, kind, &raw)
 	if err != nil {
 		return nil, err
 	}
-	if s.Repos == nil {
-		s.Repos = []string{}
+	return &OrgDoc{Data: raw, UpdatedAt: &model.Time{Time: at}, UpdatedBy: by}, nil
+}
+
+// SaveOrgDoc 存組織設定文件(整份取代;data 原樣存在 jsonb)
+func (p *PG) SaveOrgDoc(org, kind string, d OrgDoc) error {
+	if err := checkDocKind(kind); err != nil {
+		return err
 	}
-	s.Saved, s.UpdatedAt, s.UpdatedBy = true, &model.Time{Time: at}, by
-	return &s, nil
-}
-
-func (p *PG) SaveGitHubSettings(org string, s model.GitHubSettings) error {
-	d := s.Clone()
-	d.Saved, d.UpdatedAt, d.UpdatedBy = false, nil, ""
-	return p.saveIntegration(org, "github", d, s.UpdatedAt, s.UpdatedBy)
-}
-
-func (p *PG) GetGitLabSettings(org string) (*model.GitLabSettings, error) {
-	var s model.GitLabSettings
-	at, by, err := p.getIntegration(org, "gitlab", &s)
+	// 同 Mem / File:要是 JSON 物件(空的當 {}),設定本身不含 updatedAt、updatedBy(那兩個另外存在欄位裡)
+	data, err := mergeDoc(OrgDoc{Data: d.Data})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if s.Projects == nil {
-		s.Projects = []string{}
-	}
-	s.Saved, s.UpdatedAt, s.UpdatedBy = true, &model.Time{Time: at}, by
-	return &s, nil
-}
-
-func (p *PG) SaveGitLabSettings(org string, s model.GitLabSettings) error {
-	d := s.Clone()
-	d.Saved, d.UpdatedAt, d.UpdatedBy = false, nil, ""
-	return p.saveIntegration(org, "gitlab", d, s.UpdatedAt, s.UpdatedBy)
+	return p.saveIntegration(org, kind, data, d.UpdatedAt, d.UpdatedBy)
 }

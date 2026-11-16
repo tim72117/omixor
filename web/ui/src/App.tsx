@@ -7,7 +7,7 @@ import { AccountBox } from "./auth/AccountBox";
 import { DirectoryProvider } from "./components/bits";
 import { Icon } from "./components/Icon";
 import { color, Segmented } from "./components/ui";
-import { guardedNavigate, useFeatures, useFeaturesSync, useLocalNotice, useTimedNotice } from "./features";
+import { guardedNavigate, useFeatures, useFeaturesError, useFeaturesSync, useLocalNotice, useTimedNotice } from "./features";
 import { SECTION_VIEWS } from "./sections";
 import { SECTIONS, type Nav, type SectionId } from "./types";
 
@@ -92,6 +92,7 @@ export function App() {
             </button>
           </div>
         </header>
+        <FeaturesLoadError />
         <FeatureNotice />
         <div className="content">
           <Suspense fallback={<div className="muted" style={{ padding: 20 }}>載入中…</div>}>
@@ -103,6 +104,19 @@ export function App() {
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
     </div>
     </DirectoryProvider>
+  );
+}
+
+/** 讀不到功能開關(view「system」)時一直顯示:讀到過就照最後一份,從來沒讀到就用保守預設(實驗功能關) */
+function FeaturesLoadError() {
+  const err = useFeaturesError();
+  const flags = useFeatures();
+  if (!err) return null;
+  return (
+    <div className="feature-notice" style={{ color: "var(--orange)" }}>
+      <Icon name="exclamationmark.triangle" size={14} />
+      <span>讀不到功能開關:{err}。{flags.view ? "目前照最後一次讀到的設定顯示。" : "目前用保守預設(實驗功能關)。"}</span>
+    </div>
   );
 }
 
@@ -124,7 +138,7 @@ function FeatureNotice() {
     <div className="feature-notice">
       <Icon name="switch.2" size={14} />
       <span>{text}</span>
-      <button className="btn link" onClick={() => { close(); void guardedNavigate("system"); }}>前往系統</button>
+      <button className="btn link" onClick={() => { close(); void guardedNavigate("settings", "features"); }}>前往 設定 › 功能</button>
       <button className="bx-icon-btn" title="關閉" onClick={close}><Icon name="xmark" size={12} /></button>
     </div>
   );

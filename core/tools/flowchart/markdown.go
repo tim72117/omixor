@@ -49,10 +49,7 @@ func blockSpans(lines []string) [][2]int {
 		if !strings.HasPrefix(t, "```") {
 			continue
 		}
-		lang := ""
-		if w := strings.Fields(strings.TrimLeft(t, "`")); len(w) > 0 { // info string 的第一個字(「```mermaid title=…」也算)
-			lang = strings.ToLower(w[0])
-		}
+		lang := fenceLang(t) // info string 的第一個字(「```mermaid title=…」也算)
 		j := i + 1
 		for j < len(lines) && !strings.HasPrefix(strings.TrimSpace(lines[j]), "```") {
 			j++
@@ -86,27 +83,50 @@ func Fence(src string) string {
 }
 
 // FirstBlock 第一個流程圖區塊的完整原文(含開頭與結尾的 ``` 行)與它的語言標記(flowchart 或 mermaid);沒有回 ok=false。
-// 用來在文件裡「只換掉這一段」(字串取代),不用整份內文覆寫
+// 用來在文件裡「只換掉這一段」(字串取代),不用整份內文覆寫。
+// 回傳的是內文裡逐字的那一段:不把 \r\n 統一成 \n(內文是 \r\n 時字串取代才找得到);
+// 最後一行(結尾的 ``` 行)行尾的 \r 不算在內,換行留在原文裡
 func FirstBlock(md string) (block, lang string, ok bool) {
-	lines := strings.Split(strings.ReplaceAll(md, "\r\n", "\n"), "\n")
+	lines := strings.Split(md, "\n") // 只依 \n 切行:\r\n 的 \r 留在行尾,接回去就是原文
 	spans := blockSpans(lines)
 	if len(spans) == 0 {
 		return "", "", false
 	}
 	s := spans[0]
-	lang = Lang
-	if w := strings.Fields(strings.TrimLeft(strings.TrimSpace(lines[s[0]]), "`")); len(w) > 0 {
-		lang = strings.ToLower(w[0])
+	lang = fenceLang(lines[s[0]])
+	if lang == "" {
+		lang = Lang
 	}
-	return strings.Join(lines[s[0]:min(s[1]+1, len(lines))], "\n"), lang, true
+	block = strings.Join(lines[s[0]:min(s[1]+1, len(lines))], "\n")
+	return strings.TrimSuffix(block, "\r"), lang, true
 }
 
-// FenceLike 包成和原本區塊同樣語言的程式碼區塊:原本是 ```mermaid 而新描述也是 Mermaid 文字時維持 ```mermaid
-// (其他 Markdown 檢視器才看得懂);JSON 描述一律用 ```flowchart
-func FenceLike(lang, src string) string {
+// fenceLang 程式碼區塊開頭行的語言標記(info string 的第一個字,小寫);不是開頭行回 ""
+func fenceLang(line string) string {
+	t := strings.TrimSpace(line)
+	if !strings.HasPrefix(t, "```") {
+		return ""
+	}
+	if w := strings.Fields(strings.TrimLeft(t, "`")); len(w) > 0 {
+		return strings.ToLower(w[0])
+	}
+	return ""
+}
+
+// FenceLike 包成和原本區塊同樣語言的程式碼區塊。open 是原本區塊的開頭行(例如「```mermaid title="流程"」;
+// 只給語言標記如 "mermaid" 也可以)。原本是 ```mermaid 而新描述也是 Mermaid 文字時維持 ```mermaid
+// (其他 Markdown 檢視器才看得懂);JSON 描述一律用 ```flowchart。
+// 新區塊和原本同語言時沿用原本的開頭行,info string 裡的其他屬性(title=… 等)不會被丟掉
+func FenceLike(open, src string) string {
 	s := strings.TrimSpace(src)
-	if lang == "mermaid" && !strings.HasPrefix(s, "{") {
-		return "```mermaid\n" + s + "\n```"
+	open = strings.TrimSpace(open)
+	if !strings.HasPrefix(open, "```") {
+		open = "```" + open
+	}
+	lang := fenceLang(open)
+	isJSON := strings.HasPrefix(s, "{")
+	if (lang == "mermaid" && !isJSON) || lang == Lang {
+		return open + "\n" + s + "\n```"
 	}
 	return Fence(s)
 }
@@ -125,9 +145,8 @@ func Upsert(md, src string) string {
 	}
 	s := spans[0]
 	end := min(s[1]+1, len(lines))
-	_, lang, _ := FirstBlock(md)
 	out := append([]string{}, lines[:s[0]]...)
-	out = append(out, strings.Split(FenceLike(lang, src), "\n")...)
+	out = append(out, strings.Split(FenceLike(lines[s[0]], src), "\n")...)
 	out = append(out, lines[end:]...)
 	return strings.Join(out, "\n")
 }

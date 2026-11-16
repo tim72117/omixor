@@ -166,7 +166,7 @@ enum GitHub {
     static var presetConnection: Connection {
         var c = Connection(id: connectionId, name: "GitHub", baseURL: "https://api.github.com", isProduction: false,
                            testPath: "/user", auth: .oauth,
-                           note: "開發進度 › GitHub 讀 PR 與 Actions(只讀)")
+                           note: "開發進度 › Repositories 讀 PR 與 Actions(只讀)")
         c.oauth = OAuthSettings(issuer: "https://github.com",
                                 authorizationEndpoint: "https://github.com/login/oauth/authorize",
                                 tokenEndpoint: "https://github.com/login/oauth/access_token",
@@ -320,7 +320,7 @@ final class GitHubStore {
     /// 目前連的 core server 的用戶端(和 Issue 同一個;連線換了會換新的)
     var remote: IssueRemote {
         let cfg = IssueServerConfig.current
-        if let c = remoteClient, c.config == cfg { return c }
+        if let c = remoteClient, c.matches(cfg) { return c }   // 連線設定與組織的 token 範圍都相同才沿用
         let c = IssueRemote(config: cfg)
         remoteClient = c
         return c
@@ -335,14 +335,27 @@ final class GitHubStore {
         if app.githubSettings.repos != x.repos { app.githubSettings.repos = x.repos }
     }
 
+    /// server 有沒有編進程式碼倉庫模組(沒有時不讀設定、不讀 GitHub,也不顯示錯誤)
+    var hasModule: Bool { app.hasModule(ServerModule.integrations) }
+
+    /// 沒有程式碼倉庫模組:清掉追蹤的 repo 與資料(這台 github.json 的舊 repos 也不顯示),不算錯誤
+    private func applyNoModule() {
+        if !app.githubSettings.repos.isEmpty { app.githubSettings.repos = [] }
+        if app.github.repos.isEmpty == false || app.github.error != nil || app.github.settingsError != nil || !app.github.errors.isEmpty {
+            app.github = GHSnapshot()
+        }
+    }
+
     /// 從核心讀組織的 GitHub 設定;核心還沒存過而這台的 github.json 有 repos → 匯入一次(原檔不刪不改)
     func syncSettings() {
+        guard hasModule else { applyNoModule(); return }
         let org = app.currentOrgId
         applySettings(org, Result { try Self.fetchSettings(remote, org: org, legacy: localFile().repos) })
     }
 
     /// 同 syncSettings,但請求在背景跑,回主執行緒才更新畫面(不擋主執行緒)
     func syncSettingsAsync() async {
+        guard hasModule else { applyNoModule(); return }
         let org = app.currentOrgId, r = remote, legacy = localFile().repos
         let res: Result<(CoreGitHubSettings, String?), Error>
         do { res = .success(try await r.run { try Self.fetchSettings($0, org: org, legacy: legacy) }) } catch { res = .failure(error) }
@@ -380,6 +393,10 @@ final class GitHubStore {
             guard app.currentOrgId == org else { return }
             applyCore(x)
             setSettingsError(problem)
+        case .failure(let error) where error is IntegrationModuleMissing:
+            guard app.currentOrgId == org else { return }
+            app.noteModuleMissing(ServerModule.integrations)   // 這台伺服器沒有程式碼倉庫模組:隱藏,不當錯誤
+            applyNoModule()
         case .failure(let error):
             setSettingsError(error.localizedDescription)
         }
@@ -430,7 +447,7 @@ final class GitHubStore {
     func get(_ path: String) async throws -> Any {
         app.startConnections()
         guard let store = app.connStore else { throw ConnectionError("連線功能還沒啟動") }
-        guard connection != nil else { throw ConnectionError("還沒設定 GitHub 連線(開發進度 › GitHub)") }
+        guard connection != nil else { throw ConnectionError("還沒設定 GitHub 連線(設定 › 程式碼倉庫)") }
         // 條件請求:帶上次的 ETag,GitHub 回 304 表示沒變,直接用上次的內容(304 不扣 API 額度)
         let key = connectionId + " " + path
         let cached = etags[key]
@@ -463,6 +480,7 @@ final class GitHubStore {
         app.github.busy = true
         defer { app.github.busy = false }
         await syncSettingsAsync()   // 追蹤的 repo 以組織(核心)的為準,每輪先讀一次(背景讀,不擋主執行緒)
+        guard hasModule else { return }   // 沒有程式碼倉庫模組:不讀 GitHub、不顯示錯誤
         app.github.error = nil
         guard isLoggedIn else { app.github.error = "還沒登入 GitHub"; return }
         var repos: [GHRepo] = [], pulls: [GHPull] = [], runs: [GHRun] = []

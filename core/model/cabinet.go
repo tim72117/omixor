@@ -7,7 +7,7 @@ import (
 	"unicode"
 )
 
-// 文件櫃:純文字(Markdown)文件,依研發基地的區塊與頁籤分類(同 Swift 版 Cabinet/Cabinet.swift、omixor-web 原本的 cabinet.go)。
+// 文件櫃:純文字(Markdown)文件,依組織的文件櫃結構(區塊與頁籤,每個組織可以自訂)分類(同 Swift 版 Cabinet/Cabinet.swift、omixor-web 原本的 cabinet.go)。
 // 一個組織一份結構(區塊與頁籤)與一份文件清單。JSON 欄位同 omixor-web 原本的 cabinet.json / cabinet-layout.json。
 //
 // 角色的文件權限(Agent.DocAccess)的 key 是區塊 id 或頁籤網址(Path);權限判斷見 Agent.Access。

@@ -464,6 +464,29 @@ func TestMarkdown(t *testing.T) {
 	if !ok || lang != "mermaid" || blk != "```mermaid title=\"流程\"\nflowchart TD\n  a --> b\n```" {
 		t.Fatalf("%v %q %q", ok, lang, blk)
 	}
+	// FenceLike 保留原本的開頭行(info string 的其他屬性不丟);JSON 一律改 ```flowchart;只給語言標記也行
+	if got := FenceLike("```mermaid title=\"流程\"", "flowchart LR\n  a --> b"); got != "```mermaid title=\"流程\"\nflowchart LR\n  a --> b\n```" {
+		t.Fatalf("%q", got)
+	}
+	if got := FenceLike("```mermaid title=\"流程\"", `{"nodes": ["a"]}`); got != "```flowchart\n{\"nodes\": [\"a\"]}\n```" {
+		t.Fatalf("%q", got)
+	}
+	if got := FenceLike("```flowchart {.wide}", `{"nodes": ["a"]}`); got != "```flowchart {.wide}\n{\"nodes\": [\"a\"]}\n```" {
+		t.Fatalf("%q", got)
+	}
+	if got := FenceLike("mermaid", "graph TD\n  a"); got != "```mermaid\ngraph TD\n  a\n```" {
+		t.Fatalf("%q", got)
+	}
+	// Upsert 也保留開頭行
+	if up := Upsert("```mermaid title=\"x\"\ngraph TD\n  a --> b\n```", "graph LR\n  c"); up != "```mermaid title=\"x\"\ngraph LR\n  c\n```" {
+		t.Fatalf("%q", up)
+	}
+	// FirstBlock 回的是原文逐字的那一段:\r\n 不統一(才能在原文上字串取代),結尾行的 \r 不算在內
+	crlf := "x\r\n```mermaid\r\nflowchart TD\r\n  a --> b\r\n```\r\ny"
+	blk, lang, ok = FirstBlock(crlf)
+	if !ok || lang != "mermaid" || blk != "```mermaid\r\nflowchart TD\r\n  a --> b\r\n```" || strings.Count(crlf, blk) != 1 {
+		t.Fatalf("%v %q %q", ok, lang, blk)
+	}
 	if _, _, ok := FirstBlock("沒有圖"); ok {
 		t.Fatal("沒有區塊應該 ok=false")
 	}

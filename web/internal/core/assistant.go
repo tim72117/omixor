@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"omixor-core/model"
 )
 
 // AI 助理面板的回答,同 Swift 版 Features/Assistant/AssistResponder.swift(與 AssistModels.swift)。
@@ -806,7 +808,80 @@ func (r AssistResponder) settingsBrief() AssistBriefing {
 
 // MARK: - 建議問題
 
+// Suggestions 建議問題:系統設定關掉的功能不建議(同 App 的 suggestions())。要拿著 Mu
 func (r AssistResponder) Suggestions() []string {
+	out := []string{}
+	for _, q := range r.allSuggestions() {
+		if k := assistTopicFeature(q); k == "" || r.a.FeatureOn(k) {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// assistTopicFeature 問題講的是哪個功能("" = 不屬於可以關的功能)。
+// 照 App 的 topicFeature(AssistResponder.swift),順序對應回答的分派順序
+func assistTopicFeature(raw string) string {
+	q := strings.ToLower(raw)
+	has := func(words ...string) bool {
+		for _, w := range words {
+			if strings.Contains(q, w) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case has("延遲", "慢", "latency", "p95", "錯誤率"):
+		return "infrastructure.services"
+	case has("公告", "草擬", "status page", "對外"):
+		return ""
+	case has("部署", "deploy", "上線", "release"):
+		return "pipelines.deployments"
+	case has("核准", "審核", "approval", "決定", "待辦請求"):
+		return "automation.inbox"
+	case has("失敗", "ci", "pipeline", "建置", "build", "流程"):
+		if has("自動化") {
+			return "automation.runs"
+		}
+		return "pipelines.runs"
+	case has("告警", "alert", "警報"):
+		return "monitoring.alerts"
+	case has("事件", "incident", "inc-"):
+		return "incidents.list"
+	case has("伺服器", "server", "cpu", "記憶體", "主機", "容器", "重啟", "資源"):
+		return "infrastructure.servers"
+	case has("pr", "審查", "review", "合併", "卡住"):
+		return "development.pulls"
+	case has("sprint", "進度", "衝刺", "工作項目"):
+		return "development.board"
+	case has("值班", "on-call", "oncall", "on call"):
+		return "incidents.oncall"
+	case has("自動化", "automation", "省", "ai 任務"):
+		return "automation.flows"
+	}
+	return ""
+}
+
+// assistClosedReply 問到系統設定關掉的功能:說明已關閉並給「前往系統」,不回範例資料(同 App 的 reply(to:))。
+// 沒關掉回傳 false。要拿著 Mu
+func assistClosedReply(a *App, raw string) (AssistReply, bool) {
+	key := assistTopicFeature(raw)
+	if key == "" || a.FeatureOn(key) {
+		return AssistReply{}, false
+	}
+	name, why := key, ""
+	if f, ok := model.FeatureByKey(key); ok {
+		name = f.Name
+		if f.Experimental {
+			why = "(實驗功能,目前是範例資料)"
+		}
+	}
+	return assistReplyOf("這個功能已關閉:「"+name+"」在系統設定裡關閉了"+why+"。需要的話請組織管理員在「系統」頁打開。",
+		assistGo("system", nil, "前往系統")), true
+}
+
+func (r AssistResponder) allSuggestions() []string {
 	svc := "api-server"
 	if w := r.worstLatency(); w != nil {
 		svc = asStr(w, "name")
@@ -1410,6 +1485,10 @@ func init() {
 		sec, err := assistSection(a, args)
 		if err != nil {
 			return nil, err
+		}
+		// 問到關掉的功能:回答「這個功能已關閉」並給「前往系統」(系統頁永遠開著)
+		if closed, ok := assistClosedReply(a, q); ok {
+			return AssistReplyResult{AssistReply: closed, Question: q, Section: sec}, nil
 		}
 		return AssistReplyResult{AssistReply: assistVisibleOnly(a, NewAssistResponder(a, sec).Reply(q)), Question: q, Section: sec}, nil
 	})

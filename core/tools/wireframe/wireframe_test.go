@@ -257,6 +257,11 @@ func TestMarkdownBlocks(t *testing.T) {
 	if up := Upsert("只有文字", "{}"); !strings.HasPrefix(up, "只有文字\n\n```wireframe\n{}\n```") {
 		t.Fatalf("%q", up)
 	}
+	// FirstBlock 回的是原文逐字的那一段:\r\n 不統一(才能在原文上字串取代),結尾行的 \r 不算在內
+	crlf := "a\r\n```wireframe\r\n{}\r\n```\r\nb"
+	if blk, ok := FirstBlock(crlf); !ok || blk != "```wireframe\r\n{}\r\n```" || strings.Count(crlf, blk) != 1 {
+		t.Fatalf("%v %q", ok, blk)
+	}
 	p, err := Pretty(map[string]any{"root": map[string]any{"children": []any{map[string]any{"text": "嗨", "type": "text"}}, "type": "col"}, "device": "mobile"})
 	if err != nil {
 		t.Fatal(err)

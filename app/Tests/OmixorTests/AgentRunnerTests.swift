@@ -105,6 +105,35 @@ final class AgentRunnerTests: XCTestCase {
         XCTAssertEqual(r.log.first?.outcome, "done")
     }
 
+    /// 功能開關「自動執行」關掉:不領新任務(也不因 @ 排回覆任務);打開後照常
+    func testFeatureOffStopsClaiming() async throws {
+        _ = FakeOmixorServer.newTask(agent: "programmer", title: "關掉時不要領", links: [], by: "tim")
+        let a = app()
+        var s = a.features.settings
+        let i = try XCTUnwrap(s.features.firstIndex { $0.key == AgentRunner.featureKey }, "core 的功能清單要有 automation.runner")
+        s.features[i].enabled = false
+        s.features[i].on = false
+        a.features = FeatureFlags(settings: s, source: .core)
+        XCTAssertFalse(a.agentRunner.featureEnabled)
+        let r = a.agentRunner
+        var ran = false
+        r.runClaude = { _, _ in ran = true; return ClaudeRunResult(text: "x", isError: false, sessionId: nil, turns: 1, costUSD: nil, stderr: "") }
+        var c = RunnerConfig()
+        c.autoRun = true
+        try r.save("programmer", c)   // save 會 tick
+        r.tick()
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(ran, "關掉時不執行")
+        XCTAssertEqual(FakeOmixorServer.tasks.first?["status"] as? String, "queued", "關掉時不領取")
+
+        s.features[i].enabled = true
+        s.features[i].on = true
+        a.features = FeatureFlags(settings: s, source: .core)
+        r.tick()
+        try await waitIdle(r)
+        XCTAssertTrue(ran, "打開後照常")
+    }
+
     /// Claude 失敗:回報 blocked,原因裡的密鑰換成 ***
     func testFailureReportsBlockedWithoutSecret() async throws {
         _ = FakeOmixorServer.newTask(agent: "programmer", title: "會失敗", links: [], by: "tim")

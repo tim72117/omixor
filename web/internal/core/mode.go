@@ -359,7 +359,7 @@ func getRemoteMe() (*model.User, string) {
 }
 
 func remoteClient(server string) *client.Client {
-	return (&remoteBackend{base: server}).client("")
+	return issueRemoteClient(server, "")
 }
 
 // remoteWhoAmI 向伺服器問「我是誰」(401 時 client 會自動用 evoleap 換新的 token 再試一次)

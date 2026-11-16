@@ -19,6 +19,22 @@ struct OrgTemplateSummary: Codable, Identifiable, Hashable {
     var scenarios: Int?
 }
 
+extension OrgTemplateSummary {
+    // 寬鬆解碼(LossyDecoding.swift):id 必填,其他缺了用預設值
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = c.lossy(.name, default: id)
+        description = c.lossy(.description, default: "")
+        feature = c.lossy(.feature, default: "")
+        agents = c.lossy(.agents, default: 0)
+        channels = c.lossy(.channels, default: 0)
+        docs = c.lossy(.docs, default: 0)
+        edges = c.lossy(.edges, default: 0)
+        scenarios = c.lossyOptional(Int.self, .scenarios)
+    }
+}
+
 struct OrgTemplatePlan: Codable {
     struct Item: Codable, Hashable {
         var kind: String
@@ -42,6 +58,21 @@ struct OrgTemplatePlan: Codable {
     var canApply: Bool
 }
 
+extension OrgTemplatePlan {
+    // 寬鬆解碼:items 是 null(Go 的 nil slice)→ [],壞掉的項目略過;template 必填
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        template = try c.decode(Template.self, forKey: .template)
+        items = c.lossyArray(Item.self, .items)
+        applied = c.lossy(.applied, default: false)
+        created = c.lossy(.created, default: 0)
+        skipped = c.lossy(.skipped, default: 0)
+        failed = c.lossy(.failed, default: 0)
+        suggestAutoReply = c.lossyOptional([String].self, .suggestAutoReply)
+        canApply = c.lossy(.canApply, default: false)
+    }
+}
+
 extension IssueRemote {
     private func decodeTemplate<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
         do { return try Self.decoder().decode(type, from: data) } catch {
@@ -51,7 +82,7 @@ extension IssueRemote {
 
     /// GET /templates:可用的樣板(功能開關關閉的伺服器不會列)
     func listOrgTemplates(org: String) throws -> [OrgTemplateSummary] {
-        try decodeTemplate([OrgTemplateSummary].self, try send("GET", orgURL(org, ["templates"]), nil))
+        try decodeTemplate(LossyList<OrgTemplateSummary>.self, try send("GET", orgURL(org, ["templates"]), nil)).elements
     }
 
     /// GET /templates/<id>:預覽
@@ -89,7 +120,8 @@ struct OrgTemplatesRows: View {
 
     private func reload() async {
         let org = app.currentOrgId
-        let list = await Task.detached { try? IssueRemote(config: IssueServerConfig.current).listOrgTemplates(org: org) }.value
+        let r = IssueRemote(config: IssueServerConfig.current)   // 在主執行緒建立(組織前綴在這裡決定)
+        let list = await Task.detached { try? r.listOrgTemplates(org: org) }.value
         // 伺服器已經依自己的版本與功能開關過濾;App 這個版本沒有該功能的畫面時也不顯示
         templates = (list ?? []).filter { $0.feature.isEmpty || app.isFeatureEnabled($0.feature) }
     }
@@ -158,8 +190,9 @@ struct OrgTemplateSheet: View {
 
     private func preview() async {
         let org = app.currentOrgId, id = summary.id, sc = scenarios
+        let r = IssueRemote(config: IssueServerConfig.current)   // 在主執行緒建立(組織前綴在這裡決定)
         do {
-            plan = try await Task.detached { try IssueRemote(config: IssueServerConfig.current).previewOrgTemplate(org: org, id: id, scenarios: sc) }.value
+            plan = try await Task.detached { try r.previewOrgTemplate(org: org, id: id, scenarios: sc) }.value
             error = nil
         } catch { self.error = error.localizedDescription }
     }
@@ -168,8 +201,9 @@ struct OrgTemplateSheet: View {
         busy = true
         defer { busy = false }
         let org = app.currentOrgId, id = summary.id, sc = scenarios
+        let r = IssueRemote(config: IssueServerConfig.current)   // 在主執行緒建立(組織前綴在這裡決定)
         do {
-            plan = try await Task.detached { try IssueRemote(config: IssueServerConfig.current).applyOrgTemplate(org: org, id: id, scenarios: sc) }.value
+            plan = try await Task.detached { try r.applyOrgTemplate(org: org, id: id, scenarios: sc) }.value
             error = nil
             app.startAgents().load()
             app.startChannels().load()

@@ -139,11 +139,11 @@ func loadLocalOrgIndex() OrgIndex {
 		localOrgErr = errNoDB.Error()
 		return empty
 	}
-	list, err := l.svc.ListOrgs(localPrincipal)
+	list, err := l.Svc.ListOrgs(localPrincipal)
 	if err == nil && len(list) == 0 {
 		name, symbol, color := templates.Org() // 沒開範本是 omixor
-		if _, err = l.svc.CreateOrgWith(localPrincipal, model.Org{ID: DefaultOrgID, Name: name, Symbol: symbol, Color: color}); err == nil {
-			list, err = l.svc.ListOrgs(localPrincipal)
+		if _, err = l.Svc.CreateOrgWith(localPrincipal, model.Org{ID: DefaultOrgID, Name: name, Symbol: symbol, Color: color}); err == nil {
+			list, err = l.Svc.ListOrgs(localPrincipal)
 		}
 	}
 	if err != nil {
@@ -246,7 +246,7 @@ func (a *App) createOrg(name, symbol, color, template string) (Organization, err
 		template = "blank"
 	}
 	id := a.NewOrgID(name)
-	made, err := l.svc.CreateOrgWith(localPrincipal, model.Org{ID: id, Name: name, Symbol: symbol, Color: color})
+	made, err := l.Svc.CreateOrgWith(localPrincipal, model.Org{ID: id, Name: name, Symbol: symbol, Color: color})
 	if err != nil {
 		return Organization{}, err
 	}
@@ -277,7 +277,7 @@ func (a *App) UpdateOrg(org Organization) bool {
 		if l == nil {
 			return false
 		}
-		if err := l.svc.UpdateOrg(localPrincipal, toCoreOrg(org)); err != nil {
+		if err := l.Svc.UpdateOrg(localPrincipal, toCoreOrg(org)); err != nil {
 			log.Printf("改組織失敗:%v", err)
 			return false
 		}
@@ -307,7 +307,7 @@ func (a *App) DeleteOrg(id string) error {
 	if l == nil {
 		return errNoDB
 	}
-	if err := l.svc.DeleteOrg(localPrincipal, id); err != nil {
+	if err := l.Svc.DeleteOrg(localPrincipal, id); err != nil {
 		return err
 	}
 	dir := filepath.Join(DataRoot(), "orgs", id)

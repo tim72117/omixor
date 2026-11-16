@@ -35,19 +35,34 @@ func TestMCPGatewayOff(t *testing.T) {
 			t.Fatal("沒開時可用工具不列外部工具")
 		}
 	}
-	if model.BuildEdition != model.EditionDev {
-		// 正式版沒有這個功能,開不了
-		if _, err := svc.SaveSystemSettings(boss, "o1", service.SystemSettingsInput{Features: map[string]bool{model.FeatureMCPGateway: true}}); code(err) != 400 {
-			t.Fatal("正式版不能開開發版功能", err)
-		}
+	// 系統層預設不開放:組織層開不了(400)
+	if _, err := svc.SaveSystemSettings(boss, "o1", service.SystemSettingsInput{Features: map[string]bool{model.FeatureMCPGateway: true}}); code(err) != 400 {
+		t.Fatal("系統層沒開放時組織層不能開", err)
+	}
+	// 系統層開放、組織層還沒開:照樣擋
+	serverOn(t, svc, model.FeatureMCPGateway)
+	if r, _ := svc.GetMCP(alice, "o1"); r.Enabled || !strings.Contains(r.Note, "系統") {
+		t.Fatalf("組織層沒開:%+v", r)
+	}
+	if _, err := svc.SaveMCPServer(boss, "o1", service.MCPServerInput{ID: "fs"}); code(err) != 403 {
+		t.Fatal(err)
+	}
+	// 兩層都開才可用;系統層再關掉又擋
+	mcpOn(t, svc, boss)
+	if r, _ := svc.GetMCP(alice, "o1"); !r.Enabled {
+		t.Fatalf("兩層都開:%+v", r)
+	}
+	if _, err := svc.SaveServerFeatures(rootP, service.SystemSettingsInput{Features: map[string]bool{model.FeatureMCPGateway: false}}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := svc.GetMCP(alice, "o1"); r.Enabled {
+		t.Fatalf("系統層關掉就擋:%+v", r)
 	}
 }
 
 func mcpOn(t *testing.T, svc *service.Service, boss *model.Principal) {
 	t.Helper()
-	if model.BuildEdition != model.EditionDev {
-		t.Skip("外部 MCP 閘道是開發版功能(go test -tags dev)")
-	}
+	serverOn(t, svc, model.FeatureMCPGateway)
 	if _, err := svc.SaveSystemSettings(boss, "o1", service.SystemSettingsInput{Features: map[string]bool{model.FeatureMCPGateway: true}}); err != nil {
 		t.Fatal(err)
 	}
@@ -139,9 +154,10 @@ func TestMCPToolsAndGrants(t *testing.T) {
 		if r.Enabled {
 			t.Fatal("預設不開", r)
 		}
-		want := r.Name == "write_file" || r.Name == "sendEmail"
+		// 保守:只有明確唯讀(read_file)不用確認;echo 這類看不出來的也要確認
+		want := r.Name != "read_file"
 		if r.Confirm != want {
-			t.Fatal("高風險的預設要確認", r)
+			t.Fatal("非唯讀的預設要確認", r)
 		}
 	}
 	if _, err := svc.SaveMCPTools(alice, "o1", "fs", service.MCPToolsInput{}); code(err) != 403 {
@@ -257,12 +273,274 @@ func TestMCPToolsAndGrants(t *testing.T) {
 
 func TestMCPRiskyTool(t *testing.T) {
 	for n, want := range map[string]bool{"write_file": true, "sendEmail": true, "create-issue": true, "read_file": false, "list": false,
-		"search": false, "get_payment_status": false, "pay": true, "post_message": true, "settings": false, "deploy.app": true} {
+		"search": false, "get_payment_status": false, "pay": true, "post_message": true, "settings": true, "deploy.app": true,
+		// review 列的漏判
+		"execute_command": true, "execute_sql": true, "add_issue_comment": true, "approve_pull_request": true, "destroy_instance": true,
+		"invite_user": true, "slack_reply_to_thread": true, "fetch": true, "echo": true, "browser_click": true,
+		// 唯讀開頭但含寫入動詞
+		"get_and_delete": true, "listThenSend": true, "search_and_replace": true,
+		// 明確唯讀
+		"getFileContents": false, "list_issues": false, "query-metrics": false, "describe_instance": false, "view_pr": false,
+		"show_logs": false, "fetch_metadata": true, "get_order": false, "list_messages": false, "search_code": false, "": true} {
 		if model.MCPRiskyTool(n) != want {
 			t.Error(n, want)
 		}
 	}
 	if s, tool, ok := model.MCPSplitName("fs__read__x"); !ok || s != "fs" || tool != "read__x" {
 		t.Fatal(s, tool, ok)
+	}
+}
+
+// 密鑰不進 core:review 列的四種寫法都被拒,說明要改用密鑰名稱;${名稱} 佔位要登記在 envNames
+func TestMCPRejectsSecrets(t *testing.T) {
+	svc, st, boss, _, _ := chainEnv(t)
+	mcpOn(t, svc, boss)
+	stdio := func(cmd string, args []string, env ...string) error {
+		in := service.MCPServerInput{ID: "gh", Transport: sp("stdio"), Command: sp(cmd), Args: &args}
+		if env != nil {
+			in.EnvNames = &env
+		}
+		_, err := svc.SaveMCPServer(boss, "o1", in)
+		return err
+	}
+	httpURL := func(u string) error {
+		_, err := svc.SaveMCPServer(boss, "o1", service.MCPServerInput{ID: "web", Transport: sp("http"), URL: sp(u)})
+		return err
+	}
+	bad := []error{
+		// review 列的四種
+		stdio("npx", []string{"--api-key=sk-live-abcdef123456", "--token", "ghp_X"}),
+		stdio("env GITHUB_TOKEN=ghp_X npx srv", nil),
+		httpURL("https://host.example.com/sk-SECRETPATH/mcp"),
+		httpURL("https://host.example.com/mcp?x=1;token=abc"),
+		// 其他變體
+		stdio("npx", []string{"--token", "ghp_X"}),
+		stdio("npx", []string{"--api-key", "abc"}),
+		stdio("npx", []string{"--password=hunter2"}),
+		stdio("npx", []string{"--clientSecret", "xyz"}),
+		stdio("npx", []string{"GITHUB_TOKEN=abc"}),
+		stdio("npx", []string{"-H", "Authorization: Bearer abc"}),
+		stdio("npx", []string{"xoxb-123456-abcdef"}),
+		stdio("npx", []string{"AKIAIOSFODNN7EXAMPLE"}),
+		stdio("npx", []string{"--key", "a8f5f167f44f4964e6c998dee827110c"}),
+		stdio("npx", []string{"srv", "Zx9kQ2mP7vR4tL8nW3bY6cJ1hF5dG0sA"}),
+		stdio("/usr/bin/srv ghp_abcdefghijklmn", nil),
+		stdio("FOO=1 npx", nil),
+		stdio("npx", []string{"--token", "${GH_TOKEN}"}), // 佔位沒登記在 envNames
+		stdio("npx ${GH_TOKEN}", nil, "GH_TOKEN"),        // command 不能用佔位
+		httpURL("https://host.example.com/mcp?a=1&sig=abc"),
+		httpURL("https://host.example.com/mcp?k=ghp_abcdefghijk"),
+		httpURL("https://host.example.com/mcp/Zx9kQ2mP7vR4tL8nW3bY6cJ1hF5dG0sA"),
+		httpURL("https://host.example.com/mcp#token=abc"),
+		httpURL("https://user:pass@host.example.com/mcp"),
+	}
+	for i, err := range bad {
+		if code(err) != 400 {
+			t.Fatalf("第 %d 個應該 400:%v", i, err)
+		}
+	}
+	// 說明要提到密鑰名稱與佔位,而且不帶密鑰本身
+	err := stdio("npx", []string{"--api-key=sk-live-abcdef123456"})
+	if !strings.Contains(err.Error(), "envNames") || !strings.Contains(err.Error(), "${名稱}") || strings.Contains(err.Error(), "sk-live") {
+		t.Fatal(err)
+	}
+	// 允許的:佔位、旗標後面是另一個旗標、檔案路徑、一般參數
+	good := []struct {
+		cmd  string
+		args []string
+		env  []string
+	}{
+		{"npx", []string{"-y", "@modelcontextprotocol/server-github", "--token", "${GH_TOKEN}"}, []string{"GH_TOKEN"}},
+		{"npx", []string{"--api-key=${API_KEY}", "-H", "Authorization: Bearer ${API_KEY}"}, []string{"API_KEY"}},
+		{"/usr/local/bin/srv", []string{"--token", "--verbose", "--key-file", "/etc/x.pem", "--ssh-key", "~/.ssh/id_ed25519"}, nil},
+		{"node", []string{"/Users/me/mcp/server-filesystem/dist/index.js", "/tmp", "--port=3000", "--auth-type", "oauth"}, nil},
+		{"uvx", []string{"mcp-server-git", "--repository", "/repo", "550e8400-e29b-41d4-a716-446655440000"}, nil},
+	}
+	for _, g := range good {
+		if err := stdio(g.cmd, g.args, g.env...); err != nil {
+			t.Fatal("應該接受:", g, err)
+		}
+	}
+	for _, u := range []string{"https://host.example.com/mcp", "https://host.example.com/v1/mcp?v=2&region=us", "https://mcp.example.com/sse"} {
+		if err := httpURL(u); err != nil {
+			t.Fatal("應該接受:", u, err)
+		}
+	}
+	c, _ := st.GetMCPConfig("o1")
+	b, _ := json.Marshal(c)
+	for _, x := range []string{"sk-live", "ghp_", "SECRETPATH", "token=abc", "hunter2", "Bearer abc"} {
+		if strings.Contains(string(b), x) {
+			t.Fatal("密鑰進了 core:", x)
+		}
+	}
+}
+
+// 角色憑證讀登記:只有自己有權限的伺服器、只有權限內的工具,沒有任何連線細節;一般成員看完整設定
+func TestMCPAgentView(t *testing.T) {
+	svc, _, boss, alice, _ := chainEnv(t)
+	mcpOn(t, svc, boss)
+	if _, err := svc.SaveMCPServer(boss, "o1", service.MCPServerInput{ID: "fs", Name: sp("檔案"), Description: sp("讀寫檔案"), Transport: sp("stdio"),
+		Command: sp("/usr/bin/fs-srv"), Args: &[]string{"--root", "/srv/data", "--token", "${FS_TOKEN}"}, Cwd: sp("/srv"), EnvNames: &[]string{"FS_TOKEN"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveMCPServer(boss, "o1", service.MCPServerInput{ID: "web", Transport: sp("http"), URL: sp("https://internal.example.com/mcp"),
+		HeaderNames: &[]string{"Authorization"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveMCPTools(boss, "o1", "fs", service.MCPToolsInput{Sync: []service.MCPToolInfo{{Name: "read_file"}, {Name: "write_file"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveMCPGrants(boss, "o1", service.MCPGrantsInput{AgentID: "cto", Grants: []model.MCPGrant{{Server: "fs", Tools: []string{"read_file"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveMCPGrants(boss, "o1", service.MCPGrantsInput{AgentID: "pm", Grants: []model.MCPGrant{{Server: "web", All: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	ag := &model.Principal{Agent: &model.AgentIdentity{Org: "o1", AgentID: "cto", TaskID: "T-1"}}
+	v, err := svc.GetMCP(ag, "o1")
+	if err != nil || !v.Enabled || len(v.Servers) != 1 || v.Servers[0].ID != "fs" || len(v.Grants) != 1 || len(v.Grants["cto"]) != 1 {
+		t.Fatalf("角色只看到有權限的伺服器:%+v %v", v, err)
+	}
+	s := v.Servers[0]
+	if s.Command != "" || len(s.Args) != 0 || s.Cwd != "" || s.URL != "" || len(s.EnvNames) != 0 || len(s.HeaderNames) != 0 {
+		t.Fatalf("角色看不到連線細節:%+v", s)
+	}
+	if s.Name != "檔案" || s.Description != "讀寫檔案" || len(s.Tools) != 1 || s.Tools[0].Name != "read_file" {
+		t.Fatalf("名稱、說明與權限內的工具:%+v", s)
+	}
+	b, _ := json.Marshal(v)
+	for _, x := range []string{"fs-srv", "/srv", "FS_TOKEN", "internal.example.com", "Authorization", "write_file"} {
+		if strings.Contains(string(b), x) {
+			t.Fatal("角色的回應不該有:", x, string(b))
+		}
+	}
+	// 沒有任何權限的角色:什麼伺服器都看不到
+	none := &model.Principal{Agent: &model.AgentIdentity{Org: "o1", AgentID: "designer", TaskID: "T-2"}}
+	if v, err := svc.GetMCP(none, "o1"); err != nil || len(v.Servers) != 0 || len(v.Grants) != 0 {
+		t.Fatalf("%+v %v", v, err)
+	}
+	// 一般成員:完整設定(App 連線需要)
+	v, err = svc.GetMCP(alice, "o1")
+	if err != nil || len(v.Servers) != 2 || len(v.Grants) != 2 {
+		t.Fatalf("%+v %v", v, err)
+	}
+	fs, _, _ := model.OrgMCPConfig{Servers: v.Servers}.Server("fs")
+	if fs.Command != "/usr/bin/fs-srv" || len(fs.Args) != 4 || fs.Cwd != "/srv" || len(fs.EnvNames) != 1 {
+		t.Fatalf("成員看完整設定:%+v", fs)
+	}
+}
+
+// 權限:空白 tools 400、all 明確欄位、舊資料(tools 空)相容、大小寫與 - _ 變體
+func TestMCPGrantsAllAndCase(t *testing.T) {
+	svc, st, boss, alice, _ := chainEnv(t)
+	mcpOn(t, svc, boss)
+	if _, err := svc.SaveMCPServer(boss, "o1", service.MCPServerInput{ID: "gh", Transport: sp("stdio"), Command: sp("x")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveMCPTools(boss, "o1", "gh", service.MCPToolsInput{Sync: []service.MCPToolInfo{{Name: "approve_pull_request"}, {Name: "list_issues"}},
+		Rules: []service.MCPToolRuleInput{{Name: "approve_pull_request", Enabled: bp(true), Confirm: bp(true)}, {Name: "list_issues", Enabled: bp(true), Confirm: bp(false)}}}); err != nil {
+		t.Fatal(err)
+	}
+	// 只有空白字串:400,不能變成全部
+	for _, tools := range [][]string{{" "}, {"", "  "}} {
+		if _, err := svc.SaveMCPGrants(boss, "o1", service.MCPGrantsInput{AgentID: "cto", Grants: []model.MCPGrant{{Server: "gh", Tools: tools}}}); code(err) != 400 {
+			t.Fatal("空白 tools 400", tools, err)
+		}
+	}
+	// all 明確欄位
+	out, err := svc.SaveMCPGrants(boss, "o1", service.MCPGrantsInput{AgentID: "cto", Grants: []model.MCPGrant{{Server: "gh", All: true, Tools: []string{"x"}}}})
+	if err != nil || len(out) != 1 || !out[0].All || len(out[0].Tools) != 0 {
+		t.Fatalf("%+v %v", out, err)
+	}
+	// 舊用戶端:沒給 tools = 全部,存成 all = true
+	out, err = svc.SaveMCPGrants(boss, "o1", service.MCPGrantsInput{AgentID: "pm", Grants: []model.MCPGrant{{Server: "gh"}}})
+	if err != nil || !out[0].All {
+		t.Fatalf("%+v %v", out, err)
+	}
+	// 舊資料(store 裡 tools 空、沒有 all):讀出來是 all = true,判斷也是全部
+	c, _ := st.GetMCPConfig("o1")
+	c.Grants["designer"] = []model.MCPGrant{{Server: "gh"}}
+	_ = st.SaveMCPConfig("o1", *c)
+	v, _ := svc.GetMCP(boss, "o1")
+	if g := v.Grants["designer"]; len(g) != 1 || !g[0].All || g[0].Tools == nil {
+		t.Fatalf("舊資料轉成 all:%+v", g)
+	}
+	r, _ := svc.ResolveMCPTools(alice, "o1", service.MCPResolveInput{AgentID: "designer", Tools: []service.MCPResolveTool{{Server: "gh", Name: "list_issues"}}})
+	if !r.Tools[0].Allowed {
+		t.Fatal(r.Tools)
+	}
+	// 規則比對不分大小寫、- 與 _ 視為相同:變體套到同一條規則(Confirm 照規則,不套預設)
+	if _, err := svc.SaveMCPTools(boss, "o1", "gh", service.MCPToolsInput{Rules: []service.MCPToolRuleInput{{Name: "List-Issues", Confirm: bp(true)}}}); err != nil {
+		t.Fatal(err)
+	}
+	srv, _ := svc.SaveMCPTools(boss, "o1", "gh", service.MCPToolsInput{Rules: []service.MCPToolRuleInput{{Name: "list_issues", Confirm: bp(false)}}})
+	if len(srv.Tools) != 2 {
+		t.Fatalf("變體不新增規則:%+v", srv.Tools)
+	}
+	_, _ = svc.SaveMCPGrants(boss, "o1", service.MCPGrantsInput{AgentID: "cto", Grants: []model.MCPGrant{{Server: "gh", Tools: []string{"APPROVE_PULL_REQUEST"}}}})
+	r, _ = svc.ResolveMCPTools(alice, "o1", service.MCPResolveInput{AgentID: "cto", Tools: []service.MCPResolveTool{
+		{Server: "gh", Name: "Approve_Pull_Request"}, {Server: "gh", Name: "approve-pull-request"}, {Server: "gh", Name: "List_Issues"}}})
+	if !r.Tools[0].Allowed || !r.Tools[0].Confirm || !r.Tools[1].Allowed || !r.Tools[1].Confirm || r.Tools[2].Allowed {
+		t.Fatalf("大小寫變體套到規則與權限:%+v", r.Tools)
+	}
+	// 規則關掉後,變體也關
+	_, _ = svc.SaveMCPTools(boss, "o1", "gh", service.MCPToolsInput{Rules: []service.MCPToolRuleInput{{Name: "approve_pull_request", Enabled: bp(false)}}})
+	r, _ = svc.ResolveMCPTools(alice, "o1", service.MCPResolveInput{Tools: []service.MCPResolveTool{{Server: "gh", Name: "APPROVE_PULL_REQUEST"}}})
+	if r.Tools[0].Allowed {
+		t.Fatal("規則關掉,變體也不能用", r.Tools)
+	}
+}
+
+// 刪除角色清掉 MCP 權限(同 id 重建不繼承);停用的角色 resolve 不放行
+func TestMCPAgentDeleteAndInactive(t *testing.T) {
+	svc, _, boss, alice, _ := chainEnv(t)
+	mcpOn(t, svc, boss)
+	if _, err := svc.SaveMCPServer(boss, "o1", service.MCPServerInput{ID: "fs", Transport: sp("stdio"), Command: sp("x"), ToolDefault: bp(true)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveMCPGrants(boss, "o1", service.MCPGrantsInput{AgentID: "cto", Grants: []model.MCPGrant{{Server: "fs", All: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func() service.MCPResolved {
+		t.Helper()
+		r, err := svc.ResolveMCPTools(alice, "o1", service.MCPResolveInput{AgentID: "cto", Tools: []service.MCPResolveTool{{Server: "fs", Name: "list_files"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Tools[0]
+	}
+	if !resolve().Allowed {
+		t.Fatal("有權限")
+	}
+	// 停用:不放行
+	if _, err := svc.SaveAgent(boss, "o1", model.Agent{ID: "cto", Name: "研發長", Active: false}); err != nil {
+		t.Fatal(err)
+	}
+	if x := resolve(); x.Allowed || !strings.Contains(x.Reason, "停用") {
+		t.Fatal("停用的角色不放行", x)
+	}
+	ag := &model.Principal{Agent: &model.AgentIdentity{Org: "o1", AgentID: "cto", TaskID: "T-1"}}
+	if r, err := svc.ResolveMCPTools(ag, "o1", service.MCPResolveInput{Tools: []service.MCPResolveTool{{Server: "fs", Name: "list_files"}}}); err != nil || r.Tools[0].Allowed {
+		t.Fatal("角色憑證本身停用也不放行", r, err)
+	}
+	// 刪除後同 id 重建:不繼承權限
+	if err := svc.DeleteAgent(boss, "o1", "cto"); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := svc.GetMCP(boss, "o1"); len(v.Grants) != 0 {
+		t.Fatal("刪角色要清權限", v.Grants)
+	}
+	if _, err := svc.SaveAgent(boss, "o1", model.Agent{ID: "cto", Name: "新研發長", Active: true}); err != nil {
+		t.Fatal(err)
+	}
+	if x := resolve(); x.Allowed || !strings.Contains(x.Reason, "預設不給") {
+		t.Fatal("重建的角色不繼承", x)
+	}
+	// 刪了的角色不能再給權限
+	if err := svc.DeleteAgent(boss, "o1", "cto"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveMCPGrants(boss, "o1", service.MCPGrantsInput{AgentID: "cto", Grants: []model.MCPGrant{{Server: "fs", All: true}}}); code(err) != 400 {
+		t.Fatal(err)
 	}
 }

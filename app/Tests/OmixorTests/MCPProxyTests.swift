@@ -83,6 +83,7 @@ final class MCPProxyTests: XCTestCase {
 
     func testCoreToolsGoToServer() async throws {
         let app = AppState()
+        app.features = .allOnForTests   // 範例資料工具(overview 等)要功能開著才列
         let mcp = MCPHandler(app: app)
 
         // 清單:issues 換成 server 的定義;orgs 留在 App(keepLocal);App 自己的工具都還在
@@ -114,9 +115,39 @@ final class MCPProxyTests: XCTestCase {
 
     func testServerDownFallsBackToAppTools() async throws {
         FakeServerMCP.down = true
-        let mcp = MCPHandler(app: AppState())
+        let app = AppState()
+        app.features = .allOnForTests   // 範例資料工具要功能開著才列
+        let mcp = MCPHandler(app: app)
         let listed = try await rpc(mcp, "tools/list")
         let tools = try XCTUnwrap(listed["tools"] as? [[String: Any]])
         XCTAssertEqual(tools.count, MCPHandler.tools.count, "讀不到 server 的清單就用 App 內建的")
+        // App 沒有核心工具的實作:清單只有 App 自己的工具,呼叫核心工具回清楚的錯誤(不會落到本機)
+        XCTAssertFalse(tools.contains { MCPHandler.coreTools.contains($0["name"] as? String ?? "") })
+        for name in ["issues", "ops_issues", "agents", "channel_post"] {
+            let r = try await rpc(mcp, "tools/call", ["name": name, "arguments": [:]])
+            XCTAssertEqual(r["isError"] as? Bool, true, name)
+            let msg = (r["content"] as? [[String: Any]])?.first?["text"] as? String ?? ""
+            XCTAssertTrue(msg.contains("core server") && msg.contains("連不上"), "\(name):\(msg)")
+            XCTAssertTrue(msg.hasPrefix(name.replacingOccurrences(of: "ops_", with: "")), msg)
+        }
+    }
+
+    /// server 連得上但工具清單沒有某個核心工具(server 比 App 舊):回錯誤,不轉送、也不在 App 裡執行
+    func testCoreToolMissingOnServerIsError() async throws {
+        let app = AppState()
+        app.features = .allOnForTests
+        let mcp = MCPHandler(app: app)
+        for name in ["agents", "ops_agents", "doc_save", "chain"] {
+            let r = try await rpc(mcp, "tools/call", ["name": name, "arguments": [:]])
+            XCTAssertEqual(r["isError"] as? Bool, true, name)
+            let msg = (r["content"] as? [[String: Any]])?.first?["text"] as? String ?? ""
+            XCTAssertTrue(msg.contains("工具清單裡沒有這個工具"), "\(name):\(msg)")
+        }
+        XCTAssertTrue(FakeServerMCP.calls.filter { $0.method == "tools/call" }.isEmpty, "server 沒有的工具不轉送")
+        // App 自己的工具(含 agent_task_delegate)仍在清單裡
+        let listed = try await rpc(mcp, "tools/list")
+        let names = Set(try XCTUnwrap(listed["tools"] as? [[String: Any]]).compactMap { $0["name"] as? String })
+        XCTAssertTrue(names.isSuperset(of: ["orgs", "server", "agent_task_delegate", "overview"]))
+        XCTAssertFalse(names.contains("agents"), "server 沒有、App 也沒有實作的核心工具不列")
     }
 }

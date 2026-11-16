@@ -322,7 +322,7 @@ private struct AgentEditSheet: View {
                 Section {
                     DocAccessEditor(access: $draft.docAccess)
                 } header: { Text("文件櫃存取範圍") } footer: {
-                    Text("對應研發基地的區塊與頁籤。頁籤沒設定時跟著區塊。角色用 MCP 讀寫文件時只能碰這些範圍。").font(.caption)
+                    Text("對應這個組織文件櫃的區塊與頁籤。頁籤沒設定時跟著區塊。角色用 MCP 讀寫文件時只能碰這些範圍。").font(.caption)
                 }
                 Section {
                     ForEach($draft.routines) { $r in RoutineEditor(routine: $r) {
@@ -461,7 +461,7 @@ private struct AgentToolsCard: View {
 
     /// 角色有沒有這個外部工具的權限(整台或勾選了這個工具)
     private func granted(_ server: String, _ tool: String) -> Bool {
-        gateway.view?.grants(of: agent.id).contains { $0.server.caseInsensitiveCompare(server) == .orderedSame && ($0.tools.isEmpty || $0.tools.contains(tool)) } ?? false
+        gateway.view?.grants(of: agent.id).contains { $0.server.caseInsensitiveCompare(server) == .orderedSame && ($0.all || $0.tools.contains(tool)) } ?? false
     }
 
     /// 在背景讀(不擋主執行緒),回來才更新畫面

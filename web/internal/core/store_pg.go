@@ -80,7 +80,7 @@ create table if not exists ops_files (
 );
 `
 
-// pgExtraSchema 其他檔案登記的表(例如 store_pg_issues.go 的 ops_issues)
+// pgExtraSchema 其他檔案登記的表(Issue 的表由核心 core/store/pg.go 建,不在這裡)
 var pgExtraSchema []string
 
 // OpenDB 連上資料庫、建表,並把存放處與密鑰都改到資料庫。key 是 base64 的 32 bytes(OPS_SECRET_KEY)。
@@ -206,14 +206,14 @@ func ImportDir(dir string) ([]string, error) {
 			log.Printf("略過 %s:不是有效的 JSON", rel)
 			return nil
 		}
-		// 組織的 Issue 匯入 ops_issues 表(已存在的同樣覆蓋)
+		// 組織的 Issue 交給本機核心匯入(已存在的同樣覆蓋)
 		if parts := strings.Split(rel, "/"); len(parts) == 3 && parts[0] == "orgs" && parts[2] == "issues.json" {
-			var list []OpsIssue
-			if err := json.Unmarshal(data, &list); err != nil {
+			list, err := decodeIssueFile(data)
+			if err != nil {
 				log.Printf("略過 %s:不是 Issue 清單", rel)
 				return nil
 			}
-			if _, err := PGImportIssues(parts[1], list, true); err != nil {
+			if _, err := ImportIssues(parts[1], list, true); err != nil {
 				return fmt.Errorf("%s:%w", rel, err)
 			}
 			done = append(done, rel)
@@ -606,4 +606,26 @@ func (a *App) SaveNow() {
 	if pgPool != nil {
 		a.saveDirty()
 	}
+}
+
+// OpenIssueDB 只為了匯入 Issue 連資料庫(不換存放處、不需要 OPS_SECRET_KEY);Issue 的表由本機核心建(localCore → store.NewPGFromPool)
+func OpenIssueDB(url string) error {
+	ctx, cancel := pgCtx()
+	defer cancel()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		return fmt.Errorf("資料庫網址格式不對:%w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return fmt.Errorf("連不到資料庫:%w", err)
+	}
+	for _, sc := range append([]string{pgSchema}, pgExtraSchema...) {
+		if _, err := pool.Exec(ctx, sc); err != nil {
+			pool.Close()
+			return fmt.Errorf("建表失敗:%w", err)
+		}
+	}
+	pgPool = pool
+	return nil
 }

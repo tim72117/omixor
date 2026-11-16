@@ -1,0 +1,54 @@
+{
+  "id": "INC-2041",
+  "title": "API 延遲飆高",
+  "sev": 2,
+  "status": "resolved",
+  "services": [
+    "api",
+    "db"
+  ],
+  "commander": "tim@example.com",
+  "startedAt": "2026-11-05T03:00:00Z",
+  "resolvedAt": "2026-11-05T04:30:00Z",
+  "impact": "約 20% 請求逾時",
+  "timeline": [
+    {
+      "id": "0b8f2a8e-3c4d-4e5f-9a0b-1c2d3e4f5a6b",
+      "date": "2026-11-05T03:00:00Z",
+      "actor": {
+        "kind": "system"
+      },
+      "kind": "alert",
+      "text": "p95 延遲 \u003e 2s"
+    },
+    {
+      "id": "1c9f3b9f-4d5e-4f60-8b1c-2d3e4f5a6b7c",
+      "date": "2026-11-05T03:10:00Z",
+      "actor": {
+        "kind": "person",
+        "id": "tim@example.com"
+      },
+      "kind": "status",
+      "text": "狀態改為「已找到原因」"
+    },
+    {
+      "id": "evt-legacy-1",
+      "date": "2026-11-05T03:20:00Z",
+      "actor": {
+        "kind": "ai",
+        "id": "mcp"
+      },
+      "kind": "aiFinding",
+      "text": "連線池用滿"
+    }
+  ],
+  "aiSummary": "資料庫連線池耗盡,調大後恢復",
+  "followUps": [
+    "ISS-13",
+    "WI-7"
+  ],
+  "alertIds": [
+    "alert-cpu-1"
+  ],
+  "createdBy": "mcp"
+}

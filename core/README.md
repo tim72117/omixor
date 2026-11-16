@@ -20,6 +20,16 @@ omixor 的核心後端模組(Go)。目前有:
   - 遠端:`OMIXOR_SERVER` 指向線上 omixor server,授權、組織、Issue 都交給它
 - **app**(`ops`,Swift):介面殼層與資料快取,重要資料從 omixor server 取得。
 
+## 選用模組
+
+有些功能做成選用模組(做法一:編譯時決定,同 Caddy 的 xcaddy、CoreDNS 的 plugin.cfg):模組是獨立的 Go 套件(`modules/…`),
+在 `init()` 呼叫 `module.Register`(`module/module.go`)登記自己的功能(`model.RegisterFeature`)與 API 路由;
+存資料用 store 的通用組織設定文件(`GetOrgDoc` / `SaveOrgDoc`)。核心本身不 import 任何模組,
+由入口程式用 `import _ "omixor-core/modules/…"` 決定要不要編進去(各 cmd 的 `modules.go`;`-tags omixor_minimal` 只有核心)。
+沒編進來的模組:路由 404、功能不出現在 `/api/system/features` 與 `/api/orgs/{org}/system`;`GET /api/modules` 列出編進來的模組。
+
+- `modules/integrations`:程式碼倉庫(組織的 GitHub、GitLab 設定,`/api/orgs/{org}/integrations/github|gitlab`,功能 `development.repos`,開發進度 › Repositories)
+
 ## 權限
 
 - 伺服器管理員(`users.role = admin`):管使用者、token、操作紀錄,建立組織,看得到所有組織

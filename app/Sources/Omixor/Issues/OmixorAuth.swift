@@ -34,6 +34,20 @@ struct ServerOrg: Codable, Equatable, Identifiable {
     }
 }
 
+extension ServerOrg {
+    // 寬鬆解碼(LossyDecoding.swift):core 的 Org 沒值時省略 symbol、color、note、myRole(omitempty);id 必填
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = c.lossy(.name, default: "")
+        symbol = c.lossyOptional(String.self, .symbol)
+        color = c.lossyOptional(String.self, .color)
+        note = c.lossyOptional(String.self, .note)
+        createdAt = c.lossyOptional(String.self, .createdAt)
+        myRole = c.lossyOptional(String.self, .myRole)
+    }
+}
+
 /// 遠端 omixor 的登入狀態
 enum OmixorLoginState: Equatable {
     case checking                    // 正在確認存著的登入
@@ -63,8 +77,12 @@ enum OmixorAuth {
 
     /// 存這台伺服器的 omixor token(nil = 刪掉)。回傳是否真的寫進鑰匙圈;寫不進去時這次執行仍用新的值(見 TokenVault.set),
     /// 不會再讀到鑰匙圈裡已撤銷的舊 token
+    /// 存進新的 token 等於重新明確登入:解除「已登出」(背景請求遇到 401 又可以自動換 token,見 OmixorTokenGate)
     @discardableResult
-    static func setToken(_ t: TokenSet?, server: URL) -> Bool { TokenVault.setTokens(t, tokenId, scope: OmixorMode.tokenScope(for: server)) }
+    static func setToken(_ t: TokenSet?, server: URL) -> Bool {
+        if t != nil { OmixorTokenGate.markLoggedIn(server) }
+        return TokenVault.setTokens(t, tokenId, scope: OmixorMode.tokenScope(for: server))
+    }
 
     /// 更舊的版本把 omixor token 存在預設組織底下:搬到舊格式的遠端位置(之後再由 token(server:) 搬給第一個遠端;只搬一次)
     static func migrateLegacyToken() {
@@ -129,13 +147,25 @@ enum OmixorAuth {
         await Task.detached { await ApprovalConnector.logout(evo, t) }.value
     }
 
-    /// 拿 evoleap token 換 omixor token,換完(成功或失敗)撤銷 evoleap token
+    /// 撤銷一把 omixor token(POST /api/auth/logout;不讀也不動鑰匙圈)。同樣另開不受取消影響的 Task
+    static func revokeOmixor(_ server: URL, _ token: String) async {
+        await Task.detached {
+            _ = try? await ConnHTTP.json("POST", server.appendingPathComponent("api/auth/logout"), [String: Any](),
+                                         headers: ["Authorization": "Bearer \(token)"])
+        }.value
+    }
+
+    /// 拿 evoleap token 換 omixor token,換完(成功或失敗)撤銷 evoleap token。
+    /// 換的請求不會被取消打斷(伺服器可能已經發了 token);做完時若已取消:撤銷剛換到的 omixor token、不存,丟 CancellationError
     @MainActor
     static func exchange(_ evo: Connection, _ evoToken: TokenSet, server: URL) async throws -> OmixorAccount {
         let r: ConnHTTP.Response
+        let evoAccess = evoToken.accessToken, device = deviceName
         do {
-            r = try await ConnHTTP.json("POST", server.appendingPathComponent("api/auth/evoleap"),
-                                        ["token": evoToken.accessToken, "device": deviceName])
+            r = try await Task.detached {
+                try await ConnHTTP.json("POST", server.appendingPathComponent("api/auth/evoleap"),
+                                        ["token": evoAccess, "device": device])
+            }.value
         } catch {
             await revokeEvoleap(evo, evoToken)
             throw error
@@ -144,7 +174,13 @@ enum OmixorAuth {
         await revokeEvoleap(evo, evoToken)
         let obj = r.json as? [String: Any]
         guard r.ok, let tok = obj?["token"] as? String, !tok.isEmpty else {
+            if Task.isCancelled { throw CancellationError() }
             throw ConnectionError("omixor 拒絕登入:\(ConnHTTP.errorMessage(r))", status: r.status)
+        }
+        if Task.isCancelled {
+            // 換到之後使用者才按取消:撤銷剛拿到的 omixor token,不存
+            await revokeOmixor(server, tok)
+            throw CancellationError()
         }
         let exp = date(obj?["expiresAt"] as? String)
         // 寫不進鑰匙圈(舊的 token 刪不掉)時這次執行仍用新的 token;原因在 TokenVault.lastWriteError,登入畫面會提示
@@ -154,6 +190,13 @@ enum OmixorAuth {
         let user = obj?["user"] as? [String: Any]
         return OmixorAccount(email: user?["email"] as? String ?? "", name: user?["name"] as? String ?? "", role: user?["role"] as? String ?? "",
                              device: deviceName, expiresAt: exp)
+    }
+
+    /// 撤銷這次登入才拿到的 token;鑰匙圈裡還是它才刪(期間又登入換了新的就不動)
+    @MainActor
+    static func discard(server: URL, token t: String) async {
+        await revokeOmixor(server, t)
+        if token(server: server)?.accessToken == t { setToken(nil, server: server) }
     }
 
     /// 上次登入時新的 omixor token 寫不進鑰匙圈的原因(畫面提示一次就清掉)
@@ -214,7 +257,7 @@ enum OmixorAuth {
         let r = try await authed(server, "GET", server.appendingPathComponent("api/orgs"))
         // Go 的空切片可能編成 null:當作沒有組織
         if r.ok, let obj = r.json as? [String: Any], obj["result"] is NSNull { return [] }
-        return try result(r, [ServerOrg].self)
+        return try result(r, LossyList<ServerOrg>.self).elements
     }
 
     /// 在伺服器建立組織(要伺服器管理員)
@@ -233,11 +276,14 @@ enum OmixorAuth {
     }
 
     /// 登出:伺服器上撤銷這個 token,再從鑰匙圈刪掉(伺服器連不上也照樣刪)
+    /// 一開始就標成「已登出」:還在跑的背景請求遇到 401 不會自動換 token 偷偷重新登入
     static func logout(server: URL) async {
+        OmixorTokenGate.markLoggedOut(server)
         if token(server: server) != nil {
             _ = try? await authed(server, "POST", server.appendingPathComponent("api/auth/logout"), [:])
         }
         setToken(nil, server: server)
         if OmixorMode.isLegacyServer(server) { TokenVault.setTokens(nil, tokenId, scope: OmixorMode.legacyTokenScope) } // 免得又被沿用
+        OmixorTokenGate.markLoggedOut(server)   // 上面讀 token 時可能沿用舊格式而解除了,再標一次
     }
 }

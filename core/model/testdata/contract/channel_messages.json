@@ -1,0 +1,23 @@
+{
+  "messages": [
+    {
+      "id": "M-4",
+      "channelId": "CH-2",
+      "author": "agent:eng",
+      "text": "收到",
+      "mentions": [],
+      "at": "2026-11-03T07:00:00Z"
+    },
+    {
+      "id": "M-5",
+      "channelId": "CH-2",
+      "author": "user:tim@example.com",
+      "text": "@工程師 可以看一下 **ISS-12** 嗎?",
+      "mentions": [
+        "agent:eng"
+      ],
+      "at": "2026-11-03T08:00:00Z"
+    }
+  ],
+  "hasMore": true
+}

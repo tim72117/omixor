@@ -58,6 +58,16 @@ func (l *Local) ListIssues(org string) ([]model.Issue, error) {
 	return l.Svc.ListIssues(l.P, org)
 }
 
+func (l *Local) QueryIssues(org string, q model.IssueQuery) ([]model.Issue, error) {
+	l.ensureOrg(org)
+	return l.Svc.QueryIssues(l.P, org, q)
+}
+
+func (l *Local) IssueBoard(org string, q model.IssueQuery) (*model.IssueBoard, error) {
+	l.ensureOrg(org)
+	return l.Svc.IssueBoard(l.P, org, q)
+}
+
 func (l *Local) GetIssue(org, id string) (*model.Issue, error) {
 	l.ensureOrg(org)
 	return l.Svc.GetIssue(l.P, org, id)
@@ -71,6 +81,11 @@ func (l *Local) CreateIssue(org string, in service.IssueInput) (*model.Issue, er
 func (l *Local) UpdateIssue(org, id string, p service.IssuePatch) (*model.Issue, error) {
 	l.ensureOrg(org)
 	return l.Svc.UpdateIssue(l.P, org, id, p)
+}
+
+func (l *Local) AddIssueComment(org, id, text, author string) (*model.Issue, error) {
+	l.ensureOrg(org)
+	return l.Svc.AddIssueComment(l.P, org, id, service.CommentInput{Text: text, Author: author})
 }
 
 func (l *Local) DeleteIssue(org, id string) error {

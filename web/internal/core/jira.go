@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"omixor-core/model"
 )
 
 // Jira:把 Jira 專案的 Issue(含留言)匯入目前組織的 Issue(只讀 Jira,不會改 Jira 上的東西)。
@@ -141,7 +143,7 @@ type JiraImportResult struct {
 type jiraIssue struct {
 	key    string
 	fields map[string]any
-	notes  []IssueComment
+	notes  []model.Comment
 	atts   []jiraAtt
 }
 
@@ -203,7 +205,7 @@ func JiraImport(a *App, projects []string, includeClosed bool) (JiraImportResult
 		}
 		num = max(num, is.Number())
 	}
-	var created, updated []OpsIssue
+	var created, updated []model.Issue
 	for _, ji := range all {
 		n := jiraToIssue(c.TrimmedBase(), ji)
 		res.Comments += len(ji.notes)
@@ -417,7 +419,7 @@ func jiraErr(err error) error {
 }
 
 // jiraComments 搜尋結果帶的留言不完整時,另外分頁讀完
-func jiraComments(a *App, key string, f map[string]any) ([]IssueComment, error) {
+func jiraComments(a *App, key string, f map[string]any) ([]model.Comment, error) {
 	cm, _ := f["comment"].(map[string]any)
 	list, _ := cm["comments"].([]any)
 	total := jiraInt(cm["total"])
@@ -438,7 +440,7 @@ func jiraComments(a *App, key string, f map[string]any) ([]IssueComment, error) 
 			}
 		}
 	}
-	out := []IssueComment{}
+	out := []model.Comment{}
 	for _, it := range list {
 		m, _ := it.(map[string]any)
 		id := jiraStr(m["id"])
@@ -446,13 +448,13 @@ func jiraComments(a *App, key string, f map[string]any) ([]IssueComment, error) 
 			continue
 		}
 		at := jiraTime(m["created"])
-		out = append(out, IssueComment{ID: "jira-" + id, Author: jiraUser(m["author"]), At: Time{at}, Text: jiraStr(m["body"])})
+		out = append(out, model.Comment{ID: "jira-" + id, Author: jiraUser(m["author"]), At: model.Time{Time: at}, Text: jiraStr(m["body"])})
 	}
 	return out, nil
 }
 
 // jiraToIssue 對應成本機的 Issue(ID 由呼叫的人決定)
-func jiraToIssue(base string, ji jiraIssue) OpsIssue {
+func jiraToIssue(base string, ji jiraIssue) model.Issue {
 	f := ji.fields
 	created := jiraTime(f["created"])
 	updated := jiraTime(f["updated"])
@@ -461,11 +463,11 @@ func jiraToIssue(base string, ji jiraIssue) OpsIssue {
 	}
 	status, _ := f["status"].(map[string]any)
 	cat, _ := status["statusCategory"].(map[string]any)
-	is := OpsIssue{
+	is := model.Issue{
 		Title: strings.TrimSpace(jiraStr(f["summary"])), Body: jiraStr(f["description"]), Status: "open",
 		Priority: jiraPriority(f["priority"]), Source: "Jira " + ji.key, Link: base + "/browse/" + ji.key,
-		CreatedBy: jiraUser(f["reporter"]), CreatedAt: Time{created}, UpdatedAt: Time{updated},
-		Comments: append([]IssueComment{}, ji.notes...),
+		CreatedBy: jiraUser(f["reporter"]), CreatedAt: model.Time{Time: created}, UpdatedAt: model.Time{Time: updated},
+		Comments: append([]model.Comment{}, ji.notes...),
 	}
 	if is.Title == "" {
 		is.Title = ji.key
@@ -494,7 +496,7 @@ func jiraToIssue(base string, ji jiraIssue) OpsIssue {
 		if closed.IsZero() {
 			closed = updated
 		}
-		is.ClosedAt = &Time{closed}
+		is.ClosedAt = &model.Time{Time: closed}
 	}
 	// 圖片:內文與留言裡的 !檔名! 換成本機附件;內文沒引用到的附件列在最後
 	used := map[string]bool{}
