@@ -453,7 +453,7 @@ func TestGLOAuthLoginWithDiscoveryPKCEAndCA(t *testing.T) {
 	}
 	u, _ := url.Parse(opened)
 	q := u.Query()
-	if u.Host != glHost || u.Path != "/oauth/authorize" || q.Get("scope") != "read_api read_user openid" || q.Get("code_challenge_method") != "S256" ||
+	if u.Host != glHost || u.Path != "/oauth/authorize" || q.Get("scope") != GLScopes || q.Get("code_challenge_method") != "S256" ||
 		q.Get("client_id") != "app-1" || !strings.HasPrefix(q.Get("redirect_uri"), "http://127.0.0.1:") {
 		t.Fatal(opened)
 	}
@@ -494,5 +494,25 @@ func TestGLOrgsAndView(t *testing.T) {
 	a.Mu.Unlock()
 	if projects() != "web/shop" || !ok || gc.CACert == "" {
 		t.Fatalf("copyCurrent 要複製專案與連線(含 CA):%s %+v", projects(), gc)
+	}
+}
+
+// 舊版預設的 scopes(read_api read_user openid)會換成只要 read_api;GitLab 應用程式沒勾到的 scope 會讓授權頁回「scope is invalid」
+func TestGLMigrateLegacyScopes(t *testing.T) {
+	a, _ := glSetup(t, "auto", false)
+	a.Mu.Lock()
+	c, ok := GLConnection(a)
+	a.Mu.Unlock()
+	if !ok {
+		t.Fatal("沒有 GitLab 連線")
+	}
+	c.OAuth.Scopes = glLegacyScopes
+	core.ConnUpsert(a, c)
+	glMigrateScopes(a)
+	a.Mu.Lock()
+	got, _ := GLConnection(a)
+	a.Mu.Unlock()
+	if got.OAuth.Scopes != GLScopes || GLPresetConnection("https://x").OAuth.Scopes != "read_api" {
+		t.Fatal(got.OAuth.Scopes)
 	}
 }

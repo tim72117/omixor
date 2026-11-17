@@ -107,7 +107,7 @@ export function GitLabSetup({ gl }: { gl: GitLabView }) {
             ) : (
               <Card>
                 <div className="card-title">用瀏覽器登入 GitLab</div>
-                <div className="muted">會打開 {gl.baseURL} 的授權頁,按 Authorize 後回到 omixor 就完成了。權限:{gl.scopes}。</div>
+                <div className="muted">會打開 {gl.baseURL} 的授權頁,按 Authorize 後回到 omixor 就完成了。權限:{gl.scopes}。如果授權頁顯示「The requested scope is invalid, unknown, or malformed」,代表 GitLab 應用程式沒勾到這些 scope:到應用程式頁編輯,勾 {gl.scopes} 後儲存再登入一次。</div>
                 <div className="row gap8 wrap">
                   <button className="btn primary" disabled={busy || !!st?.busy} onClick={() => run(() => action("connection_login", { id: conn.id }))}>用瀏覽器登入</button>
                   {(busy || st?.busy) && <><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /><span className="caption">等瀏覽器授權…</span></>}

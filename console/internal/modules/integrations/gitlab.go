@@ -260,12 +260,19 @@ func GLNormalizeProject(s, baseURL string) (string, bool) {
 // glProjectPath API 路徑:/api/v4/projects/<id 或 URL 編碼的路徑>
 func glProjectPath(key string) string { return "/api/v4/projects/" + core.PercentEncode(key, "-._~") }
 
+// GLScopes GitLab OAuth 要的權限:只要 read_api(讀 MR、Pipelines;帳號名稱也從 GET /api/v4/user 取得)。
+// GitLab 應用程式沒勾到的 scope 一要求就會回「The requested scope is invalid, unknown, or malformed」,所以越少越好。
+const GLScopes = "read_api"
+
+// glLegacyScopes 舊版預設的 scopes(多了用不到的 read_user、openid);讀到這個值會自動換成 GLScopes
+const glLegacyScopes = "read_api read_user openid"
+
 // GLPresetConnection 預設的 GitLab 連線:OAuth(在自架 GitLab 的 Applications 建應用程式),也可以改貼個人存取權杖
 func GLPresetConnection(base string) core.Connection {
 	c := core.NewConnection(GLConnectionID, "GitLab", base)
 	c.TestPath = "/api/v4/user"
 	c.Note = "開發進度 › Repositories 讀 MR 與 Pipelines(只讀)"
-	c.OAuth = core.OAuthSettings{Issuer: base, Scopes: "read_api read_user openid"}
+	c.OAuth = core.OAuthSettings{Issuer: base, Scopes: GLScopes}
 	return c
 }
 
@@ -403,9 +410,23 @@ func glLoad(a *core.App) {
 		}
 	}
 	s.GLSnap = emptyGLSnapshot()
+	if c, ok := GLConnection(a); ok && c.OAuth.Scopes == glLegacyScopes {
+		go glMigrateScopes(a)
+	}
 	// 網址與追蹤的專案以組織(核心)的為準:先顯示這台檔案裡的,背景從核心讀(見 integrations.go)
 	if core.BackgroundAccountCheck {
 		go GLSyncSettings(a)
+	}
+}
+
+// glMigrateScopes 把舊預設的 scopes 換成 GLScopes(不動 token;ConnUpsert 不能拿著鎖,所以在背景做)
+func glMigrateScopes(a *core.App) {
+	a.Mu.Lock()
+	c, ok := GLConnection(a)
+	a.Mu.Unlock()
+	if ok && c.OAuth.Scopes == glLegacyScopes {
+		c.OAuth.Scopes = GLScopes
+		core.ConnUpsert(a, c)
 	}
 }
 
@@ -949,12 +970,15 @@ func init() {
 		snap["mrs"] = mrs
 		out := map[string]any{"settings": s.GL, "snapshot": snap, "connection": nil, "loggedIn": false, "state": nil,
 			"settingsError": GLSettingsError(a), "configured": false, "baseURL": "", "caCert": "", "insecure": false, "callback": "http://127.0.0.1/callback",
-			"scopes": "read_api read_user openid", "applicationsURL": "", "tokenURL": ""}
+			"scopes": GLScopes, "applicationsURL": "", "tokenURL": ""}
 		if c, ok := GLConnection(a); ok {
 			out["connection"] = c
 			out["loggedIn"] = c.BaseURL != "" && core.ConnHasTokenCached(a, c)
 			out["state"] = core.ConnStateCopy(a, c.ID)
 			out["configured"] = c.BaseURL != ""
+			if c.OAuth.Scopes != "" {
+				out["scopes"] = c.OAuth.Scopes
+			}
 			out["baseURL"], out["caCert"], out["insecure"] = c.BaseURL, c.CACert, c.Insecure
 			if c.BaseURL != "" {
 				out["applicationsURL"] = c.BaseURL + "/-/user_settings/applications"

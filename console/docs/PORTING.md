@@ -1,6 +1,6 @@
 # 從 Swift 版搬到 Go + React 的規則
 
-Swift 版在 `../mac`(macOS SwiftUI app)。產品早期叫 Ops,Go 版已改成 omixor 的名稱(環境變數 `OMIXOR_*`、鑰匙圈 `com.tim72117.omixor-console.connection`、本機身分 `omixor-console`);mac 端的對應名稱(App 支援資料夾 `~/Library/Application Support/Ops`、模組 `OpsMCP`、`OPS_*` 環境變數、型別 `OpsIssue` 等)可能仍是舊的,等 mac 改完再對齊。Go 版的 **MCP 規格必須和 Swift 版一模一樣**:同樣的工具、參數、輸出欄位、錯誤訊息、預設值、副作用(含寫進動態牆的文字)。畫面盡量照 Swift 版的版面與文字。
+Swift 版在 `../mac`(macOS SwiftUI app)。產品早期叫 Ops,Go 版已改成 omixor 的名稱(環境變數 `OMIXOR_*`、鑰匙圈 `com.tim72117.omixor-console.connection`、本機身分 `omixor-console`);mac 端也已改名(SwiftPM 模組 `Omixor`/`OmixorMCP`、MCP server 名稱 `omixor`、`OMIXOR_*` 環境變數,舊的 `OPS_*` 仍相容);為了不搬資料,mac 的 App 支援資料夾 `~/Library/Application Support/Ops` 與 bundle id `com.tim72117.ops` 維持舊名。Go 版的 **MCP 規格必須和 Swift 版一模一樣**:同樣的工具、參數、輸出欄位、錯誤訊息、預設值、副作用(含寫進動態牆的文字)。畫面盡量照 Swift 版的版面與文字。
 
 ## 架構
 
@@ -11,7 +11,7 @@ internal/core/        狀態與功能邏輯(package core,一個功能一個檔�
 internal/mcp/         MCP 協定與工具(package mcp,一個功能一個 tools_<功能>.go)
 internal/web/         給畫面的 HTTP API
 cmd/omixor-web/          主程式:MCP 127.0.0.1:3765/mcp + 畫面 127.0.0.1:5191
-cmd/omixor-mcp/          stdio 轉接(同 Swift 版的 omixor-mcp;mac 端模組目前仍叫 OpsMCP)
+cmd/omixor-mcp/          stdio 轉接(同 Swift 版的 omixor-mcp,mac 端模組 OmixorMCP)
 web/                  React + Vite(TypeScript),web/src/sections/<頁面>/ 一頁一個資料夾
 conformance/          一致性比對工具
 ```

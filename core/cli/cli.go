@@ -15,6 +15,7 @@
 //	omixor issues import [--org default] <檔案>     第一次搬資料用;伺服器上已經有 Issue 就會拒絕
 //	omixor issues restore <id>… --from <檔案> [--org default]   資料被改壞時改回檔案裡的內容(不是同步)
 //	omixor issues delete <id>… | --all [--org default] [--yes]   沒加 --yes 只列出
+//	omixor channel [--org default] [--agent 角色] [--interval 30s] [--auto]   任務通知頻道(stdio MCP,給 Claude Code 的 channels;見 core/mcp/channel.go)
 //	omixor agents import [--org default] <agents.json>   第一次搬資料用:角色與任務(格式同 app 的 agents.json);伺服器上已經有角色或任務就會拒絕
 //
 // 登入資料依伺服器分檔:~/.config/omixor/credentials/<伺服器>.json(權限 600;<伺服器> 是網址的 host(:port)),
@@ -25,19 +26,23 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"omixor-core/backend"
 	"omixor-core/client"
 	"omixor-core/evoleap"
+	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -193,7 +198,7 @@ func reorder(args []string, valued map[string]bool) []string {
 	return append(flags, pos...)
 }
 
-var valued = map[string]bool{"role": true, "org": true, "o": true, "limit": true, "server": true, "device": true, "from": true, "name": true, "evoleap": true, "evoleap-console": true}
+var valued = map[string]bool{"role": true, "org": true, "o": true, "limit": true, "server": true, "agent": true, "interval": true, "device": true, "from": true, "name": true, "evoleap": true, "evoleap-console": true}
 
 func printJSON(w io.Writer, v any) {
 	b, _ := json.MarshalIndent(v, "", "  ")
@@ -212,7 +217,7 @@ func readIssues(file string) ([]model.Issue, error) {
 	return list, nil
 }
 
-const usage = `用法:omixor login|logout|whoami|orgs|members|users|tokens|audit|issues|agents …(說明見 core/cli/cli.go)`
+const usage = `用法:omixor login|logout|whoami|orgs|members|users|tokens|audit|issues|agents|channel …(說明見 core/cli/cli.go)`
 
 // Main 給 cmd 用:執行並在出錯時結束程式
 func Main(args []string) {
@@ -242,6 +247,9 @@ func Run(args []string, out io.Writer) error {
 	device := fs.String("device", "", "這台的名稱")
 	evo := fs.String("evoleap", "https://evoleap.io", "evoleap 網址")
 	console := fs.String("evoleap-console", "", "evoleap 核准頁網址")
+	agentFlag := fs.String("agent", "", "角色 id")
+	interval := fs.Duration("interval", 30*time.Second, "查詢間隔")
+	auto := fs.Bool("auto", false, "收到任務就領取處理")
 	if err := fs.Parse(reorder(rest, valued)); err != nil {
 		return err
 	}
@@ -428,6 +436,12 @@ func Run(args []string, out io.Writer) error {
 		printJSON(out, l)
 	case "issues":
 		return issues(cl, out, sub, pos, *org, *outFile, *from, *yes, *all)
+	case "channel":
+		// stdout 是 MCP 協定,訊息與錯誤只寫 stderr
+		lg := log.New(os.Stderr, "", log.LstdFlags)
+		return mcp.RunChannel(context.Background(), os.Stdin, out, mcp.ChannelConfig{
+			Tasks: backend.NewRemote(cl), Org: *org, Server: trim(srvSel), AgentID: *agentFlag, Interval: *interval, Auto: *auto, Logf: lg.Printf,
+		})
 	case "agents":
 		if sub != "import" || len(pos) < 2 {
 			return errors.New("用法:omixor agents import <agents.json> --org <組織>(第一次搬資料;檔案格式同 app 的 agents.json:{agents, tasks})")
