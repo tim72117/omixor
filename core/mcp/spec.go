@@ -7,7 +7,7 @@ import (
 )
 
 // 核心自己的工具規格(tools/list)與 initialize 資訊:給核心掛載的端點用(AgentEndpoint、AdminEndpoint)。
-// omixor-web 的 /mcp 也用這裡的核心工具定義(加上 web 自己的工具,見 web/internal/mcp/handler.go 的 webSpec),
+// omixor-web 的 /mcp 也用這裡的核心工具定義(加上 web 自己的工具,見 console/internal/mcp/handler.go 的 webSpec),
 // Swift App 的 /mcp 則把核心工具轉給 core server 的管理端點,列出的也是這一份。核心工具的定義只在這裡維護。
 
 func obj(props map[string]any, required ...string) map[string]any {
@@ -186,6 +186,15 @@ func CoreToolDefs() []any {
 				"tab":            pStr("頁籤網址或名稱"),
 				"tags":           pStrs("標籤"),
 				"title":          pStr("標題(新增時必填)"),
+			})),
+		coreDef("cabinet_layout_save",
+			"新增、改名、移除文件櫃的區塊與頁籤(組織管理員)。依序套用 add_sections → add_tabs → update → remove,全部成功才存(一次存檔)。"+
+				"新區塊不給 id 時自動編 s<n>;新頁籤不給 path 時自動編 /<區塊 id>/<n>。被移除的區塊、頁籤裡不能還有文件(先用 doc_save 搬走)。回傳新的結構與這次新增的 id。", false,
+			obj(map[string]any{
+				"add_sections": pObjs("新增區塊:[{label, id?}];接在最後"),
+				"add_tabs":     pObjs("新增頁籤:[{section, label, code?, group?, path?}];section 是區塊 id 或名稱(可以是這次新增的)"),
+				"update":       pObjs("改名:[{section 或 tab, label?, code?, group?}];section 給區塊 id 或名稱,tab 給頁籤網址、名稱或代號(可再帶 section 限定區塊);code、group 給空字串是清掉"),
+				"remove":       pStrs("移除的區塊(id 或名稱)或頁籤(網址、名稱或代號);區塊會連同它的頁籤一起移除"),
 			})),
 	}
 	defs = append(defs, ChainToolDefs()...)

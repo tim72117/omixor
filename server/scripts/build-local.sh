@@ -11,7 +11,7 @@
 # 以前的 OMIXOR_EDITION 已經拿掉(給了也沒有作用)。
 #
 # 純 Go(CGO_ENABLED=0),不需要各平台的工具鏈。只編譯,不簽章、不上傳;
-# macOS App 用的那一份由 app/scripts/build-app.sh 另外編進 App 並簽章。
+# macOS App 用的那一份由 mac/scripts/build-app.sh 另外編進 App 並簽章。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."            # server/

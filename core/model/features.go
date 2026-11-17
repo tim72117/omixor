@@ -41,6 +41,9 @@ type Feature struct {
 
 const sampleNote = "目前是範例資料,畫面上的數字與動作都不是真的"
 
+// FeatureAssistant 畫面右側 AI 助理面板的功能 key(不是側邊欄的頁面;關掉時面板、開關按鈕、⌘J 與後端的 assistant_* 動作都不提供)
+const FeatureAssistant = "assistant"
+
 // Features 全部功能(順序就是系統設定畫面的順序;分頁緊接在所屬頁面後面)
 var Features = []Feature{
 	{Key: "overview", Name: "總覽", Description: "各頁重點彙整(服務健康、部署、Sprint 等卡片目前是範例資料)", Default: true, Required: true},
@@ -91,6 +94,7 @@ var Features = []Feature{
 	{Key: "help", Name: "需要協助", Description: "卡住的角色任務與 @ 我的訊息", Default: true},
 	{Key: "channels", Name: "對話", Description: "成員與虛擬角色在同一個頻道對話(存在 core)", Default: true},
 	{Key: "cabinet", Name: "文件櫃", Description: "組織的文件(存在 core)", Default: true},
+	{Key: FeatureAssistant, Name: "AI 助理", Description: "畫面右側的 AI 助理面板:依目前頁面整理重點、回答問題(⌘J 開關)", Edition: EditionDev, Experimental: true, ExperimentalNote: "還沒接上模型:回答是依畫面資料產生的模擬回應"},
 	{Key: "familyAssistant", Name: "家庭助理", Description: "家庭助理樣板:像管家的角色,在訊息頻道 @ 就會協助家裡的各種事務", Edition: EditionDev, Experimental: true, ExperimentalNote: "樣板還在實作中,功能可能不完整"},
 	{Key: "mcpGateway", Name: "外部 MCP 閘道", Description: "登記外部 MCP 伺服器,由 App 連線並把工具依角色權限開放給 Claude Code 與自動執行的角色", Edition: EditionDev, Experimental: true, ExperimentalNote: "還在實作中:只有 macOS App 會連線,web 與 iOS 還沒有畫面"},
 	{Key: "settings", Name: "設定", Description: "組織、整合、連線等設定", Default: true, Required: true},

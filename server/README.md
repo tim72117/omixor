@@ -1,6 +1,6 @@
 # omixor-server
 
-omixor 的線上服務(Cloud Run,服務名稱 `omixor`,網址 https://omixor-340121279179.asia-east1.run.app;舊的服務 `omixor-issues` 用同一個資料庫)。這個模組只負責「建置與啟動」:
+omixor 的線上服務(Cloud Run,服務名稱 `omixor`,網址 https://omixor.io(Cloud Run 網域對應;原本的 https://omixor-340121279179.asia-east1.run.app 仍可用);舊的服務 `omixor-issues` 已關閉公開存取)。這個模組只負責「建置與啟動」:
 HTTP 加健康檢查(`server.go`)與進入點(`cmd/omixor-server`);授權、組織、Issue、附件的邏輯都在 `../core`(`omixor-core`,用 `replace` 引用)。
 
 ```
@@ -27,11 +27,11 @@ docker build -f server/Dockerfile -t omixor-server .   # 在 repo 根目錄
 - 預設 `go build ./cmd/omixor-server` 編進全部模組(和以前一樣);`go build -tags omixor_minimal ./cmd/omixor-server` 只有核心。
 - `GET /api/modules` 列出這台編進來的模組。
 
-環境變數見 `server.go` 開頭(`OPS_DATABASE_URL`、`OMIXOR_ADMIN_BOOTSTRAP_EMAIL`、`OMIXOR_TOKEN_DAYS`、`EVOLEAP_URL`…)。
-部署:`.github/workflows/deploy-issues.yml`(`core/**` 或 `server/**` 有變動就部署)。
+環境變數見 `server.go` 開頭(`OMIXOR_DATABASE_URL`、`OMIXOR_ADMIN_BOOTSTRAP_EMAIL`、`OMIXOR_TOKEN_DAYS`、`EVOLEAP_URL`…)。
+部署:`.github/workflows/deploy-server.yml`(`core/**`、`server/**` 或 `site/**` 有變動就部署)。
 測試:`.github/workflows/test.yml`(每次 push 與 pull_request,core/server/web 各跑 `go build`、`go vet`、`go test`)。
 
-**目前只支援單一實例**:雲端部署必須維持 `--max-instances=1`(`deploy-issues.yml` 已設定,不要拿掉)。
+**目前只支援單一實例**:雲端部署必須維持 `--max-instances=1`(`deploy-server.yml` 已設定,不要拿掉)。
 部分「先讀再改」的保護(讀出資料、檢查、再寫回)只靠程式內的鎖,只在單一程式內有效;
 開多個實例時,兩個實例同時改同一個組織的資料可能互相覆蓋。要等 store 提供組織鎖與交易之後才能多實例。
 

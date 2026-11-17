@@ -1,7 +1,7 @@
 package store
 
 // 三種實作(Mem、File、PG)共用的一致性測試:同一組測試函式對每一種 store 都跑一次,斷言行為一樣。
-// PG 有設 OPS_TEST_DATABASE_URL 就連它,沒設就自動起 embedded PostgreSQL(-short 或 OPS_TEST_NO_EMBEDDED_PG=1 時略過;見 pg_embedded_test.go);
+// PG 有設 OMIXOR_TEST_DATABASE_URL 就連它,沒設就自動起 embedded PostgreSQL(-short 或 OMIXOR_TEST_NO_EMBEDDED_PG=1 時略過;見 pg_embedded_test.go);
 // 每個測試建一個暫時的 schema,測完刪掉(見 issue_comment_test.go 的 testPG)。
 // File 在讀回之前會重開同一個資料夾(impl.reopen),確認寫進 store.json 再讀回來也一樣;Mem、PG 的 reopen 原樣回傳。
 //
@@ -28,7 +28,7 @@ type storeImpl struct {
 	reopen func(t *testing.T, s Store) Store
 }
 
-const pgEnv = "OPS_TEST_DATABASE_URL"
+const pgEnv = "OMIXOR_TEST_DATABASE_URL"
 
 func storeImpls() []storeImpl {
 	same := func(_ *testing.T, s Store) Store { return s }

@@ -45,6 +45,7 @@ var CoreTools = []CoreTool{
 	{Name: "cabinet", Title: "文件櫃結構", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead},
 	{Name: "docs", Title: "查文件", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead},
 	{Name: "doc_save", Title: "存文件到文件櫃", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocWrite},
+	{Name: "cabinet_layout_save", Title: "修改文件櫃結構", Group: "文件櫃", Admin: true},
 
 	{Name: "chain", Title: "組織鏈", Group: "組織鏈", Admin: true},
 	{Name: "chain_save", Title: "修改組織鏈", Group: "組織鏈", Admin: true},

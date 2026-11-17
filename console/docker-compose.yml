@@ -1,0 +1,46 @@
+# omixor console + PostgreSQL。先複製 .env.example 成 .env 填好密碼與金鑰,再 docker compose up -d --build
+#   畫面:http://127.0.0.1:5191   MCP:http://127.0.0.1:${OMIXOR_MCP_HOST_PORT:-${OPS_MCP_HOST_PORT:-3765}}/mcp
+# 兩個連接埠都只發布到這台電腦的 127.0.0.1。要給同事用:先在 設定 › 認證 啟用 LDAP,
+# 再把 5191 改發布到 0.0.0.0(或放 HTTPS 反向代理)並設 OMIXOR_WEB_HOSTS;MCP 維持只給本機。
+# .env 的變數以前叫 OPS_*(OPS_SECRET_KEY、OPS_WEB_HOSTS…),舊的 .env 照樣能用,建議改成 OMIXOR_*。
+# 資料庫名稱、使用者與 volume(ops、ops-db)沿用舊名稱:改了會變成一個新的空資料庫。
+services:
+  db:
+    image: postgres:17.2-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ops
+      POSTGRES_USER: ops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?在 .env 設 POSTGRES_PASSWORD}
+    volumes:
+      - ops-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ops -d ops"]
+      interval: 5s
+      retries: 20
+
+  omixor-web:
+    # 建置內容是 repo 根目錄:omixor-web 編譯時要引入旁邊的 omixor-core
+    build:
+      context: ..
+      dockerfile: console/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      OMIXOR_DATABASE_URL: postgres://ops:${POSTGRES_PASSWORD}@db:5432/ops?sslmode=disable
+      OMIXOR_SECRET_KEY: ${OMIXOR_SECRET_KEY:-${OPS_SECRET_KEY:?在 .env 設 OMIXOR_SECRET_KEY(openssl rand -base64 32)}}
+      OMIXOR_WEB_ADDR: 0.0.0.0:5191
+      OMIXOR_WEB_LOCAL_ONLY_PUBLISH: "1"
+      OMIXOR_WEB_HOSTS: ${OMIXOR_WEB_HOSTS:-${OPS_WEB_HOSTS:-}}
+      OMIXOR_MCP_ADDR: 0.0.0.0
+    ports:
+      - "127.0.0.1:5191:5191"
+      - "127.0.0.1:${OMIXOR_MCP_HOST_PORT:-${OPS_MCP_HOST_PORT:-3765}}:3765"
+    volumes:
+      # 匯入 macOS App(Swift 版)資料時用:docker compose run --rm omixor-web import /import
+      - ${OMIXOR_IMPORT_DIR:-${OPS_IMPORT_DIR:-./.import-empty}}:/import:ro
+
+volumes:
+  ops-db:

@@ -1,19 +1,19 @@
-# repo 根目錄當 docker 建置內容時(server/Dockerfile、web/Dockerfile)略過的東西。
-# 建置需要的:server/Dockerfile 只 COPY core、server;web/Dockerfile COPY core、web(含 web/ui 原始碼)、templates。
+# repo 根目錄當 docker 建置內容時(server/Dockerfile、console/Dockerfile)略過的東西。
+# 建置需要的:server/Dockerfile COPY core、server 與 site 的對外檔案;console/Dockerfile COPY core、console(含 console/ui 原始碼)、templates。
 .git
 .github
 .claude
 # macOS App、iOS App、原型:映像用不到
-app
+mac
 ios
 prototypes
 # 依賴與建置產物(映像裡會自己 npm ci / npm run build / go build)
 **/node_modules
-web/ui/dist
-web/conformance
-web/bin
-web/omixor
-web/omixor-issues
+console/ui/dist
+console/conformance
+console/bin
+console/omixor
+console/omixor-issues
 server/bin
 server/dist
 server/omixor-server

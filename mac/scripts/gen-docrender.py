@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+# 把 templates/doc/docrender.js(文件櫃的通用轉換器)複製成 Swift 字串:mac/Sources/Omixor/Cabinet/DocRenderJS.swift
+import pathlib
+root = pathlib.Path(__file__).resolve().parents[2]
+js = (root / 'templates/doc/docrender.js').read_text()
+assert '"""##' not in js
+(root / 'mac/Sources/Omixor/Cabinet/DocRenderJS.swift').write_text(
+    '// 自動產生,不要手改:內容和 templates/doc/docrender.js 一模一樣(DocTemplateTests 會比對)。\n'
+    '// 改轉換器時改 templates/doc/docrender.js,再跑 mac/scripts/gen-docrender.py。\n'
+    'enum DocRenderJS {\n    static let source = ##"""\n' + js + '"""##\n}\n')

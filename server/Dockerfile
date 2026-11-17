@@ -4,6 +4,7 @@ FROM golang:1.26 AS build
 WORKDIR /src
 COPY core ./core
 COPY server ./server
+# site/ 只在最後一層複製對外檔案(見下方)
 WORKDIR /src/server
 RUN go mod download
 # 版本資訊:docker build --build-arg VERSION=… --build-arg COMMIT=$GITHUB_SHA --build-arg BUILD_TIME=…
@@ -16,6 +17,9 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X omixor-core/version.Vers
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /omixor-server /omixor-server
+# 對外的形象網站(英文版):只放對外的檔案(zh.html、og.html、README.md 不放;清單同 server/site.go 的 sitePublicFiles)
+COPY site/index.html site/favicon.svg site/og.png site/robots.txt site/sitemap.xml site/llms.txt /site/
+ENV OMIXOR_SITE_DIR=/site
 ENV PORT=8080
 EXPOSE 8080
 ENTRYPOINT ["/omixor-server"]

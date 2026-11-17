@@ -11,16 +11,16 @@
 | 平台 | 測試 | 解碼路徑 |
 | --- | --- | --- |
 | Go | `core/model/contract_test.go` | 產生/比對範例檔,並確認 Go 讀得回來 |
-| macOS App | `app/Tests/OmixorTests/ContractTests.swift` | 假伺服器回範例檔,走 `IssueRemote` 的 list/getChannel/listIncidents/claimTask… 等 App 實際的方法 |
+| macOS App | `mac/Tests/OmixorTests/ContractTests.swift` | 假伺服器回範例檔,走 `IssueRemote` 的 list/getChannel/listIncidents/claimTask… 等 App 實際的方法 |
 | iOS | `ios/OmixorTests/ContractTests.swift` | `APIClient.decoder` 解 `ios/Omixor/API/Models.swift` 的型別 |
-| web/ui | `web/ui/contract/`(`npm test`) | `tsc` 檢查範例檔符合前端型別(兩個方向的欄位名稱),`node --test` 執行時檢查關鍵欄位與前端的轉換函式 |
+| console/ui | `console/ui/contract/`(`npm test`) | `tsc` 檢查範例檔符合前端型別(兩個方向的欄位名稱),`node --test` 執行時檢查關鍵欄位與前端的轉換函式 |
 
 改了 model 欄位之後:
 
 ```sh
 cd core && UPDATE_CONTRACT=1 go test ./model/ -run TestContract   # 重生範例檔
-cd app && swift test --filter ContractTests                        # macOS App
-cd web/ui && npm test                                              # web/ui
+cd mac && swift test --filter ContractTests                        # macOS App
+cd console/ui && npm test                                              # console/ui
 # iOS:cd ios && xcodegen generate && xcodebuild test -scheme Omixor -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 

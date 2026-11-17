@@ -4,15 +4,17 @@
 //
 //	PORT                           Cloud Run 給的埠(預設 8080)
 //	OMIXOR_ADDR                    監聽位址(預設 :$PORT;本機測試可以設 127.0.0.1:<埠>)
-//	OPS_DATABASE_URL               PostgreSQL 網址(Cloud Run 上來自 Secret Manager 的 OMIXOR_DATABASE_URL)
+//	OMIXOR_DATABASE_URL            PostgreSQL 網址(Cloud Run 上來自 Secret Manager 的 OMIXOR_DATABASE_URL;舊名稱 OPS_DATABASE_URL 仍相容)
 //	OMIXOR_ADMIN_BOOTSTRAP_EMAIL   第一位伺服器管理員的 email(使用者表是空的時才用)
 //	OMIXOR_TOKEN_DAYS              token 有效天數(預設 90;0 是不到期)
 //	EVOLEAP_URL                    evoleap 網址(預設 https://evoleap.io)
 //	OMIXOR_AGENT_CRED_HOURS        角色憑證有效小時數(預設 2)
 //	OMIXOR_PUBLIC_URL              對外網址(例如 https://omixor.example.com);設了,領取任務時會附上角色端點網址
+//	OMIXOR_SITE_DIR                形象網站的資料夾(映像裡是 /site);設了才提供網站,見 site.go
 //
 // 路由:
 //
+//	/                              形象網站英文首頁(site/index.html;另有 /favicon.svg、/og.png、/robots.txt、/sitemap.xml、/llms.txt)
 //	/health                        健康檢查
 //	/api/…                         核心 HTTP API(core/api)
 //	/mcp/agent                     角色端點:Authorization: Bearer <agentId>:<secret>(領取任務時發的憑證),白名單工具(含文件櫃,依角色的 docAccess)
@@ -25,9 +27,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	oxenv "omixor-core/env"
 	"os"
-	"strings"
 	"strconv"
+	"strings"
 	"time"
 
 	"omixor-core/api"
@@ -87,13 +90,15 @@ func Handler(svc *service.Service) http.Handler {
 			return &backend.Local{Svc: svc, P: p}, r.PathValue("org"), nil
 		},
 	}))
+	// 對外的形象網站(英文版;只有設了 OMIXOR_SITE_DIR 才提供,見 site.go)
+	mountSite(mux, os.Getenv("OMIXOR_SITE_DIR"))
 	return mux
 }
 
 func Run() {
-	url := os.Getenv("OPS_DATABASE_URL")
+	url := oxenv.Get("OMIXOR_DATABASE_URL", "OPS_DATABASE_URL")
 	if url == "" {
-		log.Fatal("要設 OPS_DATABASE_URL")
+		log.Fatal("要設 OMIXOR_DATABASE_URL")
 	}
 	st, err := store.NewPG(url)
 	if err != nil {

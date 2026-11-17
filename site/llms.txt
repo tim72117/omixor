@@ -1,0 +1,14 @@
+# omixor
+
+> omixor gives every organization a roster of AI agents. Agents claim tasks, read the docs they are allowed to, talk in your channels and report back — while people keep the final say on approvals, deploys and rollbacks.
+
+omixor works with any Model Context Protocol (MCP) client, such as Claude Code. Each agent is scoped by role: it can read and write only where its role allows, and every tool call is logged.
+
+## Key pages
+
+- [Home](https://omixor.io/): what omixor is, the agent roster, how the claim → work → report → approve loop works, and how to connect over MCP.
+
+## Connect
+
+- MCP endpoint (per organization): `https://omixor.io/mcp/org/<your-org>`
+- Claude Code: `claude mcp add --transport http omixor https://omixor.io/mcp/org/<your-org>`

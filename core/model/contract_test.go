@@ -1,11 +1,11 @@
 package model_test
 
 // 跨語言契約範例檔:把 core API 實際回傳的 JSON 形狀(model 與 service 的回應型別)用代表性樣本序列化成
-// testdata/contract/*.json。Swift(macOS App、iOS)與 TS(web/ui)的測試讀同一批檔案,用各自實際的解碼路徑解碼,
+// testdata/contract/*.json。Swift(macOS App、iOS)與 TS(console/ui)的測試讀同一批檔案,用各自實際的解碼路徑解碼,
 // 所以 Go 這邊改了欄位,這個測試會先要求重生範例檔,接著另外三邊的測試就會失敗,提醒同步改解碼端。
 //
 //	平常:比對產生的 JSON 和檔案內容一致,不一致就失敗
-//	改了 model 之後:UPDATE_CONTRACT=1 go test ./model/ -run TestContract 重寫範例檔,再跑 app、ios、web/ui 的測試
+//	改了 model 之後:UPDATE_CONTRACT=1 go test ./model/ -run TestContract 重寫範例檔,再跑 app、ios、console/ui 的測試
 //
 // 範例只放 {"result": …} 裡面的 result 內容(說明見 testdata/contract/README.md)。
 
@@ -281,7 +281,7 @@ func TestContractFixtures(t *testing.T) {
 		}
 		if !bytes.Equal(got, want) {
 			t.Errorf("%s:core 輸出的 JSON 和範例檔不一致(model 欄位改了?)。\n"+
-				"請執行 UPDATE_CONTRACT=1 go test ./model/ -run TestContract 重生,並跑 app(swift test)、ios、web/ui(npm test)的契約測試、同步修解碼端。\n"+
+				"請執行 UPDATE_CONTRACT=1 go test ./model/ -run TestContract 重生,並跑 app(swift test)、ios、console/ui(npm test)的契約測試、同步修解碼端。\n"+
 				"--- 範例檔\n%s\n--- 現在的輸出\n%s", name, got, want)
 		}
 	}

@@ -1,14 +1,14 @@
 # 測試:push 與 pull_request 都跑,不部署。
-# go:模組(core、server、web)矩陣。每格:go build/vet/test ./...,再用 -tags omixor_minimal 跑一次同樣的組合
+# go:模組(core、server、console)矩陣。每格:go build/vet/test ./...,再用 -tags omixor_minimal 跑一次同樣的組合
 #     (確認選用模組拔得乾淨);server 另外交叉編譯 Windows 版的 omixor-local。
-#     web 的畫面(web/ui/dist)不進版控,只留 .keep 讓 go:embed 編得過;Go 測試不需要建好的畫面。
-# web-ui:web/ui 前端做型別檢查(tsc --noEmit),不 build;npm test 跑跨語言契約測試(web/ui/contract,讀 core/model/testdata/contract)。
-# apple:macOS App(app/,SwiftPM)swift build && swift test;App 測試要連真的 omixor-local(見 app/Tests/OmixorTests/TestCore.swift),
+#     web 的畫面(console/ui/dist)不進版控,只留 .keep 讓 go:embed 編得過;Go 測試不需要建好的畫面。
+# web-ui:console/ui 前端做型別檢查(tsc --noEmit),不 build;npm test 跑跨語言契約測試(console/ui/contract,讀 core/model/testdata/contract)。
+# apple:macOS App(mac/,SwiftPM)swift build && swift test;App 測試要連真的 omixor-local(見 mac/Tests/OmixorTests/TestCore.swift),
 #     先編好放進 OMIXOR_LOCAL_BIN;最小版(-tags omixor_minimal)由測試自己用 go build 編,所以這個 job 也要裝 Go。
 #     iOS(ios/,xcodegen 從 project.yml 產生專案,專案檔不進版控)只編模擬器版(build-for-testing,測試也編)、不簽章,不跑模擬器。
-# PostgreSQL:core 那格開一個 postgres service(版本同 web/docker-compose.yml、web/scripts/test-pg.sh 的 postgres:17.2-alpine),
-#     設 OPS_TEST_DATABASE_URL,core/store 的一致性測試(conformance_test.go)就會連 PG 實跑(每個測試用自己的暫時 schema)。
-#     其他格的 image 與 OPS_TEST_DATABASE_URL 是空字串:不開 service,PG 測試照舊略過(web 的 PG 測試另外要 OPS_DATA_DIR 等,之後再接)。
+# PostgreSQL:core 那格開一個 postgres service(版本同 console/docker-compose.yml、console/scripts/test-pg.sh 的 postgres:17.2-alpine),
+#     設 OMIXOR_TEST_DATABASE_URL,core/store 的一致性測試(conformance_test.go)就會連 PG 實跑(每個測試用自己的暫時 schema)。
+#     其他格的 image 與 OMIXOR_TEST_DATABASE_URL 是空字串:不開 service,PG 測試照舊略過(web 的 PG 測試另外要 OMIXOR_CONSOLE_DATA_DIR 等,之後再接)。
 name: Test
 
 on:
@@ -30,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [core, server, web]
+        module: [core, server, console]
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -40,22 +40,22 @@ jobs:
         image: ${{ matrix.module == 'core' && 'postgres:17.2-alpine' || '' }}
         env:
           POSTGRES_PASSWORD: test
-          POSTGRES_DB: ops_test
+          POSTGRES_DB: omixor_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d ops_test"
+          --health-cmd "pg_isready -U postgres -d omixor_test"
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
     env:
-      OPS_TEST_DATABASE_URL: ${{ matrix.module == 'core' && 'postgres://postgres:test@localhost:5432/ops_test?sslmode=disable' || '' }}
+      OMIXOR_TEST_DATABASE_URL: ${{ matrix.module == 'core' && 'postgres://postgres:test@localhost:5432/omixor_test?sslmode=disable' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ matrix.module }}/go.mod
-          # repo 根目錄沒有 go.sum;server、web 用 replace 引用 ../core,所以 core/go.sum 也列進來
+          # repo 根目錄沒有 go.sum;server、console 用 replace 引用 ../core,所以 core/go.sum 也列進來
           cache-dependency-path: |
             core/go.sum
             ${{ matrix.module }}/go.sum
@@ -82,19 +82,19 @@ jobs:
         run: go build -o "$RUNNER_TEMP/omixor-local.exe" ./cmd/omixor-local
 
   web-ui:
-    name: web/ui typecheck
+    name: console/ui typecheck
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web/ui
+        working-directory: console/ui
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          # 同 web/Dockerfile 的 node:22
+          # 同 console/Dockerfile 的 node:22
           node-version: 22
           cache: npm
-          cache-dependency-path: web/ui/package-lock.json
+          cache-dependency-path: console/ui/package-lock.json
       - name: npm ci
         run: npm ci
       - name: tsc --noEmit
@@ -120,10 +120,10 @@ jobs:
           go build -o "$RUNNER_TEMP/omixor-local" ./cmd/omixor-local
           echo "OMIXOR_LOCAL_BIN=$RUNNER_TEMP/omixor-local" >> "$GITHUB_ENV"
       - name: swift build
-        working-directory: app
+        working-directory: mac
         run: swift build
       - name: swift test
-        working-directory: app
+        working-directory: mac
         run: swift test
       - name: install xcodegen
         run: brew install xcodegen

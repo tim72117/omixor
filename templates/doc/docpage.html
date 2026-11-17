@@ -102,12 +102,23 @@
       const done = () => { b.textContent = '已複製'; setTimeout(() => (b.textContent = '複製'), 1200) }
       try { navigator.clipboard.writeText(pre.textContent).then(done, () => {}) } catch (_) {}
     })
-    // 在 iframe 裡時高度跟著內容(min-height: 100vh 會和外層互相撐大)
+    // 在 iframe 裡時高度跟著內容(min-height: 100vh 會和外層互相撐大)。
+    // 不出自己的捲軸(外層頁面會捲;捲軸佔掉寬度會讓內容換行變高、又撐出捲軸)。
+    // 高度量 html 的外框:含 body 的 margin 與往外塌陷的 margin;scrollHeight 不會比 iframe 目前的高度小,縮不回來
     const framed = window.parent !== window
-    if (framed) document.body.style.minHeight = '0'
-    const report = () => { if (framed) window.parent.postMessage({ docHeight: document.documentElement.scrollHeight }, '*') }
+    if (!framed) return
+    const de = document.documentElement
+    document.body.style.minHeight = '0'
+    de.style.overflow = document.body.style.overflow = 'hidden'
+    let last = -1
+    const report = () => {
+      const h = Math.ceil(de.getBoundingClientRect().height)
+      if (h !== last) { last = h; window.parent.postMessage({ docHeight: h }, '*') }
+    }
     report()
-    if (window.ResizeObserver) new ResizeObserver(report).observe(document.body)
+    if (window.ResizeObserver) { const ro = new ResizeObserver(report); ro.observe(de); ro.observe(document.body) }
+    window.addEventListener('load', report)
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(report, () => {})
   }
 
   global.MdRender = { parseDoc, render, plain, mount }

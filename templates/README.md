@@ -5,8 +5,8 @@
 **預設不載入。** 沒有開的時候,預設組織和新建的組織一樣是空的。要用時才開:
 
 ```bash
-OMIXOR_TEMPLATES=1 ./web/bin/omixor-web          # 自己找 templates/(目前資料夾、執行檔所在資料夾,往上層找)
-OMIXOR_TEMPLATES=/path/to/templates ./web/bin/omixor-web   # 指定位置
+OMIXOR_TEMPLATES=1 ./console/bin/omixor-web          # 自己找 templates/(目前資料夾、執行檔所在資料夾,往上層找)
+OMIXOR_TEMPLATES=/path/to/templates ./console/bin/omixor-web   # 指定位置
 ```
 
 範本是執行時從磁碟讀的,**不編進執行檔**。Docker 映像把它放在 `/usr/local/share/omixor/templates`,要用就設 `OMIXOR_TEMPLATES` 指向那裡。
@@ -30,11 +30,11 @@ OMIXOR_TEMPLATES=/path/to/templates ./web/bin/omixor-web   # 指定位置
 `seed/` 是 Swift 版匯出的,不要手改:
 
 ```bash
-cd app && OPS_EXPORT_SEED=/tmp/seed.json swift test --filter SpecExportTests
+cd mac && OPS_EXPORT_SEED=/tmp/seed.json swift test --filter SpecExportTests   # mac 端改名後是 OMIXOR_EXPORT_SEED
 cd .. && go run templates/tools/split-seed/main.go /tmp/seed.json templates/seed
 ```
 
 ## 不在這裡的東西
 
 - 連線預設值(evoleap 正式站與本機)留在程式碼:遠端登入要用,不是示範資料。
-- MCP 規格(`web/spec/tools.json`、`initialize.json`)是協定標準答案,不是範本。
+- MCP 規格(`console/spec/tools.json`、`initialize.json`)是協定標準答案,不是範本。

@@ -9,7 +9,7 @@ import (
 )
 
 // 虛擬角色與任務:omixor 不自己跑 AI,任務排在這裡,由使用者的 Claude 以角色身分領取、回報。
-// JSON 欄位同 omixor-web(web/internal/core/agents.go),兩邊的資料格式一致。
+// JSON 欄位同 omixor-web(console/internal/core/agents.go),兩邊的資料格式一致。
 
 // AgentPrefix 角色的署名前綴:Issue 與留言的作者是 "agent:<角色 id>"
 const AgentPrefix = "agent:"

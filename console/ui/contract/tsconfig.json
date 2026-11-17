@@ -1,0 +1,20 @@
+{
+  // 契約測試(npm test)專用:檢查 core/model/testdata/contract/*.json 符合前端型別。
+  // 範例檔在 repo 的 core/ 底下,所以不放進 src 的 tsconfig(web 的 Docker 建置只複製 console/ui,npm run build 不能依賴 core/)
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "types": ["vite/client"]
+  },
+  "include": ["*.ts"]
+}

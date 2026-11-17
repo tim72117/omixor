@@ -387,6 +387,301 @@ func RegisterCabinetTools(s *Server) {
 		}
 		return docJSON(e, l, *d, false), nil
 	})
+
+	s.Register("cabinet_layout_save", func(c *Call) (any, error) {
+		e := agentEnv(c)
+		cab, err := cabinetOf(e)
+		if err != nil {
+			return nil, err
+		}
+		layout, added, err := applyLayoutOps(model.CloneLayout(cab.Layout), c.Args.Raw)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := e.Backend().SaveCabinetLayout(e.Org(), layout); err != nil {
+			return nil, terr(err)
+		}
+		cab, err = cabinetOf(e)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, nil), "added": added}, nil
+	})
+}
+
+// findTab 依網址、名稱、代號或「代號 名稱」找頁籤,回傳指回 l 裡的那一個。
+// section 有給就只找那個區塊(區塊找不到是錯誤,不退回全部找);對到多個頁籤時要求用網址指定,不猜
+// 第二個回傳值是「完全對不到」(不是區塊找不到或對到多個)
+func findTab(l []model.CabinetSection, section, key string) (*model.CabinetTab, bool, error) {
+	secID := ""
+	if section != "" {
+		s := model.Layout(l).Section(section)
+		if s == nil {
+			return nil, false, Errorf("找不到區塊「%s」", section)
+		}
+		secID = s.ID
+	}
+	var hits []*model.CabinetTab
+	for i := range l {
+		if secID != "" && l[i].ID != secID {
+			continue
+		}
+		for j := range l[i].Tabs {
+			if t := &l[i].Tabs[j]; t.Path == key {
+				return t, false, nil
+			}
+		}
+	}
+	for i := range l {
+		if secID != "" && l[i].ID != secID {
+			continue
+		}
+		for j := range l[i].Tabs {
+			t := &l[i].Tabs[j]
+			if t.Label == key || (t.Code != nil && *t.Code == key) || t.Title() == key {
+				hits = append(hits, t)
+			}
+		}
+	}
+	switch len(hits) {
+	case 0:
+		if section != "" {
+			return nil, true, Errorf("區塊「%s」沒有頁籤「%s」", section, key)
+		}
+		return nil, true, Errorf("找不到頁籤「%s」", key)
+	case 1:
+		return hits[0], false, nil
+	}
+	paths := make([]string, len(hits))
+	for i, t := range hits {
+		paths[i] = t.Path
+	}
+	return nil, false, Errorf("「%s」對到多個頁籤(%s),用頁籤網址指定", key, strings.Join(paths, "、"))
+}
+
+// sectionOfTab 頁籤所在的區塊
+func sectionOfTab(l []model.CabinetSection, path string) *model.CabinetSection {
+	for i := range l {
+		for _, t := range l[i].Tabs {
+			if t.Path == path {
+				return &l[i]
+			}
+		}
+	}
+	return nil
+}
+
+// checkTabNames 頁籤代號在整個文件櫃不能重複(文件與角色權限都用代號找頁籤),名稱在同一個區塊裡不能重複;
+// self 是正在改的頁籤網址(新增時是 "")
+func checkTabNames(l []model.CabinetSection, sec *model.CabinetSection, self, label string, code *string) error {
+	for _, s := range l {
+		for _, t := range s.Tabs {
+			if t.Path == self {
+				continue
+			}
+			if code != nil && t.Code != nil && *t.Code == *code {
+				return Errorf("頁籤代號「%s」已經用在「%s › %s」", *code, s.Label, t.Title())
+			}
+			if s.ID == sec.ID && t.Label == label {
+				return Errorf("「%s」已經有頁籤「%s」", sec.Label, label)
+			}
+		}
+	}
+	return nil
+}
+
+// applyLayoutOps cabinet_layout_save 的參數套用到結構上(依序:add_sections、add_tabs、update、remove)。
+// 只改記憶體裡的副本;檢查(名稱不空、id 不重複、移除的位置沒有文件)最後由 service 的 SaveCabinetLayout 做。
+// added 是這次新增的區塊與頁籤(含自動編的 id),讓呼叫端接著用
+func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.CabinetSection, []any, error) {
+	list := func(key string) ([]map[string]any, error) {
+		v, ok := raw[key]
+		if !ok || v == nil {
+			return nil, nil
+		}
+		o, ok := objects(v)
+		if !ok {
+			return nil, Errorf("%s 要是物件陣列", key)
+		}
+		return o, nil
+	}
+	addSecs, err := list("add_sections")
+	if err != nil {
+		return nil, nil, err
+	}
+	addTabs, err := list("add_tabs")
+	if err != nil {
+		return nil, nil, err
+	}
+	updates, err := list("update")
+	if err != nil {
+		return nil, nil, err
+	}
+	removes, hasRemove := Args{Raw: raw}.Strings("remove")
+	if _, ok := raw["remove"]; ok && !hasRemove {
+		return nil, nil, Errorf("remove 要是字串陣列")
+	}
+	if len(addSecs) == 0 && len(addTabs) == 0 && len(updates) == 0 && len(removes) == 0 {
+		return nil, nil, ToolError{Message: "要給 add_sections、add_tabs、update 或 remove"}
+	}
+	added := []any{}
+	optStr := func(a Args, k string) *string {
+		if v, ok := a.Raw[k].(string); ok {
+			v = strings.TrimSpace(v)
+			return &v
+		}
+		return nil
+	}
+	nilIfEmpty := func(p *string) *string {
+		if p == nil || *p == "" {
+			return nil
+		}
+		return p
+	}
+	usedTab := func(path string) bool { return model.Layout(l).TabByPath(path) != nil }
+
+	for _, x := range addSecs {
+		a := Args{Raw: x}
+		label := strings.TrimSpace(a.Str("label"))
+		if label == "" {
+			return nil, nil, ToolError{Message: "add_sections 每個都要有 label"}
+		}
+		if model.Layout(l).Section(label) != nil {
+			return nil, nil, Errorf("已經有區塊「%s」", label)
+		}
+		id := strings.TrimSpace(a.Str("id"))
+		if id == "" {
+			n := len(l) + 1
+			for model.Layout(l).Section(fmt.Sprintf("s%d", n)) != nil {
+				n++
+			}
+			id = fmt.Sprintf("s%d", n)
+		} else if model.Layout(l).Section(id) != nil {
+			return nil, nil, Errorf("區塊 id 重複:%s", id)
+		}
+		l = append(l, model.CabinetSection{ID: id, Label: label, Tabs: []model.CabinetTab{}})
+		added = append(added, map[string]any{"section": id, "label": label})
+	}
+
+	for _, x := range addTabs {
+		a := Args{Raw: x}
+		secKey, label := strings.TrimSpace(a.Str("section")), strings.TrimSpace(a.Str("label"))
+		if secKey == "" || label == "" {
+			return nil, nil, ToolError{Message: "add_tabs 每個都要有 section 與 label"}
+		}
+		sec := model.Layout(l).Section(secKey)
+		if sec == nil {
+			return nil, nil, Errorf("找不到區塊「%s」", secKey)
+		}
+		code := nilIfEmpty(optStr(a, "code"))
+		if err := checkTabNames(l, sec, "", label, code); err != nil {
+			return nil, nil, err
+		}
+		path := strings.TrimSpace(a.Str("path"))
+		if path == "" {
+			n := len(sec.Tabs) + 1
+			for usedTab(fmt.Sprintf("/%s/%d", sec.ID, n)) {
+				n++
+			}
+			path = fmt.Sprintf("/%s/%d", sec.ID, n)
+		} else {
+			if !strings.HasPrefix(path, "/") {
+				path = "/" + path
+			}
+			if usedTab(path) {
+				return nil, nil, Errorf("頁籤 id 重複:%s", path)
+			}
+		}
+		t := model.CabinetTab{Path: path, Label: label, Code: code, Group: nilIfEmpty(optStr(a, "group"))}
+		sec.Tabs = append(sec.Tabs, t)
+		added = append(added, map[string]any{"section": sec.ID, "tab": path, "label": t.Title()})
+	}
+
+	for _, x := range updates {
+		a := Args{Raw: x}
+		label := optStr(a, "label")
+		if label != nil && *label == "" {
+			return nil, nil, ToolError{Message: "update 的 label 不能是空的"}
+		}
+		if tk := strings.TrimSpace(a.Str("tab")); tk != "" {
+			t, _, err := findTab(l, strings.TrimSpace(a.Str("section")), tk)
+			if err != nil {
+				return nil, nil, err
+			}
+			newLabel, newCode := t.Label, t.Code
+			if label != nil {
+				newLabel = *label
+			}
+			if v := optStr(a, "code"); v != nil {
+				newCode = nilIfEmpty(v)
+			}
+			if err := checkTabNames(l, sectionOfTab(l, t.Path), t.Path, newLabel, newCode); err != nil {
+				return nil, nil, err
+			}
+			t.Label, t.Code = newLabel, newCode
+			if v := optStr(a, "group"); v != nil {
+				t.Group = nilIfEmpty(v)
+			}
+			continue
+		}
+		sk := strings.TrimSpace(a.Str("section"))
+		if sk == "" {
+			return nil, nil, ToolError{Message: "update 每個都要有 section 或 tab"}
+		}
+		sec := model.Layout(l).Section(sk)
+		if sec == nil {
+			return nil, nil, Errorf("找不到區塊「%s」", sk)
+		}
+		if label != nil {
+			if o := model.Layout(l).Section(*label); o != nil && o.ID != sec.ID {
+				return nil, nil, Errorf("已經有區塊「%s」", *label)
+			}
+			sec.Label = *label
+		}
+	}
+
+	for _, k := range removes {
+		k = strings.TrimSpace(k)
+		if sec := model.Layout(l).Section(k); sec != nil {
+			// 給的是區塊名稱、又剛好是某個頁籤的名稱或代號:不猜,拿錯會連同頁籤整個區塊不見
+			if k != sec.ID {
+				if t, none, _ := findTab(l, "", k); !none {
+					where := k
+					if t != nil {
+						where = t.Path
+					}
+					return nil, nil, Errorf("「%s」同時是區塊和頁籤(%s)的名稱:區塊用 id「%s」,頁籤用網址指定", k, where, sec.ID)
+				}
+			}
+			id := sec.ID
+			kept := l[:0:0]
+			for _, s := range l {
+				if s.ID != id {
+					kept = append(kept, s)
+				}
+			}
+			l = kept
+			continue
+		}
+		t, none, err := findTab(l, "", k)
+		if err != nil {
+			if none {
+				return nil, nil, Errorf("找不到要移除的區塊或頁籤「%s」", k)
+			}
+			return nil, nil, err
+		}
+		path := t.Path
+		for i := range l {
+			tabs := []model.CabinetTab{}
+			for _, x := range l[i].Tabs {
+				if x.Path != path {
+					tabs = append(tabs, x)
+				}
+			}
+			l[i].Tabs = tabs
+		}
+	}
+	return l, added, nil
 }
 
 // docFullLimit 只給 id 時回全文的上限(字);超過只回大綱與開頭

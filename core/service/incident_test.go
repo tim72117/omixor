@@ -85,8 +85,8 @@ func TestIncidentDeclareAndUpdate(t *testing.T) {
 // 伺服器管理員(app、web 內建核心)可以指定執行者與初始時間軸
 func TestIncidentServerAdminActor(t *testing.T) {
 	svc, st, _, _, _ := chainEnv(t)
-	_ = st.SaveUser(model.User{ID: "root", Email: "ops-web", Role: "admin"})
-	root := &model.Principal{User: model.User{ID: "root", Email: "ops-web", Role: "admin"}}
+	_ = st.SaveUser(model.User{ID: "root", Email: "omixor-console", Role: "admin"})
+	root := &model.Principal{User: model.User{ID: "root", Email: "omixor-console", Role: "admin"}}
 	inc, err := svc.DeclareIncident(root, "o1", service.IncidentInput{Title: "x", Sev: 1, Author: "tim", Commander: "tim", CommanderName: "蔡庭宇"})
 	if err != nil || inc.Timeline[0].Actor != model.PersonActor("tim") || inc.Timeline[0].Text != "宣告 SEV1 事件,指揮官:蔡庭宇" {
 		t.Fatalf("%+v %v", inc, err)

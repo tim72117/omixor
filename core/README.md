@@ -16,9 +16,9 @@ omixor 的核心後端模組(Go)。目前有:
 
 - **核心**(本模組):授權、組織、Issue 等後端模組。
 - **web**(`omixor-web`):自己做網頁與介面,編譯時引入核心。啟動時二選一:
-  - 內建:`OPS_DATABASE_URL` 連 PostgreSQL,核心在同一個程式裡跑
+  - 內建:`OMIXOR_DATABASE_URL` 連 PostgreSQL,核心在同一個程式裡跑
   - 遠端:`OMIXOR_SERVER` 指向線上 omixor server,授權、組織、Issue 都交給它
-- **app**(`ops`,Swift):介面殼層與資料快取,重要資料從 omixor server 取得。
+- **mac**(macOS App,Swift):介面殼層與資料快取,重要資料從 omixor server 取得。
 
 ## 選用模組
 
@@ -81,6 +81,7 @@ API:
 - `POST /api/orgs/{org}/docs/{id}/read`:分段讀(像讀真實檔案,省 agent 的上下文):`{outline}` 大綱(各段 id、標題、行號範圍、字數)、`{section}` 讀一段(id 或標題)、`{from, to}` 讀行號範圍、`{grep, context}` 搜尋;都會回 `version`(內文雜湊)
 - `POST /api/orgs/{org}/docs/{id}/edit`:局部修改(三種擇一):`{edits: [{old, new, all?}]}` 字串取代(old 必須唯一,任何一個失敗都不改)、`{replaceSection, content}` 整段替換(保留標題)、`{appendToSection, content}` 接在段尾(content 自帶標題就是插入新段落);帶 `baseVersion` 時版本不符:字串取代在最新內文上再套一次,其他回 409。只回改到的那幾行與新版本。權限、範本必填欄位同一般修改。段落規則見 `model/docsections.go`
 - MCP:`docs` 給 id 時可帶 `outline`、`part`、`from`/`to`、`grep`/`context`、`full`(超過 6000 字的文件只給 id 時只回大綱與開頭);`doc_save` 可帶 `edits`、`replace_part`、`append_to_part` + `content`、`base_version`
+- MCP:`cabinet_layout_save`(管理端點,組織管理員)改文件櫃結構:`add_sections`([{label, id?}],id 自動編 s<n>)、`add_tabs`([{section, label, code?, group?, path?}],path 自動編 /<區塊 id>/<n>)、`update`(改名)、`remove`;一次存檔,移除的位置還有文件就整批拒絕
 
 ## 組織鏈
 

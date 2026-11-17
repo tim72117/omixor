@@ -27,19 +27,19 @@ bin/
 # server/scripts/build-local.sh 交叉編譯的 omixor-local
 server/dist/
 # go build ./cmd/omixor 在 web/ 底下產生的執行檔
-web/omixor
+console/omixor
 *.test
 *.out
 coverage.*
 
-# ===== Node / Vite(web/ui)=====
+# ===== Node / Vite(console/ui)=====
 node_modules/
 *.tsbuildinfo
 npm-debug.log*
 .vite/
 # 建置出來的畫面:不進版控,只留空檔讓 go:embed 編得過(make build 會先 npm run build)
-web/ui/dist/*
-!web/ui/dist/.keep
+console/ui/dist/*
+!console/ui/dist/.keep
 
 # ===== 機密與本機設定 =====
 .env
@@ -51,8 +51,8 @@ web/ui/dist/*
 *.mobileprovision
 *.keychain*
 # 匯入用的掛載點(docker compose),只留空資料夾
-web/.import-empty/*
-!web/.import-empty/.keep
+console/.import-empty/*
+!console/.import-empty/.keep
 
 # ===== 執行時的暫存與紀錄(資料本身在 ~/Library/Application Support,不在專案裡)=====
 *.log
