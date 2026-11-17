@@ -69,11 +69,8 @@ enum OmixorMode {
             if v.hasPrefix("[") { raw += parse(Data(v.utf8)) } else if let d = try? Data(contentsOf: URL(fileURLWithPath: v)) { raw += parse(d) }
         }
         if let d = try? Data(contentsOf: OrgFiles.root.appendingPathComponent("servers.json")) { raw += parse(d) }
-        for k in ["OMIXOR_SERVER", "OPS_ISSUE_SERVER"] {
-            if let v = env[k]?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty {
-                raw.append(Entry(id: "default", url: v))
-                break
-            }
+        if let v = OmixorEnv.get("OMIXOR_SERVER", legacy: "OPS_ISSUE_SERVER", environment: env)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty {
+            raw.append(Entry(id: "default", url: v))
         }
         var out: [Server] = []
         var seenId = Set<String>(), seenURL = Set<String>()

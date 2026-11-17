@@ -51,8 +51,8 @@ enum Shell {
 
     private static func runSync(_ args: [String], cwd: URL, timeout: TimeInterval) -> Result {
         let tmp = FileManager.default.temporaryDirectory
-        let outURL = tmp.appendingPathComponent("ops-\(UUID().uuidString).out")
-        let errURL = tmp.appendingPathComponent("ops-\(UUID().uuidString).err")
+        let outURL = tmp.appendingPathComponent("omixor-\(UUID().uuidString).out")
+        let errURL = tmp.appendingPathComponent("omixor-\(UUID().uuidString).err")
         FileManager.default.createFile(atPath: outURL.path, contents: nil)
         FileManager.default.createFile(atPath: errURL.path, contents: nil)
         defer {

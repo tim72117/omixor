@@ -491,7 +491,7 @@ final class ChannelStore {
     }
 
     /// Issue 的對話頻道:已有(看得到的)就回傳,沒有就建立(名稱用 Issue 標題,成員含自己與指派的角色)
-    func openForIssue(_ issue: OpsIssue) throws -> ChannelSummary {
+    func openForIssue(_ issue: Issue) throws -> ChannelSummary {
         if let found = (try? list(issue: issue.id))?.first { return found }
         var members: [String] = []
         if let a = issue.assignedAgent { members.append(ChainNode.agent(a)) }

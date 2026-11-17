@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 假的 omixor server(core)的 /api/orgs/<組織>/channels:只回固定的資料、記下請求,用來檢查 app 送出的路徑、參數與解碼。
 /// 規則本身由伺服器強制,這裡不重做。
@@ -111,10 +111,10 @@ final class ChannelRemoteTests: XCTestCase {
     let org = "~omixor"
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-channels-remote-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-channels-remote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
         IssueRemote.protocolClasses = [FakeChannelServer.self]
         IssueServerConfig.testOverride = IssueServerConfig(url: URL(string: "http://127.0.0.1:5997")!, token: "tok-1")
         FakeChannelServer.reset()
@@ -123,7 +123,7 @@ final class ChannelRemoteTests: XCTestCase {
     override func tearDown() async throws {
         IssueServerConfig.testOverride = nil
         IssueRemote.protocolClasses = []
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

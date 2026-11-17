@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// GCP:用 StubProtocol 假裝 run / logging / monitoring.googleapis.com
 @MainActor
@@ -10,10 +10,10 @@ final class GCPTests: XCTestCase {
     private var nextId = 0
 
     override func setUp() async throws {
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-gcp-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-gcp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
         ConnHTTP.protocolClasses = [StubProtocol.self]
         StubProtocol.log = []
@@ -27,7 +27,7 @@ final class GCPTests: XCTestCase {
         for c in app.connections { TokenVault.removeAll(c.id) }
         ConnHTTP.protocolClasses = []
         StubProtocol.handler = nil
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

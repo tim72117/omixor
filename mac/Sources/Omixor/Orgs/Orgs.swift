@@ -2,7 +2,9 @@ import Foundation
 import AppKit
 
 // 組織:每個組織有自己的工作空間(Issue、虛擬角色與任務、文件櫃與其結構、連線、追蹤的 GitHub repo、GCP 專案)。
-// 資料放在 <資料夾>/orgs/<組織 id>/;<資料夾> 是 ~/Library/Application Support/Ops(OPS_DATA_DIR 可改)。
+// 資料放在 <資料夾>/orgs/<組織 id>/;<資料夾> 是 ~/Library/Application Support/Ops(OMIXOR_APP_DATA_DIR 可改,舊名稱 OPS_DATA_DIR 暫時仍可用)。
+// 資料夾名稱 Ops 是產品改名前留下的,刻意不改:改了要搬資料,也要和 bundle id(com.tim72117.ops,見 scripts/build-app.sh)、
+// defaults domain、鑰匙圈存取權一起處理,風險高。環境變數不用 OMIXOR_DATA_DIR,那是 server 端(core)的資料夾設定,兩者不要混用。
 // 第一次啟動時,舊版直接放在 <資料夾> 的 issues.json 等檔案會複製到預設組織(原檔保留不動)。
 // 旁白批次(voice-jobs.json)是全部組織共用的。
 // 畫面上的範例資料與動態牆分組織(OrgMock.swift):預設組織用範例資料,其他組織從空的開始。
@@ -40,15 +42,15 @@ enum OrgFiles {
     static let defaultId = "default"
     static let perOrgFiles = ["issues.json", "cabinet.json", "cabinet-layout.json", "connections.json", "github.json", "gcp.json"]
 
-    /// 跑測試卻沒指定 OPS_DATA_DIR 時用的暫存資料夾:測試絕對不能碰到真正的資料
+    /// 跑測試卻沒指定 OMIXOR_APP_DATA_DIR 時用的暫存資料夾:測試絕對不能碰到真正的資料
     private static let testFallback = FileManager.default.temporaryDirectory
-        .appendingPathComponent("ops-test-data-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+        .appendingPathComponent("omixor-test-data-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
 
     static var root: URL {
         let isTesting = NSClassFromString("XCTestCase") != nil
-        let dir = ProcessInfo.processInfo.environment["OPS_DATA_DIR"].map { URL(fileURLWithPath: $0) }
+        let dir = OmixorEnv.get("OMIXOR_APP_DATA_DIR", legacy: "OPS_DATA_DIR").map { URL(fileURLWithPath: $0) }
             ?? (isTesting ? testFallback : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Ops", isDirectory: true))
+                .appendingPathComponent("Ops", isDirectory: true))  // 刻意保留舊名稱(見檔頭說明)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

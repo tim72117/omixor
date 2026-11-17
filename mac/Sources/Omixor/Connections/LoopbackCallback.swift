@@ -5,7 +5,7 @@ import Network
 /// OAuth 用 state 比對、evoleap 的瀏覽器核准用 id 比對;回呼帶 error 時直接回報錯誤。
 final class LoopbackCallback: @unchecked Sendable {
     private let listener: NWListener
-    private let queue = DispatchQueue(label: "ops.connection.callback")
+    private let queue = DispatchQueue(label: "omixor.connection.callback")
     private var continuation: CheckedContinuation<String, Error>?
     private var received: Result<String, Error>?
     private var startResumed = false

@@ -1,7 +1,7 @@
 import Foundation
 
 // GitHub:用「GitHub」連線(網頁 OAuth,也可以改貼個人存取權杖)讀追蹤中 repo 的 PR、檢查與 Actions。
-// 只讀不寫:Ops 不會開 PR、留言、重跑 workflow。
+// 只讀不寫:omixor 不會開 PR、留言、重跑 workflow。
 // 追蹤哪些 repo 是組織的設定,存在 core server(IntegrationRemote.swift;成員讀、組織管理員改)。
 // 這台的 github.json 只再寫用哪一個連線(connection;token 在鑰匙圈);檔案裡原本的 repos 保留不刪,
 // 核心還沒存過時第一次連上會把它匯入(要組織管理員)。讀 PR 與 Actions 仍在這台用鑰匙圈的 token 直接打 GitHub。

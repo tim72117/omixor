@@ -200,7 +200,7 @@ enum FBGraph {
 
     static func postMultipart(_ version: String, _ path: String, token: String, fields: [String: String],
                               file: (name: String, filename: String, mime: String, data: Data)) async throws -> [String: Any] {
-        let boundary = "ops-\(UUID().uuidString)"
+        let boundary = "omixor-\(UUID().uuidString)"
         var body = Data()
         for (k, v) in fields.sorted(by: { $0.key < $1.key }) {
             body += Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(k)\"\r\n\r\n\(v)\r\n".utf8)

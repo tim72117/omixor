@@ -23,15 +23,15 @@ final class MCPServer: @unchecked Sendable {
     static let defaultPort: UInt16 = 3765
     static let maxBody = 4 << 20
 
-    /// 連接埠:環境變數 OPS_MCP_PORT 優先,其次是 UserDefaults 的 mcp.port
+    /// 連接埠:環境變數 OMIXOR_MCP_PORT(舊名稱 OPS_MCP_PORT)優先,其次是 UserDefaults 的 mcp.port
     static var configuredPort: UInt16 {
-        if let s = ProcessInfo.processInfo.environment["OPS_MCP_PORT"], let p = UInt16(s) { return p }
+        if let s = OmixorEnv.get("OMIXOR_MCP_PORT", legacy: "OPS_MCP_PORT"), let p = UInt16(s) { return p }
         let p = UserDefaults.standard.integer(forKey: "mcp.port")
         return p > 0 && p < 65536 ? UInt16(p) : defaultPort
     }
 
     private let port: UInt16
-    private let queue = DispatchQueue(label: "ops.mcp.server")
+    private let queue = DispatchQueue(label: "omixor.mcp.server")
     private var listener: NWListener?
     private let handle: @Sendable (Data) async -> Data?
     /// 外部 MCP 閘道的角色端點 /mcp/gateway(body, Authorization 標頭)→ (HTTP 狀態, 內容);nil = 不開這個端點

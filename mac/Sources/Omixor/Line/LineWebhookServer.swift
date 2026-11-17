@@ -8,7 +8,7 @@ final class LineWebhookServer: @unchecked Sendable {
     static let maxBody = 1 << 20
 
     private let port: UInt16
-    private let queue = DispatchQueue(label: "ops.line.webhook")
+    private let queue = DispatchQueue(label: "omixor.line.webhook")
     private var listener: NWListener?
     private let handle: @Sendable (HTTPRequest) async -> HTTPResponse
     private let onState: @Sendable (LineStatus.ServerState) -> Void

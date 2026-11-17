@@ -332,7 +332,7 @@ struct SettingsAIGovernancePane: View {
     private func exportAudit(_ items: [ActivityItem]) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "ops-ai-audit-\(Date().formatted(.iso8601.year().month().day())).csv"
+        panel.nameFieldStringValue = "omixor-ai-audit-\(Date().formatted(.iso8601.year().month().day())).csv"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         func esc(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
         var lines = ["時間,執行者,類型,內容,區塊"]

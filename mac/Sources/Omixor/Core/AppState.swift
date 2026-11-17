@@ -232,7 +232,7 @@ final class AppState: ObservableObject {
     func startCabinet() { Cabinet.load(self) }
 
     /// Issue(Issues/Issues.swift):真實資料,存在 core(目前連線的 core server;本機模式是本機守護服務)
-    @Published var issues: [OpsIssue] = []
+    @Published var issues: [Issue] = []
     private(set) var issueStore: IssueStore?
 
     /// 開啟 Issue 功能(畫面與 MCP 第一次用到時呼叫;重複呼叫不會重新讀檔)

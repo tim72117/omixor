@@ -71,7 +71,7 @@ struct DevBoardTab: View {
     private struct LoadKey: Equatable {
         var q: IssueQuery
         var org: String
-        var issues: [OpsIssue]
+        var issues: [Issue]
     }
     private var issueQuery: IssueQuery { DevBoardTab.query(q: query, priority: priority, label: label, repo: repoFilter) }
 
@@ -271,7 +271,7 @@ struct DevBoardTab: View {
     }
 
     /// 改狀態:走和 Issue 分頁同一條路(IssueStore.update → core API),動態牆由 store 記
-    private func setStatus(_ issue: OpsIssue, _ s: IssueStatus) {
+    private func setStatus(_ issue: Issue, _ s: IssueStatus) {
         guard issue.status != s else { return }
         notice = nil
         withAnimation(.snappy) {
@@ -332,7 +332,7 @@ private struct BoardDropDelegate: DropDelegate {
 private struct IssueBoardCard: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var model: DevModel
-    let issue: OpsIssue
+    let issue: Issue
     let onStatus: (IssueStatus) -> Void
     /// 開始拖曳(看板記下拖曳中的 id,判斷每一欄能不能放)
     let onDragStart: () -> Void

@@ -1,6 +1,6 @@
 import Foundation
 
-// 連線:Ops 要呼叫的外部服務(網址 + 認證方式)。設定存在 Application Support/Ops/connections.json,
+// 連線:omixor 要呼叫的外部服務(網址 + 認證方式)。設定存在 Application Support/Ops/connections.json,
 // 密碼類的東西(token、client secret)存在鑰匙圈(TokenVault),不寫進設定檔。
 
 enum AuthKind: String, Codable, CaseIterable, Identifiable {

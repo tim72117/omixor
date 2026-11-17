@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 假的 omixor server 管理用 MCP(/mcp/org/<組織>):tools/list 回兩個核心工具,tools/call 回呼叫的名稱與參數
 final class FakeServerMCP: URLProtocol {
@@ -53,10 +53,10 @@ final class MCPProxyTests: XCTestCase {
     var dataDir: URL!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-mcp-proxy-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-mcp-proxy-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
         IssueRemote.protocolClasses = [FakeServerMCP.self]
         IssueServerConfig.testOverride = IssueServerConfig(url: URL(string: "http://127.0.0.1:5998")!, token: "tok-9")
         FakeServerMCP.calls = []
@@ -66,7 +66,7 @@ final class MCPProxyTests: XCTestCase {
     override func tearDown() async throws {
         IssueServerConfig.testOverride = nil
         IssueRemote.protocolClasses = []
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

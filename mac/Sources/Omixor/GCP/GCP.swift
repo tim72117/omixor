@@ -1,7 +1,7 @@
 import Foundation
 
 // GCP:用「Google Cloud」連線(Google 網頁 OAuth,cloud-platform.read-only)讀 Cloud Run 服務、版本、Job 執行、
-// Cloud Logging 的錯誤與 Cloud Monitoring 的請求量與延遲。只讀:Ops 不會部署、改流量、執行 Job。
+// Cloud Logging 的錯誤與 Cloud Monitoring 的請求量與延遲。只讀:omixor 不會部署、改流量、執行 Job。
 // 專案、區域、追蹤哪些服務與 Job 存在目前組織的 gcp.json。
 
 struct GCPSettings: Codable, Equatable {

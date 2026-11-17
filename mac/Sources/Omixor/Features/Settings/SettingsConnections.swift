@@ -1,6 +1,6 @@
 import SwiftUI
 
-// 設定 › 連線:Ops 要呼叫的外部服務。每個連線 = 網址 + 一種通用的認證方式(OAuth / 瀏覽器核准 / Token / 不用)。
+// 設定 › 連線:omixor 要呼叫的外部服務。每個連線 = 網址 + 一種通用的認證方式(OAuth / 瀏覽器核准 / Token / 不用)。
 
 struct SettingsConnectionsPane: View {
     @EnvironmentObject var app: AppState

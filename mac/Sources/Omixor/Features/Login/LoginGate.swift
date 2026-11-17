@@ -3,7 +3,7 @@ import SwiftUI
 // 啟動時選擇連接對象(同 Go 版 console/ui/src/auth/ConnectGate.tsx):有設定遠端 omixor 時(OmixorMode.servers),
 // 這次執行第一次打開畫面先選「本機」或某個遠端(遠端再選授權方式,例如 evoleap,開瀏覽器核准);選好才進主畫面。
 // 沒有設定遠端就不會出現,直接用本機。左下角的帳號選單(RootView 的 AccountFooter)之後隨時可以切換,「登出」後也會回到這裡。
-// 只擋畫面;MCP 伺服器等背景服務照常啟動。OPS_SKIP_LOGIN=1 時不顯示(開發、比對用),照資料夾裡記的模式。
+// 只擋畫面;MCP 伺服器等背景服務照常啟動。OMIXOR_SKIP_LOGIN=1(舊名稱 OPS_SKIP_LOGIN)時不顯示(開發、比對用),照資料夾裡記的模式。
 
 struct LoginGate<Content: View>: View {
     @EnvironmentObject var app: AppState
@@ -27,7 +27,7 @@ struct LoginGate<Content: View>: View {
         .task {
             OmixorAuth.migrateLegacyToken()
             app.startRemoteRefresh()
-            if ProcessInfo.processInfo.environment["OPS_SKIP_LOGIN"] == "1" || OmixorMode.servers.isEmpty {
+            if OmixorEnv.get("OMIXOR_SKIP_LOGIN", legacy: "OPS_SKIP_LOGIN") == "1" || OmixorMode.servers.isEmpty {
                 if !OmixorMode.isRemote { app.omixorLogin = .skipped }
                 app.connectChosen = true
             }

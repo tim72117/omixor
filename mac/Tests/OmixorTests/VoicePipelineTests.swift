@@ -1,8 +1,8 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 用假的 shuttle 專案(scripts/voice.mjs 模擬 --batch / --collect 的輸出與檔案)跑完整流程,
-/// 不呼叫 Gemini、不上傳 GCS、不碰真正的 shuttle 與 Ops 資料。
+/// 不呼叫 Gemini、不上傳 GCS、不碰真正的 shuttle 與 omixor 資料。
 @MainActor
 final class VoicePipelineTests: XCTestCase {
     private var root: URL!
@@ -11,19 +11,19 @@ final class VoicePipelineTests: XCTestCase {
     private var apps: [AppState] = []
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        let base = FileManager.default.temporaryDirectory.appendingPathComponent("ops-voice-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-voice-\(UUID().uuidString)")
         root = base.appendingPathComponent("shuttle")
         dataDir = base.appendingPathComponent("data")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         try makeFakeShuttle()
-        setenv("OPS_SHUTTLE_PATH", root.path, 1)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_SHUTTLE_PATH", root.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
     }
 
     override func tearDown() async throws {
-        unsetenv("OPS_SHUTTLE_PATH")
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_SHUTTLE_PATH")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: root.deletingLastPathComponent())
     }
 

@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 // 測試用的 core server:App 的 Issue、角色與任務、組織鏈、頻道、文件櫃一律透過 core server(本機模式是本機守護服務),
 // 所以原本測「本機模式」的測試改成連一個真的 omixor-local(Go,server/cmd/omixor-local),資料夾是暫存的。

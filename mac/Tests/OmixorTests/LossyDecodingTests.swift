@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 // 寬鬆解碼(Core/LossyDecoding.swift):core(Go)送來 null 陣列、不認得的列舉、列表裡有一筆壞掉時,App 照樣讀得出其他資料。
 
@@ -33,7 +33,7 @@ final class LossyDecodingTests: XCTestCase {
     var remote: IssueRemote!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         LossyFakeServer.routes = [:]
         IssueRemote.protocolClasses = [LossyFakeServer.self]
         remote = IssueRemote(config: IssueServerConfig(url: URL(string: "http://127.0.0.1:5997")!, token: "tok-lossy"), scope: "lossy")
@@ -62,7 +62,7 @@ final class LossyDecodingTests: XCTestCase {
     // MARK: Issue
 
     func testIssueNullArraysAndUnknownEnums() throws {
-        let i = try decode(OpsIssue.self, #"""
+        let i = try decode(Issue.self, #"""
         {"id":"ISS-5","title":"t","labels":null,"comments":null,"status":"wontfix","priority":"p0",
          "createdAt":"2026-11-01T08:30:00Z"}
         """#)
@@ -78,7 +78,7 @@ final class LossyDecodingTests: XCTestCase {
 
         // 認得的值照讀;留言 id 缺時用固定的 UUID(重讀一樣)
         let j = #"{"id":"ISS-6","status":"closed","priority":"urgent","comments":[{"author":"a","text":"hi","at":"2026-11-01T08:30:00Z"},{"bad":true}]}"#
-        let a = try decode(OpsIssue.self, j), b = try decode(OpsIssue.self, j)
+        let a = try decode(Issue.self, j), b = try decode(Issue.self, j)
         XCTAssertEqual(a.status, .closed)
         XCTAssertEqual(a.priority, .urgent)
         XCTAssertEqual(a.comments.map(\.text), ["hi", ""])
@@ -86,7 +86,7 @@ final class LossyDecodingTests: XCTestCase {
     }
 
     func testIssueMissingIdThrows() {
-        XCTAssertThrowsError(try decode(OpsIssue.self, #"{"title":"沒有 id"}"#))
+        XCTAssertThrowsError(try decode(Issue.self, #"{"title":"沒有 id"}"#))
     }
 
     func testIssueListSkipsBrokenOne() throws {

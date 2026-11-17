@@ -1,6 +1,6 @@
 import AppKit
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// Issue 的倉庫標記(repo)與文件櫃的圖表區塊(wireframe / flowchart),對齊 core 的 model.CleanRepo、RepoMatch 與 core/tools 的渲染器
 @MainActor
@@ -8,14 +8,14 @@ final class IssueRepoDiagramTests: XCTestCase {
     var dataDir: URL!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-repo-diagram-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-repo-diagram-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
     }
 
     override func tearDown() async throws {
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 
@@ -47,12 +47,12 @@ final class IssueRepoDiagramTests: XCTestCase {
         XCTAssertFalse(IssueRepo.matches("github:", "gitlab:"), "拿掉前綴是空的不算")
         XCTAssertFalse(IssueRepo.matches("", "tim/x"))
 
-        let a = OpsIssue(id: "ISS-1", title: "a", repo: "tim/x", createdBy: "tim")
-        let b = OpsIssue(id: "ISS-2", title: "b", createdBy: "tim")
+        let a = Issue(id: "ISS-1", title: "a", repo: "tim/x", createdBy: "tim")
+        let b = Issue(id: "ISS-2", title: "b", createdBy: "tim")
         XCTAssertEqual(IssueRepo.filter([a, b], nil).count, 2)
         XCTAssertEqual(IssueRepo.filter([a, b], " ").count, 2, "空白 = 不篩")
         XCTAssertEqual(IssueRepo.filter([a, b], "github:TIM/x").map(\.id), ["ISS-1"])
-        XCTAssertEqual(IssueRepoOptions.used([a, b, OpsIssue(id: "ISS-3", title: "c", repo: "TIM/X", createdBy: "tim")]), ["tim/x"],
+        XCTAssertEqual(IssueRepoOptions.used([a, b, Issue(id: "ISS-3", title: "c", repo: "TIM/X", createdBy: "tim")]), ["tim/x"],
                        "用過的倉庫去重(不分大小寫)")
         XCTAssertNotEqual(IssueRepo.clean(IssueRepoOptions.none), IssueRepoOptions.none, "「未標記」的篩選值不會和存起來的倉庫撞到")
     }

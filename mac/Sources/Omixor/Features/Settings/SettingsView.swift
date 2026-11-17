@@ -3,7 +3,8 @@ import SwiftUI
 
 // 設定:組織、整合、程式碼倉庫、連線、LINE、團隊與值班、AI 治理、通知、一般。
 // 其他頁用 app.go(.settings, focus: <分頁 rawValue>) 跳到指定分頁,例如開發進度的「前往 設定 › 程式碼倉庫」帶 "repos"。
-// 不在 AppState 裡的偏好設定存在 UserDefaults(@AppStorage),鍵名都以 ops.settings. 開頭。
+// 不在 AppState 裡的偏好設定存在 UserDefaults(@AppStorage),鍵名都以 omixor.settings. 開頭
+// (改名前是 ops.settings.,啟動時由 SettingsKeys.migrateLegacy 搬到新鍵)。
 
 enum SettingsPane: String, CaseIterable, Identifiable {
     case orgs, features, integrations, repos, connections, line, team, ai, notifications, general
@@ -46,20 +47,41 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 enum SettingsKeys {
-    static let pane = "ops.settings.pane"
-    static let theme = "ops.settings.theme"
-    static let refresh = "ops.settings.refreshSeconds"
-    static let pauseInBackground = "ops.settings.pauseInBackground"
-    static let timezone = "ops.settings.timezone"
-    static let use24h = "ops.settings.use24h"
-    static let aiEnabled = "ops.settings.ai.enabled"
-    static let aiBudget = "ops.settings.ai.budgetUSD"
-    static let aiBudgetAlert = "ops.settings.ai.budgetAlert"
-    static let aiOverBudget = "ops.settings.ai.overBudget"
-    static let aiTwoPerson = "ops.settings.ai.twoPersonHighRisk"
-    static let aiRequireRollback = "ops.settings.ai.requireRollback"
-    static let aiApprovalTimeout = "ops.settings.ai.approvalTimeout"
-    static func aiCeiling(_ env: DeployEnv) -> String { "ops.settings.ai.ceiling.\(env.rawValue)" }
+    static let pane = "omixor.settings.pane"
+    static let theme = "omixor.settings.theme"
+    static let refresh = "omixor.settings.refreshSeconds"
+    static let pauseInBackground = "omixor.settings.pauseInBackground"
+    static let timezone = "omixor.settings.timezone"
+    static let use24h = "omixor.settings.use24h"
+    static let aiEnabled = "omixor.settings.ai.enabled"
+    static let aiBudget = "omixor.settings.ai.budgetUSD"
+    static let aiBudgetAlert = "omixor.settings.ai.budgetAlert"
+    static let aiOverBudget = "omixor.settings.ai.overBudget"
+    static let aiTwoPerson = "omixor.settings.ai.twoPersonHighRisk"
+    static let aiRequireRollback = "omixor.settings.ai.requireRollback"
+    static let aiApprovalTimeout = "omixor.settings.ai.approvalTimeout"
+    static func aiCeiling(_ env: DeployEnv) -> String { "omixor.settings.ai.ceiling.\(env.rawValue)" }
+
+    static let prefix = "omixor.settings."
+    /// 改名前的鍵名前綴
+    static let legacyPrefix = "ops.settings."
+
+    /// 啟動時把改名前的 ops.settings.* 搬到 omixor.settings.*:新鍵不存在才搬,搬完刪掉舊鍵
+    /// (不刪的話「還原預設」清掉新鍵後,下次啟動又會把舊值搬回來)。回傳搬了幾個
+    @discardableResult
+    static func migrateLegacy(_ defaults: UserDefaults = .standard) -> Int {
+        var moved = 0
+        for (key, value) in defaults.dictionaryRepresentation() where key.hasPrefix(legacyPrefix) {
+            let newKey = prefix + key.dropFirst(legacyPrefix.count)
+            if defaults.object(forKey: newKey) == nil {
+                defaults.set(value, forKey: newKey)
+                moved += 1
+            }
+            defaults.removeObject(forKey: key)
+        }
+        if moved > 0 { NSLog("設定:%d 個 %@* 搬到 %@*", moved, legacyPrefix, prefix) }
+        return moved
+    }
 
     /// 「還原預設」時要清掉的鍵
     static var all: [String] {

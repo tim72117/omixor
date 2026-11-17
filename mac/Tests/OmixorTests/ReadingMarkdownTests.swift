@@ -1,8 +1,8 @@
 import XCTest
 import SwiftUI
-@testable import Ops
+@testable import Omixor
 
-/// 文件櫃的閱讀版 Markdown:解析各種區塊;OPS_RENDER_OUT 有設時把範例輸出成圖片給人看
+/// 文件櫃的閱讀版 Markdown:解析各種區塊;OMIXOR_RENDER_OUT 有設時把範例輸出成圖片給人看
 @MainActor
 final class ReadingMarkdownTests: XCTestCase {
     static let sample = """
@@ -50,7 +50,7 @@ final class ReadingMarkdownTests: XCTestCase {
     }
 
     func testRender() throws {
-        guard let out = ProcessInfo.processInfo.environment["OPS_RENDER_OUT"] else { return }
+        guard let out = ProcessInfo.processInfo.environment["OMIXOR_RENDER_OUT"] else { return }
         let src = (try? String(contentsOfFile: out + "/doc.md", encoding: .utf8)) ?? Self.sample
         for (name, scheme) in [("light", ColorScheme.light), ("dark", ColorScheme.dark)] {
             let view = ReadingMarkdown(src).padding(28).frame(width: 760, alignment: .leading)

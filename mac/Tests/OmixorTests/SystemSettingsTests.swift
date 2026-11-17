@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 功能開關的兩層(系統層 && 組織層):清單與開關在 core(暫存的本機守護服務;本機使用者是伺服器管理員);
 /// App 照 core 的顯示、讀不到時用最後一份或保守預設
@@ -8,15 +8,15 @@ final class SystemSettingsTests: XCTestCase {
     private var dataDir: URL!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-system-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-system-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
     }
 
     override func tearDown() async throws {
         IssueServerConfig.testOverride = nil
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 假的 omixor-web:在記憶體裡實作 /api/issues/<組織>(行為照 Go 版 internal/web/issues_api.go)
 final class FakeIssueServer: URLProtocol {
@@ -127,10 +127,10 @@ final class IssueRemoteTests: XCTestCase {
     var dataDir: URL!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-issues-remote-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-issues-remote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
         IssueRemote.protocolClasses = [FakeIssueServer.self]
         IssueServerConfig.testOverride = IssueServerConfig(url: URL(string: "http://127.0.0.1:5999")!, token: "tok-123")
         FakeIssueServer.orgs = [:]
@@ -145,7 +145,7 @@ final class IssueRemoteTests: XCTestCase {
         IssueRemote.testVault = nil
         IssueServerConfig.testOverride = nil
         IssueRemote.protocolClasses = []
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

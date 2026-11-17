@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// GitLab 設定:組織的主機網址與追蹤的專案存在 core(用 TestCore 的暫存守護服務),
 /// 這台的登入(個人存取權杖)存在測試用的鑰匙圈;GitLab 主機用 StubProtocol 假裝,不連真的 GitLab
@@ -11,10 +11,10 @@ final class GitLabSettingsTests: XCTestCase {
 
     override func setUp() async throws {
         try TestCore.start(self)
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-gl-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-gl-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
         ConnHTTP.protocolClasses = [StubProtocol.self]
         StubProtocol.log = []
@@ -32,7 +32,7 @@ final class GitLabSettingsTests: XCTestCase {
         for c in app.connections { TokenVault.removeAll(c.id) }
         ConnHTTP.protocolClasses = []
         StubProtocol.handler = nil
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         IssueServerConfig.testOverride = nil
         try? FileManager.default.removeItem(at: dataDir)
     }

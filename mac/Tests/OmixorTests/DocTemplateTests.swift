@@ -1,6 +1,6 @@
 import XCTest
 import WebKit
-@testable import Ops
+@testable import Omixor
 
 /// 文件櫃的範本:欄位解析、存檔檢查、產生網頁;轉換器與網頁要和 Go 版一模一樣(templates/doc)
 @MainActor
@@ -8,13 +8,13 @@ final class DocTemplateTests: XCTestCase {
     var dataDir: URL!
     override func setUp() async throws {
         try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-doctpl-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-doctpl-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
     }
     override func tearDown() async throws {
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 
@@ -101,7 +101,7 @@ final class DocTemplateTests: XCTestCase {
         XCTAssertNil(DocTemplates.html(for: try XCTUnwrap(Cabinet.doc(app, tplId)), in: app.cabinetDocs))
     }
 
-    /// 轉換器和網頁要和 Go 版一樣:templates/doc/docrender.js 與 docpage.html(OPS_EXPORT_DOCPAGE=1 時重新匯出網頁)
+    /// 轉換器和網頁要和 Go 版一樣:templates/doc/docrender.js 與 docpage.html(OMIXOR_EXPORT_DOCPAGE=1 時重新匯出網頁)
     func testSharedWithGo() throws {
         let spec = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../templates/doc").standardized
         guard let js = try? String(contentsOf: spec.appendingPathComponent("docrender.js"), encoding: .utf8) else {
@@ -111,10 +111,10 @@ final class DocTemplateTests: XCTestCase {
         let tpl = try XCTUnwrap(DocTemplates.parse(CabinetDoc(id: "DOC-1", title: "範本", body: Self.template, section: "tools", tab: nil, author: "mcp")))
         let page = DocTemplates.page(md: Self.lesson, template: tpl)
         let file = spec.appendingPathComponent("docpage.html")
-        if ProcessInfo.processInfo.environment["OPS_EXPORT_DOCPAGE"] == "1" {
+        if ProcessInfo.processInfo.environment["OMIXOR_EXPORT_DOCPAGE"] == "1" {
             try Data(page.utf8).write(to: file)
         } else {
-            XCTAssertEqual(page, try String(contentsOf: file, encoding: .utf8), "跑 OPS_EXPORT_DOCPAGE=1 swift test --filter DocTemplateTests 重新匯出")
+            XCTAssertEqual(page, try String(contentsOf: file, encoding: .utf8), "跑 OMIXOR_EXPORT_DOCPAGE=1 swift test --filter DocTemplateTests 重新匯出")
         }
     }
 

@@ -1,12 +1,12 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 連遠端 omixor 的完整流程(AppState.connectRemote):對一個真的 core server(TestCore 起的暫存守護服務)
 /// 確認存著的登入 → 讀組織清單 → 進入遠端模式。不碰正式鑰匙圈,也不開瀏覽器(token 先存好,不走 evoleap 登入)
 @MainActor
 final class ConnectRemoteTests: XCTestCase {
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
     }
 

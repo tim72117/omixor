@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 遠端模式:文件櫃讀寫 omixor server(假伺服器見 AgentRemoteTests.swift 的 FakeOmixorServer),不寫本機 cabinet.json
 @MainActor
@@ -7,10 +7,10 @@ final class CabinetRemoteTests: XCTestCase {
     var dataDir: URL!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-cabinet-remote-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-cabinet-remote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
         IssueRemote.protocolClasses = [FakeOmixorServer.self]
         IssueServerConfig.testOverride = IssueServerConfig(url: URL(string: "http://127.0.0.1:5998")!, token: "tok-1")
         FakeOmixorServer.reset()
@@ -19,7 +19,7 @@ final class CabinetRemoteTests: XCTestCase {
     override func tearDown() async throws {
         IssueServerConfig.testOverride = nil
         IssueRemote.protocolClasses = []
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
         CabinetLayout.sections = CabinetLayout.evoleapStudio
     }

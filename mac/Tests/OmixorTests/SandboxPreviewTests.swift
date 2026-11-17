@@ -1,7 +1,7 @@
 import XCTest
 import WebKit
 import SwiftUI
-@testable import Ops
+@testable import Omixor
 
 /// 文件展示的沙盒:JS 會跑,但不能連網、沒有通往 App 的管道
 @MainActor

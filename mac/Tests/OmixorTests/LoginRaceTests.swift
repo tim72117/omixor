@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 登入取消與競態:確認登入、換 token 各階段按取消都生效且不留下 token;等核准時切換組織 token 存回原組織
 @MainActor
@@ -9,10 +9,10 @@ final class LoginRaceTests: XCTestCase {
     private var dataDir: URL!
 
     override func setUp() async throws {
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-loginrace-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-loginrace-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"   // 不碰正式鑰匙圈
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"   // 不碰正式鑰匙圈
         TokenVault.scope = ""
         ConnHTTP.protocolClasses = [StubProtocol.self]
         StubProtocol.log = []
@@ -27,7 +27,7 @@ final class LoginRaceTests: XCTestCase {
         StubProtocol.handler = nil
         OmixorMode.testServers = nil
         OmixorAuth.setToken(nil, server: server)
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 
@@ -293,7 +293,7 @@ final class TokenExchangeGateTests: XCTestCase {
     let server = URL(string: "http://omixor-race.test")!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"   // 用真的(測試用)鑰匙圈:執行緒安全
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"   // 用真的(測試用)鑰匙圈:執行緒安全
         TokenVault.scope = ""
         IssueRemote.testVault = nil
         IssueRemote.protocolClasses = [TokenRaceServer.self]
@@ -376,12 +376,12 @@ final class LocalCoreSyncRaceTests: XCTestCase {
     private var coreDir: URL!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-syncrace-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-syncrace-\(UUID().uuidString)")
         coreDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-syncrace-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
         IssueServerConfig.testOverride = nil
         savedLauncher = AppState.localCoreLauncher
         savedDelays = AppState.localCoreRestartDelays
@@ -395,7 +395,7 @@ final class LocalCoreSyncRaceTests: XCTestCase {
         AppState.localCoreInTests = false
         AppState.localCoreLauncher = savedLauncher
         AppState.localCoreRestartDelays = savedDelays
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
         try? FileManager.default.removeItem(at: coreDir)
     }

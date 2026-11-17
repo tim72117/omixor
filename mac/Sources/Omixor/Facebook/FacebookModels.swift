@@ -13,7 +13,7 @@ struct FBPage: Codable, Hashable, Identifiable {
     var picture = ""
     var fanCount: Int?
     var followersCount: Int?
-    /// 要在 Ops 管理這個專頁
+    /// 要在 omixor 管理這個專頁
     var managed = true
 
     init(id: String, name: String, category: String = "", link: String = "", picture: String = "",

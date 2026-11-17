@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 // 跨語言契約:core/model/testdata/contract/*.json 是 core API 實際回傳的形狀(由 core/model/contract_test.go 產生)。
 // 假伺服器把範例檔包成 {"result": …} 回給 App,走 App 從 server 讀資源實際用的方法(IssueRemote 的 list、getChannel、
@@ -55,7 +55,7 @@ final class ContractTests: XCTestCase {
     var remote: IssueRemote!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         FakeContractServer.routes = [
             "GET /api/orgs": "org_list.json",
             "GET /api/orgs/acme/issues": "issue_list.json",
@@ -99,7 +99,7 @@ final class ContractTests: XCTestCase {
         }
     }
 
-    // MARK: Issue(IssueRemote.list / create / addComment → OpsIssue)
+    // MARK: Issue(IssueRemote.list / create / addComment → Issue)
 
     func testIssues() throws {
         let list = try remote.list(org: org)

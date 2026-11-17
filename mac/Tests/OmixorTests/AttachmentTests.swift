@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-@testable import Ops
+@testable import Omixor
 
 /// 附件:同 Go 版 TestAttachments
 @MainActor
@@ -8,14 +8,14 @@ final class AttachmentTests: XCTestCase {
     var dataDir: URL!
     override func setUp() async throws {
         try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-att-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-att-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
     }
     override func tearDown() async throws {
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         TokenVault.scope = ""
         try? FileManager.default.removeItem(at: dataDir)
     }

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 @MainActor
 final class SiteVisitorsTests: XCTestCase {
@@ -68,10 +68,10 @@ final class SiteVisitorsTests: XCTestCase {
     }
 
     func testMCPToolReadsThroughConnection() async throws {
-        let dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-visitors-\(UUID().uuidString)")
+        let dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-visitors-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         ConnHTTP.protocolClasses = [StubProtocol.self]
         var seenPaths: [String] = []
         StubProtocol.handler = { req, _ in
@@ -81,7 +81,7 @@ final class SiteVisitorsTests: XCTestCase {
         }
         defer {
             ConnHTTP.protocolClasses = []
-            unsetenv("OPS_DATA_DIR")
+            unsetenv("OMIXOR_APP_DATA_DIR")
             try? FileManager.default.removeItem(at: dataDir)
         }
 

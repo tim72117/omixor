@@ -1,11 +1,11 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 配對手機:連結格式、QR code,與真的守護服務走一次 pair → claim
 @MainActor
 final class PhonePairingTests: XCTestCase {
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
     }
 

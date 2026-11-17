@@ -2,10 +2,12 @@ import AppKit
 import SwiftUI
 
 @main
-struct OpsApp: App {
+struct OmixorApp: App {
     @StateObject private var app = AppState()
 
     init() {
+        // 改名前的偏好設定鍵(ops.settings.*)搬到 omixor.settings.*(新鍵不存在才搬)
+        SettingsKeys.migrateLegacy()
         // 用 swift run 執行時沒有 .app 包裝,要手動設成一般 app 才會出現在 Dock
         NSApplication.shared.setActivationPolicy(.regular)
         DispatchQueue.main.async { NSApplication.shared.activate(ignoringOtherApps: true) }

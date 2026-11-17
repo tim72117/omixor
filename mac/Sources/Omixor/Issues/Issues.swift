@@ -40,7 +40,7 @@ struct IssueComment: Codable, Hashable, Identifiable {
     var at: Date = .now
 }
 
-struct OpsIssue: Codable, Hashable, Identifiable {
+struct Issue: Codable, Hashable, Identifiable {
     var id: String                 // ISS-1
     var title: String
     var body = ""                  // Markdown
@@ -79,7 +79,7 @@ extension IssueComment {
     }
 }
 
-extension OpsIssue {
+extension Issue {
     // 寬鬆解碼(LossyDecoding.swift):labels、comments 是 null(Go 的 nil slice)或缺 → [];
     // 不認得的 status → open、priority → normal(同 web 的 normIssue);只有 id 是必填(缺了丟錯,列表會略過這一筆)
     init(from decoder: Decoder) throws {
@@ -133,7 +133,7 @@ enum IssueRepo {
     }
 
     /// 依 repo 篩選(MCP 的 issues repo 參數;空字串 = 不篩),同 core 的 service.FilterIssuesByRepo
-    static func filter(_ list: [OpsIssue], _ repo: String?) -> [OpsIssue] {
+    static func filter(_ list: [Issue], _ repo: String?) -> [Issue] {
         guard let r = repo, !r.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return list }
         return list.filter { matches($0.repo ?? "", r) }
     }
@@ -238,14 +238,14 @@ final class IssueStore {
     }
 
     /// 找一筆(先重新讀,MCP 拿到的是最新的)
-    func issue(_ id: String) -> OpsIssue? {
+    func issue(_ id: String) -> Issue? {
         refreshIfStale(0)
         return app.issues.first { $0.id.caseInsensitiveCompare(id) == .orderedSame }
     }
 
     @discardableResult
     func create(title: String, body: String = "", priority: IssuePriority = .normal, labels: [String] = [],
-                source: String = "", link: String = "", repo: String? = nil, assignee: String? = nil, by author: String) -> OpsIssue {
+                source: String = "", link: String = "", repo: String? = nil, assignee: String? = nil, by author: String) -> Issue {
         let assignee = assignee.flatMap { $0.isEmpty ? nil : $0 }
         let repo = repo.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
         do {
@@ -261,7 +261,7 @@ final class IssueStore {
         } catch {
             // 伺服器連不上:回傳沒有存起來的草稿(id 是空的)
             remoteFailed(error)
-            return OpsIssue(id: "", title: title, body: body, priority: priority, labels: Self.clean(labels),
+            return Issue(id: "", title: title, body: body, priority: priority, labels: Self.clean(labels),
                             source: source, link: link, repo: repo, createdBy: author, assignee: assignee)
         }
     }
@@ -269,7 +269,7 @@ final class IssueStore {
     /// 修改一筆;回傳修改後的內容。狀態從 open 變 closed(或反過來)時記到動態牆。
     /// 留言不會隨修改送出(在 change 裡改 comments 沒有作用),新增留言用 comment(_:_:by:)
     @discardableResult
-    func update(_ id: String, by author: String, _ change: (inout OpsIssue) -> Void) -> OpsIssue? {
+    func update(_ id: String, by author: String, _ change: (inout Issue) -> Void) -> Issue? {
         refreshIfStale(0)   // 用伺服器上最新的內容來改
         guard let i = app.issues.firstIndex(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) else { return nil }
         let before = app.issues[i]
@@ -300,7 +300,7 @@ final class IssueStore {
     }
 
     /// 留言:只送這一則給伺服器附加(不整份送回,不會蓋掉別人同時留的言);回傳新增後的內容,失敗回 nil
-    func comment(_ id: String, _ text: String, by author: String) -> OpsIssue? {
+    func comment(_ id: String, _ text: String, by author: String) -> Issue? {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return issue(id) }
         do {

@@ -188,8 +188,8 @@ private struct MCPServerSection: View {
             }
             Text("""
             /mcp 一定要帶 Authorization: Bearer <token>,沒帶或不對會被拒絕(401);token 代表「這台 Mac 的使用者」,只存在這台的鑰匙圈。
-            已經用舊指令加過 ops 的,先在終端機執行 claude mcp remove ops(當初用 -s user 加的要加 -s user),再貼上複製的指令(要全域可用可在 add 後加 -s user)。
-            只支援 stdio 的用戶端(omixor-mcp 轉接程式)在環境變數 OPS_MCP_TOKEN 放這把 token。重新產生後舊的立刻失效,用到的地方都要重新設定。
+            指令加的名稱是 omixor;已經加過的先在終端機執行 claude mcp remove omixor(改名前加的叫 ops,改執行 claude mcp remove ops;當初用 -s user 加的要加 -s user),再貼上複製的指令(要全域可用可在 add 後加 -s user)。
+            只支援 stdio 的用戶端(omixor-mcp 轉接程式)在環境變數 OMIXOR_MCP_TOKEN 放這把 token(舊名稱 OPS_MCP_TOKEN 暫時仍可用)。重新產生後舊的立刻失效,用到的地方都要重新設定。
             token 會存在 Claude Code 的設定檔(~/.claude.json),不要把那個檔案分享出去。
             """)
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -205,7 +205,7 @@ private struct MCPServerSection: View {
         .confirmationDialog("重新產生 MCP 存取 token?", isPresented: $confirmRegenerate) {
             Button("重新產生", role: .destructive) {
                 if MCPLocalToken.regenerate() != nil {
-                    tokenNote = "已重新產生:舊的 token 立刻失效。請重新複製 Claude Code 設定指令(先 claude mcp remove ops 再加)"
+                    tokenNote = "已重新產生:舊的 token 立刻失效。請重新複製 Claude Code 設定指令(先 claude mcp remove omixor 再加;改名前加的叫 ops)"
                 } else {
                     tokenNote = "重新產生失敗(系統亂數來源錯誤),舊的 token 照舊可用"
                 }

@@ -1,10 +1,10 @@
 // split-seed 把 Swift 版匯出的單一 seed.json 依資料集拆成目錄(templates/seed/<資料集>.json 與 _meta.json),
 // 單檔太大不好看也不好比對。用法:
 //
-//	cd ../mac && OPS_EXPORT_SEED=/tmp/seed.json swift test --filter SpecExportTests
+//	cd ../mac && OMIXOR_EXPORT_SEED=/tmp/seed.json swift test --filter SpecExportTests
 //	go run templates/tools/split-seed/main.go /tmp/seed.json templates/seed
 //
-// OPS_EXPORT_SEED 是 mac 端(Swift)讀的環境變數,mac 改名後是 OMIXOR_EXPORT_SEED。
+// OMIXOR_EXPORT_SEED 是 mac 端(Swift)SpecExportTests 讀的環境變數。
 package main
 
 import (

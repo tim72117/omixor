@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 選用模組(core/module):App 讀 GET /api/modules,依模組清單與功能清單決定顯示什麼。
 /// 預設的測試守護服務編進全部模組(行為照舊);最小版(-tags omixor_minimal)沒有程式碼倉庫模組:
@@ -9,17 +9,17 @@ final class ServerModuleTests: XCTestCase {
     private var dataDir: URL!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-modules-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-modules-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
     }
 
     override func tearDown() async throws {
         IssueServerConfig.testOverride = nil
         IssueRemote.protocolClasses = []
         ModuleStubServer.modules = nil
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

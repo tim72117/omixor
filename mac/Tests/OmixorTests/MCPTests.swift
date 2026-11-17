@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 @MainActor
 final class MCPTests: XCTestCase {
@@ -11,17 +11,17 @@ final class MCPTests: XCTestCase {
 
     override func setUp() async throws {
         try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-mcp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
         app = AppState()
         app.features = .allOnForTests   // 範例資料工具(overview、list、alert_create…)要對應的功能開著才能用
         mcp = MCPHandler(app: app)
     }
 
     override func tearDown() async throws {
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 
@@ -326,7 +326,7 @@ final class MCPTests: XCTestCase {
 
     /// /mcp 沒帶、帶錯、帶閘道 token 一律 401(handler 不會被呼叫);帶對才放行
     func testHTTPRouteRequiresToken() async throws {
-        MCPLocalToken.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        MCPLocalToken.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         defer { MCPLocalToken.removeForTests() }
         let tok = try XCTUnwrap(MCPLocalToken.current())
         XCTAssertTrue(tok.hasPrefix("omxl_"))
@@ -366,7 +366,7 @@ final class MCPTests: XCTestCase {
 
         // 給使用者的指令帶 --header
         let cmd = MCPLocalToken.claudeCommand(url: "http://127.0.0.1:3765/mcp", token: "omxl_abc")
-        XCTAssertEqual(cmd, "claude mcp add --transport http ops http://127.0.0.1:3765/mcp --header \"Authorization: Bearer omxl_abc\"")
+        XCTAssertEqual(cmd, "claude mcp add --transport http omixor http://127.0.0.1:3765/mcp --header \"Authorization: Bearer omxl_abc\"")
     }
 
     /// 閘道 token:亂數來源失敗時不發

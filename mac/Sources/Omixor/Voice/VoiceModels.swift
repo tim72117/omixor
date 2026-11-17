@@ -80,7 +80,7 @@ struct VoiceJob: Identifiable, Codable, Hashable {
     var state: VoiceJobState
     let createdAt: Date
     var updatedAt: Date
-    var by: String                  // 誰送出的:person id、"mcp" 或 "external"(Ops 以外送出的批次)
+    var by: String                  // 誰送出的:person id、"mcp" 或 "external"(omixor 以外送出的批次)
     var batchName: String?
     var clipCount: Int?             // 送出的段落數
     var nextCheckAt: Date?

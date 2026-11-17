@@ -3,8 +3,8 @@ import Foundation
 import SwiftUI
 
 // 虛擬角色:每個角色有職責說明(給 AI 的角色設定)、例行任務與被指派的單次任務。
-// Ops 不自己跑 AI:任務排在這裡,由 Claude Code 透過 MCP 以角色身分領取(agent_task_claim)、做完回報(agent_task_report)。
-// 例行任務到時間時,Ops 會替該角色排一筆任務等人叫 AI 來領。
+// omixor 不自己跑 AI:任務排在這裡,由 Claude Code 透過 MCP 以角色身分領取(agent_task_claim)、做完回報(agent_task_report)。
+// 例行任務到時間時,omixor 會替該角色排一筆任務等人叫 AI 來領。
 // 角色與任務存在 core(目前連線的 core server:遠端 omixor 或本機模式的本機守護服務),透過 /agents 與 /agent-tasks 讀寫
 // (AgentRemote.swift),例行任務由伺服器排,領取時伺服器發角色憑證。組織資料夾裡舊的 agents.json 只在第一次匯入本機服務時讀(LocalCore.swift)。
 // 沒有內建預設角色,也不從其他檔案匯入:新組織一開始沒有任何角色,由使用者自己建立。

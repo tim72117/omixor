@@ -1,6 +1,6 @@
 import XCTest
 import Security
-@testable import Ops
+@testable import Omixor
 
 /// 等瀏覽器核准時可以取消:LoopbackCallback 立刻丟 CancellationError、回呼伺服器關掉;連線登入與連遠端 omixor 取消後不顯示錯誤
 @MainActor
@@ -8,10 +8,10 @@ final class LoginCancelTests: XCTestCase {
     private var dataDir: URL!
 
     override func setUp() async throws {
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-cancel-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-cancel-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
         ConnHTTP.protocolClasses = [StubProtocol.self]
         StubProtocol.log = []
@@ -31,7 +31,7 @@ final class LoginCancelTests: XCTestCase {
         StubProtocol.handler = nil
         OmixorMode.testServers = nil
         TokenVault.testWriteHook = nil
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

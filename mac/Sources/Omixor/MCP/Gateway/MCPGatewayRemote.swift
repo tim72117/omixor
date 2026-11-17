@@ -180,7 +180,14 @@ enum MCPSecretVault {
     /// env:子程序環境變數(stdio 參數的 ${名稱} 也用它代入);header:HTTP 標頭
     enum Kind: String { case env, header }
 
-    nonisolated(unsafe) static var service = ProcessInfo.processInfo.environment["OPS_MCP_KEYCHAIN_SERVICE"] ?? "com.tim72117.ops.mcp-gateway"
+    static let defaultService = "com.tim72117.omixor.mcp-gateway"
+    /// 改名前的 service:新的讀不到才讀它,讀到就複製一份到新的;刪除時兩邊一起刪
+    static let defaultLegacyService = "com.tim72117.ops.mcp-gateway"
+    nonisolated(unsafe) static var service = OmixorEnv.get("OMIXOR_MCP_KEYCHAIN_SERVICE", legacy: "OPS_MCP_KEYCHAIN_SERVICE") ?? defaultService
+    /// 測試用:指定舊名稱的 service(一律用暫存的名稱)
+    nonisolated(unsafe) static var legacyServiceOverride: String?
+    /// 舊名稱的 service:只有用正式的 service 時才讀舊的
+    static var legacyService: String? { legacyServiceOverride ?? (service == defaultService ? defaultLegacyService : nil) }
 
     private static func account(_ org: String, _ server: String, _ kind: Kind, _ name: String) -> String {
         "\(org)/\(server)/\(kind.rawValue):\(name)"
@@ -195,7 +202,10 @@ enum MCPSecretVault {
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data else { return nil }
+        let a = account(org, server, kind, name)
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data else {
+            return KeychainLegacy.migrate(account: a, from: legacyService, to: service).map { String(decoding: $0, as: UTF8.self) }
+        }
         return String(decoding: d, as: UTF8.self)
     }
 
@@ -203,7 +213,10 @@ enum MCPSecretVault {
     static func set(_ value: String?, org: String, server: String, kind: Kind, name: String) {
         let a = account(org, server, kind, name)
         SecItemDelete(query(a) as CFDictionary)
-        guard let value, !value.isEmpty else { return }
+        guard let value, !value.isEmpty else {
+            KeychainLegacy.delete(account: a, legacy: legacyService)
+            return
+        }
         var q = query(a)
         q[kSecValueData as String] = Data(value.utf8)
         q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly

@@ -404,7 +404,7 @@ final class LineStore {
     /// 處理核准 / 拒絕按鈕,回傳要回覆的文字
     func handlePostback(_ data: String, user: LineAllowedUser) -> String {
         let d = LineAPI.parseData(data)
-        guard d["ops"] == "approval", let id = d["id"], let n = d["n"], let decision = d["d"], ["approve", "reject"].contains(decision) else {
+        guard LineAPI.isApprovalData(d), let id = d["id"], let n = d["n"], let decision = d["d"], ["approve", "reject"].contains(decision) else {
             return "看不懂這個按鈕。"
         }
         guard var rec = state.nonces[n], rec.approvalId == id else { return "這個按鈕已失效,請到 omixor 裡決定。" }

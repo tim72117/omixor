@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// GitHub:用 StubProtocol 假裝 api.github.com,回應格式取自 tim72117/evoleap 真實 API 的欄位
 @MainActor
@@ -11,10 +11,10 @@ final class GitHubTests: XCTestCase {
 
     override func setUp() async throws {
         try TestCore.start(self)   // 追蹤的 repo 是組織的設定,存在 core server:每個測試一個新的本機守護服務
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-gh-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-gh-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
         ConnHTTP.protocolClasses = [StubProtocol.self]
         StubProtocol.log = []
@@ -28,7 +28,7 @@ final class GitHubTests: XCTestCase {
         for c in app.connections { TokenVault.removeAll(c.id) }
         ConnHTTP.protocolClasses = []
         StubProtocol.handler = nil
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         IssueServerConfig.testOverride = nil
         try? FileManager.default.removeItem(at: dataDir)
     }

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 等到條件成立(主執行緒不擋;最多 timeout 秒)
 @MainActor
@@ -20,12 +20,12 @@ final class LocalCoreRestartTests: XCTestCase {
     private var savedDelays: [TimeInterval] = []
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-localcore-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-localcore-\(UUID().uuidString)")
         coreDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-core-restart-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
         IssueServerConfig.testOverride = nil   // 連線由 LocalCore.shared 決定(同正式的本機模式)
         let bin = try TestCore.binary(), dir = coreDir!
         savedLauncher = AppState.localCoreLauncher
@@ -43,7 +43,7 @@ final class LocalCoreRestartTests: XCTestCase {
         AppState.localCoreInTests = false
         AppState.localCoreLauncher = savedLauncher
         AppState.localCoreRestartDelays = savedDelays
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
         try? FileManager.default.removeItem(at: coreDir)
     }
@@ -123,17 +123,17 @@ final class DeleteOrgTests: XCTestCase {
     var dataDir: URL!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-delete-org-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-delete-org-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
     }
 
     override func tearDown() async throws {
         IssueServerConfig.testOverride = nil
         IssueRemote.protocolClasses = []
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         TokenVault.scope = ""
         try? FileManager.default.removeItem(at: dataDir)
     }

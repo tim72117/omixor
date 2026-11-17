@@ -24,7 +24,7 @@ final class VoicePipeline {
     static let defaults = UserDefaults.standard
 
     var shuttleRoot: URL {
-        if let p = ProcessInfo.processInfo.environment["OPS_SHUTTLE_PATH"] { return URL(fileURLWithPath: p) }
+        if let p = OmixorEnv.get("OMIXOR_SHUTTLE_PATH", legacy: "OPS_SHUTTLE_PATH") { return URL(fileURLWithPath: p) }
         let p = Self.defaults.string(forKey: "voice.shuttlePath") ?? NSHomeDirectory() + "/Documents/shuttle"
         return URL(fileURLWithPath: (p as NSString).expandingTildeInPath)
     }
@@ -175,7 +175,7 @@ final class VoicePipeline {
         if let next = app.voiceJobs.last(where: { $0.state == .queued }) { await send(next.id) }
     }
 
-    /// Ops 以外(終端機)送出的批次也接手追蹤
+    /// omixor 以外(終端機)送出的批次也接手追蹤
     private func adoptExternalBatch() {
         guard !app.voiceJobs.contains(where: \.state.holdsBatch),
               let saved = readBatchFile(), let name = saved["name"] as? String else { return }

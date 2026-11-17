@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-@testable import Ops
+@testable import Omixor
 
 /// app 登入 omixor:換 token、撤銷 evoleap token、讀目前帳號、登出(瀏覽器那段在 ApprovalConnector,ConnectionTests 測過)
 @MainActor
@@ -8,7 +8,7 @@ final class OmixorAuthTests: XCTestCase {
     let server = URL(string: "https://omixor.test")!
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
         ConnHTTP.protocolClasses = [StubProtocol.self]
         StubProtocol.log = []
@@ -93,7 +93,7 @@ final class OmixorAuthTests: XCTestCase {
         if case .unreachable = st {} else { XCTFail("\(st)") }
     }
 
-    /// 選擇連接對象的畫面輸出成圖片(OPS_RENDER_OUT 有設時寫檔,給人看)
+    /// 選擇連接對象的畫面輸出成圖片(OMIXOR_RENDER_OUT 有設時寫檔,給人看)
     func testRenderLoginView() throws {
         OmixorMode.testServers = [OmixorMode.Server(id: "prod", name: "正式站", url: server, auth: [OmixorMode.AuthOption(id: "evoleap", label: "evoleap 帳號")])]
         defer { OmixorMode.testServers = nil }
@@ -102,7 +102,7 @@ final class OmixorAuthTests: XCTestCase {
         let r = ImageRenderer(content: view)
         let img = try XCTUnwrap(r.nsImage)
         XCTAssertGreaterThan(img.size.width, 0)
-        if let out = ProcessInfo.processInfo.environment["OPS_RENDER_OUT"],
+        if let out = ProcessInfo.processInfo.environment["OMIXOR_RENDER_OUT"],
            let tiff = img.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
             try png.write(to: URL(fileURLWithPath: out).appendingPathComponent("login.png"))
         }

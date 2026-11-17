@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// LINE 串接:用 StubProtocol 攔截 api.line.me,絕不送出真的請求
 @MainActor
@@ -17,10 +17,10 @@ final class LineTests: XCTestCase {
     static let group = "C" + String(repeating: "c", count: 32)
 
     override func setUp() async throws {
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-line-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-line-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
         ConnHTTP.protocolClasses = [StubProtocol.self]
         LineAPI.retryDelay = 1_000_000
@@ -47,7 +47,7 @@ final class LineTests: XCTestCase {
         ConnHTTP.protocolClasses = []
         StubProtocol.handler = nil
         LineAPI.retryDelay = 2_000_000_000
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 
@@ -356,6 +356,21 @@ final class LineTests: XCTestCase {
         try await webhook([postbackEvent(Self.boss, approve)])
         XCTAssertTrue(replies.last?.contains("已經用過") == true)
         XCTAssertEqual(app.activity.filter { $0.text.contains("重啟 api-gateway") && $0.text.contains("經 LINE") }.count, 1)
+    }
+
+    /// 送出的按鈕用 omixor=approval;改名前送出、還留在聊天裡的 ops=approval 按鈕一樣接受
+    func testPostbackApprovalAcceptsLegacyKey() async throws {
+        let (approve, _) = try await pushApproval("APV-9010")
+        XCTAssertEqual(LineAPI.parseData(approve)["omixor"], "approval")
+        XCTAssertNil(LineAPI.parseData(approve)["ops"])
+        let legacy = approve.replacingOccurrences(of: "omixor=approval", with: "ops=approval")
+        XCTAssertNotEqual(legacy, approve)
+        XCTAssertTrue(LineAPI.isApprovalData(LineAPI.parseData(legacy)))
+        XCTAssertFalse(LineAPI.isApprovalData(["omixor": "other", "ops": "approval"]))
+        XCTAssertFalse(LineAPI.isApprovalData(["id": "x"]))
+        try await webhook([postbackEvent(Self.boss, legacy)])
+        XCTAssertEqual(app.approvals.first { $0.id == "APV-9010" }?.state, .approved)
+        XCTAssertTrue(replies.last?.contains("已核准") == true)
     }
 
     func testPostbackRejectSignsAsConfiguredPerson() async throws {

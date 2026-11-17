@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 外部 MCP 閘道:假的 MCP 伺服器(Fixtures/fake_mcp.py,只用 Python 標準函式庫;stdio 與 HTTP 各一)+ 暫存的本機守護服務(core)。
 /// 不碰正式鑰匙圈(TokenVault 與 MCPSecretVault 都換成暫存的 service)、不啟動 Claude、不連任何外部服務。
@@ -11,18 +11,18 @@ final class MCPGatewayTests: XCTestCase {
     static let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/fake_mcp.py").path
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
-        MCPSecretVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-gateway-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
+        MCPSecretVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-gateway-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
     }
 
     override func tearDown() async throws {
         for p in procs where p.isRunning { p.terminate() }
         IssueServerConfig.testOverride = nil
-        unsetenv("OPS_DATA_DIR")
-        unsetenv("OPS_ISSUE_SERVER_TOKEN")
+        unsetenv("OMIXOR_APP_DATA_DIR")
+        unsetenv("OMIXOR_SERVER_TOKEN")
         try? FileManager.default.removeItem(at: dataDir)
     }
 
@@ -34,7 +34,7 @@ final class MCPGatewayTests: XCTestCase {
 
     /// stdio:握手、分頁列工具、呼叫;密鑰只在子程序的環境變數(不在命令列),App 自己的 token 不帶過去;逾時;關閉會停掉子程序
     func testStdioClient() async throws {
-        setenv("OPS_ISSUE_SERVER_TOKEN", "app-secret-token", 1)
+        setenv("OMIXOR_SERVER_TOKEN", "app-secret-token", 1)
         let t = MCPStdioTransport(command: "python3", args: ["-I", Self.fixture, "stdio"], cwd: nil, secretEnv: ["FAKE_TOKEN": "tok-12345"])
         let c = MCPClient(transport: t, secrets: ["tok-12345"])
         try await c.connect()

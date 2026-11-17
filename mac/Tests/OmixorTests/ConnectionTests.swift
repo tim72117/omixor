@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 假的服務:攔截 ConnHTTP 的請求,依路徑回應
 final class StubProtocol: URLProtocol {
@@ -43,10 +43,10 @@ final class ConnectionTests: XCTestCase {
     private var dataDir: URL!
 
     override func setUp() async throws {
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-conn-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-conn-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         ConnHTTP.protocolClasses = [StubProtocol.self]
         StubProtocol.log = []
         StubProtocol.handler = nil
@@ -56,7 +56,7 @@ final class ConnectionTests: XCTestCase {
         for app in apps { for c in app.connections { TokenVault.removeAll(c.id) } }
         Browser.open = { _ in }
         ConnHTTP.protocolClasses = []
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

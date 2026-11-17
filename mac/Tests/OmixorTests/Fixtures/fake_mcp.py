@@ -25,7 +25,7 @@ def call_tool(name, args):
         tok = os.environ.get("FAKE_TOKEN", "")
         in_argv = bool(tok) and any(tok in a for a in sys.argv)
         return {"content": [{"type": "text", "text": json.dumps({"hasToken": bool(tok), "tokenLen": len(tok), "inArgv": in_argv,
-                                                                  "hasAppToken": "OPS_ISSUE_SERVER_TOKEN" in os.environ})}], "isError": False}
+                                                                  "hasAppToken": "OMIXOR_SERVER_TOKEN" in os.environ})}], "isError": False}
     if name == "write_note":
         return {"content": [{"type": "text", "text": "已寫入:" + str(args.get("note", ""))}], "isError": False}
     return None

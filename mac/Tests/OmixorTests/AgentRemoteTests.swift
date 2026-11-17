@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 假的 omixor server(core):在記憶體裡實作 /api/orgs/<組織>/agents、/agent-tasks、/issues(含 assignee)與 /api/version。
 /// 行為照 core/service/agents.go:assignee 有給才同步任務;回應包在 {"result": …};任務沒有 routineId、留言 id 不是 UUID。
@@ -212,10 +212,10 @@ final class AgentRemoteTests: XCTestCase {
     let org = "~omixor"
 
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-agents-remote-\(UUID().uuidString)")
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-agents-remote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
         IssueRemote.protocolClasses = [FakeOmixorServer.self]
         IssueServerConfig.testOverride = IssueServerConfig(url: URL(string: "http://127.0.0.1:5998")!, token: "tok-1")
         FakeOmixorServer.reset()
@@ -224,7 +224,7 @@ final class AgentRemoteTests: XCTestCase {
     override func tearDown() async throws {
         IssueServerConfig.testOverride = nil
         IssueRemote.protocolClasses = []
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

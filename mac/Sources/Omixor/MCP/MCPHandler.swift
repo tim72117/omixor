@@ -10,7 +10,7 @@ import Foundation
 final class MCPHandler {
     let app: AppState
 
-    static let serverName = "ops"
+    static let serverName = "omixor"
     static let serverVersion = "0.1.0"
     static let supportedVersions = ["2025-06-18", "2025-03-26", "2024-11-05"]
 

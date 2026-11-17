@@ -1,17 +1,31 @@
 import Foundation
 
-// omixor-mcp:把 stdio 上的 MCP 訊息轉給執行中的 Ops app(http://127.0.0.1:3765/mcp)。
+// omixor-mcp:把 stdio 上的 MCP 訊息轉給執行中的 omixor app(http://127.0.0.1:3765/mcp)。
 // 給只支援 stdio 的 MCP 用戶端用;支援 HTTP 的用戶端(例如 Claude Code)可以直接連 app。
 //
 // 一行一則 JSON-RPC 訊息(MCP stdio 規格)。app 沒開時,請求會收到 JSON-RPC 錯誤。
-// 連線位址:OPS_MCP_URL,或 OPS_MCP_PORT 指定連接埠。
-// 存取 token:OPS_MCP_TOKEN(App 的 設定 › 整合 › MCP 伺服器 可以顯示或重新產生;沒帶時 App 回 401)。
+// 連線位址:OMIXOR_MCP_URL,或 OMIXOR_MCP_PORT 指定連接埠。
+// 存取 token:OMIXOR_MCP_TOKEN(App 的 設定 › 整合 › MCP 伺服器 可以顯示或重新產生;沒帶時 App 回 401)。
+// 改名前的 OPS_MCP_URL / OPS_MCP_PORT / OPS_MCP_TOKEN 暫時仍可用(新名稱沒設才讀,讀到時在 stderr 提醒一次)。
 
 let env = ProcessInfo.processInfo.environment
+var warnedLegacy = Set<String>()
+
+/// 先讀新名稱,沒設(或空字串)才讀舊名稱;讀到舊名稱時提醒一次(和 App 的 OmixorEnv.get、core/env 同一套規則)
+func envValue(_ name: String, legacy: String) -> String? {
+    if let v = env[name], !v.isEmpty { return v }
+    guard let v = env[legacy], !v.isEmpty else { return nil }
+    if warnedLegacy.insert(legacy).inserted {
+        FileHandle.standardError.write(Data("[omixor-mcp] 環境變數 \(legacy) 已改名為 \(name),請更新設定(舊名稱暫時仍可用)\n".utf8))
+    }
+    return v
+}
+
 let endpoint: URL = {
-    if let s = env["OPS_MCP_URL"], let u = URL(string: s) { return u }
-    return URL(string: "http://127.0.0.1:\(env["OPS_MCP_PORT"] ?? "3765")/mcp")!
+    if let s = envValue("OMIXOR_MCP_URL", legacy: "OPS_MCP_URL"), let u = URL(string: s) { return u }
+    return URL(string: "http://127.0.0.1:\(envValue("OMIXOR_MCP_PORT", legacy: "OPS_MCP_PORT") ?? "3765")/mcp")!
 }()
+let token = envValue("OMIXOR_MCP_TOKEN", legacy: "OPS_MCP_TOKEN")
 
 let session: URLSession = {
     let c = URLSessionConfiguration.ephemeral
@@ -44,7 +58,7 @@ func post(_ body: Data) -> Result<(Int, Data), Error> {
     req.httpBody = body
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
-    if let t = env["OPS_MCP_TOKEN"], !t.isEmpty { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
+    if let t = token { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
     let sem = DispatchSemaphore(value: 0)
     var out: Result<(Int, Data), Error> = .failure(URLError(.unknown))
     session.dataTask(with: req) { data, resp, err in
@@ -71,7 +85,7 @@ while let line = readLine(strippingNewline: true) {
         if status == 200 { write(data); continue }
         if status == 401 {
             log("HTTP 401:沒帶或帶錯 token")
-            if let id { write(errorReply(id: id, "omixor app 拒絕(401):請在環境變數 OPS_MCP_TOKEN 放 App 的 MCP 存取 token(設定 › 整合 › MCP 伺服器)")) }
+            if let id { write(errorReply(id: id, "omixor app 拒絕(401):請在環境變數 OMIXOR_MCP_TOKEN 放 App 的 MCP 存取 token(設定 › 整合 › MCP 伺服器)")) }
             continue
         }
         let text = String(decoding: data, as: UTF8.self)
@@ -80,7 +94,7 @@ while let line = readLine(strippingNewline: true) {
     case .failure(let err):
         log("無法連線:\(err.localizedDescription)")
         if let id {
-            write(errorReply(id: id, "無法連到 Ops app(\(endpoint.absoluteString))。請先開啟 Ops,再重試。"))
+            write(errorReply(id: id, "無法連到 omixor app(\(endpoint.absoluteString))。請先開啟 omixor,再重試。"))
         }
     }
 }

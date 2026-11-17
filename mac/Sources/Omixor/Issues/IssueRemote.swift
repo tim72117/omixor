@@ -5,7 +5,7 @@ import Foundation
 // 見 IssueServerConfig.current 與 LocalCore.swift)。App 不再讀寫本機的 issues.json。
 //
 //   網址:IssueServerConfig.current(遠端:啟動設定裡的 omixor,見 OmixorMode.servers;本機:127.0.0.1 的守護服務)
-//   token:環境變數 OPS_ISSUE_SERVER_TOKEN(固定的,開發用);沒設時用 omixor 自己的 token(omx_…,
+//   token:環境變數 OMIXOR_SERVER_TOKEN(舊名稱 OPS_ISSUE_SERVER_TOKEN;固定的,開發用);沒設時用 omixor 自己的 token(omx_…,
 //          鑰匙圈的 remote/<伺服器>/omixor-issues,每台伺服器各一把,登入時存的):沒有或被拒絕(401)時,拿 evoleap 連線登入後的 token
 //          去 /api/auth/evoleap 換一個(evoleap 只證明身分,能不能用由 omixor 的使用者名單決定),再重送一次
 //
@@ -31,12 +31,12 @@ struct IssueServerConfig: Equatable {
     nonisolated(unsafe) static var testOverride: IssueServerConfig?
 
     /// 目前連的 core server(唯一決定「連哪台、用哪把 token」的地方;各 Store 與 MCP 轉送都從這裡拿):
-    ///   遠端模式:設定裡的 omixor server(token 用鑰匙圈的 omixor token,或開發用的 OPS_ISSUE_SERVER_TOKEN)
+    ///   遠端模式:設定裡的 omixor server(token 用鑰匙圈的 omixor token,或開發用的 OMIXOR_SERVER_TOKEN)
     ///   本機模式:App 啟動的本機守護服務(LocalCore.swift,127.0.0.1 + 這次啟動的 token);還沒好時是 unavailable 的連線
     static var current: IssueServerConfig {
         if let o = testOverride { return o }
         if let srv = OmixorMode.remoteServer {
-            let tok = ProcessInfo.processInfo.environment["OPS_ISSUE_SERVER_TOKEN"].flatMap { $0.isEmpty ? nil : $0 }
+            let tok = OmixorEnv.get("OMIXOR_SERVER_TOKEN", legacy: "OPS_ISSUE_SERVER_TOKEN")
             return IssueServerConfig(url: srv.url, token: tok)
         }
         return LocalCore.shared.config ?? LocalCore.shared.unavailableConfig
@@ -326,19 +326,19 @@ final class IssueRemote: @unchecked Sendable {
         return d
     }
 
-    private func decodeIssues(_ data: Data) throws -> [OpsIssue] {
+    private func decodeIssues(_ data: Data) throws -> [Issue] {
         // result 是 null(Go 的 nil slice)時是空列表
         let arr = (try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? [Any] ?? []).map(fixComments)
-        return try Self.decoder().decodeLossyList(OpsIssue.self, from: try JSONSerialization.data(withJSONObject: arr))
+        return try Self.decoder().decodeLossyList(Issue.self, from: try JSONSerialization.data(withJSONObject: arr))
     }
 
-    private func decodeIssue(_ data: Data) throws -> OpsIssue {
+    private func decodeIssue(_ data: Data) throws -> Issue {
         let obj = fixComments(try JSONSerialization.jsonObject(with: data))
-        return try Self.decoder().decode(OpsIssue.self, from: try JSONSerialization.data(withJSONObject: obj))
+        return try Self.decoder().decode(Issue.self, from: try JSONSerialization.data(withJSONObject: obj))
     }
 
     /// repo:只取標記這個倉庫的(伺服器端 ?repo= 篩選,規則同 IssueRepo.matches;nil 或空 = 全部)
-    func list(org: String, repo: String? = nil) throws -> [OpsIssue] {
+    func list(org: String, repo: String? = nil) throws -> [Issue] {
         var u = url(org, [])
         if let r = repo?.trimmingCharacters(in: .whitespacesAndNewlines), !r.isEmpty,
            var c = URLComponents(url: u, resolvingAgainstBaseURL: false) {
@@ -349,7 +349,7 @@ final class IssueRemote: @unchecked Sendable {
     }
 
     /// 依條件篩選、排序的 Issue(GET …/issues?q=&status=…;規則只在 core 的 model/issue_query.go,App 只顯示結果)
-    func query(org: String, _ q: IssueQuery) throws -> [OpsIssue] {
+    func query(org: String, _ q: IssueQuery) throws -> [Issue] {
         try decodeIssues(try send("GET", Self.withQuery(url(org, []), q.queryItems), nil))
     }
 
@@ -387,7 +387,7 @@ final class IssueRemote: @unchecked Sendable {
     /// assignee:指派給的角色 id(nil 或空 = 不指派);伺服器會自動替該角色排任務,角色不存在回 400。
     /// repo:所屬倉庫(nil 或空 = 不標記;格式不合格伺服器回 400)
     func create(org: String, title: String, body: String, priority: IssuePriority, labels: [String],
-                source: String, link: String, repo: String? = nil, author: String, assignee: String? = nil) throws -> OpsIssue {
+                source: String, link: String, repo: String? = nil, author: String, assignee: String? = nil) throws -> Issue {
         var d: [String: Any] = ["title": title, "body": body, "priority": priority.rawValue, "labels": labels,
                                 "source": source, "link": link, "author": author]
         if let a = assignee, !a.isEmpty { d["assignee"] = a }
@@ -399,7 +399,7 @@ final class IssueRemote: @unchecked Sendable {
     /// 留言不送(整份送回會蓋掉別人同時留的言):新增留言用 addComment。
     /// assignee 只在 sendAssignee 時送(空字串 = 取消指派):伺服器每收到一次 assignee 就會同步任務,
     /// 前一筆任務已完成時會重新排一筆,所以指派沒變就不能送
-    func update(org: String, _ i: OpsIssue, author: String, sendAssignee: Bool = false) throws -> OpsIssue {
+    func update(org: String, _ i: Issue, author: String, sendAssignee: Bool = false) throws -> Issue {
         let enc = try Self.encoder().encode(i)
         guard var d = try JSONSerialization.jsonObject(with: enc) as? [String: Any] else {
             throw IssueRemoteError(message: "Issue 編碼失敗")
@@ -414,7 +414,7 @@ final class IssueRemote: @unchecked Sendable {
 
     /// 新增一則留言(POST …/issues/<id>/comments):伺服器只附加這一則,同時多人留言不會互相蓋掉;回傳新增後的 Issue。
     /// author 只有伺服器管理員的有效(其他人伺服器一律記成登入的人)
-    func addComment(org: String, id: String, text: String, author: String) throws -> OpsIssue {
+    func addComment(org: String, id: String, text: String, author: String) throws -> Issue {
         try decodeIssue(try send("POST", url(org, [id, "comments"]), try json(["text": text, "author": author])))
     }
 
@@ -459,11 +459,11 @@ struct IssueBoardResult: Decodable, Equatable {
         /// 拖進這一欄要套的狀態;和 Issue 現在的相同(或 nil)就不用改
         var dropStatus: IssueStatus?
         /// 這一欄的 Issue(core 已依優先度 → 最近更新 → 編號排好)
-        var issues: [OpsIssue]
+        var issues: [Issue]
         var id: String { key }
 
         /// 把 issue 拖進這一欄要改成的狀態;nil = 不用改(同一欄、或 待處理 ↔ 進行中)
-        func status(forDropping issue: OpsIssue) -> IssueStatus? {
+        func status(forDropping issue: Issue) -> IssueStatus? {
             guard let s = dropStatus, s != issue.status else { return nil }
             return s
         }
@@ -510,7 +510,7 @@ extension IssueBoardResult.Column {
         key = try c.decode(String.self, forKey: .key)
         title = c.lossy(.title, default: key)
         dropStatus = c.lossyOptional(String.self, .dropStatus).flatMap(IssueStatus.init(rawValue:))
-        issues = c.lossyArray(OpsIssue.self, .issues)
+        issues = c.lossyArray(Issue.self, .issues)
     }
 }
 
@@ -530,7 +530,7 @@ extension IssueBoardResult {
 
 extension IssueStore {
     /// 在背景向 core 查詢目前組織的 Issue(不擋主執行緒);回傳時組織已經換了就丟出 CancellationError
-    func query(_ q: IssueQuery) async throws -> [OpsIssue] {
+    func query(_ q: IssueQuery) async throws -> [Issue] {
         let org = app.currentOrgId
         let l = try await remote.run { try $0.query(org: org, q) }
         guard app.currentOrgId == org else { throw CancellationError() }

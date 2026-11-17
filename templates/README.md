@@ -30,7 +30,7 @@ OMIXOR_TEMPLATES=/path/to/templates ./console/bin/omixor-web   # 指定位置
 `seed/` 是 Swift 版匯出的,不要手改:
 
 ```bash
-cd mac && OPS_EXPORT_SEED=/tmp/seed.json swift test --filter SpecExportTests   # mac 端改名後是 OMIXOR_EXPORT_SEED
+cd mac && OMIXOR_EXPORT_SEED=/tmp/seed.json swift test --filter SpecExportTests
 cd .. && go run templates/tools/split-seed/main.go /tmp/seed.json templates/seed
 ```
 

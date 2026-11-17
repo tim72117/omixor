@@ -1,10 +1,10 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 組織樣板(家庭助理)透過暫存的本機守護服務:開關關閉時不列、套用 403;打開後套用、再套用全部略過
 final class OrgTemplateTests: XCTestCase {
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
         try TestCore.start(self)
     }
 

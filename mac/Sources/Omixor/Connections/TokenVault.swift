@@ -3,8 +3,15 @@ import Security
 
 /// 連線的密碼類資料存在鑰匙圈:token 與 client secret。只在這台 Mac、解鎖時可用,不會隨備份搬到別台。
 enum TokenVault {
-    /// OPS_KEYCHAIN_SERVICE 可以換成別的名稱(比對或測試用的實例不要碰到正式 Ops 的登入)
-    nonisolated(unsafe) static var service = ProcessInfo.processInfo.environment["OPS_KEYCHAIN_SERVICE"] ?? "com.tim72117.ops.connection"
+    static let defaultService = "com.tim72117.omixor.connection"
+    /// 改名前的 service:新的讀不到才讀它,讀到就複製一份到新的;刪除時兩邊一起刪
+    static let defaultLegacyService = "com.tim72117.ops.connection"
+    /// OMIXOR_KEYCHAIN_SERVICE(舊名稱 OPS_KEYCHAIN_SERVICE)可以換成別的名稱(比對或測試用的實例不要碰到正式 omixor 的登入)
+    nonisolated(unsafe) static var service = OmixorEnv.get("OMIXOR_KEYCHAIN_SERVICE", legacy: "OPS_KEYCHAIN_SERVICE") ?? defaultService
+    /// 測試用:指定舊名稱的 service(一律用暫存的名稱)
+    nonisolated(unsafe) static var legacyServiceOverride: String?
+    /// 舊名稱的 service:只有用正式的 service 時才讀舊的(換了 service 的比對、測試實例不讀)
+    static var legacyService: String? { legacyServiceOverride ?? (service == defaultService ? defaultLegacyService : nil) }
     /// 組織的前綴:預設組織是空字串(沿用舊的帳號名稱,登入不會掉),其他組織是 "<組織 id>/"
     /// 主執行緒切換組織時改,背景的請求也會讀:用鎖保護(原本是沒保護的靜態變數,會有資料競爭)
     static var scope: String {
@@ -44,7 +51,9 @@ enum TokenVault {
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else {
+            return KeychainLegacy.migrate(account: account, from: legacyService, to: service)
+        }
         return out as? Data
     }
 
@@ -72,6 +81,7 @@ enum TokenVault {
     private static func write(_ data: Data?, _ account: String) -> OSStatus {
         let q = query(account) as CFDictionary
         guard let data else {
+            KeychainLegacy.delete(account: account, legacy: legacyService)
             let s = SecItemDelete(q)
             return s == errSecItemNotFound ? errSecSuccess : s
         }

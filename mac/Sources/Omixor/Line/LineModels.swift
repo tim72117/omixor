@@ -25,7 +25,7 @@ struct LineRecipient: Codable, Hashable, Identifiable {
 struct LineAllowedUser: Codable, Hashable, Identifiable {
     var userId: String
     var name = ""
-    /// 在 Ops 裡以誰署名(Person.id);空白表示目前使用者
+    /// 在 omixor 裡以誰署名(Person.id);空白表示目前使用者
     var person = ""
     var id: String { userId }
 

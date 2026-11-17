@@ -33,7 +33,7 @@ final class DevModel: ObservableObject {
     @Published var selectedPR: PullRequest.ID?
     @Published var prRepoFilter: String?          // nil = 全部
     @Published var highlightedItem: WorkItem.ID?
-    @Published var selectedIssue: OpsIssue.ID?
+    @Published var selectedIssue: Issue.ID?
     /// Repositories 分頁選中的 repo(RepoEntry.id:GitHub 是 owner/name,GitLab 是 gitlab:<專案>)
     @Published var selectedRepo: String?
 

@@ -1,14 +1,14 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
-/// 匯出範例資料給 Go 版(omixor-web)當種子:OPS_EXPORT_SEED=<路徑> swift test --filter SpecExportTests
+/// 匯出範例資料給 Go 版(omixor-web)當種子:OMIXOR_EXPORT_SEED=<路徑> swift test --filter SpecExportTests
 /// 沒設環境變數時直接略過。時間都是相對於 exportedAt,Go 版載入時會平移到現在。
 @MainActor
 final class SpecExportTests: XCTestCase {
     func testExportSeed() throws {
-        guard let path = ProcessInfo.processInfo.environment["OPS_EXPORT_SEED"] else { throw XCTSkip("沒設 OPS_EXPORT_SEED") }
-        setenv("OPS_DATA_DIR", FileManager.default.temporaryDirectory.appendingPathComponent("ops-export-\(UUID().uuidString)").path, 1)
-        defer { unsetenv("OPS_DATA_DIR") }
+        guard let path = ProcessInfo.processInfo.environment["OMIXOR_EXPORT_SEED"] else { throw XCTSkip("沒設 OMIXOR_EXPORT_SEED") }
+        setenv("OMIXOR_APP_DATA_DIR", FileManager.default.temporaryDirectory.appendingPathComponent("omixor-export-\(UUID().uuidString)").path, 1)
+        defer { unsetenv("OMIXOR_APP_DATA_DIR") }
         let now = Date()
         let app = AppState()
         let c: [String: Any] = [

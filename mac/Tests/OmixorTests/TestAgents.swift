@@ -1,5 +1,5 @@
 import Foundation
-@testable import Ops
+@testable import Omixor
 
 // 測試用角色:app 不再內建預設角色,需要角色的測試先用這個自己建立。
 // id、名稱、文件櫃權限沿用以前的預設值,讓既有測試的斷言不用改。

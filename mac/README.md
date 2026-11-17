@@ -54,10 +54,10 @@ app 開著時會在 `http://127.0.0.1:3765/mcp` 提供 MCP 伺服器(Streamable 
 
 `/mcp` 一定要帶 `Authorization: Bearer <token>`(沒帶或不對回 401):token 由 App 產生、存在這台的鑰匙圈,代表「這台 Mac 的使用者」(確認卡片與動態牆都用這個身分,不用用戶端自報的名稱)。在 設定 › 整合 › MCP 伺服器 可以顯示、重新產生,並「複製 Claude Code 設定指令」。
 
-加到 Claude Code(已經加過舊的 `ops` 要先 `claude mcp remove ops`;當初用 `-s user` 加的要加 `-s user`):
+加到 Claude Code(已經加過的要先 `claude mcp remove omixor`,改名前加的叫 `ops`,改用 `claude mcp remove ops`;當初用 `-s user` 加的要加 `-s user`):
 
 ```bash
-claude mcp add --transport http ops http://127.0.0.1:3765/mcp --header "Authorization: Bearer <App 複製的 token>"
+claude mcp add --transport http omixor http://127.0.0.1:3765/mcp --header "Authorization: Bearer <App 複製的 token>"
 ```
 
 只支援 stdio 的用戶端(例如 Claude Desktop)用轉接程式 `omixor-mcp`:
@@ -67,10 +67,12 @@ swift build -c release --product omixor-mcp   # 產生 .build/release/omixor-mcp
 ```
 
 ```json
-{ "mcpServers": { "ops": { "command": "/絕對路徑/mac/.build/release/omixor-mcp", "env": { "OPS_MCP_TOKEN": "<App 複製的 token>" } } } }
+{ "mcpServers": { "omixor": { "command": "/絕對路徑/mac/.build/release/omixor-mcp", "env": { "OMIXOR_MCP_TOKEN": "<App 複製的 token>" } } } }
 ```
 
-連接埠可用環境變數 `OPS_MCP_PORT`(app 與 `omixor-mcp` 都讀)或 `defaults write com.tim72117.ops mcp.port 4000`(打包後的 omixor.app)修改。
+連接埠可用環境變數 `OMIXOR_MCP_PORT`(app 與 `omixor-mcp` 都讀;`omixor-mcp` 另外讀 `OMIXOR_MCP_URL`)或 `defaults write com.tim72117.ops mcp.port 4000`(打包後的 omixor.app;bundle id 是改名前留下的,刻意不改)修改。
+
+改名前的環境變數(`OPS_*`)暫時仍可用:一律先讀新名稱(`OMIXOR_*`),沒設才讀舊名稱,讀到時記一次 log。鑰匙圈的 service 從 `com.tim72117.ops.*` 改成 `com.tim72117.omixor.*`:新的讀不到才讀舊的,讀到就複製一份到新的,刪除時兩邊一起刪。偏好設定 `ops.settings.*` 啟動時搬到 `omixor.settings.*`。資料夾 `~/Library/Application Support/Ops` 與 bundle id `com.tim72117.ops` 刻意不改。
 
 | 工具 | 作用 |
 |---|---|
@@ -105,7 +107,7 @@ swift build -c release --product omixor-mcp   # 產生 .build/release/omixor-mcp
 
 ## 連線(設定 › 連線)
 
-Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一種通用的認證方式,token 與 client secret 存在鑰匙圈(只限這台 Mac),設定存在 `~/Library/Application Support/Ops/connections.json`。
+omixor 呼叫外部服務都透過「連線」:每個連線是一個網址加上一種通用的認證方式,token 與 client secret 存在鑰匙圈(只限這台 Mac),設定存在 `~/Library/Application Support/Ops/connections.json`。
 
 | 認證方式 | 做法 |
 |---|---|
@@ -118,7 +120,7 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 
 ## 旁白發佈(CI/CD › 旁白發佈)
 
-把 shuttle 專案的旁白語音批次接進 Ops:送出(`npm run voice -- <腳本> --batch`)→ 每 10 分鐘 `--collect` → 收完列出變動的 `.voice.json`、可試聽 → 人按發佈(Touch ID)→ 透過選定的連線 `PUT /api/admin/scripts/<路徑>`,再用 API 讀回比對。不修改 shuttle 的程式,也不直連資料庫。AI 可以用 MCP 的 `voice_submit`、`voice_jobs` 分派與查詢,發佈沒有 MCP 工具。工作紀錄存在 `~/Library/Application Support/Ops/voice-jobs.json`。
+把 shuttle 專案的旁白語音批次接進 omixor:送出(`npm run voice -- <腳本> --batch`)→ 每 10 分鐘 `--collect` → 收完列出變動的 `.voice.json`、可試聽 → 人按發佈(Touch ID)→ 透過選定的連線 `PUT /api/admin/scripts/<路徑>`,再用 API 讀回比對。不修改 shuttle 的程式,也不直連資料庫。AI 可以用 MCP 的 `voice_submit`、`voice_jobs` 分派與查詢,發佈沒有 MCP 工具。工作紀錄存在 `~/Library/Application Support/Ops/voice-jobs.json`。
 
 ## 網站訪客(監控與告警 › 網站訪客)
 
@@ -138,7 +140,7 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 
 ## 虛擬角色(AI 自動化 › 虛擬角色)
 
-每個角色有職責、角色設定(給 AI 的說明)與例行任務,存在 `agents.json`。Ops 不自己跑 AI:任務(人在畫面上指派、例行任務到時間自動排,或 AI 用 `agent_task_create` 指派)排著等領取;在 Claude Code 貼上「複製給 Claude Code」的那段話,AI 就會以角色身分用 `agent_task_claim` 領取、照角色設定做,用 `agent_task_report` 回報過程與結果,需要人決定時標成「需要協助」。角色可在畫面上按「新增角色」,或請 AI 用 `agent_upsert` 隨時新增或修改。預設角色:訪客分析師、旁白製作、Issue 整理員、課程開發、行銷。
+每個角色有職責、角色設定(給 AI 的說明)與例行任務,存在 `agents.json`。omixor 不自己跑 AI:任務(人在畫面上指派、例行任務到時間自動排,或 AI 用 `agent_task_create` 指派)排著等領取;在 Claude Code 貼上「複製給 Claude Code」的那段話,AI 就會以角色身分用 `agent_task_claim` 領取、照角色設定做,用 `agent_task_report` 回報過程與結果,需要人決定時標成「需要協助」。角色可在畫面上按「新增角色」,或請 AI 用 `agent_upsert` 隨時新增或修改。預設角色:訪客分析師、旁白製作、Issue 整理員、課程開發、行銷。
 
 ## 組織(側邊欄最上方 / 設定 › 組織)
 
@@ -148,19 +150,19 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 - 目前組織的工作空間都能重新設定:虛擬角色、文件櫃結構(區塊與頁籤可新增、改名、排序、刪除,有文件的不能刪)、連線、Issue。
 - 舊版直接放在資料夾根目錄的檔案,第一次啟動時會複製到預設組織「evoleap」(原檔保留)。
 - MCP 一律作用在目前的組織,`orgs` 看是哪一個;切換組織只能由人在 app 裡做。
-- 跑測試卻沒指定 `OPS_DATA_DIR` 時,資料夾會改用暫存資料夾,不會碰到真正的資料。
+- 跑測試卻沒指定 `OMIXOR_APP_DATA_DIR` 時,資料夾會改用暫存資料夾,不會碰到真正的資料。
 
 ## GitHub(開發進度 › GitHub;設定在 設定 › 程式碼倉庫)
 
-用「GitHub」連線讀追蹤中 repo 的 Actions 執行(工作、步驟、失敗工作紀錄的最後幾行)和開著的 PR(檢查結果、說明、變更檔案)。**只讀**:Ops 不會開 PR、留言或重跑 workflow。
+用「GitHub」連線讀追蹤中 repo 的 Actions 執行(工作、步驟、失敗工作紀錄的最後幾行)和開著的 PR(檢查結果、說明、變更檔案)。**只讀**:omixor 不會開 PR、留言或重跑 workflow。
 
 - 登入:網頁 OAuth。GitHub 不支援自動註冊,第一次要在 GitHub 註冊一個 OAuth App(Homepage `http://127.0.0.1`、callback `http://127.0.0.1/callback`),把 Client ID / secret 貼進 設定 › 程式碼倉庫 的引導,之後按「用瀏覽器登入」;同一頁可以登出、加入或停止追蹤 repo。開發進度 › GitHub 只看資料,沒設定好時有「前往 設定 › 程式碼倉庫」按鈕。secret 與 token 存在鑰匙圈。權限只要 `read:user`(公開 repo);私有 repo 要在 設定 › 連線 › GitHub 的 scopes 加 `repo`。也可以改貼 fine-grained 個人存取權杖。
 - 追蹤哪些 repo 存在組織資料夾的 `github.json`(每個組織各自一份);有登入時每 5 分鐘更新。
-- GitHub 紀錄會轉址到暫時的下載網址;轉址到別的網站時 Ops 會拿掉 Authorization,token 不會外流。
+- GitHub 紀錄會轉址到暫時的下載網址;轉址到別的網站時 omixor 會拿掉 Authorization,token 不會外流。
 
 ## GCP(伺服器與服務 › GCP)
 
-用「Google Cloud」連線讀設定專案(預設組織:`shuttle-045094509`、`asia-east1`)的 Cloud Run 服務(狀態、目前版本、流量、映像、最近的版本)、Cloud Run Job 的執行、Cloud Logging 的日誌(預設 ERROR 以上),以及 Cloud Monitoring 的請求量(2xx/4xx/5xx)、p95 延遲與執行個體數。**只讀**(`cloud-platform.read-only`):Ops 不會部署、改流量或執行 Job。
+用「Google Cloud」連線讀設定專案(預設組織:`shuttle-045094509`、`asia-east1`)的 Cloud Run 服務(狀態、目前版本、流量、映像、最近的版本)、Cloud Run Job 的執行、Cloud Logging 的日誌(預設 ERROR 以上),以及 Cloud Monitoring 的請求量(2xx/4xx/5xx)、p95 延遲與執行個體數。**只讀**(`cloud-platform.read-only`):omixor 不會部署、改流量或執行 Job。
 
 - 登入:Google 網頁 OAuth。第一次要在 Google Cloud Console 建一個「電腦版應用程式」OAuth 用戶端,把用戶端 ID / 密鑰貼進分頁上的引導,再按「用瀏覽器登入」。同意畫面在「測試」狀態時登入約 7 天過期;改成「正式版」就不會。登入的帳號要有專案的檢視權限。
 - 專案、區域、追蹤哪些服務與 Job 存在組織資料夾的 `gcp.json`(空白表示全部);有登入時每 5 分鐘更新狀態,日誌與指標打開時才讀。
@@ -177,13 +179,13 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 
 連線(擇一,分頁上有引導):
 
-1. **用 Meta 帳號登入**:在 developers.facebook.com 建立應用程式(類型「商家」),加入「Facebook 登入」產品,「有效的 OAuth 重新導向 URI」填 `http://127.0.0.1:3767/callback`;把應用程式編號與密鑰貼進分頁,按「用瀏覽器登入」。權限:`pages_show_list`、`pages_read_engagement`、`pages_manage_posts`、`read_insights`。Ops 用授權碼換短期使用者權杖 → 換長期權杖(`fb_exchange_token`)→ 讀 `/me/accounts` 取得每個專頁的 Page access token。Meta 若要求重新導向網址必須是 https,改用方法二。
-2. **直接貼權杖**:在 Graph API Explorer 取得 Page access token(或使用者權杖,Ops 會讀出它管理的專頁),建議先在存取權杖偵錯工具延長成長期權杖。
+1. **用 Meta 帳號登入**:在 developers.facebook.com 建立應用程式(類型「商家」),加入「Facebook 登入」產品,「有效的 OAuth 重新導向 URI」填 `http://127.0.0.1:3767/callback`;把應用程式編號與密鑰貼進分頁,按「用瀏覽器登入」。權限:`pages_show_list`、`pages_read_engagement`、`pages_manage_posts`、`read_insights`。omixor 用授權碼換短期使用者權杖 → 換長期權杖(`fb_exchange_token`)→ 讀 `/me/accounts` 取得每個專頁的 Page access token。Meta 若要求重新導向網址必須是 https,改用方法二。
+2. **直接貼權杖**:在 Graph API Explorer 取得 Page access token(或使用者權杖,omixor 會讀出它管理的專頁),建議先在存取權杖偵錯工具延長成長期權杖。
 
 - 權杖(使用者權杖、各專頁權杖、App secret)存在鑰匙圈,依組織分開;`facebook.json` 只有專頁清單、要管理哪些專頁與草稿。權杖放在 `Authorization: Bearer` 標頭,只送到 `graph.facebook.com`,`paging.next` 也只跟同一台主機。
 - 草稿可從文件櫃的文件或行銷角色的任務結果帶入,也可以由角色用 MCP 的 `fb_draft_save` 寫好。發佈與排程要先確認、再過 Touch ID(和旁白發佈一樣),動態牆以人署名,註明草稿是誰寫的。
 - 排程:`published=false` + `scheduled_publish_time`,限制 10 分鐘到 30 天後,時間一律用台北時間。
-- 成效:專頁的觸及、瀏覽、貼文互動、追蹤數與新增追蹤(趨勢);每篇的觸及、點擊、心情分類,以及心情 / 留言 / 分享與互動合計。Meta 2025 年起淘汰了部分 insights 指標:Ops 先一次問全部候選指標,收到「不是有效的指標」(code 100)就逐一問、改用替代指標,取不到的顯示「已淘汰」或「無資料」,不會整頁壞掉。權杖過期(code 190)會提示重新連線。
+- 成效:專頁的觸及、瀏覽、貼文互動、追蹤數與新增追蹤(趨勢);每篇的觸及、點擊、心情分類,以及心情 / 留言 / 分享與互動合計。Meta 2025 年起淘汰了部分 insights 指標:omixor 先一次問全部候選指標,收到「不是有效的指標」(code 100)就逐一問、改用替代指標,取不到的顯示「已淘汰」或「無資料」,不會整頁壞掉。權杖過期(code 190)會提示重新連線。
 - AI 透過 MCP 只能讀與存草稿(`fb_pages`、`fb_posts`、`fb_insights`、`fb_drafts`、`fb_draft_save`),沒有發佈工具。
 
 程式在 `Sources/Omixor/Facebook/`,畫面在 `Features/Automation/AutoFacebookView.swift`,測試 `Tests/OmixorTests/FacebookTests.swift`(URLProtocol 攔截,不會連到 Meta)。
@@ -195,20 +197,20 @@ Ops 呼叫外部服務都透過「連線」:每個連線是一個網址加上一
 設定步驟:
 
 1. 在 [LINE Developers](https://developers.line.biz/) 建一個 Provider 與 Messaging API channel(會同時建立官方帳號)。Basic settings 抄 **Channel secret**;Messaging API 分頁最下方發行長期 **Channel access token**。
-2. Ops 的 設定 › LINE:貼上 token 與 secret,按「儲存到鑰匙圈」。兩者存在鑰匙圈(帳號名稱帶組織前綴,每個組織各自一組),不會寫進 JSON。
+2. omixor 的 設定 › LINE:貼上 token 與 secret,按「儲存到鑰匙圈」。兩者存在鑰匙圈(帳號名稱帶組織前綴,每個組織各自一組),不會寫進 JSON。
 3. 用手機掃 Messaging API 分頁的 QR code 加官方帳號好友(要推到群組就把官方帳號邀進群組)。
-4. 把公開 https 網址轉到 Ops 的 webhook 埠(預設 `127.0.0.1:3766`,設定頁可改),擇一:
+4. 把公開 https 網址轉到 omixor 的 webhook 埠(預設 `127.0.0.1:3766`,設定頁可改),擇一:
    ```bash
    cloudflared tunnel --url http://127.0.0.1:3766
    ngrok http 127.0.0.1:3766
    ```
    把工具給的網址貼到設定頁「公開網址」,複製組好的 Webhook URL(`https://…/line/webhook`)。
 5. LINE Developers › Messaging API › Webhook settings:貼上 Webhook URL、打開 **Use webhook**,按 **Verify**。LINE Official Account Manager › 回應設定 關閉「自動回應訊息」。
-6. 在 LINE 傳一則訊息給官方帳號;你的 userId 會出現在設定頁「最近傳訊息的人」,按「加入白名單」(可選在 Ops 以誰署名)與「加為接收者」(群組的 groupId 也會出現在這裡),再按「傳一則測試訊息」確認。
+6. 在 LINE 傳一則訊息給官方帳號;你的 userId 會出現在設定頁「最近傳訊息的人」,按「加入白名單」(可選在 omixor 以誰署名)與「加為接收者」(群組的 groupId 也會出現在這裡),再按「傳一則測試訊息」確認。
 
 行為:
 
-- **推播**(push API,每個接收者各送一則 Flex Message:標題、摘要、欄位、在 Ops 哪裡看):告警觸發(依嚴重度門檻)、宣告事件與狀態變更、新的待核准 AI 請求、旁白批次待發佈、虛擬角色任務需要協助。各類可以分別關掉。同一件事只推一次;app 啟動或切換組織時已存在的狀況不推。每則帶 `X-Line-Retry-Key`,網路錯誤或 5xx 重試一次。失敗記在設定頁的「紀錄」,不會擋住 app。
+- **推播**(push API,每個接收者各送一則 Flex Message:標題、摘要、欄位、在 omixor 哪裡看):告警觸發(依嚴重度門檻)、宣告事件與狀態變更、新的待核准 AI 請求、旁白批次待發佈、虛擬角色任務需要協助。各類可以分別關掉。同一件事只推一次;app 啟動或切換組織時已存在的狀況不推。每則帶 `X-Line-Retry-Key`,網路錯誤或 5xx 重試一次。失敗記在設定頁的「紀錄」,不會擋住 app。
 - **Webhook**:只聽 127.0.0.1 的 `POST /line/webhook`;每個請求先用 channel secret 驗 `X-Line-Signature`(HMAC-SHA256、base64、常數時間比較),不符或缺少就回 401、不處理。回覆用 reply API。沒填 channel secret 時伺服器不開。
 - **在 LINE 核准**:待核准請求的推播帶「核准 / 拒絕」按鈕(postback,data 帶請求 id 與一次性 nonce,nonce 存在組織資料夾的 `line-state.json`)。按下後檢查發送者在白名單、nonce 有效且沒用過、請求還在待核准,才核准或拒絕,動態牆以白名單設定的人署名並註明「經 LINE」。核准仍是人做的決定,AI 不能透過 LINE 核准。
 - **在 LINE 問狀況**:白名單的人傳文字,用 AI 助理同一套回答邏輯(`AssistResponder`)產生回答,轉成純文字回覆。

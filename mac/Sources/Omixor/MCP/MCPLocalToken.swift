@@ -11,7 +11,14 @@ import Security
 /// - 角色自動執行走 /mcp/gateway,用的是一次性的閘道 token(omxgw_ 開頭),兩邊互不通用。
 /// - service 可以換(測試一律用暫存的名稱,不碰正式鑰匙圈)。
 enum MCPLocalToken {
-    nonisolated(unsafe) static var service = ProcessInfo.processInfo.environment["OPS_MCP_TOKEN_KEYCHAIN_SERVICE"] ?? "com.tim72117.ops.mcp-endpoint"
+    static let defaultService = "com.tim72117.omixor.mcp-endpoint"
+    /// 改名前的 service:新的讀不到才讀它,讀到就複製一份到新的;刪除時兩邊一起刪
+    static let defaultLegacyService = "com.tim72117.ops.mcp-endpoint"
+    nonisolated(unsafe) static var service = OmixorEnv.get("OMIXOR_MCP_TOKEN_KEYCHAIN_SERVICE", legacy: "OPS_MCP_TOKEN_KEYCHAIN_SERVICE") ?? defaultService
+    /// 測試用:指定舊名稱的 service(一律用暫存的名稱)
+    nonisolated(unsafe) static var legacyServiceOverride: String?
+    /// 舊名稱的 service:只有用正式的 service 時才讀舊的
+    static var legacyService: String? { legacyServiceOverride ?? (service == defaultService ? defaultLegacyService : nil) }
     static let account = "local-mcp-token"
     static let prefix = "omxl_"
 
@@ -88,6 +95,7 @@ enum MCPLocalToken {
         defer { lock.unlock() }
         cached[service] = nil
         SecItemDelete(query() as CFDictionary)
+        KeychainLegacy.delete(account: account, legacy: legacyService)
     }
 
     // MARK: 鑰匙圈
@@ -101,7 +109,9 @@ enum MCPLocalToken {
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else { return nil }
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess else {
+            return KeychainLegacy.migrate(account: account, from: legacyService, to: service)
+        }
         return out as? Data
     }
 
@@ -121,8 +131,9 @@ enum MCPLocalToken {
 
     // MARK: 給使用者的設定指令
 
-    /// 加到 Claude Code 的指令(含 token)。已經加過同名的要先 `claude mcp remove ops`(設定頁有說明)
-    static func claudeCommand(url: String, token: String, name: String = "ops") -> String {
+    /// 加到 Claude Code 的指令(含 token)。已經加過同名的要先 `claude mcp remove omixor`(設定頁有說明;
+    /// 改名前加的是 `ops`,舊的可以 `claude mcp remove ops` 移除)
+    static func claudeCommand(url: String, token: String, name: String = "omixor") -> String {
         "claude mcp add --transport http \(name) \(url) --header \"Authorization: Bearer \(token)\""
     }
 }

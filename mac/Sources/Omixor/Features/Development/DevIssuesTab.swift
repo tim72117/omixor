@@ -10,7 +10,7 @@ struct DevIssuesTab: View {
     /// 依所屬倉庫篩選:"" = 全部倉庫;IssueRepoOptions.none = 未標記;其他 = 只列這個倉庫(比對規則在 core 的 model.RepoMatch)
     @State private var repoFilter = ""
     /// core 篩選、排序好的列表(第一次讀到前是 nil);規則只在 core(model/issue_query.go)
-    @State private var result: [OpsIssue]?
+    @State private var result: [Issue]?
     @State private var loadError: String?
     /// 上一次送出查詢時的搜尋字(搜尋字變了才等 250ms)
     @State private var lastQ = ""
@@ -31,10 +31,10 @@ struct DevIssuesTab: View {
     private struct LoadKey: Equatable {
         var q: IssueQuery
         var org: String
-        var issues: [OpsIssue]
+        var issues: [Issue]
     }
 
-    private var list: [OpsIssue] { result ?? [] }
+    private var list: [Issue] { result ?? [] }
 
     /// 向 core 查列表(背景執行;搜尋字變了先等 250ms,期間再變就取消這次)
     private func load() async {
@@ -118,7 +118,7 @@ struct DevIssuesTab: View {
 
 private struct IssueRow: View {
     @EnvironmentObject var app: AppState
-    let issue: OpsIssue
+    let issue: Issue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -180,7 +180,7 @@ private struct IssueRow: View {
 private struct IssueDetail: View {
     @EnvironmentObject var app: AppState
     @EnvironmentObject var model: DevModel
-    let issue: OpsIssue
+    let issue: Issue
     @State private var editing = false
     @State private var draftTitle = ""
     @State private var draftBody = ""
@@ -485,7 +485,7 @@ struct MarkdownText: View {
 private struct NewIssueSheet: View {
     @EnvironmentObject var app: AppState
     @Environment(\.dismiss) private var dismiss
-    let onCreate: (OpsIssue) -> Void
+    let onCreate: (Issue) -> Void
     @State private var title = ""
     @State private var bodyText = ""
     @State private var labels = ""
@@ -534,7 +534,7 @@ enum IssueRepoOptions {
     static let none = IssueQuery.none
 
     /// Issue 用到的倉庫(去重:不分大小寫,保留第一次出現的寫法),依字母排序
-    static func used(_ issues: [OpsIssue]) -> [String] {
+    static func used(_ issues: [Issue]) -> [String] {
         var seen = Set<String>()
         return issues.compactMap(\.repoTag).filter { seen.insert($0.lowercased()).inserted }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
@@ -542,7 +542,7 @@ enum IssueRepoOptions {
 
     /// 選單分組:GitHub 追蹤的 repo、GitLab 追蹤的專案(組織設定,加 gitlab: 前綴)、其他 Issue 用過的(去重,不分大小寫)
     /// hasModule = false(server 沒編進程式碼倉庫模組):沒有候選,只能不標記或手動輸入
-    static func groups(github: [String], gitlab: [String] = [], issues: [OpsIssue], hasModule: Bool = true) -> [(label: String, options: [String])] {
+    static func groups(github: [String], gitlab: [String] = [], issues: [Issue], hasModule: Bool = true) -> [(label: String, options: [String])] {
         guard hasModule else { return [] }
         var seen = Set<String>()
         func take(_ l: [String]) -> [String] { l.filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted } }

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// Facebook 粉絲專頁:用 StubProtocol 假裝 graph.facebook.com,絕不送出真的請求
 @MainActor
@@ -22,10 +22,10 @@ final class FacebookTests: XCTestCase {
 
     override func setUp() async throws {
         try TestCore.start(self)   // 角色等核心資料在 core server:每個測試一個新的本機守護服務
-        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-fb-\(UUID().uuidString)")
+        dataDir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-fb-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dataDir.path, 1)
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"
+        setenv("OMIXOR_APP_DATA_DIR", dataDir.path, 1)
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"
         TokenVault.scope = ""
         ConnHTTP.protocolClasses = [StubProtocol.self]
         Self.requests = []
@@ -43,7 +43,7 @@ final class FacebookTests: XCTestCase {
         for c in app.connections { TokenVault.removeAll(c.id) }
         ConnHTTP.protocolClasses = []
         StubProtocol.handler = nil
-        unsetenv("OPS_DATA_DIR")
+        unsetenv("OMIXOR_APP_DATA_DIR")
         try? FileManager.default.removeItem(at: dataDir)
     }
 

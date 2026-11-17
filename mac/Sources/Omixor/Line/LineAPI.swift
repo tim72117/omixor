@@ -91,9 +91,14 @@ enum LineAPI {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// postback data:ops=approval&id=…&d=approve|reject&n=<nonce>
+    /// postback data:omixor=approval&id=…&d=approve|reject&n=<nonce>
     static func approvalData(id: String, approve: Bool, nonce: String) -> String {
-        ConnHTTP.formEncode(["ops": "approval", "id": id, "d": approve ? "approve" : "reject", "n": nonce])
+        ConnHTTP.formEncode(["omixor": "approval", "id": id, "d": approve ? "approve" : "reject", "n": nonce])
+    }
+
+    /// 是不是核准按鈕的 postback:新的用 omixor=approval;改名前送出的按鈕是 ops=approval,還留在 LINE 聊天裡,一樣接受
+    static func isApprovalData(_ d: [String: String]) -> Bool {
+        d["omixor"] == "approval" || (d["omixor"] == nil && d["ops"] == "approval")
     }
 
     static func parseData(_ s: String) -> [String: String] {
@@ -120,7 +125,7 @@ struct LineNotice {
     var title: String
     var summary: String
     var fields: [(String, String)] = []
-    var openIn: String           // 在 Ops 哪裡看,例如「監控與告警 › A-1」
+    var openIn: String           // 在 omixor 哪裡看,例如「監控與告警 › A-1」
     var color = "#1F6FEB"
     var approval: (id: String, nonce: String)?
 
@@ -129,7 +134,7 @@ struct LineNotice {
         return s.count > 400 ? String(s.prefix(399)) + "…" : s
     }
 
-    /// Flex Message:標題、摘要、欄位、在 Ops 開啟的位置;待核准請求加上核准 / 拒絕按鈕(postback)
+    /// Flex Message:標題、摘要、欄位、在 omixor 開啟的位置;待核准請求加上核准 / 拒絕按鈕(postback)
     var message: [String: Any] {
         func t(_ s: String, size: String = "sm", color: String? = nil, bold: Bool = false, wrap: Bool = true) -> [String: Any] {
             var o: [String: Any] = ["type": "text", "text": s.isEmpty ? " " : String(s.prefix(1500)), "size": size, "wrap": wrap]

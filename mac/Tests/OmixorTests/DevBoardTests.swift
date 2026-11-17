@@ -1,16 +1,16 @@
 import XCTest
-@testable import Ops
+@testable import Omixor
 
 /// 開發 › 看板與 Issue 列表:分欄、排序、篩選、搜尋的規則只在 core(core/model/issue_query_test.go 測規則本身)。
 /// 這裡測 App 這一側:query 參數怎麼送、看板回應怎麼解碼、欄的 dropStatus 怎麼決定拖曳、欄 key 對應的顯示,
 /// 以及連真的 core(TestCore)時拿到的結果
 final class DevBoardTests: XCTestCase {
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
     }
 
-    private func issue(_ n: Int, _ status: IssueStatus = .open, assignee: String? = nil) -> OpsIssue {
-        OpsIssue(id: "ISS-\(n)", title: "Issue \(n)", status: status, createdBy: "me", assignee: assignee)
+    private func issue(_ n: Int, _ status: IssueStatus = .open, assignee: String? = nil) -> Issue {
+        Issue(id: "ISS-\(n)", title: "Issue \(n)", status: status, createdBy: "me", assignee: assignee)
     }
 
     func testQueryItems() {

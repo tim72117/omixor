@@ -1,18 +1,18 @@
 import XCTest
 import SwiftUI
-@testable import Ops
+@testable import Omixor
 
-/// 把含圖片的 Markdown 算繪成圖,確認附件真的畫得出來(OPS_RENDER_OUT 有設時存檔給人看)
+/// 把含圖片的 Markdown 算繪成圖,確認附件真的畫得出來(OMIXOR_RENDER_OUT 有設時存檔給人看)
 @MainActor
 final class MarkdownRenderTests: XCTestCase {
     override func setUp() async throws {
-        TokenVault.service = "com.tim72117.ops.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
+        TokenVault.service = "com.tim72117.omixor.tests.\(UUID().uuidString)"  // 測試一律不碰正式鑰匙圈
     }
     func testImageAttachmentRenders() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ops-md-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("omixor-md-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        setenv("OPS_DATA_DIR", dir.path, 1)
-        defer { unsetenv("OPS_DATA_DIR"); try? FileManager.default.removeItem(at: dir) }
+        setenv("OMIXOR_APP_DATA_DIR", dir.path, 1)
+        defer { unsetenv("OMIXOR_APP_DATA_DIR"); try? FileManager.default.removeItem(at: dir) }
         let app = AppState()
         let img = NSImage(size: NSSize(width: 240, height: 120))
         img.lockFocus(); NSColor.systemTeal.setFill(); NSRect(x: 0, y: 0, width: 240, height: 120).fill(); img.unlockFocus()
@@ -25,7 +25,7 @@ final class MarkdownRenderTests: XCTestCase {
         let out = try XCTUnwrap(r.nsImage)
         // 高度要包含 120pt 的圖片
         XCTAssertGreaterThan(out.size.height, 180)
-        if let path = ProcessInfo.processInfo.environment["OPS_RENDER_OUT"],
+        if let path = ProcessInfo.processInfo.environment["OMIXOR_RENDER_OUT"],
            let tiff = out.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
             try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
         }
