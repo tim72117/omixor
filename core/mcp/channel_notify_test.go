@@ -95,7 +95,7 @@ func TestChannelNotifiesQueuedTasks(t *testing.T) {
 		t.Fatalf("要宣告 claude/channel:%v", res)
 	}
 	ins := res["instructions"].(string)
-	for _, want := range []string{"agent_task_claim", "id=<task_id>", "https://omixor.io", "組織 lab"} {
+	for _, want := range []string{"agent_task_claim", "id=<task_id>", "https://omixor.io", "org 屬性"} {
 		if !strings.Contains(ins, want) {
 			t.Fatalf("instructions 要有 %q:%s", want, ins)
 		}
@@ -173,4 +173,57 @@ func TestChannelAgentFilter(t *testing.T) {
 	if len(f.seen) == 0 || f.seen[0].AgentID != "dev" || f.seen[0].Status != "queued" {
 		t.Fatalf("查詢條件:%v", f.seen)
 	}
+}
+
+// OrgFunc:每次查詢重讀組織;讀不到就先不送,讀到後當第一次;換組織時重新開始,通知帶新組織
+func TestChannelFollowsCurrentOrg(t *testing.T) {
+	f := &fakeTasks{}
+	f.set(task("T-1", "dev", "queued"))
+	var mu sync.Mutex
+	org, orgErr := "", fmt.Errorf("console 沒開")
+	cur := func() (string, error) { mu.Lock(); defer mu.Unlock(); return org, orgErr }
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	go func() {
+		_ = mcp.RunChannel(context.Background(), inR, outW, mcp.ChannelConfig{Tasks: f, OrgFunc: cur, Interval: 15 * time.Millisecond, Logf: t.Logf})
+		outW.Close()
+	}()
+	msgs := make(chan map[string]any, 32)
+	go func() {
+		sc := bufio.NewScanner(outR)
+		for sc.Scan() {
+			var m map[string]any
+			_ = json.Unmarshal(sc.Bytes(), &m)
+			msgs <- m
+		}
+		close(msgs)
+	}()
+	fmt.Fprintln(inW, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	select {
+	case m := <-msgs:
+		t.Fatalf("讀不到組織時不該送:%v", m)
+	case <-time.After(80 * time.Millisecond):
+	}
+	meta := func() map[string]any {
+		select {
+		case m := <-msgs:
+			return m["params"].(map[string]any)["meta"].(map[string]any)
+		case <-time.After(3 * time.Second):
+			t.Fatal("等不到通知")
+			return nil
+		}
+	}
+	mu.Lock()
+	org, orgErr = "a", nil
+	mu.Unlock()
+	if m := meta(); m["kind"] != "backlog" || m["org"] != "a" {
+		t.Fatalf("console 開了之後要送待領清單:%v", m)
+	}
+	mu.Lock()
+	org = "b"
+	mu.Unlock()
+	if m := meta(); m["kind"] != "backlog" || m["org"] != "b" {
+		t.Fatalf("換組織要重新開始、帶新組織:%v", m)
+	}
+	inW.Close()
 }

@@ -82,6 +82,22 @@ docker compose up -d --build
 
 只支援 stdio 的 MCP 用戶端用 `bin/omixor-mcp`(同 Swift 版的 omixor-mcp,`OMIXOR_MCP_URL` / `OMIXOR_MCP_PORT` 指定位址)。
 
+## 任務執行者(Claude Code 自動領任務)
+
+派發出去的任務(手動派、Issue 指派給角色、例行任務)可以由開著的 Claude Code 工作階段自動領取、執行、回報。
+用的是 Claude Code 的 channels(研究預覽):`bin/omixor-mcp --channel` 定時讀這台 console 目前組織的待領取任務,有新的就推進工作階段。
+
+```bash
+./bin/omixor-mcp --init-worker <資料夾> [--agent 角色] [--no-subagent]
+cd <資料夾>
+claude --dangerously-load-development-channels server:omixor-tasks
+```
+
+- `--init-worker` 產生 `.mcp.json`(註冊頻道 `omixor-tasks` 與本機 omixor MCP)與 `CLAUDE.md`(長期授權:收到通知不用問就領取,預設交給子代理執行,做完用 `agent_task_report` 回報)。範本在 `omixor-core/mcp/worker_template.go`。
+- 授權一定要寫在 `CLAUDE.md`(或啟動時的第一則訊息):頻道事件在 Claude Code 裡不算使用者指令,光靠頻道的說明它會停下來問。
+- 第一次啟動會問要不要啟用 MCP 伺服器與開發頻道,都選同意。工作階段要一直開著才收得到;只能在終端機用,桌面 app 的 Code 分頁不支援 channels。
+- 頻道跟著 console 目前的組織(每次查詢重讀):console 晚開、中途換組織都跟得上,換組織時會先送一則新組織的待領清單。
+
 ## MCP 規格一致
 
 - `tools/list` = web 自己的工具(`spec/tools.json`)+ 核心工具(定義直接取自 `omixor-core/mcp.CoreToolDefs`,和 `/mcp/org` 同一份;
