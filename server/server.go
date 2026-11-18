@@ -14,7 +14,7 @@
 //
 // 路由:
 //
-//	/                              形象網站英文首頁(site/index.html;另有 /favicon.svg、/og.png、/robots.txt、/sitemap.xml、/llms.txt)
+//	/                              形象網站英文首頁(site/index.html;另有 /pricing、/favicon.svg、/og.png、/robots.txt、/sitemap.xml、/llms.txt)
 //	/health                        健康檢查
 //	/api/…                         核心 HTTP API(core/api)
 //	/mcp/agent                     角色端點:Authorization: Bearer <agentId>:<secret>(領取任務時發的憑證),白名單工具(含文件櫃,依角色的 docAccess)

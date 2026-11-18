@@ -1,0 +1,34 @@
+{
+  "project": "PRJ-2",
+  "layout": [
+    {
+      "id": "spec",
+      "label": "規格",
+      "path": "",
+      "tabs": [
+        {
+          "code": "P1",
+          "label": "首頁",
+          "path": "/spec/home"
+        }
+      ]
+    }
+  ],
+  "docs": [
+    {
+      "author": "agent:pm",
+      "body": "# 首頁\n\n- Hero\n- 案例",
+      "createdAt": "2026-11-02T00:00:00Z",
+      "id": "DOC-9",
+      "project": "PRJ-2",
+      "section": "spec",
+      "tab": "/spec/home",
+      "tags": [
+        "規格"
+      ],
+      "title": "首頁規格",
+      "updatedAt": "2026-11-03T00:00:00Z"
+    }
+  ],
+  "layoutSaved": true
+}

@@ -43,7 +43,7 @@ func sp(s string) *string { return &s }
 
 func TestCabinetDocsAndLayout(t *testing.T) {
 	svc, boss, alice := cabEnv(t)
-	c, err := svc.GetCabinet(alice, "o1")
+	c, err := svc.GetCabinet(alice, "o1", "")
 	if err != nil || c.LayoutSaved || len(c.Layout) != 2 || c.Layout[0].ID != "overview" || len(c.Docs) != 0 {
 		t.Fatalf("沒存過結構是空白結構:%+v %v", c, err)
 	}
@@ -60,13 +60,13 @@ func TestCabinetDocsAndLayout(t *testing.T) {
 	}
 	// 結構:只有組織管理員能改
 	layout := []model.CabinetSection{{ID: "overview", Label: "總覽"}, {ID: "docs", Label: "文件", Tabs: []model.CabinetTab{{Path: "/docs/a", Label: "A", Code: sp("A1")}}}}
-	if _, err := svc.SaveCabinetLayout(alice, "o1", layout); code(err) != 403 {
+	if _, err := svc.SaveCabinetLayout(alice, "o1", "", layout); code(err) != 403 {
 		t.Fatal("成員不能改結構", err)
 	}
-	if _, err := svc.SaveCabinetLayout(boss, "o1", []model.CabinetSection{{ID: "overview", Label: "總覽"}}); err == nil || err.Error() != "「第一份」還在被拿掉的區塊裡,先搬走或刪除" {
+	if _, err := svc.SaveCabinetLayout(boss, "o1", "", []model.CabinetSection{{ID: "overview", Label: "總覽"}}); err == nil || err.Error() != "「第一份」還在被拿掉的區塊裡,先搬走或刪除" {
 		t.Fatal("拿掉有文件的區塊要擋", err)
 	}
-	if _, err := svc.SaveCabinetLayout(boss, "o1", layout); err != nil {
+	if _, err := svc.SaveCabinetLayout(boss, "o1", "", layout); err != nil {
 		t.Fatal(err)
 	}
 	// 搬到頁籤、接內文;內容沒變不更新
@@ -77,7 +77,7 @@ func TestCabinetDocsAndLayout(t *testing.T) {
 	if _, err := svc.UpdateDoc(alice, "o1", "DOC-1", service.DocPatch{Section: sp("docs"), Tab: sp("/nope")}); code(err) != 400 {
 		t.Fatal("頁籤不存在要 400")
 	}
-	c, _ = svc.GetCabinet(alice, "o1")
+	c, _ = svc.GetCabinet(alice, "o1", "")
 	if !c.LayoutSaved || len(c.Docs) != 1 || c.Docs[0].TabPath() != "/docs/a" {
 		t.Fatalf("%+v", c)
 	}
@@ -85,7 +85,7 @@ func TestCabinetDocsAndLayout(t *testing.T) {
 	if d2.ID != "DOC-2" {
 		t.Fatal(d2.ID)
 	}
-	if c, _ = svc.GetCabinet(alice, "o1"); c.Docs[0].ID != "DOC-2" {
+	if c, _ = svc.GetCabinet(alice, "o1", ""); c.Docs[0].ID != "DOC-2" {
 		t.Fatal("新的在前")
 	}
 	// 刪除:成員可以;找不到 404
@@ -97,7 +97,7 @@ func TestCabinetDocsAndLayout(t *testing.T) {
 	}
 	// 不是成員 403
 	out := &model.Principal{User: model.User{ID: "u9", Email: "x@x", Role: "member"}}
-	if _, err := svc.GetCabinet(out, "o1"); code(err) != 403 {
+	if _, err := svc.GetCabinet(out, "o1", ""); code(err) != 403 {
 		t.Fatal(err)
 	}
 	// 刪組織一併刪
@@ -108,7 +108,7 @@ func TestCabinetDocsAndLayout(t *testing.T) {
 	if l, _ := svc.Store.ListDocs("o1"); len(l) != 0 {
 		t.Fatal("刪組織要刪文件")
 	}
-	if _, err := svc.Store.GetCabinetLayout("o1"); err != store.ErrNotFound {
+	if _, err := svc.Store.GetCabinetLayout("o1", ""); err != store.ErrNotFound {
 		t.Fatal("刪組織要刪結構")
 	}
 }
@@ -135,7 +135,7 @@ func TestDocTemplatesChecked(t *testing.T) {
 	if _, err := svc.UpdateDoc(alice, "o1", d.ID, service.DocPatch{Body: sp("---\nkind: lesson\n---\n")}); code(err) != 400 {
 		t.Fatal("修改也要檢查", err)
 	}
-	c, _ := svc.GetCabinet(alice, "o1")
+	c, _ := svc.GetCabinet(alice, "o1", "")
 	if _, ok := model.DocTemplateFor(c.Docs[0], c.Docs); !ok {
 		t.Fatal("有範本的文件要找得到範本")
 	}
@@ -144,13 +144,13 @@ func TestDocTemplatesChecked(t *testing.T) {
 // 角色身分:依 docAccess 過濾與限制,署名是角色,不能刪、不能改結構
 func TestCabinetAgentIdentity(t *testing.T) {
 	svc, boss, alice := cabEnv(t)
-	if _, err := svc.SaveCabinetLayout(boss, "o1", []model.CabinetSection{{ID: "overview", Label: "總覽"}, {ID: "docs", Label: "文件"}, {ID: "secret", Label: "機密"}}); err != nil {
+	if _, err := svc.SaveCabinetLayout(boss, "o1", "", []model.CabinetSection{{ID: "overview", Label: "總覽"}, {ID: "docs", Label: "文件"}, {ID: "secret", Label: "機密"}}); err != nil {
 		t.Fatal(err)
 	}
 	sec, _ := svc.CreateDoc(alice, "o1", service.DocInput{Title: "機密", Section: "secret"})
 	ov, _ := svc.CreateDoc(alice, "o1", service.DocInput{Title: "總覽", Section: "overview"})
 	ag := &model.Principal{User: model.User{ID: "agent:writer", Role: "member"}, Agent: &model.AgentIdentity{Org: "o1", AgentID: "writer", TaskID: "T-1"}}
-	c, err := svc.GetCabinet(ag, "o1")
+	c, err := svc.GetCabinet(ag, "o1", "")
 	if err != nil || len(c.Docs) != 1 || c.Docs[0].ID != ov.ID {
 		t.Fatalf("只看得到能讀的:%+v %v", c, err)
 	}
@@ -173,11 +173,11 @@ func TestCabinetAgentIdentity(t *testing.T) {
 	if err := svc.DeleteDoc(ag, "o1", d.ID); code(err) != 403 {
 		t.Fatal(err)
 	}
-	if _, err := svc.SaveCabinetLayout(ag, "o1", c.Layout); code(err) != 403 {
+	if _, err := svc.SaveCabinetLayout(ag, "o1", "", c.Layout); code(err) != 403 {
 		t.Fatal(err)
 	}
 	other := &model.Principal{User: model.User{ID: "agent:writer"}, Agent: &model.AgentIdentity{Org: "o2", AgentID: "writer"}}
-	if _, err := svc.GetCabinet(other, "o1"); code(err) != 403 {
+	if _, err := svc.GetCabinet(other, "o1", ""); code(err) != 403 {
 		t.Fatal("別的組織的憑證不能用")
 	}
 }
@@ -196,7 +196,7 @@ func TestImportCabinet(t *testing.T) {
 	if err != nil || !res.LayoutSaved || res.Docs != 2 {
 		t.Fatalf("%+v %v", res, err)
 	}
-	c, _ := svc.GetCabinet(alice, "o1")
+	c, _ := svc.GetCabinet(alice, "o1", "")
 	if len(c.Layout) != 1 || len(c.Docs) != 2 || c.Docs[0].ID != "DOC-7" || c.Docs[1].Author != "mcp" || c.Docs[1].Tags == nil {
 		t.Fatalf("%+v", c)
 	}
@@ -223,7 +223,7 @@ func TestImportCabinetRejectedWritesNothing(t *testing.T) {
 	if _, err := svc.ImportCabinet(boss, "o1", service.CabinetImport{Layout: layout, Docs: docs}); code(err) != 409 {
 		t.Fatal("已經有文件要拒絕", err)
 	}
-	c, _ := svc.GetCabinet(alice, "o1")
+	c, _ := svc.GetCabinet(alice, "o1", "")
 	if c.LayoutSaved || len(c.Docs) != 1 {
 		t.Fatalf("被拒時不能先存結構:%+v", c)
 	}

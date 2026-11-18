@@ -58,13 +58,21 @@
 //	Issue 的 repo:所屬程式碼倉庫,owner/name(GitHub)或 group/sub/project(GitLab),可加 github:、gitlab: 前綴;
 //	  只允許英數與 - _ . / :、最長 200,不合格 400;修改時給 "" = 清除;沒標記時 JSON 不帶 repo
 //
-//	GET  /api/orgs/{org}/cabinet               文件櫃:{layout, docs, layoutSaved}(成員;角色憑證只看到 docAccess 能讀的文件)
-//	POST /api/orgs/{org}/cabinet/layout        {layout} 改結構(組織管理員;被拿掉的區塊、頁籤裡不能還有文件)
-//	POST /api/orgs/{org}/cabinet/import        {layout?, docs?} 第一次搬資料用(組織管理員;已經有文件就拒絕,已經有結構就略過結構)
-//	GET  /api/orgs/{org}/docs                  文件(新的在前;角色憑證只看到能讀的)
-//	POST /api/orgs/{org}/docs                  {title, body, section, tab?, tags, author?} 新增 → DOC-<n>(依範本檢查必填欄位)
-//	GET  /api/orgs/{org}/docs/{id}
-//	POST /api/orgs/{org}/docs/{id}             {title?, body?, appendBody?, section?, tab?, tags?} 修改;給 section 就是搬移
+//	GET  /api/orgs/{org}/projects              專案 [{id, name, description, createdAt, updatedAt}](成員;角色憑證也可以;依建立順序)
+//	POST /api/orgs/{org}/projects              {name, description?} 新增 → PRJ-<n>(組織管理員;名稱必填、組織內不重複)
+//	GET  /api/orgs/{org}/projects/{id}
+//	PUT  /api/orgs/{org}/projects/{id}         {name?, description?} 修改(組織管理員)
+//	POST /api/orgs/{org}/projects/{id}/delete  刪除(組織管理員;專案裡還有文件 409;連同專案的文件櫃結構)
+//	  只有文件櫃分專案;下面文件櫃的端點都可以帶 ?project=<專案 id>(或 body 的 project),沒給 = 未分專案(和以前一樣);不存在的專案 404
+//	GET  /api/orgs/{org}/cabinet?project=      文件櫃:{project?, layout, docs, layoutSaved}(成員;角色憑證只看到 docAccess 能讀的文件)
+//	POST /api/orgs/{org}/cabinet/layout        {project?, layout} 改結構(組織管理員;被拿掉的區塊、頁籤裡不能還有這個專案的文件)
+//	POST /api/orgs/{org}/cabinet/import        {layout?, docs?} 第一次搬資料用(組織管理員;已經有文件就拒絕,已經有結構就略過結構;結構存成未分專案的)
+//	GET  /api/orgs/{org}/docs?project=         專案的文件(新的在前;角色憑證只看到能讀的)
+//	POST /api/orgs/{org}/docs                  {project?, title, body, section, tab?, tags, author?} 新增 → DOC-<n>(組織內唯一;依範本檢查必填欄位)
+//	GET  /api/orgs/{org}/docs/{id}             文件(不用帶 project;project 欄位是所屬專案,未分專案不帶)
+//	POST /api/orgs/{org}/docs/{id}             {project?, title?, body?, appendBody?, section?, tab?, tags?} 修改;給 section 就是搬移;
+//	                                           給 project 就是搬到那個專案(空字串 = 未分專案;沒給 section 時沿用原本位置,目標專案的結構要有)
+//	  角色的 docAccess:沒有前綴的 key 只適用未分專案;"<專案 id>:<區塊 id 或頁籤網址>" 適用那個專案
 //	POST /api/orgs/{org}/docs/{id}/delete      刪除(成員;角色憑證不行)
 //
 //	GET  /api/orgs/{org}/channels?issue=       訊息頻道:我看得到的(成員;組織管理員是全部;角色憑證只看到自己是成員的),附 unread、lastMessageAt
@@ -373,6 +381,7 @@ func (a *API) Handler() http.Handler {
 	// 虛擬角色與任務(agents.go)
 	a.agentRoutes(mux)
 	a.cabinetRoutes(mux)
+	a.projectRoutes(mux)
 	a.chainRoutes(mux)
 	a.channelRoutes(mux)
 	a.incidentRoutes(mux)

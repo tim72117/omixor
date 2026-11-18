@@ -452,7 +452,7 @@ func (l *Local) importSteps(org string, in AppImport, p *model.Principal) []impo
 					return 0, err
 				}
 				n := len(docs)
-				if _, err := l.Store.GetCabinetLayout(org); err == nil {
+				if _, err := l.Store.GetCabinetLayout(org, ""); err == nil { // 未分專案(搬資料只搬組織原本的文件櫃)
 					n++ // 存過的結構也算一筆
 				} else if !errors.Is(err, store.ErrNotFound) {
 					return 0, err

@@ -216,16 +216,22 @@ func (s *Service) SaveAgent(p *model.Principal, org string, in model.Agent) (*mo
 	if in.Color != "" && !model.OneOf(in.Color, model.AgentColors) {
 		return nil, fail(400, "color 必須是 %s 之一", strings.Join(model.AgentColors, "、"))
 	}
+	// docAccess 先正規化:"<專案 id>:<位置>" 適用該專案(id 存成大寫);沒有前綴的只適用未分專案。
+	// 正規化後同一個 key 出現兩次且值不同就拒絕(不靠 map 的走訪順序決定);none 直接拿掉,不檢查專案
 	acc := map[string]string{}
 	for k, v := range in.DocAccess {
 		if !model.OneOf(v, model.DocAccessLevels) {
 			return nil, fail(400, "docAccess 的值必須是 read、write 或 none")
 		}
-		if v != "none" {
-			acc[k] = v
+		k = model.NormalizeDocAccessKey(k)
+		if pid, rest := model.SplitDocAccessKey(k); pid != "" && rest == "" {
+			return nil, fail(400, "docAccess 的 %s 要寫成 <專案 id>:<區塊 id 或頁籤網址>", k)
 		}
+		if old, ok := acc[k]; ok && old != v {
+			return nil, fail(400, "docAccess 的 %s 重複出現,值不一致(%s、%s)", k, old, v)
+		}
+		acc[k] = v
 	}
-	in.DocAccess = acc
 	routines := []model.AgentRoutine{}
 	for _, r := range in.Routines {
 		if strings.TrimSpace(r.Title) == "" {
@@ -275,6 +281,26 @@ func (s *Service) SaveAgent(p *model.Principal, org string, in model.Agent) (*mo
 		})
 	}
 	in.ID = id
+	// 專案要存在(在 agents.mu 內檢查,和 DeleteProject 互斥);專案已刪、而目前存的角色本來就有這個 key 的,
+	// 當成殘留直接拿掉(編輯器會把整份 docAccess 送回來,不然角色永遠存不了);新加的 key 指向不存在的專案就拒絕
+	docAccess, had := map[string]string{}, curDocAccess(cur)
+	for k, v := range acc {
+		if v == "none" {
+			continue
+		}
+		if pid, _ := model.SplitDocAccessKey(k); pid != "" {
+			if _, err := s.Store.GetProject(org, pid); errors.Is(err, store.ErrNotFound) {
+				if _, ok := had[k]; ok {
+					continue
+				}
+				return nil, fail(400, "docAccess 的 %s:找不到專案 %s", k, pid)
+			} else if err != nil {
+				return nil, err
+			}
+		}
+		docAccess[k] = v
+	}
+	in.DocAccess = docAccess
 	if cur != nil {
 		in.CreatedAt = cur.CreatedAt
 	} else {
@@ -289,6 +315,17 @@ func (s *Service) SaveAgent(p *model.Principal, org string, in model.Agent) (*mo
 	}
 	s.Audit(p, action, org, map[string]any{"agent": id, "name": in.Name})
 	return &in, nil
+}
+
+// curDocAccess 目前存的角色的 docAccess(key 正規化;沒有角色回空)
+func curDocAccess(g *model.Agent) map[string]string {
+	out := map[string]string{}
+	if g != nil {
+		for k, v := range g.DocAccess {
+			out[model.NormalizeDocAccessKey(k)] = v
+		}
+	}
+	return out
 }
 
 // DeleteAgent 刪除角色(組織管理員):它未結束的任務一併取消、憑證作廢,指派給它的 Issue 清掉指派

@@ -84,6 +84,12 @@ type fileSnapshot struct {
 	ServerFeatures *model.ServerFeatures `json:"serverFeatures,omitempty"`
 	// MCP 組織的外部 MCP 登記(寫入方法在 file_mcp.go;沒有任何密鑰)
 	MCP map[string]model.OrgMCPConfig `json:"mcp,omitempty"`
+	// Projects 專案(org → 依建立順序;寫入方法在 file_project.go)
+	Projects map[string][]model.Project `json:"projects,omitempty"`
+	// ProjectLayouts 專案的文件櫃結構(org → 專案 id → 結構;未分專案的在 cabinetLayouts)
+	ProjectLayouts map[string]map[string][]model.CabinetSection `json:"projectLayouts,omitempty"`
+	// ProjectSeq 專案最後發出去的號碼(org → 號碼;刪掉的號碼不再使用)
+	ProjectSeq map[string]int `json:"projectSeq,omitempty"`
 }
 
 // OpenFile 打開(沒有就建立)資料夾裡的存放處,讀回上次存的資料
@@ -172,6 +178,9 @@ func (f *File) restore(s fileSnapshot) {
 	m.system = orEmpty(s.System)
 	m.server = s.ServerFeatures
 	m.mcp = orEmpty(s.MCP)
+	m.projects = orEmpty(s.Projects)
+	m.projLayouts = orEmpty(s.ProjectLayouts)
+	m.projSeq = orEmpty(s.ProjectSeq)
 }
 
 // snapshot 在 Mem 的鎖裡編成 JSON(編碼本身就是深拷貝)
@@ -184,7 +193,7 @@ func (f *File) snapshot() ([]byte, error) {
 		Members: []model.Member{}, Creds: []fileCred{},
 		Issues: m.issues, Agents: m.agents, Tasks: m.tasks, Layouts: m.layouts, Docs: m.docs, Chains: m.chains,
 		Channels: m.channels, Messages: m.messages, Reads: m.reads, Incidents: m.incidents, Integrations: m.integrations, System: m.system, MCP: m.mcp,
-		ServerFeatures: m.server}
+		ServerFeatures: m.server, Projects: m.projects, ProjectLayouts: m.projLayouts, ProjectSeq: m.projSeq}
 	for _, u := range m.users {
 		s.Users = append(s.Users, u)
 	}
@@ -355,6 +364,7 @@ func (m *Mem) replaceFrom(src *Mem) {
 	m.channels, m.messages, m.reads = src.channels, src.messages, src.reads
 	m.incidents, m.integrations, m.system = src.incidents, src.integrations, src.system
 	m.mcp, m.server = src.mcp, src.server
+	m.projects, m.projLayouts, m.projSeq = src.projects, src.projLayouts, src.projSeq
 }
 
 // w1 有回傳值的寫入
@@ -472,8 +482,8 @@ func (f *File) PruneAgentCredentials(now time.Time) error {
 	return f.commit()
 }
 
-func (f *File) SaveCabinetLayout(org string, layout []model.CabinetSection) error {
-	return f.write(func() error { return f.Mem.SaveCabinetLayout(org, layout) })
+func (f *File) SaveCabinetLayout(org, project string, layout []model.CabinetSection) error {
+	return f.write(func() error { return f.Mem.SaveCabinetLayout(org, project, layout) })
 }
 func (f *File) CreateDoc(org string, d model.CabinetDoc) (model.CabinetDoc, error) {
 	return w1(f, func() (model.CabinetDoc, error) { return f.Mem.CreateDoc(org, d) })

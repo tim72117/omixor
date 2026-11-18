@@ -42,6 +42,8 @@ var CoreTools = []CoreTool{
 	{Name: "agent_task_create", Title: "指派任務給角色", Group: "角色與任務", Admin: true},
 	{Name: "agent_task_delegate", Title: "依組織鏈委派任務", Group: "角色與任務", Agent: true, Needs: NeedDownstream},
 
+	{Name: "projects", Title: "列出專案", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead},
+	{Name: "project_save", Title: "新增或修改專案", Group: "文件櫃", Admin: true},
 	{Name: "cabinet", Title: "文件櫃結構", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead},
 	{Name: "docs", Title: "查文件", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead},
 	{Name: "doc_save", Title: "存文件到文件櫃", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocWrite},

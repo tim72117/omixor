@@ -59,7 +59,8 @@ export function validateLayout(sections: CabinetSection[], docs: CabinetDoc[]): 
   return undefined;
 }
 
-export function CabinetLayoutEditor({ layout, docs, onClose }: { layout: CabinetSection[]; docs: CabinetDoc[]; onClose: () => void }) {
+/** project:編輯哪個專案的結構(空字串 = 未分專案);projectName 顯示在標題 */
+export function CabinetLayoutEditor({ project = "", projectName, layout, docs, onClose }: { project?: string; projectName?: string; layout: CabinetSection[]; docs: CabinetDoc[]; onClose: () => void }) {
   const [orgs] = useView<OrgIndex>("orgs");
   const [draft, setDraft] = useState<CabinetSection[]>(() => JSON.parse(JSON.stringify(layout)));
   const [err, setErr] = useState<string>();
@@ -78,11 +79,11 @@ export function CabinetLayoutEditor({ layout, docs, onClose }: { layout: Cabinet
     const e = validateLayout(draft, docs);
     if (e) { setErr(e); return; }
     setErr(undefined);
-    run(async () => { await action("cabinet_layout_save", { layout: draft }); onClose(); });
+    run(async () => { await action("cabinet_layout_save", { layout: draft, ...(project ? { project } : {}) }); onClose(); });
   };
   return (
     <Modal open onClose={onClose} width={640}>
-      <span className="modal-title">文件櫃結構({cur?.name ?? ""})</span>
+      <span className="modal-title">文件櫃結構({cur?.name ?? ""}{projectName ? ` › ${projectName}` : ""})</span>
       <span className="caption muted">區塊是第一層,頁籤是區塊底下的分類。角色的文件存取範圍以區塊或頁籤為單位。</span>
       <div className="col gap8" style={{ minHeight: 380, maxHeight: "50vh", overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: 8 }}>
         {draft.map((s) => (

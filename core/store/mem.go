@@ -25,7 +25,7 @@ type Mem struct {
 	agents  map[string][]model.Agent           // org → 依建立順序
 	tasks   map[string][]model.AgentTask       // org → 新的在前
 	creds   []model.AgentCredential
-	layouts map[string][]model.CabinetSection // org → 文件櫃結構
+	layouts map[string][]model.CabinetSection // org → 未分專案的文件櫃結構
 	docs    map[string][]model.CabinetDoc     // org → 新的在前
 	chains  map[string]model.OrgChain         // org → 組織鏈
 	// 訊息頻道:org → 頻道(依建立順序);org → 頻道 id → 訊息(由舊到新);org → 頻道 id → 成員 → 已讀
@@ -43,6 +43,12 @@ type Mem struct {
 	server *model.ServerFeatures
 	// 組織的外部 MCP 登記:org → 設定(方法在 mem_mcp.go;nil 時第一次寫入才建)
 	mcp map[string]model.OrgMCPConfig
+	// 專案:org → 依建立順序;專案的文件櫃結構:org → 專案 id → 結構(未分專案的在 layouts)。
+	// 方法在 mem_project.go;nil 時第一次寫入才建
+	projects    map[string][]model.Project
+	projLayouts map[string]map[string][]model.CabinetSection
+	// 專案號碼:org → 最後發出去的號碼(刪掉的號碼不再使用;nil 時第一次寫入才建)
+	projSeq map[string]int
 }
 
 type memToken struct {
@@ -260,6 +266,9 @@ func (m *Mem) DeleteOrg(id string) error {
 	delete(m.integrations, id)
 	delete(m.system, id)
 	delete(m.mcp, id)
+	delete(m.projects, id)
+	delete(m.projLayouts, id)
+	delete(m.projSeq, id)
 	kept := m.creds[:0:0]
 	for _, c := range m.creds {
 		if c.Org != id {
@@ -737,20 +746,36 @@ func (m *Mem) PruneAgentCredentials(now time.Time) error {
 
 // ---- 文件櫃 ----
 
-func (m *Mem) GetCabinetLayout(org string) ([]model.CabinetSection, error) {
+func (m *Mem) GetCabinetLayout(org, project string) ([]model.CabinetSection, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	l, ok := m.layouts[org]
+	var l []model.CabinetSection
+	ok := false
+	if project == "" {
+		l, ok = m.layouts[org]
+	} else {
+		l, ok = m.projLayouts[org][project]
+	}
 	if !ok {
 		return nil, ErrNotFound
 	}
 	return model.CloneLayout(l), nil
 }
 
-func (m *Mem) SaveCabinetLayout(org string, layout []model.CabinetSection) error {
+func (m *Mem) SaveCabinetLayout(org, project string, layout []model.CabinetSection) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.layouts[org] = model.CloneLayout(layout)
+	if project == "" {
+		m.layouts[org] = model.CloneLayout(layout)
+		return nil
+	}
+	if m.projLayouts == nil {
+		m.projLayouts = map[string]map[string][]model.CabinetSection{}
+	}
+	if m.projLayouts[org] == nil {
+		m.projLayouts[org] = map[string][]model.CabinetSection{}
+	}
+	m.projLayouts[org][project] = model.CloneLayout(layout)
 	return nil
 }
 

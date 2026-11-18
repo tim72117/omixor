@@ -19,9 +19,10 @@ package service
 //	s.agents.mu → s.channelMu   DeleteAgent 在 agents.mu 內呼叫 pruneChannelNode
 //	s.agents.mu → s.mcpMu       DeleteAgent 在 agents.mu 內呼叫 pruneAgentMCPGrants;SaveMCPGrants 也照這個順序先拿 agents.mu
 //	s.agents.mu → issueLock     DeleteAgent 在 agents.mu 內呼叫 clearAssignee(UpdateIssue 的 syncAssignee 在 Issue 的鎖外才拿 agents.mu)
+//	s.agents.mu → s.cabinetMu   DeleteProject 先拿 agents.mu 再拿 cabinetMu(刪專案、清角色的 docAccess)
 //
 // 其餘的鎖(issueLock、issueMu、cabinetMu、incidentMu、ModuleLock、moduleMu、systemMu、failMu、limMu)都是最內層:拿著時不再拿任何鎖。
-// 拿著 channelMu 或 mcpMu 時不可以再拿 agents.mu。
+// 拿著 channelMu、mcpMu 或 cabinetMu 時不可以再拿 agents.mu。
 //
 // 和 store.File 批次(Batch)的關係:批次期間 store 的 gate 擋住批次以外的寫入,批次裡用另一個 Service 實例
 // (server/local.go 的 Import)。服務層的鎖不跨實例,所以批次和一般請求之間的互斥靠的是 gate,不是這些鎖;

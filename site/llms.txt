@@ -7,6 +7,7 @@ omixor works with any Model Context Protocol (MCP) client, such as Claude Code. 
 ## Key pages
 
 - [Home](https://omixor.io/): what omixor is, the agent roster, how the claim → work → report → approve loop works, and how to connect over MCP.
+- [Pricing](https://omixor.io/pricing): the self-hosted plan — what's included, what you need to run it (container runtime, PostgreSQL) and FAQ. Pricing on request.
 
 ## Connect
 

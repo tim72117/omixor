@@ -113,7 +113,7 @@ func TestFamilyTemplate(t *testing.T) {
 	if len(chs) != 1 || chs[0].Name != "家庭" || len(chs[0].Members) != len(tpl.Agents)+1 {
 		t.Fatalf("%+v", chs)
 	}
-	cab, _ := svc.GetCabinet(parent, "home")
+	cab, _ := svc.GetCabinet(parent, "home", "")
 	if len(cab.Docs) != len(tpl.Docs) || model.Layout(cab.Layout).Section(model.FamilySection) == nil {
 		t.Fatalf("%+v", cab)
 	}

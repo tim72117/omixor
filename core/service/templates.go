@@ -190,13 +190,13 @@ func (s *Service) runTemplate(p *model.Principal, org string, t model.OrgTemplat
 
 	// 1. 文件櫃區塊(角色的 docAccess 指向它)
 	if t.Section != nil {
-		l, _, err := s.layoutOf(org)
+		l, _, err := s.layoutOf(org, "")
 		if err != nil {
 			return nil, err
 		}
 		sec := *t.Section
 		add("section", sec.Label, l.Section(sec.ID) != nil, "", func() error {
-			_, err := s.SaveCabinetLayout(p, org, append(model.CloneLayout(l), sec))
+			_, err := s.SaveCabinetLayout(p, org, "", append(model.CloneLayout(l), sec))
 			return err
 		})
 	}
@@ -229,7 +229,7 @@ func (s *Service) runTemplate(p *model.Principal, org string, t model.OrgTemplat
 		for _, d := range t.Docs {
 			exists := false
 			for _, x := range docs {
-				exists = exists || (x.Section == t.Section.ID && x.Title == d.Title)
+				exists = exists || (x.Project == "" && x.Section == t.Section.ID && x.Title == d.Title)
 			}
 			d := d
 			add("doc", d.Title, exists, "", func() error {

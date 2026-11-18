@@ -101,15 +101,27 @@ type Store interface {
 	// PruneAgentCredentials 清掉到期的憑證
 	PruneAgentCredentials(now time.Time) error
 
+	// 專案(依組織分;DeleteOrg 一併刪除;見 model/project.go)。id 比對精確,不分大小寫的查找在 service。方法在 *_project.go
+	ListProjects(org string) ([]model.Project, error) // 依建立順序(號碼小的在前)
+	GetProject(org, id string) (*model.Project, error)
+	// CreateProject 指定新的 id(PRJ-<最大號碼+1>),回傳存好的
+	CreateProject(org string, p model.Project) (model.Project, error)
+	// UpdateProject 改名稱、描述與 updatedAt(id、createdAt 不變;不存在回 ErrNotFound)
+	UpdateProject(org string, p model.Project) error
+	// DeleteProject 刪專案與它的文件櫃結構(不存在回 ErrNotFound)。文件不動:專案裡還有沒有文件由 service 先檢查
+	DeleteProject(org, id string) error
+
 	// 文件櫃(依組織分;DeleteOrg 一併刪除)。id 比對精確,不分大小寫的查找在 service。
-	// GetCabinetLayout 這個組織存過的結構;沒存過回 ErrNotFound
-	GetCabinetLayout(org string) ([]model.CabinetSection, error)
-	SaveCabinetLayout(org string, layout []model.CabinetSection) error
+	// 結構以 (org, project) 為鍵,project 空字串 = 未分專案(原本的組織文件櫃)。
+	// GetCabinetLayout 這個專案存過的結構;沒存過回 ErrNotFound
+	GetCabinetLayout(org, project string) ([]model.CabinetSection, error)
+	SaveCabinetLayout(org, project string, layout []model.CabinetSection) error
+	// 文件存在組織底下(DOC-<n> 在組織內唯一),CabinetDoc.Project 是所屬專案;ListDocs 回全部專案的(過濾在 service)
 	ListDocs(org string) ([]model.CabinetDoc, error) // 新的在前
 	GetDoc(org, id string) (*model.CabinetDoc, error)
 	// CreateDoc 指定新的 id(DOC-<最大號碼+1>)並放在最前面,回傳存好的
 	CreateDoc(org string, d model.CabinetDoc) (model.CabinetDoc, error)
-	UpdateDoc(org string, d model.CabinetDoc) error // 整筆取代(位置不變)
+	UpdateDoc(org string, d model.CabinetDoc) error // 整筆取代(含 Project;位置不變)
 	DeleteDoc(org, id string) error
 	// ImportDocs 第一次搬資料用:保留 id、作者與時間;list 是新的在前;組織已經有文件就回錯誤
 	ImportDocs(org string, list []model.CabinetDoc) (int, error)

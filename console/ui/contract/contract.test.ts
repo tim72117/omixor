@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import {
   agentAccess, arr, boardDropStatus, DOC_ACCESS_LABEL, INC_STATUS_LABEL, leaseLabel, PRIORITY_LABEL, ROUTINE_KIND_LABEL, tabTitle, TASK_LABEL, taskOpen,
   type Agent, type AgentTask, type CabinetDoc, type CabinetSection, type Channel, type ChannelMessage, type ChannelPage,
-  type Incident, type OrgChain,
+  type Incident, type OrgChain, type Project,
 } from "../src/components/models.ts";
 import type { Issue } from "../src/sections/development/DevIssuesTab";
 
@@ -139,6 +139,27 @@ test("文件櫃", () => {
   assert.equal(c.docs[1].tab, undefined, "放在區塊本身的文件沒有 tab");
 });
 
+test("專案與專案的文件櫃", () => {
+  const p = load<Project>("project.json");
+  has(p, ["id", "name", "description", "createdAt", "updatedAt"], "project");
+  assert.ok(/^PRJ-\d+$/.test(p.id), `project.id 應該是 PRJ-<n>:${p.id}`);
+  isTime(p.createdAt, "project.createdAt");
+  isTime(p.updatedAt, "project.updatedAt");
+  const list = arr<Project>(load("project_list.json"));
+  assert.deepEqual(list.map((x) => x.id), ["PRJ-1", "PRJ-2"]);
+  assert.equal(list[0].description, "", "沒有說明是空字串");
+  const d = load<CabinetDoc>("cabinet_doc_project.json");
+  has(d, ["id", "title", "body", "section", "tags", "author", "createdAt", "updatedAt", "project"], "doc");
+  assert.equal(d.project, "PRJ-2");
+  assert.equal(load<CabinetDoc>("cabinet_doc.json").project, undefined, "未分專案的文件不帶 project");
+  const c = load<{ project: string; layout: CabinetSection[]; docs: CabinetDoc[]; layoutSaved: boolean }>("cabinet_project.json");
+  assert.equal(c.project, "PRJ-2");
+  assert.deepEqual(c.layout.map((s) => s.id), ["spec"]);
+  assert.equal(tabTitle(c.layout[0].tabs[0]), "P1 首頁");
+  assert.ok(c.docs.every((x) => x.project === c.project), "專案的文件櫃只有那個專案的文件");
+  assert.equal(load<{ project?: string }>("cabinet.json").project, undefined, "未分專案的文件櫃不帶 project");
+});
+
 test("組織鏈", () => {
   const ch = load<OrgChain>("org_chain.json");
   assert.deepEqual(ch.edges.map((e) => [e.from, e.to, e.label]), [["user:tim@example.com", "agent:pm", "目標"], ["agent:pm", "agent:eng", ""]]);
@@ -152,4 +173,34 @@ test("看板拖放:欄的 dropStatus 和 Issue 現在的 status 不同才能放"
   assert.equal(boardDropStatus("closed", "closed"), null);
   assert.equal(boardDropStatus(null, "open"), null);
   assert.equal(boardDropStatus(undefined, "closed"), null);
+});
+
+test("agentAccess 依專案算權限(同 core 的 Agent.AccessIn)", () => {
+  const a = load<Agent>("agent.json");
+  const g: Agent = {
+    ...a,
+    docAccess: {
+      overview: "read", docs: "write", levels: "read", "/levels/hard": "none",
+      "PRJ-1:overview": "write", "PRJ-1:levels": "none", "PRJ-1:/levels/easy": "read",
+      "PRJ-1:spec": "read", "PRJ-1:/spec/home": "none",
+    },
+  };
+  // 未分專案:空字串、undefined、null 都一樣,只看沒有前綴的 key
+  for (const p of ["", undefined, null]) {
+    assert.equal(agentAccess(g, "overview", null, p), "read");
+    assert.equal(agentAccess(g, "levels", "/levels/hard", p), undefined, "頁籤 none 優先於區塊 read");
+    assert.equal(agentAccess(g, "levels", "/levels/easy", p), "read", "頁籤沒設定:跟區塊");
+    assert.equal(agentAccess(g, "spec", undefined, p), undefined, "專案的 key 不適用於未分專案");
+  }
+  assert.equal(agentAccess(g, "overview"), "read", "省略 project = 未分專案");
+  // 專案:只看 "PRJ-1:" 前綴的 key,沒有前綴的 key 不適用
+  assert.equal(agentAccess(g, "overview", null, "PRJ-1"), "write");
+  assert.equal(agentAccess(g, "docs", null, "PRJ-1"), undefined, "未分專案的 docs:write 不適用於專案");
+  assert.equal(agentAccess(g, "levels", "/levels/easy", "PRJ-1"), "read", "頁籤 read 優先於區塊 none");
+  assert.equal(agentAccess(g, "levels", "/levels/hard", "PRJ-1"), undefined, "頁籤沒設定、區塊 none");
+  assert.equal(agentAccess(g, "spec", "/spec/home", "PRJ-1"), undefined, "頁籤 none 優先於區塊 read");
+  assert.equal(agentAccess(g, "spec", "/spec/other", "PRJ-1"), "read");
+  // 別的專案、新建的專案:什麼都沒有
+  for (const s of ["overview", "docs", "levels", "spec"]) assert.equal(agentAccess(g, s, null, "PRJ-2"), undefined);
+  assert.equal(agentAccess({ ...a, docAccess: undefined as unknown as Agent["docAccess"] }, "overview", null, "PRJ-1"), undefined);
 });

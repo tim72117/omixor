@@ -47,7 +47,10 @@ func coreDef(name, desc string, readOnly bool, schema map[string]any) map[string
 	return ToolDef(name, t.Title, desc, readOnly, schema)
 }
 
-// CoreToolDefs 核心提供的工具規格:組織、Issue、虛擬角色與任務、文件櫃
+// projectParam 文件櫃工具的 project 參數說明
+const projectParam = "專案 id(例如 PRJ-1,見 projects);省略 = 未分專案(組織原本的文件櫃)"
+
+// CoreToolDefs 核心提供的工具規格:組織、Issue、虛擬角色與任務、專案、文件櫃
 func CoreToolDefs() []any {
 	prio := []string{"urgent", "high", "normal", "low"}
 	defs := []any{
@@ -128,7 +131,8 @@ func CoreToolDefs() []any {
 				"active":       pBool("啟用"),
 				"add_routines": pObjs("加上的例行任務"),
 				"color":        pEnum("顏色", "blue", "teal", "green", "orange", "pink", "purple", "indigo", "gray"),
-				"doc_access": map[string]any{"type": "object", "description": "文件櫃存取範圍,會合併進現有設定:key 是區塊 id 或名稱、頁籤網址、名稱或代號(存成區塊 id 或頁籤網址),值是 read、write 或 none(移除)。頁籤的設定優先於區塊。",
+				"doc_access": map[string]any{"type": "object", "description": "文件櫃存取範圍,會合併進現有設定:key 是區塊 id 或名稱、頁籤網址、名稱或代號(存成區塊 id 或頁籤網址),值是 read、write 或 none(移除)。頁籤的設定優先於區塊。" +
+					"沒有前綴的 key 只適用未分專案;專案的位置寫成「<專案 id>:<區塊或頁籤>」(例如 PRJ-1:docs、PRJ-1:/docs/1),依那個專案的結構解析。",
 					"additionalProperties": map[string]any{"type": "string", "enum": []string{"none", "read", "write"}}},
 				"id":           pStr("要修改的角色 id 或名稱;新增時可指定英文 id(例如 product-manager),不給就自動產生"),
 				"instructions": pStr("角色設定(給 AI 的說明,Markdown)"),
@@ -146,15 +150,30 @@ func CoreToolDefs() []any {
 				"priority":     pEnum("優先度,預設 normal", prio...),
 				"title":        pStr("標題"),
 			}, "assign_to", "title")),
+		coreDef("projects",
+			"列出組織的專案(id、名稱、描述、文件數)。專案目前只用來分文件櫃:每個專案有自己的文件櫃結構與文件;不屬於任何專案的是「未分專案」。"+
+				"文件櫃工具(cabinet、docs、doc_save、cabinet_layout_save)帶 project 參數操作那個專案,不帶就是未分專案。", true,
+			obj(map[string]any{})),
+		coreDef("project_save",
+			"新增專案(不給 id;name 必填)或修改專案的名稱、描述(給 id)(組織管理員)。名稱在組織內不能重複;新專案的 id 是 PRJ-<n>,文件櫃結構是空白的(用 cabinet_layout_save 帶 project 建區塊)。", false,
+			obj(map[string]any{
+				"id":          pStr("要修改的專案 id,例如 PRJ-1;新增時不給"),
+				"name":        pStr("專案名稱(新增時必填)"),
+				"description": pStr("專案描述"),
+			})),
 		coreDef("cabinet",
-			"列出文件櫃的區塊與頁籤,以及各處有幾份文件。給 agent 時只列該角色能存取的位置並標出權限(read / write)。", true,
-			obj(map[string]any{"agent": pStr("以角色身分查看時填角色 id 或名稱")})),
+			"列出文件櫃的區塊與頁籤,以及各處有幾份文件。給 project 看那個專案的文件櫃(省略 = 未分專案)。給 agent 時只列該角色能存取的位置並標出權限(read / write)。", true,
+			obj(map[string]any{
+				"agent":   pStr("以角色身分查看時填角色 id 或名稱"),
+				"project": pStr(projectParam),
+			})),
 		coreDef("docs",
-			"給 id 讀一份文件;否則依區塊、頁籤、關鍵字列出文件(最多 50 筆)。給 agent 時只看得到該角色有權限的文件。"+
+			"給 id 讀一份文件(文件 id 在組織內唯一,不用帶 project;回傳的 project 是所屬專案);否則依專案、區塊、頁籤、關鍵字列出文件(最多 50 筆;只列 project 那個專案的,省略 = 未分專案)。給 agent 時只看得到該角色有權限的文件。"+
 				"讀長文件時建議分段讀,省上下文:先 outline 看大綱(各段的 id、標題、行號範圍、字數),再用 part 讀一段、from/to 讀幾行,或 grep 找關鍵字;"+
 				"回傳的 version 在局部修改(doc_save 的 edits、replace_part、append_to_part)時帶回來。只給 id 時回全文,但超過 6000 字的文件只回大綱與開頭(要全文帶 full)。", true,
 			obj(map[string]any{
 				"agent":   pStr("以角色身分查看時填角色 id 或名稱"),
+				"project": pStr(projectParam + ";列文件時只列這個專案的,section、tab 依它的結構解析(給 id 時不用)"),
 				"id":      pStr("文件 id,例如 DOC-3"),
 				"query":   pStr("標題、內文或標籤包含這段文字"),
 				"section": pStr("區塊 id 或名稱"),
@@ -169,6 +188,7 @@ func CoreToolDefs() []any {
 			})),
 		coreDef("doc_save",
 			"新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置(角色端點一律是憑證的角色)。"+
+				"專案:新增時 project 是放進的專案(省略 = 未分專案),section、tab 依那個專案的結構解析;修改時給 project 就是把文件搬到那個專案(空字串 = 搬回未分專案;沒給 section 時沿用原本的區塊與頁籤,目標專案要有),不給就不搬。"+
 				"內文開頭可以有欄位(--- 之間一行一個 key: value),kind 是文件類型:有對應範本(kind: template、for: <類型> 的文件,內含 ```html 版面與 ```css 樣式)時,畫面依範本顯示,存檔前也會檢查範本的 required 欄位。"+
 				"修改長文件時建議局部修改(edits、replace_part、append_to_part 三種擇一,不必送全文),回傳只有改到的那幾行與新版本。", false,
 			obj(map[string]any{
@@ -182,15 +202,17 @@ func CoreToolDefs() []any {
 				"content":        pStr("replace_part、append_to_part 的內容(Markdown)"),
 				"base_version":   pStr("局部修改時帶讀到的 version:版本不符時,edits 會在最新內文上再套一次,replace_part、append_to_part 會被拒絕"),
 				"id":             pStr("要修改的文件 id;新增時不給"),
+				"project":        pStr(projectParam + ";新增時是放進的專案,修改時給了就是搬到這個專案(空字串 = 未分專案)"),
 				"section":        pStr("區塊 id 或名稱(新增時必填,或只給 tab)"),
 				"tab":            pStr("頁籤網址或名稱"),
 				"tags":           pStrs("標籤"),
 				"title":          pStr("標題(新增時必填)"),
 			})),
 		coreDef("cabinet_layout_save",
-			"新增、改名、移除文件櫃的區塊與頁籤(組織管理員)。依序套用 add_sections → add_tabs → update → remove,全部成功才存(一次存檔)。"+
+			"新增、改名、移除文件櫃的區塊與頁籤(組織管理員)。給 project 改那個專案的結構(每個專案各自一份;省略 = 未分專案)。依序套用 add_sections → add_tabs → update → remove,全部成功才存(一次存檔)。"+
 				"新區塊不給 id 時自動編 s<n>;新頁籤不給 path 時自動編 /<區塊 id>/<n>。被移除的區塊、頁籤裡不能還有文件(先用 doc_save 搬走)。回傳新的結構與這次新增的 id。", false,
 			obj(map[string]any{
+				"project":      pStr(projectParam),
 				"add_sections": pObjs("新增區塊:[{label, id?}];接在最後"),
 				"add_tabs":     pObjs("新增頁籤:[{section, label, code?, group?, path?}];section 是區塊 id 或名稱(可以是這次新增的)"),
 				"update":       pObjs("改名:[{section 或 tab, label?, code?, group?}];section 給區塊 id 或名稱,tab 給頁籤網址、名稱或代號(可再帶 section 限定區塊);code、group 給空字串是清掉"),

@@ -17,6 +17,12 @@ func (Unsupported) SaveCabinetLayout(string, []model.CabinetSection) ([]model.Ca
 func (Unsupported) ImportCabinet(string, service.CabinetImport) (*service.CabinetImportResult, error) {
 	return nil, errUnsupported
 }
+func (Unsupported) GetProjectCabinet(string, string) (*model.Cabinet, error) {
+	return nil, errUnsupported
+}
+func (Unsupported) SaveProjectCabinetLayout(string, string, []model.CabinetSection) ([]model.CabinetSection, error) {
+	return nil, errUnsupported
+}
 func (Unsupported) GetDoc(string, string) (*model.CabinetDoc, error) { return nil, errUnsupported }
 func (Unsupported) CreateDoc(string, service.DocInput) (*model.CabinetDoc, error) {
 	return nil, errUnsupported
@@ -28,14 +34,20 @@ func (Unsupported) DeleteDoc(string, string) error { return errUnsupported }
 
 // ---- Local ----
 
-func (l *Local) GetCabinet(org string) (*model.Cabinet, error) {
+func (l *Local) GetCabinet(org string) (*model.Cabinet, error) { return l.GetProjectCabinet(org, "") }
+
+func (l *Local) GetProjectCabinet(org, project string) (*model.Cabinet, error) {
 	l.ensureOrg(org)
-	return l.Svc.GetCabinet(l.P, org)
+	return l.Svc.GetCabinet(l.P, org, project)
 }
 
 func (l *Local) SaveCabinetLayout(org string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
+	return l.SaveProjectCabinetLayout(org, "", layout)
+}
+
+func (l *Local) SaveProjectCabinetLayout(org, project string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
 	l.ensureOrg(org)
-	return l.Svc.SaveCabinetLayout(l.P, org, layout)
+	return l.Svc.SaveCabinetLayout(l.P, org, project, layout)
 }
 
 func (l *Local) ImportCabinet(org string, in service.CabinetImport) (*service.CabinetImportResult, error) {
@@ -65,8 +77,10 @@ func (l *Local) DeleteDoc(org, id string) error {
 
 // ---- Remote ----
 
-func (r *Remote) GetCabinet(org string) (*model.Cabinet, error) {
-	c, err := r.Client().GetCabinet(r.org(org))
+func (r *Remote) GetCabinet(org string) (*model.Cabinet, error) { return r.GetProjectCabinet(org, "") }
+
+func (r *Remote) GetProjectCabinet(org, project string) (*model.Cabinet, error) {
+	c, err := r.Client().GetProjectCabinet(r.org(org), project)
 	if err != nil {
 		return nil, wrap(err)
 	}
@@ -74,7 +88,11 @@ func (r *Remote) GetCabinet(org string) (*model.Cabinet, error) {
 }
 
 func (r *Remote) SaveCabinetLayout(org string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
-	l, err := r.Client().SaveCabinetLayout(r.org(org), layout)
+	return r.SaveProjectCabinetLayout(org, "", layout)
+}
+
+func (r *Remote) SaveProjectCabinetLayout(org, project string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
+	l, err := r.Client().SaveProjectCabinetLayout(r.org(org), project, layout)
 	return l, wrap(err)
 }
 

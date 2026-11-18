@@ -45,10 +45,27 @@ func init() {
 
 // KeychainVault macOS 鑰匙圈(/usr/bin/security);Keychain 空白表示預設的鑰匙圈。
 // Legacy 是舊的服務名稱(可以空白):Service 讀不到時讀它,讀到就寫一份到 Service。
+//
+// 舊名稱搬家依帳號序列化:啟動時常有多個 goroutine 同時 Get 同一個帳號,
+// 不鎖的話會同時 add-generic-password,撞出 exit status 45(errSecDuplicateItem)的假錯誤。
 type KeychainVault struct {
 	Service  string
 	Legacy   string
 	Keychain string
+
+	migrating sync.Map // account → *sync.Mutex(零值可用)
+
+	// 測試用:換掉實際跑 /usr/bin/security 的讀寫(nil 表示用真的)
+	findFn func(service, account string) ([]byte, bool)
+	setFn  func(service, account string, data []byte) error
+}
+
+// errKeychainDuplicate security 回報項目已存在(exit status 45,errSecDuplicateItem)
+var errKeychainDuplicate = errors.New("鑰匙圈項目已存在")
+
+func (k *KeychainVault) accountLock(account string) *sync.Mutex {
+	m, _ := k.migrating.LoadOrStore(account, &sync.Mutex{})
+	return m.(*sync.Mutex)
 }
 
 func (k *KeychainVault) args(base ...string) []string {
@@ -65,18 +82,34 @@ func (k *KeychainVault) Get(account string) ([]byte, bool) {
 	if k.Legacy == "" || k.Legacy == k.Service {
 		return nil, false
 	}
+	// 搬家依帳號序列化;拿到鎖後先重看新名稱(別的 goroutine 可能剛搬好)
+	mu := k.accountLock(account)
+	mu.Lock()
+	defer mu.Unlock()
+	if d, ok := k.find(k.Service, account); ok {
+		return d, true
+	}
 	d, ok := k.find(k.Legacy, account)
 	if !ok {
 		return nil, false
 	}
 	// 搬到新的服務名稱;寫不進去也照樣回傳(下次再試)
 	if err := k.set(k.Service, account, d); err != nil {
+		// 已存在(別的程序同時搬好了):新名稱讀得到就算成功
+		if errors.Is(err, errKeychainDuplicate) {
+			if _, ok := k.find(k.Service, account); ok {
+				return d, true
+			}
+		}
 		log.Printf("鑰匙圈 %s 的 %s 搬到 %s 失敗:%v", k.Legacy, account, k.Service, err)
 	}
 	return d, true
 }
 
 func (k *KeychainVault) find(service, account string) ([]byte, bool) {
+	if k.findFn != nil {
+		return k.findFn(service, account)
+	}
 	out, err := exec.Command("/usr/bin/security", k.args("find-generic-password", "-s", service, "-a", account, "-w")...).Output()
 	if err != nil {
 		return nil, false
@@ -89,6 +122,9 @@ func (k *KeychainVault) Set(account string, data []byte) error {
 }
 
 func (k *KeychainVault) set(service, account string, data []byte) error {
+	if k.setFn != nil {
+		return k.setFn(service, account, data)
+	}
 	line := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s", secQuote(service), secQuote(account), hex.EncodeToString(data))
 	if k.Keychain != "" {
 		line += " " + secQuote(k.Keychain)
@@ -99,6 +135,10 @@ func (k *KeychainVault) set(service, account string, data []byte) error {
 	cmd.Stderr = &stderr
 	cmd.Stdout = &bytes.Buffer{}
 	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 45 {
+			return fmt.Errorf("%w: %v", errKeychainDuplicate, err)
+		}
 		return err
 	}
 	if s := strings.TrimSpace(stderr.String()); s != "" {

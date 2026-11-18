@@ -3,6 +3,7 @@ User-agent: *
 Allow: /
 # 內部對照用的中文頁、預覽用的素材:不收錄
 Disallow: /zh.html
+Disallow: /pricing.zh.html
 Disallow: /og.html
 Disallow: /api/
 Disallow: /mcp/

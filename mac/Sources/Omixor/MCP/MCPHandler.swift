@@ -129,6 +129,8 @@ final class MCPHandler {
     static let coreTools: Set<String> = ["issues", "issue_create", "issue_update", "agents", "agent_context", "agent_tasks",
                                           "agent_task_claim", "agent_task_report", "agent_upsert", "agent_task_create",
                                           "cabinet", "docs", "doc_save", "cabinet_layout_save", "chain", "chain_save",
+                                          // 專案(只分文件櫃;core/mcp/tools_cabinet.go)
+                                          "projects", "project_save",
                                           "channels", "channel_create", "channel_messages", "channel_post",
                                           // 事件(存在 core;core/mcp/tools_incident.go)
                                           "incident_declare", "incident_update",
@@ -263,7 +265,8 @@ final class MCPHandler {
         if name.hasPrefix("issue") { await app.startIssues().reload() }
         if name.hasPrefix("agent") || name.hasPrefix("chain") { await app.startAgents().reload() }
         if name.hasPrefix("channel") { await app.startChannels().reload() }
-        if name == "doc_save" {
+        // 文件櫃與專案(project_save 也會改專案清單;cabinet_layout_save 改結構)
+        if name == "doc_save" || name == "cabinet_layout_save" || name == "project_save" {
             if !app.cabinetLoaded { Cabinet.begin(app) }
             await Cabinet.reload(app)
         }
@@ -285,7 +288,7 @@ final class MCPHandler {
     GitHub(github、github_runs、github_run、github_pull)只讀:看 PR、檢查與 Actions 失敗原因;omixor 不會開 PR、留言或重跑 workflow。
     Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織(orgs 看是哪一個);切換組織只能由人在 app 裡做。
     omixor 有虛擬角色(agents)。使用者請你以某角色身分工作時:可先用 agent_context 取得該角色能讀取的資訊,再用 agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 agent_task_report 回報;需要人決定時回報 blocked。以角色身分開 Issue 或留言時,issue_create / issue_update 帶上 agent(角色 id),才會署名該角色。
-    文件櫃(cabinet、docs、doc_save)依目前組織的文件櫃結構(區塊與頁籤)分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。
+    文件櫃(cabinet、docs、doc_save)依目前組織的文件櫃結構(區塊與頁籤)分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。組織底下可以分專案(projects、project_save),文件櫃工具帶 project(專案 id)讀寫該專案的文件櫃,省略 = 未分專案。
     發現值得追蹤的問題(例如從 site_visitors 的數字看到異常)時,用 issue_create 存成 Issue;先用 issues 搜尋避免重複,已有就用 issue_update 加留言。
     旁白語音(shuttle 專案的 npm run voice)可以用 voice_submit 分派成批次:omixor 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。
     訊息頻道(channels、channel_messages、channel_post、channel_create)把人與角色拉進同一個對話;@ 角色只通知、不排任務。以角色身分工作時,agent_context 的 mentions 列出提到它的未讀訊息,讀(channel_messages)與回覆(channel_post)都帶 agent。

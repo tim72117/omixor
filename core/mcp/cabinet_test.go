@@ -74,7 +74,7 @@ func TestCabinetToolsAdminAndRole(t *testing.T) {
 	_ = st.SaveMember(model.Member{Org: "lab", UserID: "u1", Email: "boss@x", Role: "admin", AddedAt: now})
 	boss := &model.Principal{User: model.User{ID: "u1", Email: "boss@x", Role: "member"}}
 	code := "L0"
-	if _, err := svc.SaveCabinetLayout(boss, "lab", []model.CabinetSection{
+	if _, err := svc.SaveCabinetLayout(boss, "lab", "", []model.CabinetSection{
 		{ID: "levels", Label: "課程", Path: "/studio/levels", Tabs: []model.CabinetTab{{Path: "/studio/l0", Label: "AI 工具介紹", Code: &code}}},
 		{ID: "docs", Label: "文件", Tabs: []model.CabinetTab{{Path: "/docs/m", Label: "行銷手法"}}},
 		{ID: "secret", Label: "機密"},

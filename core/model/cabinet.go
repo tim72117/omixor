@@ -8,7 +8,7 @@ import (
 )
 
 // 文件櫃:純文字(Markdown)文件,依組織的文件櫃結構(區塊與頁籤,每個組織可以自訂)分類(同 Swift 版 Cabinet/Cabinet.swift、omixor-web 原本的 cabinet.go)。
-// 一個組織一份結構(區塊與頁籤)與一份文件清單。JSON 欄位同 omixor-web 原本的 cabinet.json / cabinet-layout.json。
+// 一個組織(每個專案,見 project.go)一份結構(區塊與頁籤);文件清單存在組織底下,用 CabinetDoc.Project 分專案。JSON 欄位同 omixor-web 原本的 cabinet.json / cabinet-layout.json。
 //
 // 角色的文件權限(Agent.DocAccess)的 key 是區塊 id 或頁籤網址(Path);權限判斷見 Agent.Access。
 
@@ -69,12 +69,13 @@ func CloneLayout(l []CabinetSection) []CabinetSection {
 	return out
 }
 
-// CabinetDoc 一份文件。Tab 是頁籤網址(nil = 放在區塊本身)
+// CabinetDoc 一份文件。Tab 是頁籤網址(nil = 放在區塊本身);Project 是所屬專案 id(空 = 未分專案,JSON 不帶)
 type CabinetDoc struct {
 	Author    string   `json:"author"`
 	Body      string   `json:"body"`
 	CreatedAt Time     `json:"createdAt"`
 	ID        string   `json:"id"`
+	Project   string   `json:"project,omitempty"`
 	Section   string   `json:"section"`
 	Tab       *string  `json:"tab,omitempty"`
 	Tags      []string `json:"tags"`
@@ -116,8 +117,10 @@ func (d CabinetDoc) Clone() CabinetDoc {
 	return d
 }
 
-// Cabinet 一個組織的文件櫃:結構與文件(新的在前)。LayoutSaved 是這個組織有沒有存過結構(沒有時 Layout 是空白結構)
+// Cabinet 一個組織(一個專案)的文件櫃:結構與文件(新的在前)。LayoutSaved 是這個專案有沒有存過結構(沒有時 Layout 是空白結構);
+// Project 是專案 id(空 = 未分專案,JSON 不帶)
 type Cabinet struct {
+	Project     string           `json:"project,omitempty"`
 	Layout      []CabinetSection `json:"layout"`
 	Docs        []CabinetDoc     `json:"docs"`
 	LayoutSaved bool             `json:"layoutSaved"`

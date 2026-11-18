@@ -22,7 +22,7 @@ func TestFlowchartTool(t *testing.T) {
 	_ = st.CreateOrg(model.Org{ID: "lab", Name: "實驗室", CreatedAt: now})
 	_ = st.SaveMember(model.Member{Org: "lab", UserID: "u1", Email: "boss@x", Role: "admin", AddedAt: now})
 	boss := &model.Principal{User: model.User{ID: "u1", Email: "boss@x", Role: "member"}}
-	if _, err := svc.SaveCabinetLayout(boss, "lab", []model.CabinetSection{{ID: "ideas", Label: "構想"}, {ID: "secret", Label: "機密"}}); err != nil {
+	if _, err := svc.SaveCabinetLayout(boss, "lab", "", []model.CabinetSection{{ID: "ideas", Label: "構想"}, {ID: "secret", Label: "機密"}}); err != nil {
 		t.Fatal(err)
 	}
 	admin := mcp.AdminEndpoint(mcp.AdminEndpointConfig{

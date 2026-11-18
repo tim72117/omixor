@@ -30,8 +30,11 @@ var adminActions = map[string]string{
 	"agent_task_requeue": "重新排入角色任務",
 	"agent_routine_run":  "手動執行角色的例行工作",
 	"chain_save":         "改組織鏈",
-	// 文件櫃版面(核心:組織管理員)
+	// 文件櫃版面與專案(核心:組織管理員)
 	"cabinet_layout_save": "改文件櫃的分類",
+	"project_create":      "新增專案",
+	"project_update":      "改專案",
+	"project_delete":      "刪除專案",
 	// 整合設定(核心:組織管理員)
 	"github_add_repo":       "改 GitHub 追蹤的 repo",
 	"github_remove_repo":    "改 GitHub 追蹤的 repo",
@@ -67,9 +70,10 @@ var adminActions = map[string]string{
 
 // adminTools 透過 POST /api/tool 執行、核心要組織管理員的 MCP 工具
 var adminTools = map[string]string{
-	"agent_upsert": "新增或修改虛擬角色",
-	"chain_save":   "改組織鏈",
+	"agent_upsert":        "新增或修改虛擬角色",
+	"chain_save":          "改組織鏈",
 	"cabinet_layout_save": "改文件櫃的分類",
+	"project_save":        "新增或修改專案",
 }
 
 // isAdmin 這個請求的登入者是不是 web 的管理員(沒啟用登入時是本機使用者,視為管理員)

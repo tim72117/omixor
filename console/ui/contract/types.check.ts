@@ -9,7 +9,7 @@
 import type { Issue, IssueComment } from "../src/sections/development/DevIssuesTab";
 import type {
   Agent, AgentRoutine, AgentTask, CabinetDoc, CabinetSection, CabinetTab, Channel, ChannelMessage, ChannelPage, ChainEdge,
-  Incident, IncidentEvent, OrgChain, Organization,
+  Incident, IncidentEvent, OrgChain, Organization, Project,
 } from "../src/components/models";
 import type { Actor } from "../src/types";
 
@@ -26,6 +26,10 @@ import incident from "../../../core/model/testdata/contract/incident.json";
 import incidentList from "../../../core/model/testdata/contract/incident_list.json";
 import cabinet from "../../../core/model/testdata/contract/cabinet.json";
 import cabinetDoc from "../../../core/model/testdata/contract/cabinet_doc.json";
+import cabinetProject from "../../../core/model/testdata/contract/cabinet_project.json";
+import cabinetDocProject from "../../../core/model/testdata/contract/cabinet_doc_project.json";
+import project from "../../../core/model/testdata/contract/project.json";
+import projectList from "../../../core/model/testdata/contract/project_list.json";
 import orgChain from "../../../core/model/testdata/contract/org_chain.json";
 import org from "../../../core/model/testdata/contract/org.json";
 
@@ -89,7 +93,18 @@ type _cabinet = [NoExtra<Extra<typeof cabinet, CabinetViewLike, "layoutSaved">>,
 type _section = [NoExtra<Extra<typeof cabinet.layout, CabinetSection>>, NoMissing<Missing<typeof cabinet.layout, CabinetSection>>];
 type _tab = [NoExtra<Extra<(typeof cabinet.layout)[number]["tabs"], CabinetTab>>, NoMissing<Missing<(typeof cabinet.layout)[1]["tabs"], CabinetTab>>];
 conforms<CabinetDoc>()(cabinetDoc);
-type _doc = [NoExtra<Extra<typeof cabinetDoc, CabinetDoc>>, NoMissing<Missing<typeof cabinetDoc, CabinetDoc>>];
+// 未分專案的文件不帶 project
+type _doc = [NoExtra<Extra<typeof cabinetDoc, CabinetDoc>>, NoMissing<Missing<typeof cabinetDoc, CabinetDoc, "project">>];
+conforms<CabinetDoc>()(cabinetDocProject);
+type _docProject = [NoExtra<Extra<typeof cabinetDocProject, CabinetDoc>>, NoMissing<Missing<typeof cabinetDocProject, CabinetDoc>>];
+
+// ---- 專案(專案的文件櫃多帶 project;layoutSaved 前端沒用)
+conforms<Project>()(project);
+projectList.forEach((p) => conforms<Project>()(p));
+type _project = [NoExtra<Extra<typeof project, Project>>, NoMissing<Missing<typeof project, Project>>];
+type CabinetProjectLike = CabinetViewLike & { project: string };
+conforms<CabinetProjectLike>()(cabinetProject);
+type _cabinetProject = [NoExtra<Extra<typeof cabinetProject, CabinetProjectLike, "layoutSaved">>, NoMissing<Missing<typeof cabinetProject, CabinetProjectLike>>];
 
 // ---- 組織鏈
 conforms<OrgChain>()(orgChain);

@@ -74,6 +74,8 @@ var storeSuite = []struct {
 	{"AgentCredentials", suiteAgentCredentials},
 	{"OrgChain", suiteOrgChain},
 	{"Cabinet", suiteCabinet},
+	{"Projects", suiteProjects},
+	{"ProjectCabinet", suiteProjectCabinet},
 	{"Channels", suiteChannels},
 	{"Incidents", suiteIncidents},
 	{"OrgDoc", suiteOrgDoc},
@@ -797,22 +799,22 @@ func suiteOrgChain(t *testing.T, impl storeImpl) {
 func suiteCabinet(t *testing.T, impl storeImpl) {
 	s := impl.open(t)
 	newOrg(t, s, "o", "p")
-	_, err := s.GetCabinetLayout("o")
+	_, err := s.GetCabinetLayout("o", "")
 	wantNotFound(t, "沒存過結構", err)
 	layout := []model.CabinetSection{
 		{ID: "s1", Label: "一", Path: "/s1", Tabs: []model.CabinetTab{{Label: "介紹", Path: "/s1/a", Code: strp("L0")}, {Label: "群組", Path: "/s1/b", Group: strp("g")}}},
 		{ID: "s2", Label: "二", Path: "/s2"}, // Tabs 是 nil
 	}
-	chk(t, s.SaveCabinetLayout("o", layout))
+	chk(t, s.SaveCabinetLayout("o", "", layout))
 	s = impl.reopen(t, s)
 	want := model.CloneLayout(layout)
 	want[1].Tabs = []model.CabinetTab{}
-	g, err := s.GetCabinetLayout("o")
+	g, err := s.GetCabinetLayout("o", "")
 	chk(t, err)
 	sameJSON(t, "GetCabinetLayout(nil 的 tabs 讀回是 [])", g, want)
-	chk(t, s.SaveCabinetLayout("p", nil))
+	chk(t, s.SaveCabinetLayout("p", "", nil))
 	s = impl.reopen(t, s)
-	if g, err := s.GetCabinetLayout("p"); err != nil || g == nil || len(g) != 0 {
+	if g, err := s.GetCabinetLayout("p", ""); err != nil || g == nil || len(g) != 0 {
 		t.Fatalf("存 nil 讀回是 []:%#v %v", g, err)
 	}
 
@@ -878,6 +880,159 @@ func suiteCabinet(t *testing.T, impl storeImpl) {
 	l, _ = s.ListDocs("p")
 	sameJSON(t, "匯入後的順序", ids(l, func(d model.CabinetDoc) string { return d.ID }), []string{"DOC-9", "DOC-8", "DOC-3"})
 	sameJSON(t, "匯入的資料", l[1:], imp)
+}
+
+// ---- 專案:CRUD(PRJ-<n> 組織內流水號、依建立順序)、刪除連同專案的結構 ----
+
+func suiteProjects(t *testing.T, impl storeImpl) {
+	s := impl.open(t)
+	newOrg(t, s, "o", "p")
+	if l, err := s.ListProjects("o"); err != nil || l == nil || len(l) != 0 {
+		t.Fatalf("空的要是 []:%#v %v", l, err)
+	}
+	_, err := s.GetProject("o", "PRJ-1")
+	wantNotFound(t, "沒有的專案", err)
+	at, at2 := mt("2026-01-02T03:04:05Z"), mt("2026-01-03T00:00:00Z")
+	a, err := s.CreateProject("o", model.Project{ID: "ignored", Name: "官網", Description: "改版", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	b, err := s.CreateProject("o", model.Project{Name: "App", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	if a.ID != "PRJ-1" || b.ID != "PRJ-2" {
+		t.Fatal("建號要連號", a.ID, b.ID)
+	}
+	c, err := s.CreateProject("p", model.Project{Name: "別的組織", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	if c.ID != "PRJ-1" {
+		t.Fatal("號碼依組織各自編", c.ID)
+	}
+	s = impl.reopen(t, s)
+	l, err := s.ListProjects("o")
+	chk(t, err)
+	sameJSON(t, "ListProjects(依建立順序)", l, []model.Project{a, b})
+	g, err := s.GetProject("o", "PRJ-1")
+	chk(t, err)
+	sameJSON(t, "GetProject", g, a)
+	_, err = s.GetProject("o", "prj-1")
+	wantNotFound(t, "專案 id 大小寫要一致", err)
+	_, err = s.GetProject("p", "PRJ-2")
+	wantNotFound(t, "別的組織", err)
+
+	// 修改:名稱、描述、更新時間(建立時間不變)
+	u := a
+	u.Name, u.Description, u.UpdatedAt, u.CreatedAt = "官網 2", "", at2, at2
+	chk(t, s.UpdateProject("o", u))
+	wantNotFound(t, "UpdateProject 沒有的", s.UpdateProject("o", model.Project{ID: "PRJ-9", Name: "x", UpdatedAt: at}))
+	s = impl.reopen(t, s)
+	g, _ = s.GetProject("o", "PRJ-1")
+	want := a
+	want.Name, want.Description, want.UpdatedAt = "官網 2", "", at2
+	sameJSON(t, "UpdateProject 後", g, want)
+
+	// 刪除:連同這個專案的結構;別的專案、未分專案的結構與文件不動
+	chk(t, s.SaveCabinetLayout("o", "", []model.CabinetSection{{ID: "u", Label: "未分", Tabs: []model.CabinetTab{}}}))
+	chk(t, s.SaveCabinetLayout("o", "PRJ-1", []model.CabinetSection{{ID: "x", Label: "一", Tabs: []model.CabinetTab{}}}))
+	chk(t, s.SaveCabinetLayout("o", "PRJ-2", []model.CabinetSection{{ID: "y", Label: "二", Tabs: []model.CabinetTab{}}}))
+	chk(t, s.DeleteProject("o", "PRJ-2"))
+	wantNotFound(t, "DeleteProject 兩次", s.DeleteProject("o", "PRJ-2"))
+	s = impl.reopen(t, s)
+	_, err = s.GetCabinetLayout("o", "PRJ-2")
+	wantNotFound(t, "刪掉的專案的結構", err)
+	if l, err := s.GetCabinetLayout("o", "PRJ-1"); err != nil || len(l) != 1 || l[0].ID != "x" {
+		t.Fatal("別的專案的結構不動", l, err)
+	}
+	if l, err := s.GetCabinetLayout("o", ""); err != nil || len(l) != 1 || l[0].ID != "u" {
+		t.Fatal("未分專案的結構不動", l, err)
+	}
+	l, _ = s.ListProjects("o")
+	sameJSON(t, "刪除後", ids(l, func(x model.Project) string { return x.ID }), []string{"PRJ-1"})
+	// 刪掉最大號後再建:號碼不重複使用(PRJ-1、PRJ-2,刪 PRJ-2 → 下一個是 PRJ-3;重開後也一樣)
+	d, err := s.CreateProject("o", model.Project{Name: "新", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	if d.ID != "PRJ-3" {
+		t.Fatal("刪掉後建號不可重複使用", d.ID)
+	}
+	if _, err := s.GetCabinetLayout("o", d.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("新專案沒有結構", err)
+	}
+	if l, _ := s.ListProjects("p"); len(l) != 1 {
+		t.Fatal("別的組織不受影響", l)
+	}
+}
+
+// ---- 文件櫃分專案:結構以 (org, project) 為鍵;文件存在組織底下(DOC-<n> 組織內唯一),Project 欄位區分、可以移動 ----
+
+func suiteProjectCabinet(t *testing.T, impl storeImpl) {
+	s := impl.open(t)
+	newOrg(t, s, "o")
+	at := mt("2026-01-02T03:04:05Z")
+	prj, err := s.CreateProject("o", model.Project{Name: "官網", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	base := []model.CabinetSection{{ID: "docs", Label: "文件", Tabs: []model.CabinetTab{}}}
+	pl := []model.CabinetSection{{ID: "spec", Label: "規格", Tabs: []model.CabinetTab{{Label: "API", Path: "/spec/api"}}}}
+	chk(t, s.SaveCabinetLayout("o", "", base))
+	_, err = s.GetCabinetLayout("o", prj.ID)
+	wantNotFound(t, "專案沒存過結構", err)
+	chk(t, s.SaveCabinetLayout("o", prj.ID, pl))
+	s = impl.reopen(t, s)
+	g, err := s.GetCabinetLayout("o", "")
+	chk(t, err)
+	sameJSON(t, "未分專案的結構", g, base)
+	g, err = s.GetCabinetLayout("o", prj.ID)
+	chk(t, err)
+	sameJSON(t, "專案的結構", g, pl)
+	// 再存一次是取代(不會多一份)
+	pl2 := append(model.CloneLayout(pl), model.CabinetSection{ID: "more", Label: "更多", Tabs: []model.CabinetTab{}})
+	chk(t, s.SaveCabinetLayout("o", prj.ID, pl2))
+	s = impl.reopen(t, s)
+	g, _ = s.GetCabinetLayout("o", prj.ID)
+	sameJSON(t, "專案的結構取代", g, pl2)
+	g, _ = s.GetCabinetLayout("o", "")
+	sameJSON(t, "未分專案的結構不受影響", g, base)
+
+	// 文件:號碼在組織內連號(不分專案);Project 存得進去、讀得回來
+	d1, err := s.CreateDoc("o", model.CabinetDoc{Title: "未分", Section: "docs", Tags: []string{}, Author: "a@x", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	d2, err := s.CreateDoc("o", model.CabinetDoc{Project: prj.ID, Title: "API 規格", Section: "spec", Tab: strp("/spec/api"), Tags: []string{"api"}, Author: "a@x", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	if d1.ID != "DOC-1" || d2.ID != "DOC-2" {
+		t.Fatal("文件號碼在組織內連號", d1.ID, d2.ID)
+	}
+	s = impl.reopen(t, s)
+	l, err := s.ListDocs("o")
+	chk(t, err)
+	sameJSON(t, "ListDocs 含各專案的文件", l, []model.CabinetDoc{d2, d1})
+	got, err := s.GetDoc("o", "DOC-2")
+	chk(t, err)
+	if got.Project != prj.ID {
+		t.Fatal("Project 要讀得回來", got.Project)
+	}
+	// 移動:未分專案 → 專案;專案 → 未分專案
+	m := d1
+	m.Project, m.Section, m.UpdatedAt = prj.ID, "more", mt("2026-01-04T00:00:00Z")
+	chk(t, s.UpdateDoc("o", m))
+	back := d2
+	back.Project, back.Section, back.Tab = "", "docs", nil
+	chk(t, s.UpdateDoc("o", back))
+	s = impl.reopen(t, s)
+	l, _ = s.ListDocs("o")
+	sameJSON(t, "移動後(位置不變)", l, []model.CabinetDoc{back, m})
+	// 刪掉專案:文件不動(service 先檢查),結構拿掉
+	chk(t, s.DeleteProject("o", prj.ID))
+	s = impl.reopen(t, s)
+	if l, _ := s.ListDocs("o"); len(l) != 2 {
+		t.Fatal("DeleteProject 不動文件", l)
+	}
+	_, err = s.GetCabinetLayout("o", prj.ID)
+	wantNotFound(t, "刪掉的專案的結構", err)
+	// 匯入保留 Project
+	newOrg(t, s, "q")
+	imp := []model.CabinetDoc{{ID: "DOC-5", Project: "PRJ-3", Title: "五", Section: "s", Tags: []string{}, Author: "c@x", CreatedAt: at, UpdatedAt: at}}
+	if _, err := s.ImportDocs("q", imp); err != nil {
+		t.Fatal(err)
+	}
+	s = impl.reopen(t, s)
+	l, _ = s.ListDocs("q")
+	sameJSON(t, "匯入保留 Project", l, imp)
 }
 
 // ---- 訊息頻道與訊息(分頁、since、已讀、未讀、提及) ----
@@ -1043,8 +1198,13 @@ func fillOrg(t *testing.T, s Store, org string, hash byte) {
 	tk, err := s.CreateAgentTask(org, model.AgentTask{AgentID: "dev", Title: "t", Priority: "normal", Status: "queued", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
 	chk(t, s.SaveAgentCredential(model.AgentCredential{Org: org, AgentID: "dev", TaskID: tk.ID, Hash: []byte{hash}, IssuedAt: at, ExpiresAt: mt("2099-01-01T00:00:00Z")}))
-	chk(t, s.SaveCabinetLayout(org, []model.CabinetSection{{ID: "s", Tabs: []model.CabinetTab{}}}))
+	chk(t, s.SaveCabinetLayout(org, "", []model.CabinetSection{{ID: "s", Tabs: []model.CabinetTab{}}}))
 	_, err = s.CreateDoc(org, model.CabinetDoc{Title: "d", Section: "s", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	prj, err := s.CreateProject(org, model.Project{Name: "p", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	chk(t, s.SaveCabinetLayout(org, prj.ID, []model.CabinetSection{{ID: "ps", Tabs: []model.CabinetTab{}}}))
+	_, err = s.CreateDoc(org, model.CabinetDoc{Project: prj.ID, Title: "pd", Section: "ps", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
 	chk(t, s.SaveOrgChain(org, model.OrgChain{Edges: []model.ChainEdge{{From: "a", To: "b"}}, UpdatedAt: &at}))
 	ch, err := s.CreateChannel(org, model.Channel{Name: "c", CreatedAt: at, UpdatedAt: at})
@@ -1086,8 +1246,12 @@ func orgEmpty(t *testing.T, s Store, org string, hash byte, keepsAttachments boo
 	empty("ListAgentTasks", len(ts), err)
 	_, err = s.AgentCredentialByHash([]byte{hash})
 	wantNotFound(t, "AgentCredentialByHash", err)
-	_, err = s.GetCabinetLayout(org)
+	_, err = s.GetCabinetLayout(org, "")
 	wantNotFound(t, "GetCabinetLayout", err)
+	_, err = s.GetCabinetLayout(org, "PRJ-1")
+	wantNotFound(t, "GetCabinetLayout 專案", err)
+	pl, err := s.ListProjects(org)
+	empty("ListProjects", len(pl), err)
 	ds, err := s.ListDocs(org)
 	empty("ListDocs", len(ds), err)
 	_, err = s.GetOrgChain(org)
@@ -1140,6 +1304,9 @@ func suiteDeleteOrgCascade(t *testing.T, impl storeImpl) {
 	newOrg(t, s, "o")
 	if i, err := s.CreateIssue("o", model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "a@x", CreatedAt: mt("2026-01-01T00:00:00Z"), UpdatedAt: mt("2026-01-01T00:00:00Z")}); err != nil || i.ID != "ISS-1" {
 		t.Fatal("重建後的 Issue", i.ID, err)
+	}
+	if x, err := s.CreateProject("o", model.Project{Name: "p", CreatedAt: mt("2026-01-01T00:00:00Z"), UpdatedAt: mt("2026-01-01T00:00:00Z")}); err != nil || x.ID != "PRJ-1" {
+		t.Fatal("重建後的專案號碼從頭開始", x.ID, err)
 	}
 }
 

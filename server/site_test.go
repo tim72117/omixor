@@ -9,14 +9,16 @@ import (
 	"testing"
 )
 
-// 形象網站:只提供白名單檔案(英文首頁與公開檔案),zh.html、og.html、README.md 不對外;不影響 /health;沒設資料夾就不提供
+// 形象網站:只提供白名單檔案(英文首頁與公開檔案),zh.html、pricing.zh.html、og.html、README.md 不對外;不影響 /health;沒設資料夾就不提供
 func TestSiteServesOnlyPublicFiles(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"index.html":  "<!doctype html><html lang=\"en\"><title>omixor</title></html>",
 		"favicon.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "og.png": "\x89PNG\r\n\x1a\n",
 		"robots.txt": "User-agent: *", "sitemap.xml": "<urlset/>", "llms.txt": "omixor",
-		"zh.html": "<html lang=\"zh-Hant-TW\"></html>", "og.html": "<html></html>", "README.md": "# site",
+		"pricing.html":    "<!doctype html><html lang=\"en\"><title>Pricing</title><h1>Self-hosted</h1></html>",
+		"pricing.zh.html": "<html lang=\"zh-Hant-TW\"></html>",
+		"zh.html":         "<html lang=\"zh-Hant-TW\"></html>", "og.html": "<html></html>", "README.md": "# site",
 	}
 	for n, c := range files {
 		if err := os.WriteFile(filepath.Join(dir, n), []byte(c), 0o644); err != nil {
@@ -34,7 +36,7 @@ func TestSiteServesOnlyPublicFiles(t *testing.T) {
 		return w
 	}
 	cases := map[string]string{
-		"/": "text/html; charset=utf-8", "/favicon.svg": "image/svg+xml", "/og.png": "image/png",
+		"/": "text/html; charset=utf-8", "/pricing": "text/html; charset=utf-8", "/favicon.svg": "image/svg+xml", "/og.png": "image/png",
 		"/robots.txt": "text/plain; charset=utf-8", "/sitemap.xml": "application/xml; charset=utf-8", "/llms.txt": "text/plain; charset=utf-8",
 	}
 	for path, ct := range cases {
@@ -46,7 +48,10 @@ func TestSiteServesOnlyPublicFiles(t *testing.T) {
 	if w := get("/"); !strings.Contains(w.Body.String(), `lang="en"`) {
 		t.Fatalf("/ 要是英文首頁:%s", w.Body.String())
 	}
-	for _, path := range []string{"/zh.html", "/og.html", "/README.md", "/index.html", "/nope", "/../server.go"} {
+	if w := get("/pricing"); !strings.Contains(w.Body.String(), "Self-hosted") || w.Header().Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("/pricing 要是英文方案頁:%s %v", w.Body.String(), w.Header())
+	}
+	for _, path := range []string{"/zh.html", "/pricing.zh.html", "/pricing.html", "/pricing/", "/og.html", "/README.md", "/index.html", "/nope", "/../server.go"} {
 		if w := get(path); w.Code == 200 {
 			t.Fatalf("%s 不能對外:%d %s", path, w.Code, w.Body.String())
 		}

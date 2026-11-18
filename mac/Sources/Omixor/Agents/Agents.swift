@@ -23,9 +23,11 @@ struct Agent: Codable, Hashable, Identifiable {
     var docAccess: [String: DocAccess] = [:]
 
     /// 這個角色對某個位置的權限(nil = 不能存取)
-    func access(section: String, tab: String?) -> DocAccess? {
-        if let tab, let a = docAccess[tab] { return a == .none ? nil : a }
-        guard let a = docAccess[section], a != .none else { return nil }
+    /// project:專案 id(空 = 未分專案)。專案的 key 是 "<專案 id>:<區塊 id 或頁籤網址>"(同 core 的 DocAccessKey / AccessIn)
+    func access(section: String, tab: String?, project: String = "") -> DocAccess? {
+        let key = { (k: String) in project.isEmpty ? k : "\(project):\(k)" }
+        if let tab, let a = docAccess[key(tab)] { return a == .none ? nil : a }
+        guard let a = docAccess[key(section)], a != .none else { return nil }
         return a
     }
 

@@ -7,9 +7,12 @@ final class FakeOmixorServer: URLProtocol {
     nonisolated(unsafe) static var agents: [[String: Any]] = []
     nonisolated(unsafe) static var tasks: [[String: Any]] = []
     nonisolated(unsafe) static var issues: [[String: Any]] = []
-    nonisolated(unsafe) static var requests: [(method: String, path: String, body: [String: Any])] = []
+    nonisolated(unsafe) static var requests: [(method: String, path: String, body: [String: Any], query: [String: String])] = []
     nonisolated(unsafe) static var layout: [[String: Any]] = []
     nonisolated(unsafe) static var docs: [[String: Any]] = []
+    /// 專案(PRJ-<n>)與各專案的文件櫃結構(文件放在 docs,用 "project" 分)
+    nonisolated(unsafe) static var projects: [[String: Any]] = []
+    nonisolated(unsafe) static var projectLayouts: [String: [[String: Any]]] = [:]
     /// GET /channels/inbox 回的 @ 訊息(自動回覆的測試用)
     nonisolated(unsafe) static var inbox: [[String: Any]] = []
     nonisolated(unsafe) static var chain: [[String: Any]] = []
@@ -34,6 +37,8 @@ final class FakeOmixorServer: URLProtocol {
                   ["id": "docs", "label": "文件", "path": "", "tabs": [["label": "研究", "path": "/docs/research"]]]]
         docs = [["id": "DOC-1", "title": "伺服器上的文件", "body": "內容", "section": "docs", "tags": ["a"], "author": "tim@example.com",
                  "createdAt": now, "updatedAt": now]]
+        projects = []
+        projectLayouts = [:]
     }
 
     private func reply(_ code: Int, _ obj: Any) {
@@ -80,7 +85,9 @@ final class FakeOmixorServer: URLProtocol {
         let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let path = request.url!.path
         let method = request.httpMethod ?? "GET"
-        Self.requests.append((method, path, body))
+        var query: [String: String] = [:]
+        for q in URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [] { query[q.name] = q.value ?? "" }
+        Self.requests.append((method, path, body, query))
         if path == "/api/version" {
             return reply(200, ["version": "849e1b2aa55426a942433830e144c2205ab3082c", "commit": "849e1b2aa55426a942433830e144c2205ab3082c",
                                "buildTime": "2026-11-12T09:08:25Z"])
@@ -92,11 +99,34 @@ final class FakeOmixorServer: URLProtocol {
         case ("channels", "GET", 1) where rest[0] == "inbox":
             ok(["node": "agent:x", "mentions": Self.inbox, "channels": []])
         case ("cabinet", "GET", 0):
-            ok(["layout": Self.layout, "docs": Self.docs, "layoutSaved": true])
+            let pj = query["project"] ?? ""
+            if pj.isEmpty { return ok(["layout": Self.layout, "docs": Self.docs.filter { $0["project"] == nil }, "layoutSaved": true]) }
+            guard Self.projects.contains(where: { $0["id"] as? String == pj }) else { return fail(404, "找不到專案 \(pj)") }
+            let l = Self.projectLayouts[pj]
+            ok(["project": pj, "layout": l ?? [["id": "overview", "label": "總覽", "path": "", "tabs": []], ["id": "docs", "label": "文件", "path": "", "tabs": []]],
+                "docs": Self.docs.filter { $0["project"] as? String == pj }, "layoutSaved": l != nil])
         case ("cabinet", "POST", 1) where rest[0] == "layout":
             guard let l = body["layout"] as? [[String: Any]] else { return fail(400, "要給 layout") }
-            Self.layout = l
+            if let pj = body["project"] as? String, !pj.isEmpty { Self.projectLayouts[pj] = l } else { Self.layout = l }
             ok(l)
+        case ("projects", "GET", 0):
+            ok(Self.projects)
+        case ("projects", "POST", 0):
+            guard let name = body["name"] as? String, !name.isEmpty else { return fail(400, "要給專案名稱") }
+            if Self.projects.contains(where: { $0["name"] as? String == name }) { return fail(409, "專案名稱「\(name)」已經有了") }
+            let x: [String: Any] = ["id": "PRJ-\(Self.projects.count + 1)", "name": name, "description": body["description"] ?? "",
+                                    "createdAt": Self.now, "updatedAt": Self.now]
+            Self.projects.append(x)
+            ok(x)
+        case ("projects", "PUT", 1):
+            guard let i = Self.projects.firstIndex(where: { $0["id"] as? String == rest[0] }) else { return fail(404, "找不到專案 \(rest[0])") }
+            for k in ["name", "description"] where body[k] != nil { Self.projects[i][k] = body[k] }
+            ok(Self.projects[i])
+        case ("projects", "POST", 2) where rest[1] == "delete":
+            if Self.docs.contains(where: { $0["project"] as? String == rest[0] }) { return fail(409, "專案 \(rest[0]) 裡還有文件,先搬走或刪除") }
+            Self.projects.removeAll { $0["id"] as? String == rest[0] }
+            Self.projectLayouts[rest[0]] = nil
+            ok(true)
         case ("docs", "POST", 0):
             guard let title = body["title"] as? String, !title.isEmpty else { return fail(400, "要給 title") }
             if (body["body"] as? String ?? "").contains("kind: spec") { return fail(400, "缺少必填欄位:owner") }
@@ -104,12 +134,14 @@ final class FakeOmixorServer: URLProtocol {
             var d: [String: Any] = ["id": "DOC-\(n)", "title": title, "body": body["body"] ?? "", "section": body["section"] ?? "",
                                     "tags": body["tags"] ?? [], "author": "tim@example.com", "createdAt": Self.now, "updatedAt": Self.now]
             if let t = body["tab"] { d["tab"] = t }
+            if let pj = body["project"] as? String, !pj.isEmpty { d["project"] = pj }
             Self.docs.insert(d, at: 0)
             ok(d)
         case ("docs", "POST", 1):
             guard let i = Self.docs.firstIndex(where: { $0["id"] as? String == rest[0] }) else { return fail(404, "找不到文件 \(rest[0])") }
             for k in ["title", "body", "section", "tags"] where body[k] != nil { Self.docs[i][k] = body[k] }
             if let t = body["tab"] as? String { Self.docs[i]["tab"] = t.isEmpty ? NSNull() : t }
+            if let pj = body["project"] as? String { Self.docs[i]["project"] = pj.isEmpty ? nil : pj }
             ok(Self.docs[i])
         case ("docs", "POST", 2) where rest[1] == "delete":
             Self.docs.removeAll { $0["id"] as? String == rest[0] }

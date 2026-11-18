@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 只列對外、要被收錄的頁面。新增頁面時在這裡加一筆,lastmod 用最後修改日(YYYY-MM-DD)。zh.html 是內部對照頁,不列。 -->
+<!-- 只列對外、要被收錄的頁面。新增頁面時在這裡加一筆,lastmod 用最後修改日(YYYY-MM-DD)。zh.html、pricing.zh.html 是內部對照頁,不列。 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://omixor.io/</loc>
     <lastmod>2026-11-17</lastmod>
     <changefreq>monthly</changefreq>
     <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://omixor.io/pricing</loc>
+    <lastmod>2026-11-18</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
   </url>
 </urlset>

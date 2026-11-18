@@ -54,16 +54,26 @@ func DocPage(md string, t DocTemplate) string {
 }
 
 func init() {
-	// 文件與範本取自核心的文件櫃(快取;本機與遠端模式都一樣)
+	// 文件與範本取自核心的文件櫃(未分專案讀快取,專案的文件問核心;本機與遠端模式都一樣)
 	RegisterAction("cabinet_doc_html", func(a *App, args map[string]any) (any, error) {
 		id, _ := args["id"].(string)
 		a.Mu.Lock()
-		defer a.Mu.Unlock()
-		d := a.FindDoc(id)
+		org := a.CurrentOrgID()
+		d, docs := a.FindDoc(id), a.CabinetDocs()
+		a.Mu.Unlock()
 		if d == nil {
-			return map[string]any{"html": nil}, nil
+			// 不在快取(未分專案)裡:可能是專案的文件,問核心(鎖外;範本取自那個專案與未分專案的文件)
+			ops := a.CabinetOps()
+			x, err := ops.GetDoc(org, id)
+			if err != nil || x == nil || x.Project == "" {
+				return map[string]any{"html": nil}, nil
+			}
+			d = x
+			if c, err := ops.GetProjectCabinet(org, x.Project); err == nil {
+				docs = append(append([]CabinetDoc{}, c.Docs...), docs...)
+			}
 		}
-		if h, ok := DocHTML(*d, a.CabinetDocs()); ok {
+		if h, ok := DocHTML(*d, docs); ok {
 			return map[string]any{"html": h}, nil
 		}
 		return map[string]any{"html": nil}, nil

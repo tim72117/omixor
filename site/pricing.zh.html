@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>omixor — 方案:自建伺服器(中文對照)</title>
+<meta name="robots" content="noindex, nofollow" />
+<meta name="description" content="在自己的伺服器上執行 omixor:一個容器映像、自己的 PostgreSQL,資料留在你的機器或雲端帳號。價格請洽詢。" />
+<meta name="theme-color" content="#05070a" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  /* ---------- tokens(同 zh.html) ---------- */
+  :root {
+    --bg: #05070a;
+    --bg-2: #080b10;
+    --panel-solid: #0c1118;
+    --line: rgba(148, 163, 184, 0.12);
+    --line-2: rgba(148, 163, 184, 0.22);
+    --text: #e6edf3;
+    --muted: #8b98a9;
+    --dim: #5b6676;
+    --mint: #6ef2c0;
+    --violet: #8e7dff;
+    --sky: #4cc3ff;
+    --amber: #ffb547;
+    --glow-mint: 0 0 24px rgba(110, 242, 192, 0.35);
+    --radius: 14px;
+    --sans: "Inter", "Noto Sans TC", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --display: "Space Grotesk", "Noto Sans TC", var(--sans);
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+    --wrap: 1200px;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font-family: var(--sans); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: rgba(110, 242, 192, 0.25); }
+  .wrap { width: min(var(--wrap), 100% - 32px); margin-inline: auto; }
+  .mono { font-family: var(--mono); }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--mint); display: inline-flex; align-items: center; gap: 8px;
+  }
+  .eyebrow::before { content: ""; width: 18px; height: 1px; background: currentColor; opacity: .7; }
+  h1, h2, h3 { font-family: var(--display); margin: 0; letter-spacing: -0.02em; }
+  h2 { font-size: clamp(26px, 3.4vw, 38px); line-height: 1.1; }
+  .lead { color: var(--muted); font-size: clamp(16px, 1.4vw, 18px); max-width: 640px; }
+  code { font: 0.88em var(--mono); color: var(--sky); overflow-wrap: anywhere; }
+
+  .bg-grid {
+    position: fixed; inset: 0; z-index: -2; pointer-events: none;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+    opacity: .55;
+  }
+  .bg-glow {
+    position: fixed; inset: -20% -10% auto; height: 90vh; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(40% 50% at 30% 30%, rgba(142, 125, 255, .18), transparent 70%),
+      radial-gradient(35% 45% at 72% 35%, rgba(110, 242, 192, .12), transparent 70%);
+    filter: blur(20px);
+  }
+
+  /* ---------- nav(同 zh.html) ---------- */
+  .nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); background: rgba(5, 7, 10, .6); border-bottom: 1px solid var(--line); }
+  .nav .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 700; font-size: 20px; letter-spacing: -0.02em; }
+  .logo-mark { width: 26px; height: 26px; }
+  .nav-links { display: flex; gap: 22px; margin-left: 12px; font-size: 14px; color: var(--muted); }
+  .nav-links a:hover, .nav-links a[aria-current="page"] { color: var(--text); }
+  .nav-cta { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+    border-radius: 10px; font-size: 14px; font-weight: 500; border: 1px solid var(--line-2);
+    transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: rgba(230, 237, 243, .4); transform: translateY(-1px); }
+  .btn-primary { background: var(--mint); color: #03130c; border-color: transparent; font-weight: 600; box-shadow: var(--glow-mint); }
+  .btn-primary:hover { background: #8ff7d1; border-color: transparent; }
+  .btn-ghost { background: rgba(255, 255, 255, .02); }
+  .btn-lg { height: 48px; padding: 0 22px; font-size: 15px; border-radius: 12px; }
+  /* 聯絡方式還沒定:按鈕先停用(之後補上 href 並拿掉 is-placeholder) */
+  .btn.is-placeholder { opacity: .55; cursor: not-allowed; box-shadow: none; }
+  .btn.is-placeholder:hover { transform: none; }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 72px 0 24px; text-align: center; }
+  .hero h1 { margin: 22px auto 0; max-width: 900px; font-size: clamp(38px, 6vw, 72px); line-height: 1.02; font-weight: 700; letter-spacing: -0.04em; }
+  .grad { background: linear-gradient(100deg, #fff 0%, #cfe9ff 30%, var(--mint) 55%, var(--violet) 85%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero .lead { margin: 22px auto 0; }
+
+  /* ---------- plan ---------- */
+  section.block { padding: 64px 0; }
+  .plan {
+    position: relative; display: grid; grid-template-columns: 1fr 1.25fr; gap: 0;
+    border-radius: 22px; border: 1px solid var(--line-2); overflow: hidden;
+    background:
+      radial-gradient(50% 80% at 0% 0%, rgba(110, 242, 192, .12), transparent 70%),
+      radial-gradient(40% 60% at 100% 100%, rgba(142, 125, 255, .14), transparent 70%), var(--bg-2);
+  }
+  .plan-head { padding: 40px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; }
+  .plan-head h2 { font-size: clamp(28px, 3.4vw, 40px); }
+  .plan-head .tag { align-self: flex-start; font: 500 11px var(--mono); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(110, 242, 192, .35); color: var(--mint); background: rgba(110, 242, 192, .08); }
+  .price { font-family: var(--display); font-size: clamp(28px, 3vw, 36px); font-weight: 600; margin-top: 8px; }
+  .price small { display: block; font: 13px var(--mono); color: var(--dim); font-weight: 400; margin-top: 4px; }
+  .plan-head p { color: var(--muted); margin: 0; }
+  .plan-head .btn { align-self: flex-start; margin-top: 12px; }
+  .plan-body { padding: 40px; }
+  .plan-body h3 { font-size: 15px; font-family: var(--mono); font-weight: 500; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+  .checks { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 14px; }
+  .checks li { display: flex; gap: 12px; color: var(--muted); }
+  .checks li::before { content: "▸"; color: var(--mint); font-family: var(--mono); flex: none; }
+  .checks b { color: var(--text); font-weight: 500; }
+
+  /* ---------- requirements ---------- */
+  .sec-head { display: grid; gap: 16px; margin-bottom: 40px; }
+  .split { display: grid; grid-template-columns: 1fr 1.05fr; gap: 56px; align-items: start; }
+  .split > * { min-width: 0; }
+  .code { border-radius: var(--radius); border: 1px solid var(--line-2); background: #070a0f; overflow: hidden; font: 13px/1.75 var(--mono); }
+  .code-head { display: flex; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+  .code-head .on { color: var(--text); }
+  .code pre { margin: 0; padding: 18px 20px; overflow-x: auto; color: var(--muted); }
+  .c-c { color: var(--dim); } .c-f { color: var(--sky); } .c-s { color: var(--mint); } .c-k { color: var(--violet); }
+
+  /* ---------- faq ---------- */
+  .faq { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .faq details { background: var(--bg-2); padding: 0 24px; }
+  .faq summary { cursor: pointer; list-style: none; padding: 20px 0; font-family: var(--display); font-weight: 600; font-size: 17px; display: flex; justify-content: space-between; gap: 16px; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; font-family: var(--mono); color: var(--mint); flex: none; }
+  .faq details[open] summary::after { content: "–"; }
+  .faq details p { margin: 0 0 20px; color: var(--muted); max-width: 760px; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 64px; padding: 40px 0; color: var(--dim); font-size: 13px; }
+  footer .wrap { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  footer .links { margin-left: auto; display: flex; gap: 20px; flex-wrap: wrap; }
+  footer a:hover { color: var(--text); }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 960px) {
+    .nav-links { display: none; }
+    .plan { grid-template-columns: 1fr; }
+    .plan-head { border-right: 0; border-bottom: 1px solid var(--line); }
+    .split { grid-template-columns: 1fr; gap: 32px; }
+  }
+  @media (max-width: 640px) {
+    .nav-cta .btn-ghost { display: none; }
+    .hero { padding-top: 48px; }
+    .plan-head, .plan-body { padding: 28px 22px; }
+    .faq details { padding: 0 18px; }
+    section.block { padding: 48px 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+
+<!-- ============ NAV ============ -->
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="zh.html" aria-label="omixor 首頁">
+      <svg class="logo-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="16" cy="16" r="13" stroke="url(#lg)" stroke-width="2.2" />
+        <circle cx="16" cy="16" r="4.2" fill="#6ef2c0" />
+        <circle cx="16" cy="3" r="2.2" fill="#8e7dff" />
+        <circle cx="27.3" cy="22.5" r="2.2" fill="#4cc3ff" />
+        <circle cx="4.7" cy="22.5" r="2.2" fill="#ffb547" />
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#8e7dff" /><stop offset="1" stop-color="#6ef2c0" /></linearGradient></defs>
+      </svg>
+      omixor
+    </a>
+    <nav class="nav-links">
+      <a href="zh.html#agents">AI 角色</a>
+      <a href="zh.html#loop">運作方式</a>
+      <a href="zh.html#mcp">MCP</a>
+      <a href="zh.html#inside">平台</a>
+      <a href="pricing.zh.html" aria-current="page">方案</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost" href="zh.html#mcp"><span class="mono">&gt;_</span> 連線</a>
+      <a class="btn btn-primary" href="zh.html#start">開始使用</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="wrap">
+      <span class="eyebrow">方案</span>
+      <h1><span class="grad">在自己的伺服器上執行 omixor</span></h1>
+      <p class="lead">只有一個方案:自建伺服器。omixor 伺服器和它的 PostgreSQL 資料庫由你自己執行,Issue、文件、頻道與 AI 角色的紀錄都留在你的機器或你自己的雲端帳號。</p>
+    </div>
+  </section>
+
+  <!-- ============ PLAN ============ -->
+  <section class="block" id="plan" style="padding-top:24px">
+    <div class="wrap">
+      <div class="plan">
+        <div class="plan-head">
+          <span class="tag">自建伺服器</span>
+          <h2>omixor 伺服器</h2>
+          <p>和 omixor.io 執行的是同一套伺服器,包成容器映像,由你自己部署。</p>
+          <div class="price">洽詢<small>價格請來信洽詢</small></div>
+          <!-- TODO:聯絡方式(信箱或表單)還沒定,之後補上 href 並拿掉 is-placeholder / aria-disabled -->
+          <a class="btn btn-primary btn-lg is-placeholder" href="#" aria-disabled="true" data-placeholder="contact">聯絡我們</a>
+        </div>
+        <div class="plan-body">
+          <h3>包含什麼</h3>
+          <ul class="checks">
+            <li><span><b>一個容器映像。</b>所有功能都編進去的 omixor 伺服器,由一份 Dockerfile 建置。</span></li>
+            <li><span><b>自己的資料庫。</b>所有資料都存在你指定的 PostgreSQL,不會存到 omixor 的雲端。</span></li>
+            <li><span><b>完整平台。</b>AI 角色與任務、Issue、文件櫃、頻道與組織鏈。</span></li>
+            <li><span><b>MCP 在你自己的網域。</b>每個組織有 <code>/mcp/org/&lt;org&gt;</code>,另有給執行任務用的角色端點與執行者端點。</span></li>
+            <li><span><b>依角色限制權限。</b>伺服器管理員、組織管理員與成員;每個 AI 角色只能讀寫它的角色允許的文件。</span></li>
+            <li><span><b>稽核紀錄。</b>Issue、文件、AI 角色、任務與設定的變更都會記錄,伺服器管理員可以查看。</span></li>
+            <li><span><b>功能開關。</b>伺服器管理員決定這台伺服器開放哪些功能,組織管理員再為自己的組織開或關。</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ REQUIREMENTS ============ -->
+  <section class="block" id="requirements">
+    <div class="wrap split">
+      <div>
+        <div class="sec-head">
+          <span class="eyebrow">部署需求</span>
+          <h2>執行需要準備什麼。</h2>
+        </div>
+        <ul class="checks">
+          <li><span><b>容器執行環境。</b>Docker 或任何能執行容器映像的平台。伺服器預設聽 <code>8080</code> 埠(<code>PORT</code>)。</span></li>
+          <li><span><b>PostgreSQL。</b>連線網址用 <code>OMIXOR_DATABASE_URL</code> 傳入;沒設伺服器不會啟動。</span></li>
+          <li><span><b>第一位管理員。</b>用 <code>OMIXOR_ADMIN_BOOTSTRAP_EMAIL</code> 設定第一位伺服器管理員的 email。</span></li>
+          <li><span><b>登入。</b>伺服器透過 evoleap 確認使用者身分(<code>EVOLEAP_URL</code>,預設 <code>https://evoleap.io</code>),所以要能連到這個網址。</span></li>
+          <li><span><b>單一實例。</b>目前一個資料庫只能接一個伺服器實例。</span></li>
+        </ul>
+      </div>
+      <div class="code">
+        <div class="code-head"><span class="on">shell</span><span>範例</span></div>
+<pre><span class="c-c"># 用你的 PostgreSQL 啟動伺服器</span>
+<span class="c-f">$</span> docker run -p 8080:8080 \
+    -e <span class="c-k">OMIXOR_DATABASE_URL</span>=<span class="c-s">postgres://…</span> \
+    -e <span class="c-k">OMIXOR_ADMIN_BOOTSTRAP_EMAIL</span>=<span class="c-s">you@example.com</span> \
+    -e <span class="c-k">OMIXOR_PUBLIC_URL</span>=<span class="c-s">https://omixor.example.com</span> \
+    omixor-server
+
+<span class="c-c"># 把 Claude Code 連到你的組織</span>
+<span class="c-f">$</span> claude mcp add --transport http omixor \
+    https://omixor.example.com/mcp/org/acme</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FAQ ============ -->
+  <section class="block" id="faq">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow">常見問題</span>
+        <h2>常見問題。</h2>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>價格是多少?</summary>
+          <p>目前沒有公開價格。請和我們聯絡,我們會依你的環境討論。</p>
+        </details>
+        <details>
+          <summary>資料存在哪裡?</summary>
+          <p>存在你用 <code>OMIXOR_DATABASE_URL</code> 設定的 PostgreSQL 資料庫,在你自己的機器或你自己的雲端帳號。</p>
+        </details>
+        <details>
+          <summary>哪些 AI 工具可以連?</summary>
+          <p>任何支援 Model Context Protocol(MCP)的用戶端,例如 Claude Code。連到 <code>https://&lt;你的伺服器&gt;/mcp/org/&lt;你的組織&gt;</code>。</p>
+        </details>
+        <details>
+          <summary>可以先在一台電腦上試用嗎?</summary>
+          <p>可以。<code>omixor-local</code> 是單機版,只聽 <code>127.0.0.1</code>(預設 <code>8770</code> 埠),資料以 JSON 檔存在本機資料夾,不需要資料庫。可以編成 Windows、macOS 與 Linux 版。</p>
+        </details>
+        <details>
+          <summary>可以關掉某些功能嗎?</summary>
+          <p>可以。伺服器管理員在「系統」頁決定這台伺服器開放哪些功能,各組織管理員再為自己的組織開或關。</p>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="logo" style="font-size:16px">omixor</span>
+    <span>© 2026 omixor</span>
+    <div class="links"><a href="zh.html">首頁</a><a href="zh.html#mcp">MCP</a><a href="pricing.zh.html">方案</a><a href="#">服務狀態</a><a href="#">登入</a></div>
+  </div>
+</footer>
+
+<script>
+  // 占位的聯絡按鈕:點了不跳到頁首
+  document.querySelectorAll('[data-placeholder]').forEach(el => el.addEventListener('click', e => e.preventDefault()));
+</script>
+</body>
+</html>

@@ -25,8 +25,11 @@ import (
 //	omixor_agent_credentials                      任務綁定的角色憑證(只存 SHA-256 雜湊與到期時間;token_hash 是主鍵)
 //	ops_issues.assignee                           指派給的角色 id(空字串 = 未指派)
 //	ops_issues.repo                               Issue 所屬的程式碼倉庫(owner/name 或 group/sub/project,可帶 github:/gitlab:;空字串 = 未標記)
-//	omixor_cabinet_layouts                        文件櫃結構(主鍵 org;layout 是 jsonb,區塊與頁籤)
-//	omixor_docs                                   文件櫃的文件(主鍵 (org, id) = DOC-<n>;pos 大的在前;tags 是 jsonb;tab 可以是 null)
+//	omixor_cabinet_layouts                        文件櫃結構(主鍵 (org, project);project 空字串 = 未分專案;layout 是 jsonb,區塊與頁籤)
+//	omixor_docs                                   文件櫃的文件(主鍵 (org, id) = DOC-<n>,在組織內唯一;project 是所屬專案,空字串 = 未分專案;
+//	                                              pos 大的在前;tags 是 jsonb;tab 可以是 null)
+//	omixor_projects                               專案(主鍵 (org, id) = PRJ-<n>;依 number 排序;方法在 pg_project.go)
+//	omixor_project_seq                            專案最後發出去的號碼(主鍵 org;刪掉的號碼不再使用)
 //	omixor_org_chains                             組織鏈(主鍵 org;edges 是 jsonb)
 //	omixor_channels                               訊息頻道(主鍵 (org, id) = CH-<n>;members 是 jsonb 節點;同組織的 issue_id 不重複)
 //	omixor_channel_messages                       頻道訊息(主鍵 (org, channel_id, id) = M-<n>,每個頻道各自編號;mentions 是 jsonb)
@@ -187,6 +190,30 @@ create table if not exists omixor_docs (
   primary key (org, id)
 );
 create index if not exists omixor_docs_org_pos on omixor_docs (org, pos desc);
+alter table omixor_docs add column if not exists project text not null default '';
+alter table omixor_cabinet_layouts add column if not exists project text not null default '';
+do $$
+begin
+  -- 文件櫃結構改成每個專案一份:主鍵從 (org) 換成 (org, project)(已經換過就不動;舊資料 project 是空字串 = 未分專案)
+  if not exists (select 1 from pg_index where indrelid = 'omixor_cabinet_layouts'::regclass and indisprimary and indnatts = 2) then
+    alter table omixor_cabinet_layouts drop constraint if exists omixor_cabinet_layouts_pkey;
+    alter table omixor_cabinet_layouts add constraint omixor_cabinet_layouts_pkey primary key (org, project);
+  end if;
+end $$;
+create table if not exists omixor_projects (
+  org text not null,
+  id text not null,
+  number integer not null,
+  name text not null,
+  description text not null default '',
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  primary key (org, id)
+);
+create table if not exists omixor_project_seq (
+  org text primary key,
+  last integer not null
+);
 create table if not exists omixor_org_chains (
   org text primary key,
   edges jsonb not null default '[]',
@@ -570,6 +597,8 @@ func (p *PG) DeleteOrg(id string) error {
 		`delete from omixor_agents where org = $1`,
 		`delete from omixor_docs where org = $1`,
 		`delete from omixor_cabinet_layouts where org = $1`,
+		`delete from omixor_projects where org = $1`,
+		`delete from omixor_project_seq where org = $1`,
 		`delete from omixor_org_chains where org = $1`,
 		`delete from omixor_channel_reads where org = $1`,
 		`delete from omixor_channel_messages where org = $1`,
@@ -1349,11 +1378,11 @@ func (p *PG) PruneAgentCredentials(now time.Time) error {
 
 // ---- 文件櫃 ----
 
-func (p *PG) GetCabinetLayout(org string) ([]model.CabinetSection, error) {
+func (p *PG) GetCabinetLayout(org, project string) ([]model.CabinetSection, error) {
 	c, cancel := ctx()
 	defer cancel()
 	var b []byte
-	if err := p.pool.QueryRow(c, `select layout from omixor_cabinet_layouts where org = $1`, org).Scan(&b); err != nil {
+	if err := p.pool.QueryRow(c, `select layout from omixor_cabinet_layouts where org = $1 and project = $2`, org, project).Scan(&b); err != nil {
 		return nil, notFound(err)
 	}
 	l := []model.CabinetSection{}
@@ -1363,24 +1392,24 @@ func (p *PG) GetCabinetLayout(org string) ([]model.CabinetSection, error) {
 	return l, nil
 }
 
-func (p *PG) SaveCabinetLayout(org string, layout []model.CabinetSection) error {
+func (p *PG) SaveCabinetLayout(org, project string, layout []model.CabinetSection) error {
 	c, cancel := ctx()
 	defer cancel()
 	if layout == nil {
 		layout = []model.CabinetSection{}
 	}
-	_, err := p.pool.Exec(c, `insert into omixor_cabinet_layouts (org, layout, updated_at) values ($1, $2, now())
-		on conflict (org) do update set layout = $2, updated_at = now()`, org, jb(layout))
+	_, err := p.pool.Exec(c, `insert into omixor_cabinet_layouts (org, project, layout, updated_at) values ($1, $2, $3, now())
+		on conflict (org, project) do update set layout = $3, updated_at = now()`, org, project, jb(layout))
 	return err
 }
 
-const docCols = `id, title, body, section, tab, tags, author, created_at, updated_at`
+const docCols = `id, project, title, body, section, tab, tags, author, created_at, updated_at`
 
 func scanDoc(row pgx.Row) (*model.CabinetDoc, error) {
 	var d model.CabinetDoc
 	var tags []byte
 	var created, updated time.Time
-	if err := row.Scan(&d.ID, &d.Title, &d.Body, &d.Section, &d.Tab, &tags, &d.Author, &created, &updated); err != nil {
+	if err := row.Scan(&d.ID, &d.Project, &d.Title, &d.Body, &d.Section, &d.Tab, &tags, &d.Author, &created, &updated); err != nil {
 		return nil, err
 	}
 	d.CreatedAt, d.UpdatedAt = model.Time{Time: created.UTC()}, model.Time{Time: updated.UTC()}
@@ -1428,9 +1457,9 @@ func (p *PG) GetDoc(org, id string) (*model.CabinetDoc, error) {
 }
 
 func insertDoc(c context.Context, tx pgx.Tx, org string, d model.CabinetDoc, pos int64) error {
-	_, err := tx.Exec(c, `insert into omixor_docs (org, id, number, pos, title, body, section, tab, tags, author, created_at, updated_at)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		org, d.ID, d.Number(), pos, d.Title, d.Body, d.Section, d.Tab, jb(tagsOrEmpty(d.Tags)), d.Author, secs(d.CreatedAt.Time), secs(d.UpdatedAt.Time))
+	_, err := tx.Exec(c, `insert into omixor_docs (org, id, number, pos, title, body, section, tab, tags, author, created_at, updated_at, project)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		org, d.ID, d.Number(), pos, d.Title, d.Body, d.Section, d.Tab, jb(tagsOrEmpty(d.Tags)), d.Author, secs(d.CreatedAt.Time), secs(d.UpdatedAt.Time), d.Project)
 	return err
 }
 
@@ -1461,8 +1490,8 @@ func (p *PG) CreateDoc(org string, d model.CabinetDoc) (model.CabinetDoc, error)
 func (p *PG) UpdateDoc(org string, d model.CabinetDoc) error {
 	c, cancel := ctx()
 	defer cancel()
-	tag, err := p.pool.Exec(c, `update omixor_docs set title = $3, body = $4, section = $5, tab = $6, tags = $7, author = $8, updated_at = $9
-		where org = $1 and id = $2`, org, d.ID, d.Title, d.Body, d.Section, d.Tab, jb(tagsOrEmpty(d.Tags)), d.Author, secs(d.UpdatedAt.Time))
+	tag, err := p.pool.Exec(c, `update omixor_docs set title = $3, body = $4, section = $5, tab = $6, tags = $7, author = $8, updated_at = $9, project = $10
+		where org = $1 and id = $2`, org, d.ID, d.Title, d.Body, d.Section, d.Tab, jb(tagsOrEmpty(d.Tags)), d.Author, secs(d.UpdatedAt.Time), d.Project)
 	if err != nil {
 		return err
 	}

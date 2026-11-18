@@ -33,11 +33,13 @@ final class FakeContractServer: URLProtocol {
     override func stopLoading() {}
 
     override func startLoading() {
-        let key = "\(request.httpMethod ?? "GET") \(request.url!.path)"
+        let base = "\(request.httpMethod ?? "GET") \(request.url!.path)"
+        // 有查詢字串時先找帶查詢字串的路由(例如文件櫃的 ?project=),沒登記再用路徑
+        let key = request.url!.query.map { "\(base)?\($0)" } ?? base
         Self.requests.append(key)
         var status = 200
         var body: Data
-        if let name = Self.routes[key], let d = try? ContractFixtures.data(name) {
+        if let name = Self.routes[key] ?? Self.routes[base], let d = try? ContractFixtures.data(name) {
             body = Data(#"{"result":"#.utf8) + d + Data("}".utf8)
         } else {
             status = 404
@@ -79,6 +81,12 @@ final class ContractTests: XCTestCase {
             "POST /api/orgs/acme/incidents": "incident.json",
             "GET /api/orgs/acme/cabinet": "cabinet.json",
             "POST /api/orgs/acme/docs": "cabinet_doc.json",
+            "GET /api/orgs/acme/cabinet?project=PRJ-2": "cabinet_project.json",
+            "POST /api/orgs/acme/docs/DOC-9": "cabinet_doc_project.json",
+            "GET /api/orgs/acme/projects": "project_list.json",
+            "POST /api/orgs/acme/projects": "project.json",
+            "GET /api/orgs/acme/projects/PRJ-2": "project.json",
+            "PUT /api/orgs/acme/projects/PRJ-2": "project.json",
             "GET /api/orgs/acme/chain": "org_chain.json",
         ]
         FakeContractServer.requests = []
@@ -349,6 +357,55 @@ final class ContractTests: XCTestCase {
 
         let created = try remote.createDoc(org: org, title: "x", body: "", section: "levels", tab: nil, tags: [], author: "tim")
         XCTAssertEqual(created, d)
+    }
+
+    // MARK: 專案(listProjects、getProject、createProject、updateProject → Project;帶 project 的文件櫃 → RemoteCabinet、CabinetDoc.project)
+
+    func testProjects() throws {
+        let list = try remote.listProjects(org: org)
+        XCTAssertEqual(list.map(\.id), ["PRJ-1", "PRJ-2"])
+        XCTAssertEqual(list.map(\.name), ["App", "官網改版"])
+        XCTAssertEqual(list[0].description, "")
+        XCTAssertEqual(list[0].createdAt, date("2026-10-01T00:00:00Z"))
+        let p = list[1]
+        XCTAssertEqual(p.description, "2027 年官網與文件站改版")
+        XCTAssertEqual(p.createdAt, date("2026-11-01T00:00:00Z"))
+        XCTAssertEqual(p.updatedAt, date("2026-11-05T08:00:00Z"))
+
+        XCTAssertEqual(try remote.getProject(org: org, id: "PRJ-2"), p)
+        XCTAssertEqual(try remote.createProject(org: org, name: "官網改版", description: "2027 年官網與文件站改版"), p)
+        XCTAssertEqual(try remote.updateProject(org: org, id: "PRJ-2", name: "官網改版"), p)
+        XCTAssertTrue(FakeContractServer.requests.contains("PUT /api/orgs/acme/projects/PRJ-2"))
+    }
+
+    func testProjectCabinet() throws {
+        let c = try remote.getCabinet(org: org, project: "PRJ-2")
+        XCTAssertTrue(FakeContractServer.requests.contains("GET /api/orgs/acme/cabinet?project=PRJ-2"), "帶 ?project=")
+        XCTAssertEqual(c.project, "PRJ-2")
+        XCTAssertEqual(c.layoutSaved, true)
+        XCTAssertEqual(c.layout.map(\.id), ["spec"])
+        XCTAssertEqual(c.layout[0].tabs.map(\.title), ["P1 首頁"])
+        XCTAssertEqual(c.docs.map(\.id), ["DOC-9"])
+        let d = c.docs[0]
+        XCTAssertEqual(d.project, "PRJ-2")
+        XCTAssertEqual(d.title, "首頁規格")
+        XCTAssertEqual(d.section, "spec")
+        XCTAssertEqual(d.tab, "/spec/home")
+        XCTAssertEqual(d.tags, ["規格"])
+        XCTAssertEqual(d.author, "agent:pm")
+        XCTAssertEqual(d.updatedAt, date("2026-11-03T00:00:00Z"))
+
+        // 未分專案的文件櫃與文件沒有 project
+        let base = try remote.getCabinet(org: org)
+        XCTAssertNil(base.project)
+        XCTAssertTrue(base.docs.allSatisfy { $0.project == nil })
+
+        // 搬家:POST docs/DOC-9 回的文件帶 project
+        var before = d
+        before.project = nil
+        XCTAssertEqual(try remote.updateDoc(org: org, id: "DOC-9", from: before, to: d), d)
+        let single = try IssueRemote.decoder().decode(CabinetDoc.self, from: try ContractFixtures.data("cabinet_doc_project.json"))
+        XCTAssertEqual(single, d)
     }
 
     // MARK: 組織鏈與組織

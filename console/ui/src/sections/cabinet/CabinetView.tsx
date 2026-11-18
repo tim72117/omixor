@@ -1,19 +1,28 @@
-// 文件櫃:依這個組織自訂的文件櫃結構(區塊/頁籤)放純文字文件;每個位置標出哪些角色可以讀寫(Swift 的 CabinetView)
+// 文件櫃:依這個組織自訂的文件櫃結構(區塊/頁籤)放純文字文件;每個位置標出哪些角色可以讀寫(Swift 的 CabinetView)。
+// 專案:左上切換「未分專案」(原本的組織文件櫃)或組織的某個專案,每個專案各自一份結構與文件(cabinet_query);文件可以搬到別的專案
 import { useEffect, useState } from "react";
-import { action, tool, useRun, useView } from "../../api";
-import { AgentAvatar, AuthorIcon, Markdown, SearchField, useDirectory } from "../../components/bits";
+import { action, tool, useActionQuery, useRun, useView } from "../../api";
+import { AgentAvatar, AuthorIcon, Markdown, SearchField, useDirectory, useStored } from "../../components/bits";
 import { Icon } from "../../components/Icon";
-import { DOC_ACCESS_LABEL, agentAccess, tabTitle, type Agent, type AgentsView, type CabinetDoc, type CabinetSection, type CabinetView as CabinetData, type DocAccess } from "../../components/models";
+import { DOC_ACCESS_LABEL, agentAccess, tabTitle, type Agent, type AgentsView, type CabinetDoc, type CabinetQuery, type CabinetSection, type DocAccess, type Project } from "../../components/models";
 import { EmptyState, ErrorText, Modal, Pill } from "../../components/ui";
 import { relative } from "../../fmt";
 import type { SectionProps } from "../index";
 import { CabinetLayoutEditor } from "./CabinetLayoutEditor";
+import { ProjectBar, projectLabel } from "./ProjectBar";
 
 export default function CabinetView({ focusId, clearFocus }: SectionProps) {
-  const [data, err] = useView<CabinetData>("cabinet", ["orgs"]);
+  // 選的專案(空字串 = 未分專案);記在瀏覽器,換組織後專案不存在就回到未分專案
+  const [project, setProject] = useStored<string>("omixor.cabinet.project", "");
+  const [data, err] = useActionQuery<CabinetQuery>("cabinet_query", { project }, ["cabinet", "orgs"]);
   const [agentsView] = useView<AgentsView>("agents", ["orgs"]);
   const layout = Array.isArray(data?.layout) ? data!.layout : [];
   const docs = Array.isArray(data?.docs) ? data!.docs : [];
+  const projects: Project[] = Array.isArray(data?.projects) ? data!.projects : [];
+  // 畫面上的結構與文件屬於哪個專案(切換時新的結果回來前,還是上一個專案的)
+  const shown = data?.project ?? "";
+  // 要選中的文件(從別頁跳過來、或剛搬到別的專案):等那個專案的資料回來再選
+  const [pending, setPending] = useState<string>();
   const agents = Array.isArray(agentsView?.agents) ? agentsView!.agents : [];
   const [node, setNode] = useState("overview");
   const [selectedDoc, setSelectedDoc] = useState<string>();
@@ -25,24 +34,51 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
   const section = layout.find((s) => s.id === node) ?? layout.find((s) => s.tabs.some((t) => t.path === node));
   const tab = node.startsWith("/") ? section?.tabs.find((t) => t.path === node) : undefined;
   useEffect(() => { if (layout.length && !section) { setNode(layout[0].id); setSelectedDoc(undefined); } }, [layout.map((s) => s.id).join(","), section]);
-  // 從其他頁跳過來時(例如 DOC-3)選中那份文件
+  // 選的專案已經不在了(被刪除、換了組織):回到未分專案
+  useEffect(() => {
+    if (data && !data.projectsError && project && data.project === project && !projects.some((p) => p.id === project)) setProject("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, project]);
+  // 選的專案在伺服器上找不到(換了組織、別人刪掉了):回到未分專案
+  useEffect(() => {
+    if (err && project && (!data || data.project !== project) && err.includes("找不到專案")) setProject("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [err, project]);
+  // 從其他頁跳過來時(例如 DOC-3)選中那份文件;不在目前的專案就問伺服器它在哪個專案,切過去
   useEffect(() => {
     if (!focusId || !data) return;
-    const d = docs.find((x) => x.id.toLowerCase() === focusId.toLowerCase());
-    if (d) { setNode(d.tab ?? d.section); setSelectedDoc(d.id); if (d.tab) setExpanded((e) => new Set([...e, d.section])); }
+    const id = focusId;
     clearFocus();
+    if (docs.some((x) => x.id.toLowerCase() === id.toLowerCase())) { setPending(id); return; }
+    action<CabinetDoc | null>("cabinet_doc_get", { id }).then((d) => {
+      if (!d) return;
+      setProject(d.project ?? "");
+      setPending(d.id);
+    }, () => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId, data ? 1 : 0]);
+  useEffect(() => {
+    if (!pending || !data || data.project !== project) return;
+    const d = docs.find((x) => x.id.toLowerCase() === pending.toLowerCase());
+    if (!d) return;
+    setNode(d.tab ?? d.section); setSelectedDoc(d.id); if (d.tab) setExpanded((e) => new Set([...e, d.section]));
+    setPending(undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, data]);
+  const switchProject = (id: string) => { if (id !== project) { setProject(id); setSelectedDoc(undefined); setQuery(""); } };
 
+  // 依畫面上結構所屬的專案(shown)算權限:切換中新資料還沒回來時,結構還是上一個專案的
   const readers = (s: string, t?: string): [Agent, DocAccess][] =>
-    agents.flatMap((a) => { const acc = agentAccess(a, s, t); return acc ? [[a, acc] as [Agent, DocAccess]] : []; });
+    agents.flatMap((a) => { const acc = agentAccess(a, s, t, shown); return acc ? [[a, acc] as [Agent, DocAccess]] : []; });
   const q = query.trim().toLowerCase();
   const list = docs.filter((d) => (tab ? d.tab === node : d.section === section?.id) && (!q || d.title.toLowerCase().includes(q) || d.body.toLowerCase().includes(q)))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const sel = docs.find((d) => d.id === selectedDoc);
 
-  if (err) return <EmptyState title="讀不到文件櫃" icon="exclamationmark.triangle" message={err} />;
+  if (!data && err) return <EmptyState title="讀不到文件櫃" icon="exclamationmark.triangle" message={err} />;
   if (!data) return <div className="muted" style={{ padding: 20 }}>載入中…</div>;
+  // 讀不到選的專案(例如剛被刪除):留著專案切換,讓人選別的
+  const failed = err && data.project !== project;
 
   const nodeRow = (title: string, icon: string, count: number, rs: [Agent, DocAccess][], id: string, indent: number, toggle?: () => void, open?: boolean) => (
     <div key={id} className={"bx-list-row" + (node === id ? " on" : "")} style={{ border: 0, padding: "5px 10px", paddingLeft: 10 + indent, alignItems: "center", gap: 6, borderRadius: 6, margin: "0 6px" }}
@@ -66,6 +102,9 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
   return (
     <div className="split">
       <div className="split-list" style={{ width: 250, background: "var(--side)" }}>
+        <ProjectBar project={project} projects={projects} projectsError={data.projectsError} onChange={switchProject} />
+        {failed && <div style={{ padding: "8px 10px" }}><ErrorText>{err}</ErrorText></div>}
+        {data.error && shown === "" && <div className="caption" style={{ padding: "6px 10px", color: "var(--orange)" }}>{data.error}</div>}
         <div className="grow" style={{ overflowY: "auto", paddingTop: 6 }}>
           {layout.map((s) => {
             const open = expanded.has(s.id);
@@ -106,11 +145,12 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
         ))}
       </div>
       <div className="split-detail">
-        {sel ? <DocDetail key={sel.id} doc={sel} layout={layout} version={docs.map((d) => d.updatedAt).sort().at(-1) ?? ""} onDeleted={() => setSelectedDoc(undefined)} />
-          : <EmptyState title="選一份文件" icon="doc.text" message="文件櫃依區塊與頁籤分類(左下「編輯結構」可調整)。每個角色可以在「AI 自動化 › 虛擬角色 › 編輯」設定能讀寫哪些區塊。" />}
+        {sel ? <DocDetail key={sel.id} doc={sel} layout={layout} projects={projects} version={docs.map((d) => d.updatedAt).sort().at(-1) ?? ""} onDeleted={() => setSelectedDoc(undefined)}
+            onMoved={(target, id) => { setSelectedDoc(undefined); if (target !== project) switchProject(target); setPending(id); }} />
+          : <EmptyState title="選一份文件" icon="doc.text" message={`${projectLabel(shown, projects)}的文件櫃依區塊與頁籤分類(左下「編輯結構」可調整)。每個角色可以在「AI 自動化 › 虛擬角色 › 編輯」設定能讀寫哪些區塊。`} />}
       </div>
-      {creating && section && <NewDocSheet section={section} tab={tab} onClose={() => setCreating(false)} onCreated={setSelectedDoc} />}
-      {editingLayout && <CabinetLayoutEditor layout={layout} docs={docs} onClose={() => setEditingLayout(false)} />}
+      {creating && section && <NewDocSheet project={shown} projects={projects} section={section} tab={tab} onClose={() => setCreating(false)} onCreated={setSelectedDoc} />}
+      {editingLayout && <CabinetLayoutEditor project={shown} projectName={shown ? projectLabel(shown, projects) : undefined} layout={layout} docs={docs} onClose={() => setEditingLayout(false)} />}
     </div>
   );
 }
@@ -146,7 +186,7 @@ function frontMatter(body: string): { meta: [string, string][]; rest: string } {
   return { meta, rest: lines.slice(end + 1).join("\n") };
 }
 
-function DocDetail({ doc, layout, version, onDeleted }: { doc: CabinetDoc; layout: CabinetSection[]; version: string; onDeleted: () => void }) {
+function DocDetail({ doc, layout, projects, version, onDeleted, onMoved }: { doc: CabinetDoc; layout: CabinetSection[]; projects: Project[]; version: string; onDeleted: () => void; onMoved: (project: string, id: string) => void }) {
   const [html, setHtml] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
@@ -159,6 +199,7 @@ function DocDetail({ doc, layout, version, onDeleted }: { doc: CabinetDoc; layou
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
+  const [moving, setMoving] = useState(false);
   const { busy, error, run } = useRun();
   const save = () => run(async () => { await tool("doc_save", { id: doc.id, title, body }); setEditing(false); });
   const del = () => run(async () => { await action("cabinet_doc_delete", { id: doc.id }); onDeleted(); });
@@ -175,11 +216,13 @@ function DocDetail({ doc, layout, version, onDeleted }: { doc: CabinetDoc; layou
         ) : (
           <>
             <button className="btn" onClick={() => { setTitle(doc.title); setBody(doc.body); setEditing(true); }}>編輯</button>
+            <button className="btn" title="搬到別的專案(或未分專案)" onClick={() => setMoving(true)}><Icon name="square.stack.3d.up" size={12} />搬到專案</button>
             <button className="btn danger" onClick={() => setConfirmDel(true)}>刪除</button>
           </>
         )}
       </div>
       <div className="row gap8 wrap">
+        {doc.project && <Pill text={projectLabel(doc.project, projects)} icon="square.stack.3d.up" color="blue" />}
         <Pill text={docLocation(doc, layout)} icon="folder" />
         {doc.tags.map((t) => <Pill key={t} text={t} icon="tag" />)}
         <AuthorIcon author={doc.author} size={16} />
@@ -202,23 +245,78 @@ function DocDetail({ doc, layout, version, onDeleted }: { doc: CabinetDoc; layou
           <button className="btn red" disabled={busy} onClick={del}>刪除</button>
         </div>
       </Modal>
+      {moving && <MoveDocSheet doc={doc} projects={projects} onClose={() => setMoving(false)} onMoved={onMoved} />}
     </div>
   );
 }
 
-function NewDocSheet({ section, tab, onClose, onCreated }: { section: CabinetSection; tab?: { path: string; label: string; code?: string | null }; onClose: () => void; onCreated: (id: string) => void }) {
+/** 把文件搬到別的專案(或未分專案):選目標專案,再選目標專案結構裡的區塊/頁籤(預設同名的位置) */
+function MoveDocSheet({ doc, projects, onClose, onMoved }: { doc: CabinetDoc; projects: Project[]; onClose: () => void; onMoved: (project: string, id: string) => void }) {
+  const from = doc.project ?? "";
+  const targets = [{ id: "", name: "未分專案" }, ...projects].filter((p) => p.id !== from);
+  const [target, setTarget] = useState(targets[0]?.id ?? "");
+  const [cab, cabErr] = useActionQuery<CabinetQuery>("cabinet_query", { project: target }, ["cabinet"]);
+  const tl = cab && cab.project === target && Array.isArray(cab.layout) ? cab.layout : undefined;
+  // 位置:區塊 id,或「區塊 id\t頁籤網址」
+  const [place, setPlace] = useState("");
+  useEffect(() => {
+    if (!tl) return;
+    const sameTab = doc.tab && tl.find((s) => s.id === doc.section && s.tabs.some((t) => t.path === doc.tab));
+    const sameSec = tl.find((s) => s.id === doc.section);
+    setPlace(sameTab ? `${doc.section}\t${doc.tab}` : sameSec ? sameSec.id : tl[0]?.id ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tl ? target : "", tl?.length]);
+  const { busy, error, run } = useRun();
+  const move = () => run(async () => {
+    const [section, tab] = place.split("\t");
+    await tool("doc_save", { id: doc.id, project: target, section, ...(tab ? { tab } : {}) });
+    onClose();
+    onMoved(target, doc.id);
+  });
+  return (
+    <Modal open onClose={onClose} width={480} title={`把「${doc.title}」搬到…`}>
+      {targets.length === 0 ? <span className="muted">組織還沒有其他專案;先在左上的專案選單新增專案。</span> : (
+        <>
+          <label className="col gap4"><span className="caption muted">專案</span>
+            <select className="select" value={target} onChange={(e) => { setTarget(e.target.value); setPlace(""); }}>
+              {targets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+          <label className="col gap4"><span className="caption muted">放在</span>
+            <select className="select" value={place} disabled={!tl || tl.length === 0} onChange={(e) => setPlace(e.target.value)}>
+              {!tl && <option value="">載入中…</option>}
+              {tl?.flatMap((s) => [
+                <option key={s.id} value={s.id}>{s.label}</option>,
+                ...s.tabs.map((t) => <option key={s.id + t.path} value={`${s.id}\t${t.path}`}>{"\u3000"}{s.label} › {tabTitle(t)}</option>),
+              ])}
+            </select>
+          </label>
+          {tl && tl.length === 0 && <span className="caption" style={{ color: "var(--orange)" }}>這個專案的文件櫃還沒有區塊;先切到那個專案「編輯結構」。</span>}
+          {cabErr && <ErrorText>{cabErr}</ErrorText>}
+        </>
+      )}
+      <ErrorText>{error}</ErrorText>
+      <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+        <button className="btn" onClick={onClose}>取消</button>
+        <button className="btn primary" disabled={busy || !targets.length || !place || !tl} onClick={move}>搬過去</button>
+      </div>
+    </Modal>
+  );
+}
+
+function NewDocSheet({ project, projects, section, tab, onClose, onCreated }: { project: string; projects: Project[]; section: CabinetSection; tab?: { path: string; label: string; code?: string | null }; onClose: () => void; onCreated: (id: string) => void }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const { busy, error, run } = useRun();
   const create = () => run(async () => {
-    const r = await tool<{ id?: string; doc?: { id?: string } }>("doc_save", { section: section.id, ...(tab ? { tab: tab.path } : {}), title: title.trim(), body });
+    const r = await tool<{ id?: string; doc?: { id?: string } }>("doc_save", { ...(project ? { project } : {}), section: section.id, ...(tab ? { tab: tab.path } : {}), title: title.trim(), body });
     const id = r?.id ?? r?.doc?.id;
     if (id) onCreated(id);
     onClose();
   });
   return (
     <Modal open onClose={onClose} width={600}>
-      <span className="modal-title">新增文件到「{section.label}{tab ? ` › ${tabTitle(tab)}` : ""}」</span>
+      <span className="modal-title">新增文件到「{project ? `${projectLabel(project, projects)} › ` : ""}{section.label}{tab ? ` › ${tabTitle(tab)}` : ""}」</span>
       <input className="input" autoFocus placeholder="標題" value={title} onChange={(e) => setTitle(e.target.value)} />
       <textarea className="textarea" style={{ minHeight: 260 }} value={body} onChange={(e) => setBody(e.target.value)} />
       <ErrorText>{error}</ErrorText>

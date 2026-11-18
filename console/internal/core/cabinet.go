@@ -254,7 +254,7 @@ func (o CabinetOps) CreateDoc(org string, in service.DocInput) (*CabinetDoc, err
 		return nil, err
 	}
 	o.done(org)
-	loc := model.Layout(o.a.cabinetOf(org).Layout).Location(d.Section, d.TabPath())
+	loc := o.docPlace(org, d)
 	o.a.Mu.Lock()
 	o.a.Log(AuthorActor(d.Author), "archivebox", "文件櫃新增 "+d.ID+"「"+d.Title+"」("+loc+")", "cabinet")
 	o.a.Mu.Unlock()
@@ -307,17 +307,107 @@ func (o CabinetOps) DeleteDoc(org, id string) error {
 	return err
 }
 
-// SaveLayout 存新結構(核心檢查:被拿掉的區塊、頁籤裡不能還有文件;遠端模式要組織管理員)
+// SaveLayout 存未分專案的新結構(核心檢查:被拿掉的區塊、頁籤裡不能還有文件;遠端模式要組織管理員)
 func (o CabinetOps) SaveLayout(org string, layout []CabinetSection) ([]CabinetSection, error) {
+	return o.SaveProjectLayout(org, "", layout)
+}
+
+// SaveProjectLayout 存某個專案的新結構(project 空 = 未分專案;不存在的專案 404)
+func (o CabinetOps) SaveProjectLayout(org, project string, layout []CabinetSection) ([]CabinetSection, error) {
 	b, err := agentBackend()
 	if err != nil {
 		return nil, err
 	}
-	l, err := b.SaveCabinetLayout(org, layout)
+	var l []CabinetSection
+	if project == "" {
+		l, err = b.SaveCabinetLayout(org, layout)
+	} else {
+		l, err = b.SaveProjectCabinetLayout(org, project, layout)
+	}
 	if err == nil {
 		o.done(org)
 	}
 	return l, err
+}
+
+// GetProjectCabinet 某個專案的結構與文件(project 空 = 未分專案;不存在的專案 404)。直接問核心,不走快取
+func (o CabinetOps) GetProjectCabinet(org, project string) (*model.Cabinet, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	if project == "" {
+		return b.GetCabinet(org)
+	}
+	return b.GetProjectCabinet(org, project)
+}
+
+// docPlace 文件在動態牆上的位置:「區塊 › 頁籤」,專案的文件前面加專案名稱
+func (o CabinetOps) docPlace(org string, d *CabinetDoc) string {
+	if d.Project == "" {
+		return model.Layout(o.a.cabinetOf(org).Layout).Location(d.Section, d.TabPath())
+	}
+	name := d.Project
+	if l, err := o.ListProjects(org); err == nil {
+		for _, x := range l {
+			if x.ID == d.Project {
+				name = x.Name
+			}
+		}
+	}
+	if c, err := o.GetProjectCabinet(org, d.Project); err == nil {
+		return name + " › " + model.Layout(c.Layout).Location(d.Section, d.TabPath())
+	}
+	return name + " › " + d.Section
+}
+
+// ---- 專案(組織底下的一層,目前只有文件櫃分專案;見 omixor-core/model/project.go) ----
+
+func (o CabinetOps) ListProjects(org string) ([]model.Project, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	return b.ListProjects(org)
+}
+
+// CreateProject 新增專案(核心:組織管理員;名稱必填、不重複)
+func (o CabinetOps) CreateProject(org string, in service.ProjectInput) (*model.Project, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	x, err := b.CreateProject(org, in)
+	if err != nil {
+		return nil, err
+	}
+	o.a.Changed("cabinet")
+	return x, nil
+}
+
+// UpdateProject 改專案名稱或說明
+func (o CabinetOps) UpdateProject(org, id string, p service.ProjectPatch) (*model.Project, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	x, err := b.UpdateProject(org, id, p)
+	if err == nil {
+		o.a.Changed("cabinet")
+	}
+	return x, err
+}
+
+// DeleteProject 刪除專案(裡面還有文件時核心回 409)
+func (o CabinetOps) DeleteProject(org, id string) error {
+	b, err := agentBackend()
+	if err != nil {
+		return err
+	}
+	if err = b.DeleteProject(org, id); err == nil {
+		o.a.Changed("cabinet")
+	}
+	return err
 }
 
 func (o CabinetOps) Import(org string, in service.CabinetImport) (*service.CabinetImportResult, error) {
@@ -463,6 +553,83 @@ func init() {
 		}
 		return v
 	})
+	// cabinet_query 畫面用:某個專案(project 空 = 未分專案)的結構與文件,加上組織的專案清單(給專案切換用)。
+	// 未分專案讀快取(同 cabinet view);專案直接問核心。舊的 server 沒有專案功能時 projects 是空的、projectsError 說明原因
+	RegisterAction("cabinet_query", func(a *App, args map[string]any) (any, error) {
+		org := a.currentOrgNow()
+		project := model.NormalizeProjectID(agentArg(args, "project"))
+		ops := a.CabinetOps()
+		var cab model.Cabinet
+		if project == "" {
+			cab = a.cabinetOf(org)
+		} else {
+			c, err := ops.GetProjectCabinet(org, project)
+			if err != nil {
+				return nil, agentUserErr(err)
+			}
+			cab = *c
+		}
+		if cab.Layout == nil {
+			cab.Layout = []CabinetSection{}
+		}
+		if cab.Docs == nil {
+			cab.Docs = []CabinetDoc{}
+		}
+		out := map[string]any{"project": project, "layout": cab.Layout, "docs": cab.Docs, "layoutSaved": cab.LayoutSaved}
+		projects, err := ops.ListProjects(org)
+		if projects == nil {
+			projects = []model.Project{}
+		}
+		out["projects"] = projects
+		if err != nil {
+			out["projectsError"] = err.Error()
+		}
+		if e := a.CabinetError(); e != "" && project == "" {
+			out["error"] = e
+		}
+		return out, nil
+	})
+	RegisterAction("project_create", func(a *App, args map[string]any) (any, error) {
+		name := strings.TrimSpace(agentArg(args, "name"))
+		x, err := a.CabinetOps().CreateProject(a.currentOrgNow(), service.ProjectInput{Name: name, Description: strings.TrimSpace(agentArg(args, "description"))})
+		if err != nil {
+			return nil, agentUserErr(err)
+		}
+		return x, nil
+	})
+	RegisterAction("project_update", func(a *App, args map[string]any) (any, error) {
+		p := service.ProjectPatch{}
+		if v, ok := args["name"].(string); ok {
+			v = strings.TrimSpace(v)
+			p.Name = &v
+		}
+		if v, ok := args["description"].(string); ok {
+			v = strings.TrimSpace(v)
+			p.Description = &v
+		}
+		if p.Name == nil && p.Description == nil {
+			return nil, UserError{"要給 name 或 description"}
+		}
+		x, err := a.CabinetOps().UpdateProject(a.currentOrgNow(), agentArg(args, "id"), p)
+		if err != nil {
+			return nil, agentUserErr(err)
+		}
+		return x, nil
+	})
+	RegisterAction("project_delete", func(a *App, args map[string]any) (any, error) {
+		return nil, agentUserErr(a.CabinetOps().DeleteProject(a.currentOrgNow(), agentArg(args, "id")))
+	})
+	// cabinet_doc_get 依 id 找文件(任何專案;畫面從別頁跳過來時用來切到文件所在的專案)。找不到回 null
+	RegisterAction("cabinet_doc_get", func(a *App, args map[string]any) (any, error) {
+		d, err := a.CabinetOps().GetDoc(a.currentOrgNow(), agentArg(args, "id"))
+		if cabCode(err) == 404 {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, agentUserErr(err)
+		}
+		return d, nil
+	})
 	RegisterAction("cabinet_layout_save", func(a *App, args map[string]any) (any, error) {
 		var layout []CabinetSection
 		if err := ReadInto(args["layout"], &layout); err != nil {
@@ -471,7 +638,8 @@ func init() {
 		if layout == nil {
 			return nil, UserError{"要給 layout"}
 		}
-		l, err := a.CabinetOps().SaveLayout(a.currentOrgNow(), layout)
+		project := model.NormalizeProjectID(agentArg(args, "project"))
+		l, err := a.CabinetOps().SaveProjectLayout(a.currentOrgNow(), project, layout)
 		if err != nil {
 			return nil, agentUserErr(err)
 		}

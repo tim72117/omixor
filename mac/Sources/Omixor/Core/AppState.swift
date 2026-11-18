@@ -229,6 +229,12 @@ final class AppState: ObservableObject {
     @Published var cabinetLayoutVersion = 0
     /// 遠端模式讀文件櫃的錯誤(nil = 正常)
     @Published var cabinetRemoteError: String?
+    /// 文件櫃目前看的專案 id(空 = 未分專案,即原本的組織文件櫃);cabinetDocs 與 CabinetLayout.sections 都是這個專案的
+    @Published var cabinetProject = ""
+    /// 看專案時,未分專案裡的範本文件(kind: template;範本通常放在未分專案,專案的文件也要套得到);看未分專案時是空的
+    @Published var cabinetBaseTemplates: [CabinetDoc] = []
+    /// 組織的專案(依建立順序;伺服器沒有專案端點時是空的)
+    @Published var cabinetProjects: [Project] = []
     func startCabinet() { Cabinet.load(self) }
 
     /// Issue(Issues/Issues.swift):真實資料,存在 core(目前連線的 core server;本機模式是本機守護服務)

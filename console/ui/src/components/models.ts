@@ -161,19 +161,33 @@ export type ChannelsView = {
   members: { email: string; name: string; role: string }[]; agents: Agent[]; error?: string;
 };
 
-/** 代理人可存取某位置的權限(nil = 不能) */
-export function agentAccess(a: Agent, section: string, tab?: string | null): DocAccess | undefined {
+/** docAccess 的 key(同 core 的 model.DocAccessKey):未分專案(空字串)不加前綴,專案是 "<專案 id>:<區塊 id 或頁籤網址>" */
+export const docAccessKey = (project: string | null | undefined, key: string) => (project ? `${project}:${key}` : key);
+
+/** 代理人可存取某專案(空字串或省略 = 未分專案)某位置的權限(undefined = 不能)。
+ *  同 core 的 Agent.AccessIn:頁籤的設定優先(有設定就以它為準,"none" = 不能),再看區塊;沒有前綴的 key 不適用於專案 */
+export function agentAccess(a: Agent, section: string, tab?: string | null, project?: string | null): DocAccess | undefined {
   const da = a.docAccess ?? {};
-  if (tab && da[tab]) return da[tab] === "none" ? undefined : da[tab];
-  const s = da[section];
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(da, k);
+  if (tab) {
+    const k = docAccessKey(project, tab);
+    if (has(k)) return !da[k] || da[k] === "none" ? undefined : da[k];
+  }
+  const k = docAccessKey(project, section);
+  const s = has(k) ? da[k] : undefined;
   return !s || s === "none" ? undefined : s;
 }
 
 // 文件櫃(Cabinet.swift)
 export type CabinetTab = { path: string; label: string; code?: string | null; group?: string | null };
 export type CabinetSection = { id: string; label: string; path?: string; tabs: CabinetTab[] };
-export type CabinetDoc = { id: string; title: string; body: string; section: string; tab?: string | null; tags: string[]; author: string; createdAt: string; updatedAt: string };
+/** project:所屬專案 id(省略 = 未分專案,就是原本的組織文件櫃) */
+export type CabinetDoc = { id: string; title: string; body: string; section: string; tab?: string | null; tags: string[]; author: string; createdAt: string; updatedAt: string; project?: string };
 export type CabinetView = { layout: CabinetSection[]; docs: CabinetDoc[] };
+/** 組織底下的專案(core 的 model.Project;PRJ-<n>);目前只有文件櫃分專案,權限沿用組織成員 */
+export type Project = { id: string; name: string; description: string; createdAt: string; updatedAt: string };
+/** cabinet_query 的回傳:某個專案(空字串 = 未分專案)的結構與文件,加上組織的專案清單 */
+export type CabinetQuery = CabinetView & { project: string; layoutSaved: boolean; projects: Project[]; projectsError?: string; error?: string };
 export const tabTitle = (t: CabinetTab) => (t.code ? `${t.code} ${t.label}` : t.label);
 
 // 連線(ConnectionModels.swift)

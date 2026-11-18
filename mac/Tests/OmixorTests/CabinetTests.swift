@@ -94,6 +94,36 @@ final class CabinetTests: XCTestCase {
         XCTAssertEqual(try! Cabinet.create(app3, title: "x", body: "", section: "todo", tab: nil, tags: [], by: "tim").id, "DOC-2")
     }
 
+    /// 專案(真的 core):新增專案、切過去讀到空白結構、在專案裡新增文件、搬回未分專案;非空的專案不能刪
+    func testProjectsAgainstCore() async throws {
+        let app = AppState()
+        app.startCabinet()
+        let baseDocs = app.cabinetDocs.count
+        let p = try Cabinet.createProject(app, name: "官網改版", description: "改版")
+        XCTAssertTrue(p.id.hasPrefix("PRJ-"), p.id)
+        XCTAssertEqual(app.cabinetProjects.map(\.id), [p.id])
+
+        await Cabinet.selectProject(app, p.id)
+        XCTAssertNil(app.cabinetRemoteError)
+        XCTAssertEqual(CabinetLayout.sections.map(\.id), ["overview", "docs"], "新專案是空白結構")
+        XCTAssertEqual(app.cabinetDocs, [])
+        let d = try Cabinet.create(app, title: "首頁規格", body: "x", section: "docs", tab: nil, tags: [], by: "tim")
+        XCTAssertEqual(d.project, p.id)
+
+        XCTAssertThrowsError(try Cabinet.deleteProject(app, p.id), "專案裡還有文件")
+        XCTAssertEqual(app.cabinetProjects.map(\.id), [p.id])
+
+        try Cabinet.move(app, d.id, toProject: "", section: "overview", tab: nil)
+        XCTAssertEqual(app.cabinetDocs, [], "搬走了")
+        try Cabinet.updateProject(app, p.id, name: "官網")
+        XCTAssertEqual(app.cabinetProjects.first?.name, "官網")
+        try Cabinet.deleteProject(app, p.id)
+        XCTAssertEqual(app.cabinetProject, "")
+        XCTAssertEqual(app.cabinetProjects, [])
+        XCTAssertEqual(app.cabinetDocs.count, baseDocs + 1)
+        XCTAssertNil(Cabinet.doc(app, d.id)?.project, "回到未分專案")
+    }
+
     /// 第一次匯入本機資料:讀不出來的 cabinet.json 不匯入,原檔不動
     func testUnreadableCabinetIsKeptNotOverwritten() throws {
         let f = OrgFiles.dir(OrgFiles.defaultId).appendingPathComponent("cabinet.json")

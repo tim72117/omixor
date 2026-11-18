@@ -10,7 +10,10 @@ import (
 	"omixor-core/service"
 )
 
-// 文件櫃工具:cabinet、docs、doc_save(名稱、參數、輸出與錯誤訊息同 Swift 版 MCPHandler 與 omixor-web 原本的實作)。
+// 文件櫃工具:cabinet、docs、doc_save、cabinet_layout_save(名稱、參數、輸出與錯誤訊息同 Swift 版 MCPHandler 與 omixor-web 原本的實作),
+// 與專案工具 projects、project_save。
+// 專案:文件櫃工具都有選填的 project(專案 id);省略 = 未分專案(原本的組織文件櫃,行為和以前一樣)。
+// 未分專案一律走 Backend 原本的 GetCabinet / SaveCabinetLayout(只實作舊介面的 Backend 不受影響)。
 // 雲端(server)與 omixor-web 的管理端點、角色端點共用這一份實作;資料操作都透過 Backend(Local / Remote)。
 //
 // 權限:
@@ -18,22 +21,59 @@ import (
 //     呼叫端帶的 agent 會被端點強制成憑證的角色,這裡的檢查只是給出看得懂的錯誤訊息
 //   - 管理端點:呼叫者本人的權限;有給 agent 時依該角色的 docAccess 過濾與檢查,署名是該角色
 
-// cabinetOf 這個連線的文件櫃(結構與呼叫者看得到的文件);Backend 不支援時回錯誤
-func cabinetOf(e Env) (*model.Cabinet, error) {
-	c, err := e.Backend().GetCabinet(e.Org())
+// cabProject 工具的 project 參數(專案 id;空 = 未分專案)
+func cabProject(c *Call) string { return model.NormalizeProjectID(c.Args.Str("project")) }
+
+// getCabinet 專案(空 = 未分專案)的文件櫃;未分專案走 Backend 的 GetCabinet
+func getCabinet(e Env, project string) (*model.Cabinet, error) {
+	if project == "" {
+		return e.Backend().GetCabinet(e.Org())
+	}
+	return e.Backend().GetProjectCabinet(e.Org(), project)
+}
+
+// cabinetOf 這個連線某個專案(空 = 未分專案)的文件櫃(結構與呼叫者看得到的文件);Backend 不支援或專案不存在時回錯誤
+func cabinetOf(e Env, project string) (*model.Cabinet, error) {
+	c, err := getCabinet(e, project)
 	if err != nil {
 		return nil, terr(err)
 	}
 	return c, nil
 }
 
-// cabLayout 結構;取不到(例如 Backend 不支援文件櫃)回 nil
-func cabLayout(e Env) model.Layout {
-	c, err := e.Backend().GetCabinet(e.Org())
+// cabLayout 未分專案的結構;取不到(例如 Backend 不支援文件櫃)回 nil
+func cabLayout(e Env) model.Layout { return cabLayoutOf(e, "") }
+
+// cabLayoutOf 專案(空 = 未分專案)的結構;取不到回 nil
+func cabLayoutOf(e Env, project string) model.Layout {
+	c, err := getCabinet(e, project)
 	if err != nil {
 		return nil
 	}
 	return c.Layout
+}
+
+// projectName 專案的顯示名稱(取不到回 id)
+func projectName(e Env, id string) string {
+	if id == "" {
+		return ""
+	}
+	if l, err := e.Backend().ListProjects(e.Org()); err == nil {
+		for _, x := range l {
+			if x.ID == id {
+				return x.Name
+			}
+		}
+	}
+	return id
+}
+
+// placeOf 錯誤訊息用的位置:專案的前面加「專案名稱 › 」
+func placeOf(e Env, project string, l model.Layout, section, tab string) string {
+	if project == "" {
+		return l.Location(section, tab)
+	}
+	return projectName(e, project) + " › " + l.Location(section, tab)
 }
 
 // cabAgent 有給 agent 參數時找角色(找不到回錯誤);沒給回 nil
@@ -49,20 +89,44 @@ func cabAgent(e Env, c *Call) (*model.Agent, error) {
 	return g, nil
 }
 
-// DocScope 角色的存取範圍,給人看得懂的樣子(依 key 排序;對不到區塊或頁籤的略過)
-func DocScope(l model.Layout, g model.Agent) []any {
+// DocScope 角色在「未分專案」的存取範圍,給人看得懂的樣子(依 key 排序;對不到區塊或頁籤的略過)
+func DocScope(l model.Layout, g model.Agent) []any { return docScopeIn(l, g, "") }
+
+// docScopeIn 角色在某個專案(空 = 未分專案)的存取範圍;l 是那個專案的結構。專案的項目多帶 project
+func docScopeIn(l model.Layout, g model.Agent, project string) []any {
 	keys := make([]string, 0, len(g.DocAccess))
 	for k := range g.DocAccess {
-		keys = append(keys, k)
+		if p, _ := model.SplitDocAccessKey(k); p == project {
+			keys = append(keys, k)
+		}
 	}
 	sort.Strings(keys)
 	out := []any{}
 	for _, k := range keys {
 		v := g.DocAccess[k]
-		if sec := l.Section(k); sec != nil {
-			out = append(out, map[string]any{"section": sec.ID, "label": sec.Label, "access": v})
-		} else if t := l.TabByPath(k); t != nil {
-			out = append(out, map[string]any{"tab": t.Path, "label": t.Title(), "access": v})
+		_, key := model.SplitDocAccessKey(k)
+		var o map[string]any
+		if sec := l.Section(key); sec != nil {
+			o = map[string]any{"section": sec.ID, "label": sec.Label, "access": v}
+		} else if t := l.TabByPath(key); t != nil {
+			o = map[string]any{"tab": t.Path, "label": t.Title(), "access": v}
+		} else {
+			continue
+		}
+		if project != "" {
+			o["project"] = project
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+// docScopeAll 角色在未分專案(l 是它的結構)與 docAccess 提到的各專案的存取範圍
+func docScopeAll(e Env, l model.Layout, g model.Agent) []any {
+	out := DocScope(l, g)
+	for _, pid := range g.DocProjects() {
+		if pl := cabLayoutOf(e, pid); pl != nil {
+			out = append(out, docScopeIn(pl, g, pid)...)
 		}
 	}
 	return out
@@ -71,6 +135,9 @@ func DocScope(l model.Layout, g model.Agent) []any {
 func docJSON(e Env, l model.Layout, d model.CabinetDoc, full bool) map[string]any {
 	o := map[string]any{"id": d.ID, "title": d.Title, "section": d.Section, "location": l.Location(d.Section, d.TabPath()),
 		"tags": d.Tags, "author": e.AuthorName(d.Author), "updatedAt": iso(d.UpdatedAt.Time)}
+	if d.Project != "" {
+		o["project"] = d.Project
+	}
 	if d.Tab != nil {
 		o["tab"] = *d.Tab
 	}
@@ -121,7 +188,7 @@ func cabinetSections(cab *model.Cabinet, g *model.Agent) []any {
 		for _, t := range s.Tabs {
 			acc := "write"
 			if g != nil {
-				acc = g.Access(s.ID, t.Path)
+				acc = g.AccessIn(cab.Project, s.ID, t.Path)
 				if acc == "" {
 					continue
 				}
@@ -131,7 +198,7 @@ func cabinetSections(cab *model.Cabinet, g *model.Agent) []any {
 		}
 		secAcc := "write"
 		if g != nil {
-			secAcc = g.Access(s.ID, "")
+			secAcc = g.AccessIn(cab.Project, s.ID, "")
 			if secAcc == "" && len(tabs) == 0 {
 				continue
 			}
@@ -146,49 +213,125 @@ func cabinetSections(cab *model.Cabinet, g *model.Agent) []any {
 }
 
 // cabinetContext 附加到 agent_context 的欄位:角色能存取的文件櫃區塊,與能讀的文件(依角色的 docAccess)。
+// 未分專案之外,docAccess 提到的專案也列(cabinet 多一個 projects:各專案的 id、名稱與區塊)。
 // 取不到文件櫃(Backend 不支援)回 nil
 func cabinetContext(e Env, g model.Agent, includeBodies bool) map[string]any {
-	cab, err := e.Backend().GetCabinet(e.Org())
+	cab, err := getCabinet(e, "")
 	if err != nil {
 		return nil
+	}
+	cabs := []*model.Cabinet{cab}
+	projects := []any{}
+	for _, pid := range g.DocProjects() {
+		pc, err := getCabinet(e, pid)
+		if err != nil {
+			continue // 專案不在了或 Backend 不支援專案
+		}
+		cabs = append(cabs, pc)
+		projects = append(projects, map[string]any{"project": pid, "name": projectName(e, pid), "sections": cabinetSections(pc, &g)})
 	}
 	const bodyLimit = 20
 	docs := []any{}
 	docN := 0
-	for _, d := range cab.Docs {
-		if !g.CanRead(d.Section, d.TabPath()) {
-			continue
+	for _, c := range cabs {
+		for _, d := range c.Docs {
+			if !g.CanReadDoc(d) {
+				continue
+			}
+			docN++
+			if len(docs) >= 50 {
+				continue
+			}
+			o := docJSON(e, c.Layout, d, includeBodies && len(docs) < bodyLimit)
+			o["access"] = "read"
+			if g.CanWriteDoc(d) {
+				o["access"] = "write"
+			}
+			docs = append(docs, o)
 		}
-		docN++
-		if len(docs) >= 50 {
-			continue
-		}
-		o := docJSON(e, cab.Layout, d, includeBodies && len(docs) < bodyLimit)
-		o["access"] = "read"
-		if g.CanWrite(d.Section, d.TabPath()) {
-			o["access"] = "write"
-		}
-		docs = append(docs, o)
 	}
-	return map[string]any{
+	out := map[string]any{
 		"cabinet": cabinetSections(cab, &g),
 		"docs":    map[string]any{"total": docN, "docs": docs},
 	}
+	if len(projects) > 0 {
+		out["projects"] = projects
+	}
+	return out
 }
 
-// RegisterCabinetTools 登記文件櫃工具:cabinet、docs、doc_save。執行環境(Call.Ctx)要實作 AgentEnv。
+// projectJSON 專案的輸出
+func projectJSON(x model.Project) map[string]any {
+	return map[string]any{"id": x.ID, "name": x.Name, "description": x.Description,
+		"createdAt": iso(x.CreatedAt.Time), "updatedAt": iso(x.UpdatedAt.Time)}
+}
+
+// withProject 文件櫃工具輸出加上專案(未分專案不加)
+func withProject(e Env, out map[string]any, project string) map[string]any {
+	if project != "" {
+		out["project"] = map[string]any{"id": project, "name": projectName(e, project)}
+	}
+	return out
+}
+
+// RegisterCabinetTools 登記文件櫃工具:cabinet、docs、doc_save、cabinet_layout_save,與專案工具 projects、project_save。
+// 執行環境(Call.Ctx)要實作 AgentEnv。
 func RegisterCabinetTools(s *Server) {
+	s.Register("projects", func(c *Call) (any, error) {
+		e := agentEnv(c)
+		list, err := e.Backend().ListProjects(e.Org())
+		if err != nil {
+			return nil, terr(err)
+		}
+		out := []any{}
+		for _, x := range list {
+			o := projectJSON(x)
+			if cab, err := getCabinet(e, x.ID); err == nil {
+				o["docs"] = len(cab.Docs)
+			}
+			out = append(out, o)
+		}
+		return map[string]any{"organization": e.OrgName(), "projects": out,
+			"note": "文件櫃工具(cabinet、docs、doc_save、cabinet_layout_save)帶 project(專案 id)操作那個專案;不帶是未分專案"}, nil
+	})
+
+	s.Register("project_save", func(c *Call) (any, error) {
+		e := agentEnv(c)
+		bk, org := e.Backend(), e.Org()
+		if id := c.Args.Opt("id"); id != nil && *id != "" {
+			p := service.ProjectPatch{Name: c.Args.Opt("name"), Description: c.Args.Opt("description")}
+			if p.Name == nil && p.Description == nil {
+				return nil, ToolError{Message: "要給 name 或 description"}
+			}
+			x, err := bk.UpdateProject(org, *id, p)
+			if err != nil {
+				return nil, terr(err)
+			}
+			return projectJSON(*x), nil
+		}
+		name, err := c.Args.Require("name")
+		if err != nil {
+			return nil, err
+		}
+		x, err := bk.CreateProject(org, service.ProjectInput{Name: name, Description: c.Args.Str("description")})
+		if err != nil {
+			return nil, terr(err)
+		}
+		return projectJSON(*x), nil
+	})
+
 	s.Register("cabinet", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		g, err := cabAgent(e, c)
 		if err != nil {
 			return nil, err
 		}
-		cab, err := cabinetOf(e)
+		project := cabProject(c)
+		cab, err := cabinetOf(e, project)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, g)}, nil
+		return withProject(e, map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, g)}, cab.Project), nil
 	})
 
 	s.Register("docs", func(c *Call) (any, error) {
@@ -197,15 +340,15 @@ func RegisterCabinetTools(s *Server) {
 		if err != nil {
 			return nil, err
 		}
-		visible := func(d model.CabinetDoc) bool { return g == nil || g.CanRead(d.Section, d.TabPath()) }
+		visible := func(d model.CabinetDoc) bool { return g == nil || g.CanReadDoc(d) }
 		if id := c.Args.Opt("id"); id != nil {
 			d, err := e.Backend().GetDoc(e.Org(), *id)
 			if err != nil {
 				return nil, terr(err)
 			}
-			l := cabLayout(e)
+			l := cabLayoutOf(e, d.Project)
 			if !visible(*d) {
-				return nil, Errorf("%s沒有權限讀「%s」的文件", g.Name, l.Location(d.Section, d.TabPath()))
+				return nil, Errorf("%s沒有權限讀「%s」的文件", g.Name, placeOf(e, d.Project, l, d.Section, d.TabPath()))
 			}
 			// 分段讀:大綱、一段、幾行、搜尋;只給 id 時回全文,太長的只回大綱與開頭
 			in := service.DocRead{Section: c.Args.Str("part"), Grep: c.Args.Str("grep")}
@@ -242,7 +385,7 @@ func RegisterCabinetTools(s *Server) {
 			}
 			return o, nil
 		}
-		cab, err := cabinetOf(e)
+		cab, err := cabinetOf(e, cabProject(c))
 		if err != nil {
 			return nil, err
 		}
@@ -286,7 +429,7 @@ func RegisterCabinetTools(s *Server) {
 			}
 			out = append(out, docJSON(e, l, d, false))
 		}
-		return map[string]any{"total": len(list), "docs": out}, nil
+		return withProject(e, map[string]any{"total": len(list), "docs": out}, cab.Project), nil
 	})
 
 	s.Register("doc_save", func(c *Call) (any, error) {
@@ -300,36 +443,55 @@ func RegisterCabinetTools(s *Server) {
 		if err != nil {
 			return nil, err
 		}
-		cab, err := cabinetOf(e)
-		if err != nil {
-			return nil, err
+		// layouts 各專案的結構(空 = 未分專案);取不到(專案不存在、Backend 不支援)回錯誤
+		layouts := map[string]model.Layout{}
+		layoutOf := func(project string) (model.Layout, error) {
+			if l, ok := layouts[project]; ok {
+				return l, nil
+			}
+			cab, err := cabinetOf(e, project)
+			if err != nil {
+				return nil, err
+			}
+			layouts[project] = cab.Layout
+			return cab.Layout, nil
 		}
-		l := model.Layout(cab.Layout)
-		checkWrite := func(s string, t *string) error {
-			if g == nil || g.CanWrite(s, deref(t)) {
+		checkWrite := func(project string, l model.Layout, s string, t *string) error {
+			if g == nil || g.CanWriteIn(project, s, deref(t)) {
 				return nil
 			}
 			labels := []string{}
-			for _, x := range DocScope(l, *g) {
+			for _, x := range docScopeAll(e, cabLayout(e), *g) {
 				m := x.(map[string]any)
 				if m["access"] == "write" {
-					labels = append(labels, m["label"].(string))
+					label := m["label"].(string)
+					if p, ok := m["project"].(string); ok {
+						label = projectName(e, p) + " › " + label
+					}
+					labels = append(labels, label)
 				}
 			}
-			return Errorf("%s沒有權限寫入「%s」;它可以寫的範圍:%s", g.Name, l.Location(s, deref(t)), strings.Join(labels, "、"))
+			return Errorf("%s沒有權限寫入「%s」;它可以寫的範圍:%s", g.Name, placeOf(e, project, l, s, deref(t)), strings.Join(labels, "、"))
 		}
 		if id := c.Args.Opt("id"); id != nil {
 			d, err := bk.GetDoc(org, *id)
 			if err != nil {
 				return nil, terr(err)
 			}
-			if err := checkWrite(d.Section, d.Tab); err != nil {
+			l, err := layoutOf(d.Project)
+			if err != nil {
+				return nil, err
+			}
+			if err := checkWrite(d.Project, l, d.Section, d.Tab); err != nil {
 				return nil, err
 			}
 			// 局部修改(edits、replace_part、append_to_part):只回改到的那幾行與新版本
 			if ed, ok, err := docEditArgs(c); err != nil {
 				return nil, err
 			} else if ok {
+				if c.Args.Opt("project") != nil && cabProject(c) != d.Project {
+					return nil, ToolError{Message: "局部修改(edits、replace_part、append_to_part)不能同時搬到別的專案;分兩次存"}
+				}
 				r, err := bk.EditDoc(org, d.ID, ed)
 				if err != nil {
 					return nil, terr(err)
@@ -338,15 +500,34 @@ func RegisterCabinetTools(s *Server) {
 					"text": r.Text, "rebased": r.Rebased, "unchanged": r.Unchanged}, nil
 			}
 			p := service.DocPatch{}
+			// 給 project 就是搬到那個專案(空字串 = 未分專案):區塊、頁籤依目標專案的結構解析;沒給時沿用原本的位置
+			target := d.Project
+			if c.Args.Opt("project") != nil {
+				target = cabProject(c)
+			}
+			tl := l
+			if target != d.Project {
+				if tl, err = layoutOf(target); err != nil {
+					return nil, err
+				}
+				p.Project = &target
+			}
 			if c.Args.Opt("section") != nil || c.Args.Opt("tab") != nil {
-				sec, t, msg := l.Resolve(c.Args.Opt("section"), c.Args.Opt("tab"))
+				sec, t, msg := tl.Resolve(c.Args.Opt("section"), c.Args.Opt("tab"))
 				if msg != "" {
 					return nil, ToolError{Message: msg}
 				}
-				if err := checkWrite(sec.ID, tabPath(t)); err != nil {
+				if err := checkWrite(target, tl, sec.ID, tabPath(t)); err != nil {
 					return nil, err
 				}
 				p.Section, p.Tab = &sec.ID, tabPath(t)
+			} else if p.Project != nil {
+				if !tl.Has(d.Section, d.TabPath()) {
+					return nil, Errorf("要搬到的專案沒有「%s」這個位置;請一起給 section(和 tab)指定目標專案裡的位置", l.Location(d.Section, d.TabPath()))
+				}
+				if err := checkWrite(target, tl, d.Section, d.Tab); err != nil {
+					return nil, err
+				}
 			}
 			title := c.Args.Opt("title")
 			if title != nil && *title == "" {
@@ -366,9 +547,14 @@ func RegisterCabinetTools(s *Server) {
 			if err != nil {
 				return nil, terr(err)
 			}
-			return docJSON(e, l, *updated, false), nil
+			return docJSON(e, tl, *updated, false), nil
 		}
 		title, err := c.Args.Require("title")
+		if err != nil {
+			return nil, err
+		}
+		project := cabProject(c)
+		l, err := layoutOf(project)
 		if err != nil {
 			return nil, err
 		}
@@ -376,12 +562,12 @@ func RegisterCabinetTools(s *Server) {
 		if msg != "" {
 			return nil, ToolError{Message: msg}
 		}
-		if err := checkWrite(sec.ID, tabPath(t)); err != nil {
+		if err := checkWrite(project, l, sec.ID, tabPath(t)); err != nil {
 			return nil, err
 		}
 		body, _ := c.Args.RawString("body")
 		tags, _ := c.Args.Strings("tags")
-		d, err := bk.CreateDoc(org, service.DocInput{Title: title, Body: body, Section: sec.ID, Tab: tabPath(t), Tags: tags, Author: author})
+		d, err := bk.CreateDoc(org, service.DocInput{Project: project, Title: title, Body: body, Section: sec.ID, Tab: tabPath(t), Tags: tags, Author: author})
 		if err != nil {
 			return nil, terr(err)
 		}
@@ -390,7 +576,8 @@ func RegisterCabinetTools(s *Server) {
 
 	s.Register("cabinet_layout_save", func(c *Call) (any, error) {
 		e := agentEnv(c)
-		cab, err := cabinetOf(e)
+		project := cabProject(c)
+		cab, err := cabinetOf(e, project)
 		if err != nil {
 			return nil, err
 		}
@@ -398,14 +585,19 @@ func RegisterCabinetTools(s *Server) {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := e.Backend().SaveCabinetLayout(e.Org(), layout); err != nil {
+		if project == "" {
+			_, err = e.Backend().SaveCabinetLayout(e.Org(), layout)
+		} else {
+			_, err = e.Backend().SaveProjectCabinetLayout(e.Org(), project, layout)
+		}
+		if err != nil {
 			return nil, terr(err)
 		}
-		cab, err = cabinetOf(e)
+		cab, err = cabinetOf(e, project)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, nil), "added": added}, nil
+		return withProject(e, map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, nil), "added": added}, cab.Project), nil
 	})
 }
 

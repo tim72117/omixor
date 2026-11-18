@@ -10,11 +10,12 @@ import (
 //
 //	OMIXOR_SITE_DIR   網站檔案所在的資料夾(Docker 映像裡是 /site,見 server/Dockerfile);沒設或資料夾不存在就不提供網站
 //
-// 只提供 sitePublicFiles 列出的檔案(白名單):site/ 裡的 zh.html(中文對照,內部用)、og.html(og.png 的來源頁)、
+// 只提供 sitePublicFiles 列出的檔案(白名單):site/ 裡的 zh.html、pricing.zh.html(中文對照,內部用)、og.html(og.png 的來源頁)、
 // README.md 不對外;映像也只複製這些檔案。新增對外檔案時,這裡、server/Dockerfile、site/README.md 要一起改。
 // 路由只有「/」與這些固定路徑,不會蓋到 /api/、/mcp/、/health。
 var sitePublicFiles = map[string]string{
 	"/":            "index.html",
+	"/pricing":     "pricing.html",
 	"/favicon.svg": "favicon.svg",
 	"/og.png":      "og.png",
 	"/robots.txt":  "robots.txt",
@@ -52,7 +53,7 @@ func mountSite(mux *http.ServeMux, dir string) bool {
 			}
 			h.Set("X-Content-Type-Options", "nosniff")
 			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-			if name == "index.html" {
+			if filepath.Ext(name) == ".html" { // 頁面(首頁、/pricing):不給嵌入、快取短一點
 				h.Set("X-Frame-Options", "DENY")
 				h.Set("Cache-Control", "public, max-age=300")
 			} else {

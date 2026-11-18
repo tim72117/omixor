@@ -39,7 +39,7 @@ func agentJSON(e AgentEnv, l model.Layout, g model.Agent, open []model.AgentTask
 	}
 	d["routines"] = routines
 	if l != nil {
-		d["docAccess"] = DocScope(l, g)
+		d["docAccess"] = docScopeAll(e, l, g)
 	}
 	if dec, ok := e.(AgentDecorator); ok {
 		dec.DecorateAgent(g, d)
@@ -390,7 +390,24 @@ func RegisterAgentTools(s *Server) {
 					return nil, ToolError{Message: "doc_access 的值必須是 read、write 或 none"}
 				}
 				key := k
-				if rs, ok := e.(DocAccessResolver); ok {
+				if pid, rest := model.SplitDocAccessKey(k); pid != "" {
+					// "<專案 id>:<區塊或頁籤>":依那個專案的結構換成存起來的 key。
+					// none 時專案已刪或位置找不到,就照正規化後的 key 拿掉(殘留的設定才移得掉)
+					pl := cabLayoutOf(e, pid)
+					if pl == nil {
+						if level != "none" {
+							return nil, Errorf("doc_access 的 %s:找不到專案 %s", k, pid)
+						}
+						key = model.NormalizeDocAccessKey(k)
+					} else if rk, msg := pl.ResolveAccessKey(rest); msg != "" {
+						if level != "none" {
+							return nil, Errorf("專案 %s:%s", pid, msg)
+						}
+						key = model.NormalizeDocAccessKey(k)
+					} else {
+						key = model.DocAccessKey(pid, rk)
+					}
+				} else if rs, ok := e.(DocAccessResolver); ok {
 					rk, err := rs.ResolveDocAccessKey(k)
 					if err != nil {
 						return nil, err

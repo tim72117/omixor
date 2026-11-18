@@ -166,6 +166,18 @@ func sampleCabinet() model.Cabinet {
 	}
 }
 
+func sampleProject() model.Project {
+	return model.Project{ID: "PRJ-2", Name: "官網改版", Description: "2027 年官網與文件站改版", CreatedAt: ct("2026-11-01T00:00:00Z"), UpdatedAt: ct("2026-11-05T08:00:00Z")}
+}
+
+// sampleProjectDoc 放在專案裡的文件(project 有值;未分專案的文件不帶 project,見 sampleDoc)
+func sampleProjectDoc() model.CabinetDoc {
+	return model.CabinetDoc{
+		ID: "DOC-9", Project: "PRJ-2", Title: "首頁規格", Body: "# 首頁\n\n- Hero\n- 案例", Section: "spec", Tab: sp("/spec/home"),
+		Tags: []string{"規格"}, Author: "agent:pm", CreatedAt: ct("2026-11-02T00:00:00Z"), UpdatedAt: ct("2026-11-03T00:00:00Z"),
+	}
+}
+
 // contractFixtures 檔名 → 內容(都是 API 回應 {"result": …} 裡的 result)
 func contractFixtures() map[string]any {
 	return map[string]any{
@@ -220,6 +232,24 @@ func contractFixtures() map[string]any {
 		"cabinet.json": sampleCabinet(),
 		// GET /api/orgs/{org}/docs/{id}、POST 新增/修改
 		"cabinet_doc.json": sampleDoc(),
+		// GET /api/orgs/{org}/projects/{id}、POST /api/orgs/{org}/projects、PUT /api/orgs/{org}/projects/{id}
+		"project.json": sampleProject(),
+		// GET /api/orgs/{org}/projects(依建立順序;description 沒填是空字串)
+		"project_list.json": []model.Project{
+			{ID: "PRJ-1", Name: "App", Description: "", CreatedAt: ct("2026-10-01T00:00:00Z"), UpdatedAt: ct("2026-10-01T00:00:00Z")},
+			sampleProject(),
+		},
+		// GET /api/orgs/{org}/docs/{id}、POST 新增/修改(放在專案裡的文件:多一個 project)
+		"cabinet_doc_project.json": sampleProjectDoc(),
+		// GET /api/orgs/{org}/cabinet?project=PRJ-2(多一個 project;未分專案的 cabinet.json 不帶)
+		"cabinet_project.json": model.Cabinet{
+			Project: "PRJ-2",
+			Layout: []model.CabinetSection{
+				{ID: "spec", Label: "規格", Path: "", Tabs: []model.CabinetTab{{Path: "/spec/home", Label: "首頁", Code: sp("P1")}}},
+			},
+			Docs:        []model.CabinetDoc{sampleProjectDoc()},
+			LayoutSaved: true,
+		},
 		// GET /api/orgs/{org}/chain、POST(整份取代)
 		"org_chain.json": model.OrgChain{
 			Edges: []model.ChainEdge{

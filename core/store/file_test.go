@@ -45,7 +45,7 @@ func TestFileStoreRoundTrip(t *testing.T) {
 	must(err)
 	must(f.SaveAgentCredential(model.AgentCredential{Org: "o", AgentID: "dev", TaskID: task.ID, Hash: []byte{7, 7}, IssuedAt: at,
 		ExpiresAt: model.Time{Time: now.Add(time.Hour).Truncate(time.Second)}}))
-	must(f.SaveCabinetLayout("o", []model.CabinetSection{{ID: "s", Tabs: []model.CabinetTab{}}}))
+	must(f.SaveCabinetLayout("o", "", []model.CabinetSection{{ID: "s", Tabs: []model.CabinetTab{}}}))
 	doc, err := f.CreateDoc("o", model.CabinetDoc{Title: "d", Section: "s", CreatedAt: at, UpdatedAt: at})
 	must(err)
 	must(f.SaveOrgChain("o", model.OrgChain{Edges: []model.ChainEdge{{From: "user:a@x", To: "agent:dev"}}}))
@@ -86,7 +86,7 @@ func TestFileStoreRoundTrip(t *testing.T) {
 	if c, err := g.AgentCredentialByHash([]byte{7, 7}); err != nil || c.TaskID != task.ID {
 		t.Fatal("憑證", c, err)
 	}
-	if l, err := g.GetCabinetLayout("o"); err != nil || len(l) != 1 {
+	if l, err := g.GetCabinetLayout("o", ""); err != nil || len(l) != 1 {
 		t.Fatal("文件櫃結構", l, err)
 	}
 	if d, err := g.GetDoc("o", doc.ID); err != nil || d.Title != "d" {
@@ -151,7 +151,8 @@ func TestFileStoreCorrupt(t *testing.T) {
 func TestFileStoreCoversMem(t *testing.T) {
 	handled := map[string]bool{"mu": true, "users": true, "tokens": true, "audit": true, "orgs": true, "members": true,
 		"issues": true, "attach": true, "agents": true, "tasks": true, "creds": true, "layouts": true, "docs": true,
-		"chains": true, "channels": true, "messages": true, "reads": true, "incidents": true, "integrations": true, "system": true, "mcp": true, "server": true}
+		"chains": true, "channels": true, "messages": true, "reads": true, "incidents": true, "integrations": true, "system": true, "mcp": true, "server": true,
+		"projects": true, "projLayouts": true, "projSeq": true}
 	tp := reflect.TypeOf(Mem{})
 	for i := 0; i < tp.NumField(); i++ {
 		if n := tp.Field(i).Name; !handled[n] {

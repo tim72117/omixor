@@ -84,13 +84,24 @@ type Backend interface {
 	SaveCabinetLayout(org string, layout []model.CabinetSection) ([]model.CabinetSection, error)
 	// ImportCabinet 第一次搬資料用(組織管理員)
 	ImportCabinet(org string, in service.CabinetImport) (*service.CabinetImportResult, error)
+	// GetProjectCabinet、SaveProjectCabinetLayout 指定專案(空 = 未分專案,同 GetCabinet、SaveCabinetLayout;不存在的專案 404)
+	GetProjectCabinet(org, project string) (*model.Cabinet, error)
+	SaveProjectCabinetLayout(org, project string, layout []model.CabinetSection) ([]model.CabinetSection, error)
 	GetDoc(org, id string) (*model.CabinetDoc, error) // 不分大小寫
+	// CreateDoc in.Project 是放進的專案(空 = 未分專案);UpdateDoc p.Project 有給就是搬到那個專案
 	CreateDoc(org string, in service.DocInput) (*model.CabinetDoc, error)
 	UpdateDoc(org, id string, p service.DocPatch) (*model.CabinetDoc, error)
 	// ReadDoc、EditDoc 分段讀與局部修改(見 core/model/docsections.go)
 	ReadDoc(org, id string, in service.DocRead) (*service.DocView, error)
 	EditDoc(org, id string, in service.DocEdit) (*service.DocEditResult, error)
 	DeleteDoc(org, id string) error
+
+	// 專案(組織底下的一層,目前只有文件櫃分專案;權限同 service/project.go:成員看、組織管理員新增修改刪除)。實作在 project.go
+	ListProjects(org string) ([]model.Project, error)
+	CreateProject(org string, in service.ProjectInput) (*model.Project, error)
+	UpdateProject(org, id string, p service.ProjectPatch) (*model.Project, error)
+	// DeleteProject 專案裡還有文件時回 409
+	DeleteProject(org, id string) error
 
 	// 訊息頻道(權限同 service/channel.go:成員建頻道、看自己是成員的頻道,組織管理員看全部;角色身分只能看與發自己是成員的頻道)。
 	// as 只有伺服器管理員給的算數(以角色或別人的身分)。實作在 channel.go

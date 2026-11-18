@@ -81,7 +81,7 @@ func TestAgentToolsFollowRoleSettings(t *testing.T) {
 		t.Fatal(tools)
 	}
 	un := tools["unavailable"].([]any)
-	if len(un) != 7 || un[0].(map[string]any)["name"] != "agent_task_delegate" || un[0].(map[string]any)["reason"] == "" {
+	if len(un) != 8 || un[0].(map[string]any)["name"] != "agent_task_delegate" || un[0].(map[string]any)["reason"] == "" {
 		t.Fatal(un)
 	}
 
@@ -96,7 +96,7 @@ func TestAgentToolsFollowRoleSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = listTools(t, role, auth)
-	for _, n := range []string{"cabinet", "docs", "agent_task_delegate", "channels", "channel_messages", "channel_post"} {
+	for _, n := range []string{"projects", "cabinet", "docs", "agent_task_delegate", "channels", "channel_messages", "channel_post"} {
 		if !slices.Contains(got, n) {
 			t.Fatal(n, got)
 		}

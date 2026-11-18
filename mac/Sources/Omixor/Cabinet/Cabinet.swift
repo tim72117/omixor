@@ -145,6 +145,7 @@ struct CabinetDoc: Hashable, Identifiable, Codable {
     var author: String            // person id、"mcp" 或 "agent:<角色 id>"
     var createdAt = Date.now
     var updatedAt = Date.now
+    var project: String?          // 所屬專案 id(PRJ-<n>);nil = 未分專案(原本的組織文件櫃,伺服器不帶這個欄位)
 
     var number: Int { Int(id.filter(\.isNumber)) ?? 0 }
     var location: String {
@@ -167,6 +168,28 @@ extension CabinetDoc {
         author = c.lossy(.author, default: "mcp")
         createdAt = c.lossy(.createdAt, default: .now)
         updatedAt = c.lossy(.updatedAt, default: createdAt)
+        project = c.lossyOptional(String.self, .project).flatMap { $0.isEmpty ? nil : $0 }
+    }
+}
+
+/// 組織底下的專案(core/model/project.go):目前只有文件櫃(結構與文件)分專案;權限沿用組織成員。id 是 PRJ-<n>
+struct Project: Hashable, Identifiable, Codable {
+    var id: String
+    var name: String
+    var description = ""
+    var createdAt = Date.now
+    var updatedAt = Date.now
+}
+
+extension Project {
+    // 寬鬆解碼(LossyDecoding.swift):id 必填(缺了列表會略過這一筆),name 缺時用 id
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = c.lossy(.name, default: id)
+        description = c.lossy(.description, default: "")
+        createdAt = c.lossy(.createdAt, default: .now)
+        updatedAt = c.lossy(.updatedAt, default: createdAt)
     }
 }
 
@@ -187,10 +210,14 @@ enum Cabinet {
         return c
     }
 
-    /// 從伺服器重讀結構與文件換進畫面;失敗記在 cabinetRemoteError(畫面照用上次的)
+    /// 從伺服器重讀專案、結構與文件換進畫面;失敗記在 cabinetRemoteError(畫面照用上次的)
     static func refresh(_ app: AppState) {
+        let org = app.currentOrgId
+        // 專案清單讀不到(舊版伺服器沒有這個端點)就當作沒有專案,不影響文件櫃
+        if let ps = try? remote.listProjects(org: org) { applyProjects(app, ps) }
         do {
-            apply(app, try remote.getCabinet(org: app.currentOrgId))
+            apply(app, try remote.getCabinet(org: org, project: app.cabinetProject))
+            if !app.cabinetProject.isEmpty, let base = try? remote.getCabinet(org: org, project: "") { applyBaseTemplates(app, base.docs) }
         } catch {
             if app.cabinetRemoteError != error.localizedDescription { app.cabinetRemoteError = error.localizedDescription }
         }
@@ -200,17 +227,58 @@ enum Cabinet {
 
     /// 同 refresh,但請求在背景跑,回主執行緒才更新畫面(定時重讀、切換組織用;不擋主執行緒)
     static func reload(_ app: AppState) async {
-        let org = app.currentOrgId, r = remote, before = app.cabinetDocs
+        let org = app.currentOrgId, project = app.cabinetProject, r = remote, before = app.cabinetDocs
         do {
-            let c = try await r.run { try $0.getCabinet(org: org) }
-            guard app.currentOrgId == org else { return }
+            let (ps, c, base) = try await r.run { r -> ([Project]?, RemoteCabinet, [CabinetDoc]?) in
+                let ps = try? r.listProjects(org: org)
+                // 看的專案被刪掉了(別人或角色刪的):改看未分專案
+                let p = ps.map { ps in ps.contains { $0.id == project } ? project : "" } ?? project
+                // 看專案時也讀未分專案的文件(只取範本;讀不到就沿用上次的)
+                let base = p.isEmpty ? nil : (try? r.getCabinet(org: org, project: ""))?.docs
+                return (ps, try r.getCabinet(org: org, project: p), base)
+            }
+            // 讀的期間換了組織或專案:這次讀到的不是畫面要的
+            guard app.currentOrgId == org, app.cabinetProject == project else { return }
+            if let ps { applyProjects(app, ps) }
+            if app.cabinetProject != project {   // 專案被刪掉,已經切回未分專案
+                apply(app, c)
+                return
+            }
+            if let base { applyBaseTemplates(app, base) }
             // 讀的期間畫面上的文件被寫入改過:這次讀到的可能比較舊,等下一輪
             guard app.cabinetDocs == before else { return }
             apply(app, c)
         } catch {
-            guard app.currentOrgId == org else { return }
+            guard app.currentOrgId == org, app.cabinetProject == project else { return }
             if app.cabinetRemoteError != error.localizedDescription { app.cabinetRemoteError = error.localizedDescription }
         }
+    }
+
+    /// 換上新的專案清單;看的專案已經不在清單裡就切回未分專案(清掉畫面上的結構與文件)
+    private static func applyProjects(_ app: AppState, _ ps: [Project]) {
+        if ps != app.cabinetProjects { app.cabinetProjects = ps }
+        if !app.cabinetProject.isEmpty, !ps.contains(where: { $0.id == app.cabinetProject }) { switchProject(app, "") }
+    }
+
+    /// 換看的專案:清掉畫面上的結構與文件(之後再讀)
+    private static func switchProject(_ app: AppState, _ id: String) {
+        app.cabinetProject = id
+        CabinetLayout.sections = CabinetLayout.blank
+        app.cabinetDocs = []
+        app.cabinetBaseTemplates = []
+        app.cabinetLayoutVersion += 1
+        if app.cabinetRemoteError != nil { app.cabinetRemoteError = nil }
+    }
+
+    /// 換上未分專案的範本文件(看專案時用;看未分專案時範本就在 cabinetDocs 裡,這裡保持空的)
+    static func applyBaseTemplates(_ app: AppState, _ docs: [CabinetDoc]) {
+        let ts = app.cabinetProject.isEmpty ? [] : docs.filter { DocTemplates.kind($0.body) == DocTemplates.templateKind }
+        if ts != app.cabinetBaseTemplates { app.cabinetBaseTemplates = ts }
+    }
+
+    /// 找範本用的文件:目前看的專案的文件,加上未分專案的範本(和 console 的 cabinet_doc_html 一樣);看未分專案時就是 cabinetDocs
+    static func templateDocs(_ app: AppState) -> [CabinetDoc] {
+        app.cabinetProject.isEmpty ? app.cabinetDocs : app.cabinetDocs + app.cabinetBaseTemplates
     }
 
     private static func apply(_ app: AppState, _ c: RemoteCabinet) {
@@ -259,6 +327,9 @@ enum Cabinet {
         app.cabinetLoaded = true
         CabinetLayout.sections = CabinetLayout.blank
         app.cabinetDocs = []
+        app.cabinetProject = ""     // 換組織:回到未分專案
+        app.cabinetBaseTemplates = []
+        app.cabinetProjects = []
         app.cabinetLayoutVersion += 1
         startPolling(app)
         return true
@@ -267,7 +338,7 @@ enum Cabinet {
     // MARK: 結構
 
     static func saveLayout(_ app: AppState, _ sections: [CabinetSection]) throws {
-        let saved = try remoteWrite(app) { try $0.saveCabinetLayout(org: app.currentOrgId, sections) }
+        let saved = try remoteWrite(app) { try $0.saveCabinetLayout(org: app.currentOrgId, project: app.cabinetProject, sections) }
         CabinetLayout.sections = saved
         app.cabinetLayoutVersion += 1
     }
@@ -295,7 +366,7 @@ enum Cabinet {
     static func create(_ app: AppState, title: String, body: String, section: String, tab: String?, tags: [String], by author: String) throws -> CabinetDoc {
         load(app)
         let d = try remoteWrite(app) {
-            try $0.createDoc(org: app.currentOrgId, title: title, body: body, section: section, tab: tab, tags: IssueStore.clean(tags), author: author)
+            try $0.createDoc(org: app.currentOrgId, project: app.cabinetProject, title: title, body: body, section: section, tab: tab, tags: IssueStore.clean(tags), author: author)
         }
         app.cabinetDocs.removeAll { $0.id == d.id }
         app.cabinetDocs.insert(d, at: 0)
@@ -312,8 +383,80 @@ enum Cabinet {
         d.tags = IssueStore.clean(d.tags)
         guard d != before else { return d }
         let saved = try remoteWrite(app) { try $0.updateDoc(org: app.currentOrgId, id: before.id, from: before, to: d) }
-        if let j = app.cabinetDocs.firstIndex(where: { $0.id == saved.id }) { app.cabinetDocs[j] = saved }
+        if (saved.project ?? "") != app.cabinetProject {
+            app.cabinetDocs.removeAll { $0.id == saved.id }   // 搬到別的專案:不在這個專案的畫面上了
+        } else if let j = app.cabinetDocs.firstIndex(where: { $0.id == saved.id }) {
+            app.cabinetDocs[j] = saved
+        }
         return saved
+    }
+
+    /// 把文件搬到另一個專案(空字串 = 未分專案)的某個位置;位置要在目標專案的結構裡(伺服器會檢查)
+    @discardableResult
+    static func move(_ app: AppState, _ id: String, toProject project: String, section: String, tab: String?) throws -> CabinetDoc? {
+        let saved = try update(app, id) {
+            $0.project = project.isEmpty ? nil : project
+            $0.section = section
+            $0.tab = tab
+        }
+        if let saved {
+            app.log(actor(app, app.me), "archivebox", "文件櫃 \(saved.id)「\(saved.title)」搬到\(projectName(app, project))", .cabinet)
+        }
+        return saved
+    }
+
+    // MARK: 專案
+
+    /// 專案的顯示名稱(空 = 未分專案;找不到就是 id)
+    static func projectName(_ app: AppState, _ id: String) -> String {
+        if id.isEmpty { return "未分專案" }
+        return app.cabinetProjects.first { $0.id == id }?.name ?? id
+    }
+
+    /// 切換看的專案(空字串 = 未分專案):清掉畫面再從伺服器讀那個專案的結構與文件
+    static func selectProject(_ app: AppState, _ id: String) async {
+        guard id != app.cabinetProject else { return }
+        switchProject(app, id)
+        await reload(app)
+    }
+
+    /// 另一個專案的結構(搬移文件時選位置用);目前看的專案直接用畫面上的
+    static func layout(_ app: AppState, project: String) async throws -> [CabinetSection] {
+        if project == app.cabinetProject { return CabinetLayout.sections }
+        let org = app.currentOrgId
+        let c = try await remote.run { try $0.getCabinet(org: org, project: project) }
+        return c.layout.isEmpty ? CabinetLayout.blank : c.layout
+    }
+
+    /// 新增專案(組織管理員)
+    @discardableResult
+    static func createProject(_ app: AppState, name: String, description: String = "") throws -> Project {
+        let p = try remoteWrite(app) {
+            try $0.createProject(org: app.currentOrgId, name: name.trimmingCharacters(in: .whitespaces), description: description)
+        }
+        app.cabinetProjects.removeAll { $0.id == p.id }
+        app.cabinetProjects.append(p)
+        return p
+    }
+
+    /// 改專案名稱或說明(組織管理員)
+    @discardableResult
+    static func updateProject(_ app: AppState, _ id: String, name: String? = nil, description: String? = nil) throws -> Project {
+        let p = try remoteWrite(app) {
+            try $0.updateProject(org: app.currentOrgId, id: id, name: name?.trimmingCharacters(in: .whitespaces), description: description)
+        }
+        if let i = app.cabinetProjects.firstIndex(where: { $0.id == p.id }) { app.cabinetProjects[i] = p }
+        return p
+    }
+
+    /// 刪除專案(組織管理員;專案裡還有文件時伺服器拒絕,錯誤訊息原樣丟出)。刪的是正在看的專案就切回未分專案
+    static func deleteProject(_ app: AppState, _ id: String) throws {
+        try remoteWrite(app) { try $0.deleteProject(org: app.currentOrgId, id: id) }
+        app.cabinetProjects.removeAll { $0.id == id }
+        if app.cabinetProject == id {
+            switchProject(app, "")
+            refresh(app)
+        }
     }
 
     static func delete(_ app: AppState, _ id: String) throws {

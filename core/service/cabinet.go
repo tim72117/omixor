@@ -11,16 +11,23 @@ import (
 
 // 文件櫃:Markdown 文件,依區塊與頁籤分類(結構與文件都依組織分)。
 //
+// 專案(見 project.go、model/project.go):結構每個專案一份(project 空字串 = 未分專案,就是原本的組織文件櫃);
+// 文件存在組織底下(DOC-<n> 組織內唯一),CabinetDoc.Project 是所屬專案。列文件只列指定專案的;
+// 修改文件給 Project 就是搬到別的專案(目標專案的結構要有對應的區塊與頁籤)。專案參數空白 = 未分專案,不存在的專案 404。
+//
 // 權限:
 //   - 組織成員:讀全部文件與結構、新增、修改、搬移、刪除文件;作者一律是自己(伺服器管理員可以指定署名)
 //   - 組織管理員:另外可以改結構(區塊與頁籤)、第一次搬資料的匯入
-//   - 角色身分(角色憑證):只看得到 docAccess 能讀的文件,只能在 docAccess 可寫的位置新增、修改、搬移;
+//   - 角色身分(角色憑證):只看得到 docAccess 能讀的文件,只能在 docAccess 可寫的位置新增、修改、搬移
+//     (沒有前綴的 key 只適用未分專案,專案用 "<專案 id>:<位置>",見 model.Agent.AccessIn);
 //     署名一律是角色;不能刪除文件、不能改結構
 //
 // 存檔前依範本檢查必填欄位(model.ValidateDocBody);改結構前檢查被拿掉的區塊、頁籤裡沒有文件(model.ValidateCabinetLayout)。
 
 // DocInput 新增文件。Section 是區塊 id、Tab 是頁籤網址(空 = 區塊本身);名稱、代號的解析在介面(core/mcp)
 type DocInput struct {
+	// Project 放進哪個專案(空 = 未分專案;不存在 404)
+	Project string   `json:"project,omitempty"`
 	Title   string   `json:"title"`
 	Body    string   `json:"body"`
 	Section string   `json:"section"`
@@ -30,8 +37,10 @@ type DocInput struct {
 	Author string `json:"author,omitempty"`
 }
 
-// DocPatch 修改文件:有給的欄位才改。給 Section 就是搬到 (Section, Tab)(Tab 沒給或空 = 區塊本身)
+// DocPatch 修改文件:有給的欄位才改。給 Section 就是搬到 (Section, Tab)(Tab 沒給或空 = 區塊本身)。
+// 給 Project 就是搬到那個專案(空字串 = 未分專案;不存在 404):沒給 Section 時沿用原本的區塊與頁籤,目標專案的結構要有
 type DocPatch struct {
+	Project    *string   `json:"project,omitempty"`
 	Title      *string   `json:"title,omitempty"`
 	Body       *string   `json:"body,omitempty"`
 	AppendBody *string   `json:"appendBody,omitempty"` // 接在內文後面(中間空一行)
@@ -40,7 +49,8 @@ type DocPatch struct {
 	Tags       *[]string `json:"tags,omitempty"`
 }
 
-// CabinetImport 第一次搬資料用(例如 omixor-web 本機舊的 cabinet-layout.json、cabinet.json)
+// CabinetImport 第一次搬資料用(例如 omixor-web 本機舊的 cabinet-layout.json、cabinet.json)。
+// 結構存成未分專案的;文件的 project 有給時專案要存在
 type CabinetImport struct {
 	Layout []model.CabinetSection `json:"layout,omitempty"` // 沒給不動結構;組織已經存過結構就略過
 	Docs   []model.CabinetDoc     `json:"docs,omitempty"`   // 新的在前;保留 id、作者與時間
@@ -69,9 +79,9 @@ func tabStr(t *string) string {
 	return *t
 }
 
-// layoutOf 組織的結構;沒存過是空白結構(saved = false)
-func (s *Service) layoutOf(org string) (model.Layout, bool, error) {
-	l, err := s.Store.GetCabinetLayout(org)
+// layoutOf 專案(空 = 未分專案)的結構;沒存過是空白結構(saved = false)
+func (s *Service) layoutOf(org, project string) (model.Layout, bool, error) {
+	l, err := s.Store.GetCabinetLayout(org, project)
 	if errors.Is(err, store.ErrNotFound) {
 		return model.BlankCabinetLayout(), false, nil
 	}
@@ -115,30 +125,46 @@ func (s *Service) findDoc(org, id string) (*model.CabinetDoc, error) {
 	return nil, fail(404, "找不到文件 %s", id)
 }
 
-// GetCabinet 結構與文件(新的在前);角色身分只看得到 docAccess 能讀的文件
-func (s *Service) GetCabinet(p *model.Principal, org string) (*model.Cabinet, error) {
+// docsIn 專案(空 = 未分專案)裡的文件(新的在前)
+func docsIn(docs []model.CabinetDoc, project string) []model.CabinetDoc {
+	out := []model.CabinetDoc{}
+	for _, d := range docs {
+		if d.Project == project {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// GetCabinet 專案(空 = 未分專案)的結構與文件(新的在前);角色身分只看得到 docAccess 能讀的文件。專案不存在 404
+func (s *Service) GetCabinet(p *model.Principal, org, project string) (*model.Cabinet, error) {
 	g, err := s.docViewer(p, org)
 	if err != nil {
 		return nil, err
 	}
-	l, saved, err := s.layoutOf(org)
+	project, err = s.projectID(org, project)
 	if err != nil {
 		return nil, err
 	}
-	docs, err := s.Store.ListDocs(org)
+	l, saved, err := s.layoutOf(org, project)
 	if err != nil {
 		return nil, err
 	}
+	all, err := s.Store.ListDocs(org)
+	if err != nil {
+		return nil, err
+	}
+	docs := docsIn(all, project)
 	if g != nil {
 		kept := []model.CabinetDoc{}
 		for _, d := range docs {
-			if g.CanRead(d.Section, d.TabPath()) {
+			if g.CanReadDoc(d) {
 				kept = append(kept, d)
 			}
 		}
 		docs = kept
 	}
-	return &model.Cabinet{Layout: l, Docs: docs, LayoutSaved: saved}, nil
+	return &model.Cabinet{Project: project, Layout: l, Docs: docs, LayoutSaved: saved}, nil
 }
 
 // GetDoc 依 id 取文件(不分大小寫)
@@ -151,23 +177,39 @@ func (s *Service) GetDoc(p *model.Principal, org, id string) (*model.CabinetDoc,
 	if err != nil {
 		return nil, err
 	}
-	if g != nil && !g.CanRead(d.Section, d.TabPath()) {
-		l, _, _ := s.layoutOf(org)
-		return nil, fail(403, "%s沒有權限讀「%s」的文件", g.Name, l.Location(d.Section, d.TabPath()))
+	if g != nil && !g.CanReadDoc(*d) {
+		l, _, _ := s.layoutOf(org, d.Project)
+		return nil, fail(403, "%s沒有權限讀「%s」的文件", g.Name, s.docPlace(org, d.Project, l, d.Section, d.TabPath()))
 	}
 	return d, nil
 }
 
-// checkPlace 位置要在結構裡;角色身分要能寫
-func checkPlace(l model.Layout, g *model.Agent, section string, tab *string) error {
+// docPlace 錯誤訊息用的位置:未分專案是「區塊 › 頁籤」,專案的前面加「專案名稱 › 」
+func (s *Service) docPlace(org, project string, l model.Layout, section, tab string) string {
+	loc := l.Location(section, tab)
+	if project == "" {
+		return loc
+	}
+	if x, err := s.Store.GetProject(org, project); err == nil {
+		return x.Name + " › " + loc
+	}
+	return project + " › " + loc
+}
+
+// checkPlace 位置要在專案(空 = 未分專案)的結構裡;角色身分要能寫
+func (s *Service) checkPlace(org, project string, l model.Layout, g *model.Agent, section string, tab *string) error {
+	where := "文件櫃"
+	if project != "" {
+		where = "專案 " + project + " 的文件櫃"
+	}
 	if !l.Has(section, tabStr(tab)) {
 		if l.Section(section) == nil || l.Section(section).ID != section {
-			return fail(400, "文件櫃沒有區塊 %s", section)
+			return fail(400, "%s沒有區塊 %s", where, section)
 		}
-		return fail(400, "區塊 %s 沒有頁籤 %s", section, tabStr(tab))
+		return fail(400, "%s的區塊 %s 沒有頁籤 %s", where, section, tabStr(tab))
 	}
-	if g != nil && !g.CanWrite(section, tabStr(tab)) {
-		return fail(403, "%s沒有權限寫入「%s」", g.Name, l.Location(section, tabStr(tab)))
+	if g != nil && !g.CanWriteIn(project, section, tabStr(tab)) {
+		return fail(403, "%s沒有權限寫入「%s」", g.Name, s.docPlace(org, project, l, section, tabStr(tab)))
 	}
 	return nil
 }
@@ -191,11 +233,15 @@ func (s *Service) CreateDoc(p *model.Principal, org string, in DocInput) (*model
 	in.Section, in.Tab = strings.TrimSpace(in.Section), emptyTab(in.Tab)
 	s.cabinetMu.Lock()
 	defer s.cabinetMu.Unlock()
-	l, _, err := s.layoutOf(org)
+	project, err := s.projectID(org, in.Project)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkPlace(l, g, in.Section, in.Tab); err != nil {
+	l, _, err := s.layoutOf(org, project)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkPlace(org, project, l, g, in.Section, in.Tab); err != nil {
 		return nil, err
 	}
 	docs, err := s.Store.ListDocs(org)
@@ -206,13 +252,17 @@ func (s *Service) CreateDoc(p *model.Principal, org string, in DocInput) (*model
 		return nil, fail(400, "%s", e)
 	}
 	now := s.mt()
-	d := model.CabinetDoc{Title: in.Title, Body: in.Body, Section: in.Section, Tab: in.Tab, Tags: model.CleanLabels(in.Tags),
+	d := model.CabinetDoc{Project: project, Title: in.Title, Body: in.Body, Section: in.Section, Tab: in.Tab, Tags: model.CleanLabels(in.Tags),
 		Author: docAuthor(p, in.Author), CreatedAt: now, UpdatedAt: now}
 	saved, err := s.Store.CreateDoc(org, d)
 	if err != nil {
 		return nil, err
 	}
-	s.Audit(p, "doc.create", org, map[string]any{"id": saved.ID})
+	detail := map[string]any{"id": saved.ID}
+	if project != "" {
+		detail["project"] = project
+	}
+	s.Audit(p, "doc.create", org, detail)
 	return &saved, nil
 }
 
@@ -236,22 +286,41 @@ func (s *Service) UpdateDoc(p *model.Principal, org, id string, in DocPatch) (*m
 
 // updateDocLocked UpdateDoc 的本體(呼叫時要拿著 cabinetMu;g 是角色身分的角色,人是 nil)
 func (s *Service) updateDocLocked(p *model.Principal, g *model.Agent, org, id string, cur *model.CabinetDoc, in DocPatch) (*model.CabinetDoc, error) {
-	l, _, err := s.layoutOf(org)
+	l, _, err := s.layoutOf(org, cur.Project)
 	if err != nil {
 		return nil, err
 	}
 	if g != nil {
-		if !g.CanRead(cur.Section, cur.TabPath()) {
+		if !g.CanReadDoc(*cur) {
 			return nil, fail(404, "找不到文件 %s", id)
 		}
-		if !g.CanWrite(cur.Section, cur.TabPath()) {
-			return nil, fail(403, "%s沒有權限寫入「%s」", g.Name, l.Location(cur.Section, cur.TabPath()))
+		if !g.CanWriteDoc(*cur) {
+			return nil, fail(403, "%s沒有權限寫入「%s」", g.Name, s.docPlace(org, cur.Project, l, cur.Section, cur.TabPath()))
 		}
 	}
 	d := cur.Clone()
+	// 搬到別的專案:目標專案要存在,結構要有對應的區塊與頁籤(沒給 Section 時沿用原本的位置)
+	if in.Project != nil {
+		target, err := s.projectID(org, *in.Project)
+		if err != nil {
+			return nil, err
+		}
+		if target != cur.Project {
+			tl, _, err := s.layoutOf(org, target)
+			if err != nil {
+				return nil, err
+			}
+			l, d.Project = tl, target
+			if in.Section == nil {
+				if err := s.checkPlace(org, target, l, g, d.Section, d.Tab); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	if in.Section != nil {
 		sec, tab := strings.TrimSpace(*in.Section), emptyTab(in.Tab)
-		if err := checkPlace(l, g, sec, tab); err != nil {
+		if err := s.checkPlace(org, d.Project, l, g, sec, tab); err != nil {
 			return nil, err
 		}
 		d.Section, d.Tab = sec, tab
@@ -286,12 +355,16 @@ func (s *Service) updateDocLocked(p *model.Principal, g *model.Agent, org, id st
 	if err := s.Store.UpdateDoc(org, d); err != nil {
 		return nil, err
 	}
-	s.Audit(p, "doc.update", org, map[string]any{"id": d.ID})
+	detail := map[string]any{"id": d.ID}
+	if d.Project != cur.Project {
+		detail["project"], detail["fromProject"] = d.Project, cur.Project
+	}
+	s.Audit(p, "doc.update", org, detail)
 	return &d, nil
 }
 
 func sameDoc(a, b model.CabinetDoc) bool {
-	if a.Title != b.Title || a.Body != b.Body || a.Section != b.Section || a.TabPath() != b.TabPath() || len(a.Tags) != len(b.Tags) {
+	if a.Project != b.Project || a.Title != b.Title || a.Body != b.Body || a.Section != b.Section || a.TabPath() != b.TabPath() || len(a.Tags) != len(b.Tags) {
 		return false
 	}
 	for i := range a.Tags {
@@ -325,8 +398,8 @@ func (s *Service) DeleteDoc(p *model.Principal, org, id string) error {
 	return nil
 }
 
-// SaveCabinetLayout 改結構(組織管理員):先檢查(被拿掉的區塊、頁籤裡不能還有文件)
-func (s *Service) SaveCabinetLayout(p *model.Principal, org string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
+// SaveCabinetLayout 改專案(空 = 未分專案)的結構(組織管理員):先檢查(被拿掉的區塊、頁籤裡不能還有這個專案的文件)。專案不存在 404
+func (s *Service) SaveCabinetLayout(p *model.Principal, org, project string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
 	if err := s.needOrgAdmin(p, org); err != nil {
 		return nil, err
 	}
@@ -340,17 +413,25 @@ func (s *Service) SaveCabinetLayout(p *model.Principal, org string, layout []mod
 	}
 	s.cabinetMu.Lock()
 	defer s.cabinetMu.Unlock()
+	project, err := s.projectID(org, project)
+	if err != nil {
+		return nil, err
+	}
 	docs, err := s.Store.ListDocs(org)
 	if err != nil {
 		return nil, err
 	}
-	if e := model.ValidateCabinetLayout(layout, docs); e != "" {
+	if e := model.ValidateCabinetLayout(layout, docsIn(docs, project)); e != "" {
 		return nil, fail(400, "%s", e)
 	}
-	if err := s.Store.SaveCabinetLayout(org, layout); err != nil {
+	if err := s.Store.SaveCabinetLayout(org, project, layout); err != nil {
 		return nil, err
 	}
-	s.Audit(p, "cabinet.layout", org, map[string]any{"sections": len(layout)})
+	detail := map[string]any{"sections": len(layout)}
+	if project != "" {
+		detail["project"] = project
+	}
+	s.Audit(p, "cabinet.layout", org, detail)
 	return layout, nil
 }
 
@@ -374,6 +455,13 @@ func (s *Service) ImportCabinet(p *model.Principal, org string, in CabinetImport
 		}
 		seen[strings.ToUpper(d.ID)] = true
 		d.Tab = emptyTab(d.Tab)
+		if d.Project != "" {
+			pid, err := s.projectID(org, d.Project)
+			if err != nil {
+				return nil, err
+			}
+			d.Project = pid
+		}
 		if d.Tags == nil {
 			d.Tags = []string{}
 		}
@@ -416,12 +504,12 @@ func (s *Service) ImportCabinet(p *model.Principal, org string, in CabinetImport
 		res.Docs = n
 	}
 	if in.Layout != nil {
-		if _, saved, err := s.layoutOf(org); err != nil {
+		if _, saved, err := s.layoutOf(org, ""); err != nil {
 			return nil, err
 		} else if saved {
 			res.LayoutSkipped = true
 		} else {
-			if err := s.Store.SaveCabinetLayout(org, in.Layout); err != nil {
+			if err := s.Store.SaveCabinetLayout(org, "", in.Layout); err != nil {
 				return nil, err
 			}
 			res.LayoutSaved = true

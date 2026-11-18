@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -48,7 +49,7 @@ type AgentRoutine struct {
 	Weekday      int    `json:"weekday"`
 }
 
-// Agent 虛擬角色。DocAccess 的 key 是文件櫃的區塊 id 或頁籤網址(見 cabinet.go;權限由 service 依它強制)
+// Agent 虛擬角色。DocAccess 的 key 是文件櫃的區塊 id 或頁籤網址(未分專案),或 "<專案 id>:<區塊 id 或頁籤網址>"(見 project.go、cabinet.go;權限由 service 依它強制)
 type Agent struct {
 	Active       bool              `json:"active"`
 	Color        string            `json:"color"`
@@ -103,17 +104,21 @@ func (r AgentRoutine) NextRun() time.Time {
 	return base
 }
 
-// Access 這個角色對文件櫃某個位置的權限("" = 不能存取);頁籤的設定優先於區塊
-func (g Agent) Access(section, tab string) string {
+// Access 這個角色對「未分專案」文件櫃某個位置的權限("" = 不能存取);頁籤的設定優先於區塊
+func (g Agent) Access(section, tab string) string { return g.AccessIn("", section, tab) }
+
+// AccessIn 這個角色對某個專案(空 = 未分專案)文件櫃某個位置的權限("" = 不能存取);頁籤的設定優先於區塊。
+// 沒有前綴的 docAccess key 只適用未分專案;專案用 "<專案 id>:<區塊 id 或頁籤網址>"(見 DocAccessKey)
+func (g Agent) AccessIn(project, section, tab string) string {
 	if tab != "" {
-		if a, ok := g.DocAccess[tab]; ok {
+		if a, ok := g.DocAccess[DocAccessKey(project, tab)]; ok {
 			if a == "none" {
 				return ""
 			}
 			return a
 		}
 	}
-	if a, ok := g.DocAccess[section]; ok && a != "none" {
+	if a, ok := g.DocAccess[DocAccessKey(project, section)]; ok && a != "none" {
 		return a
 	}
 	return ""
@@ -121,6 +126,31 @@ func (g Agent) Access(section, tab string) string {
 
 func (g Agent) CanRead(section, tab string) bool  { return g.Access(section, tab) != "" }
 func (g Agent) CanWrite(section, tab string) bool { return g.Access(section, tab) == "write" }
+
+func (g Agent) CanReadIn(project, section, tab string) bool {
+	return g.AccessIn(project, section, tab) != ""
+}
+func (g Agent) CanWriteIn(project, section, tab string) bool {
+	return g.AccessIn(project, section, tab) == "write"
+}
+
+// CanReadDoc、CanWriteDoc 依文件所在的專案與位置
+func (g Agent) CanReadDoc(d CabinetDoc) bool  { return g.CanReadIn(d.Project, d.Section, d.TabPath()) }
+func (g Agent) CanWriteDoc(d CabinetDoc) bool { return g.CanWriteIn(d.Project, d.Section, d.TabPath()) }
+
+// DocProjects docAccess 裡用到的專案 id(有前綴的 key;依 id 排序,不含未分專案)
+func (g Agent) DocProjects() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for k := range g.DocAccess {
+		if p, _ := SplitDocAccessKey(k); p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 // Clone 深拷貝(map 與 slice)
 func (g Agent) Clone() Agent {

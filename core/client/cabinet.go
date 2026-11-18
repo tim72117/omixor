@@ -1,6 +1,8 @@
 package client
 
 import (
+	"net/url"
+
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -10,14 +12,42 @@ import (
 func (c *Client) cabinet(org string) string { return "/api/orgs/" + esc(org) + "/cabinet" }
 func (c *Client) docs(org string) string    { return "/api/orgs/" + esc(org) + "/docs" }
 
-func (c *Client) GetCabinet(org string) (*model.Cabinet, error) {
-	var x model.Cabinet
-	return &x, c.Do("GET", c.cabinet(org), nil, &x)
+// projectQuery ?project=<id>(空 = 未分專案,不帶)
+func projectQuery(project string) string {
+	if project == "" {
+		return ""
+	}
+	return "?project=" + url.QueryEscape(project)
 }
 
+// GetCabinet 未分專案的文件櫃
+func (c *Client) GetCabinet(org string) (*model.Cabinet, error) { return c.GetProjectCabinet(org, "") }
+
+// GetProjectCabinet 專案(空 = 未分專案)的結構與文件
+func (c *Client) GetProjectCabinet(org, project string) (*model.Cabinet, error) {
+	var x model.Cabinet
+	return &x, c.Do("GET", c.cabinet(org)+projectQuery(project), nil, &x)
+}
+
+// SaveCabinetLayout 改未分專案的結構
 func (c *Client) SaveCabinetLayout(org string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
+	return c.SaveProjectCabinetLayout(org, "", layout)
+}
+
+// SaveProjectCabinetLayout 改專案(空 = 未分專案)的結構
+func (c *Client) SaveProjectCabinetLayout(org, project string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
 	var l []model.CabinetSection
-	return l, c.Do("POST", c.cabinet(org)+"/layout", map[string]any{"layout": layout}, &l)
+	body := map[string]any{"layout": layout}
+	if project != "" {
+		body["project"] = project
+	}
+	return l, c.Do("POST", c.cabinet(org)+"/layout", body, &l)
+}
+
+// ListDocs 專案(空 = 未分專案)的文件(新的在前)
+func (c *Client) ListDocs(org, project string) ([]model.CabinetDoc, error) {
+	var l []model.CabinetDoc
+	return l, c.Do("GET", c.docs(org)+projectQuery(project), nil, &l)
 }
 
 func (c *Client) ImportCabinet(org string, in service.CabinetImport) (*service.CabinetImportResult, error) {

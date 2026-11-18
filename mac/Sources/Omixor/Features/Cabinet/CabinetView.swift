@@ -10,6 +10,10 @@ struct CabinetView: View {
     @State private var creating = false
 
     @State private var editingLayout = false
+    /// 專案:新增或改名的視窗(nil = 沒開;id 空 = 新增)、要刪除的專案、專案動作的錯誤
+    @State private var projectSheet: ProjectSheet.Target?
+    @State private var deletingProject: Project?
+    @State private var projectError: String?
 
     private var section: CabinetSection? {
         _ = app.cabinetLayoutVersion
@@ -59,8 +63,21 @@ struct CabinetView: View {
             if section == nil { node = CabinetLayout.sections.first?.id ?? "" }
         }
         .onChange(of: app.currentOrgId) { node = CabinetLayout.sections.first?.id ?? ""; selectedDoc = nil }
+        .onChange(of: app.cabinetProject) { node = CabinetLayout.sections.first?.id ?? ""; selectedDoc = nil; query = "" }
         .onChange(of: app.cabinetLayoutVersion) { if section == nil { node = CabinetLayout.sections.first?.id ?? "" } }
         .sheet(isPresented: $editingLayout) { CabinetLayoutEditor() }
+        .sheet(item: $projectSheet) { ProjectSheet(target: $0) }
+        .confirmationDialog("刪除專案「\(deletingProject?.name ?? "")」?", isPresented: Binding(get: { deletingProject != nil }, set: { if !$0 { deletingProject = nil } }),
+                            titleVisibility: .visible, presenting: deletingProject) { p in
+            Button("刪除", role: .destructive) {
+                do { try Cabinet.deleteProject(app, p.id) } catch { projectError = error.localizedDescription }
+            }
+        } message: { _ in
+            Text("連同這個專案的文件櫃結構一起刪除。專案裡還有文件時不能刪,要先把文件搬走或刪除。")
+        }
+        .alert("專案操作失敗", isPresented: Binding(get: { projectError != nil }, set: { if !$0 { projectError = nil } })) {
+            Button("好") { projectError = nil }
+        } message: { Text(projectError ?? "") }
         .sheet(isPresented: $creating) {
             if let s = section {
                 NewDocSheet(section: s, tab: tab) { selectedDoc = $0.id }
@@ -70,8 +87,39 @@ struct CabinetView: View {
 
     // MARK: 位置樹
 
+    // MARK: 專案切換
+
+    /// 文件櫃上方的專案選單:未分專案 + 各專案;旁邊的選單新增、改名、刪除專案
+    private var projectBar: some View {
+        HStack(spacing: 6) {
+            Picker(selection: Binding(get: { app.cabinetProject }, set: { id in Task { await Cabinet.selectProject(app, id) } })) {
+                Text("未分專案").tag("")
+                if !app.cabinetProjects.isEmpty { Divider() }
+                ForEach(app.cabinetProjects) { p in Text(p.name).tag(p.id) }
+            } label: {
+                Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary)
+            }
+            .help("切換專案:每個專案各自一份文件櫃結構與文件")
+            Menu {
+                Button { projectSheet = .new } label: { Label("新增專案…", systemImage: "plus") }
+                if let p = currentProject {
+                    Divider()
+                    Button { projectSheet = .edit(p) } label: { Label("改名「\(p.name)」…", systemImage: "pencil") }
+                    Button(role: .destructive) { deletingProject = p } label: { Label("刪除「\(p.name)」…", systemImage: "trash") }
+                }
+            } label: { Image(systemName: "ellipsis.circle") }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help("新增、改名、刪除專案")
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    private var currentProject: Project? { app.cabinetProjects.first { $0.id == app.cabinetProject } }
+
     private var tree: some View {
         VStack(spacing: 0) {
+        projectBar
+        Divider()
         List(selection: Binding(get: { node }, set: { if let n = $0 { node = n; selectedDoc = nil } })) {
             ForEach(layout) { s in
                 if s.tabs.isEmpty {
@@ -107,7 +155,7 @@ struct CabinetView: View {
     }
 
     private func readers(_ s: String, _ t: String?) -> [(Agent, DocAccess)] {
-        app.agents.compactMap { a in a.access(section: s, tab: t).map { (a, $0) } }
+        app.agents.compactMap { a in a.access(section: s, tab: t, project: app.cabinetProject).map { (a, $0) } }
     }
 
     private func nodeRow(_ title: String, icon: String, count: Int, readers: [(Agent, DocAccess)]) -> some View {
@@ -185,8 +233,9 @@ private struct CabinetDocDetail: View {
     @State private var draftTitle = ""
     @State private var draftBody = ""
     @State private var error: String?
+    @State private var moving = false
 
-    private var html: String? { editing ? nil : DocTemplates.html(for: doc, in: app.cabinetDocs) }
+    private var html: String? { editing ? nil : DocTemplates.html(for: doc, in: Cabinet.templateDocs(app)) }
 
     var body: some View {
         if let html {
@@ -237,7 +286,7 @@ private struct CabinetDocDetail: View {
                 if editing {
                     Button("取消") { editing = false; error = nil }
                     Button("儲存") {
-                        if let e = DocTemplates.validate(draftBody, in: app.cabinetDocs) { error = e; return }
+                        if let e = DocTemplates.validate(draftBody, in: Cabinet.templateDocs(app)) { error = e; return }
                         do {
                             try Cabinet.update(app, doc.id) { $0.title = draftTitle; $0.body = draftBody }
                             editing = false; error = nil
@@ -247,12 +296,16 @@ private struct CabinetDocDetail: View {
                     .disabled(draftTitle.trimmingCharacters(in: .whitespaces).isEmpty)
                 } else {
                     Button("編輯") { draftTitle = doc.title; draftBody = doc.body; editing = true }
+                    Button("搬到…") { moving = true }.help("搬到其他專案或位置")
                     Button("刪除", role: .destructive) {
                         do { try Cabinet.delete(app, doc.id); onDelete() } catch { self.error = error.localizedDescription }
                     }
                 }
             }
             HStack(spacing: 8) {
+                if !app.cabinetProjects.isEmpty || doc.project != nil {
+                    Pill(text: Cabinet.projectName(app, doc.project ?? ""), icon: "square.stack.3d.up")
+                }
                 Pill(text: doc.location, icon: "folder")
                 ForEach(doc.tags, id: \.self) { Pill(text: $0, icon: "tag") }
                 AuthorIcon(author: doc.author, size: 16)
@@ -261,6 +314,130 @@ private struct CabinetDocDetail: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $moving) { MoveDocSheet(doc: doc, onMoved: onDelete) }
+    }
+}
+
+/// 新增或改名專案(組織管理員;伺服器檢查名稱必填、組織內不重複)
+private struct ProjectSheet: View {
+    enum Target: Identifiable {
+        case new
+        case edit(Project)
+        var id: String { if case .edit(let p) = self { return p.id }; return "" }
+    }
+
+    @EnvironmentObject var app: AppState
+    @Environment(\.dismiss) private var dismiss
+    let target: Target
+    @State private var name = ""
+    @State private var desc = ""
+    @State private var error: String?
+
+    private var editing: Project? { if case .edit(let p) = target { return p }; return nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(editing.map { "編輯專案 \($0.id)" } ?? "新增專案").font(.title3.weight(.semibold))
+            TextField("名稱", text: $name).textFieldStyle(.roundedBorder)
+            TextField("說明(選填)", text: $desc).textFieldStyle(.roundedBorder)
+            Text("專案只分文件櫃(各自的結構與文件);權限沿用組織成員。").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                if let error { Text(error).font(.caption).foregroundStyle(.orange).lineLimit(3).textSelection(.enabled) }
+                Spacer()
+                Button("取消") { dismiss() }
+                Button(editing == nil ? "建立" : "儲存") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .onAppear { if let p = editing { name = p.name; desc = p.description } }
+    }
+
+    private func save() {
+        do {
+            if let p = editing {
+                try Cabinet.updateProject(app, p.id, name: name, description: desc)
+            } else {
+                let p = try Cabinet.createProject(app, name: name, description: desc)
+                Task { await Cabinet.selectProject(app, p.id) }   // 建好就切過去
+            }
+            dismiss()
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+/// 把文件搬到其他專案(或同專案的其他位置):選專案,讀那個專案的結構,再選區塊或頁籤
+private struct MoveDocSheet: View {
+    @EnvironmentObject var app: AppState
+    @Environment(\.dismiss) private var dismiss
+    let doc: CabinetDoc
+    let onMoved: () -> Void
+    @State private var project = ""
+    @State private var layout: [CabinetSection] = []
+    /// 選中的位置:區塊 id 或頁籤網址(/ 開頭)
+    @State private var place = ""
+    @State private var loading = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("搬移「\(doc.title)」").font(.title3.weight(.semibold))
+            Picker("專案", selection: $project) {
+                Text("未分專案").tag("")
+                ForEach(app.cabinetProjects) { p in Text(p.name).tag(p.id) }
+            }
+            Picker("位置", selection: $place) {
+                ForEach(layout) { s in
+                    Text(s.label).tag(s.id)
+                    ForEach(s.tabs) { t in Text("\(s.label) › \(t.title)").tag(t.path) }
+                }
+            }
+            .disabled(loading || layout.isEmpty)
+            HStack {
+                if loading { ProgressView().controlSize(.small) }
+                if let error { Text(error).font(.caption).foregroundStyle(.orange).lineLimit(3).textSelection(.enabled) }
+                Spacer()
+                Button("取消") { dismiss() }
+                Button("搬移") { move() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(loading || place.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .onAppear { project = doc.project ?? "" }
+        .task(id: project) { await loadLayout() }
+    }
+
+    private func loadLayout() async {
+        loading = true
+        defer { loading = false }
+        do {
+            layout = try await Cabinet.layout(app, project: project)
+            error = nil
+            let current = doc.tab ?? doc.section
+            let all = layout.flatMap { [$0.id] + $0.tabs.map(\.path) }
+            place = all.contains(current) ? current : (layout.first?.id ?? "")
+        } catch {
+            layout = []
+            place = ""
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func move() {
+        let section = layout.first { $0.id == place || $0.tabs.contains { $0.path == place } }
+        guard let section else { return }
+        let tab = place.hasPrefix("/") ? place : nil
+        do {
+            let saved = try Cabinet.move(app, doc.id, toProject: project, section: section.id, tab: tab)
+            if (saved?.project ?? "") != app.cabinetProject { onMoved() }   // 搬到別的專案:這裡看不到了
+            dismiss()
+        } catch { self.error = error.localizedDescription }
     }
 }
 
