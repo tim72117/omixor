@@ -50,6 +50,16 @@ func rank(s string) int {
 
 func terminal(s string) bool { return rank(s) == 3 }
 
+const (
+	// MaxCommandsPerSubmit 一次 Submit 最多幾條命令(超過整段拒絕,不截斷)。
+	// 每條命令廣播一個 command 事件;檢視器緩衝 viewerBuffer 格,
+	// hello、snapshot 佔 2 格、role 可能再佔 1 格,所以上限 × 1 必須遠小於 viewerBuffer。
+	MaxCommandsPerSubmit = 20
+	// MaxTextRunes text 最多幾個字
+	MaxTextRunes = 500
+	viewerBuffer = 64
+)
+
 // Options 設定(零值用預設)
 type Options struct {
 	Dir         string        // 指定 office3d 資料夾(測試用);空字串 = ResolveDir
@@ -325,12 +335,15 @@ func RequestFromArgs(args map[string]any) (Request, error) {
 }
 
 func (h *Hub) validate(cat *Catalog, req Request) ([]Action, error) {
-	if utf8.RuneCountInString(req.Text) > 500 {
-		return nil, invalid("text 太長(最多 500 字)")
+	if utf8.RuneCountInString(req.Text) > MaxTextRunes {
+		return nil, invalid("text 太長(最多 %d 字)", MaxTextRunes)
 	}
 	if req.Text != "" {
 		if req.Action != "" || len(req.Agents) > 0 || req.Target != "" {
 			return nil, invalid("text 與 action/agents/target 擇一")
+		}
+		if n := countParts(req.Text); n > MaxCommandsPerSubmit {
+			return nil, invalid("一次最多 %d 條命令,你給了 %d 條,請分次送", MaxCommandsPerSubmit, n)
 		}
 		acts, errs := cat.p.parse(req.Text)
 		if len(errs) > 0 {
@@ -583,7 +596,7 @@ func (h *Hub) Subscribe() (*Viewer, error) {
 	if len(h.viewers) >= h.opt.MaxViewers {
 		return nil, ErrTooManyViewers
 	}
-	v := &Viewer{ID: "v-" + randHex(8), C: make(chan Msg, 64), Gone: make(chan struct{}), connectedAt: h.now()}
+	v := &Viewer{ID: "v-" + randHex(8), C: make(chan Msg, viewerBuffer), Gone: make(chan struct{}), connectedAt: h.now()}
 	h.viewers = append(h.viewers, v)
 	primary := h.viewers[0] == v
 	active := []any{}
@@ -959,13 +972,10 @@ func (h *Hub) State(limit int) map[string]any {
 	if limit <= 0 || limit > h.opt.KeepHistory {
 		limit = 50
 	}
+	// 不輸出 viewerId:它是 /api/office/report 的憑證,只在檢視器自己的 SSE hello 給
 	viewers := []map[string]any{}
-	primary := ""
 	for i, v := range h.viewers {
-		if i == 0 {
-			primary = v.ID
-		}
-		viewers = append(viewers, map[string]any{"id": v.ID, "primary": i == 0, "connectedAt": ts(v.connectedAt)})
+		viewers = append(viewers, map[string]any{"primary": i == 0, "connectedAt": ts(v.connectedAt)})
 	}
 	cmds := []*Command{}
 	for i := len(h.cmds) - 1; i >= 0 && len(cmds) < limit; i-- {
@@ -975,7 +985,7 @@ func (h *Hub) State(limit int) map[string]any {
 		"available":    catErr == nil,
 		"viewers":      viewers,
 		"viewerCount":  len(h.viewers),
-		"primary":      primary,
+		"hasPrimary":   len(h.viewers) > 0,
 		"strategy":     "primary(最早連上、還連著的檢視器;只採用它的回報)",
 		"agents":       h.agentListLocked(cat),
 		"commands":     cmds,

@@ -146,7 +146,12 @@ func initWorker(endpoint string, args []string) error {
 	fs := flag.NewFlagSet("init-worker", flag.ContinueOnError)
 	agent := fs.String("agent", "", "只接這個角色的任務")
 	noSub := fs.Bool("no-subagent", false, "不用子代理,直接在工作階段裡執行")
-	force := fs.Bool("force", false, "覆蓋已有的 CLAUDE.md、.mcp.json")
+	force := fs.Bool("force", false, "覆蓋已有的 CLAUDE.md、.mcp.json、.claude/settings.json")
+	var repos []string
+	fs.Func("repo", "可以讀的公開 repo(https 網址,例如 https://github.com/owner/name.git;可重複給)", func(s string) error {
+		repos = append(repos, s)
+		return nil
+	})
 	// 資料夾放最前面或最後面都可以
 	var dir string
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -159,7 +164,7 @@ func initWorker(endpoint string, args []string) error {
 		dir = fs.Arg(0)
 	}
 	if dir == "" {
-		return fmt.Errorf("用法:omixor-mcp --init-worker <資料夾> [--agent 角色] [--no-subagent] [--force]")
+		return fmt.Errorf("用法:omixor-mcp --init-worker <資料夾> [--agent 角色] [--repo <公開 repo 的 https 網址>]... [--no-subagent] [--force]")
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -171,7 +176,7 @@ func initWorker(endpoint string, args []string) error {
 	}
 	files, err := coremcp.WorkerFiles(coremcp.WorkerOptions{
 		ChannelCommand: filepath.ToSlash(exe), ChannelArgs: chArgs, MCPURL: endpoint,
-		Where: "本機 omixor console(" + endpoint + ")", AgentID: *agent, Subagent: !*noSub,
+		Where: "本機 omixor console(" + endpoint + ")", AgentID: *agent, Subagent: !*noSub, Repos: repos,
 	})
 	if err != nil {
 		return err
@@ -187,7 +192,11 @@ func initWorker(endpoint string, args []string) error {
 		}
 	}
 	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { // .claude/settings.json
+			return err
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			return err
 		}
 	}

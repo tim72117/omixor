@@ -2184,6 +2184,8 @@ build("decor_bench_window", lambda mb: (mb.box((0, 0, 0.42), (3.0, 0.45, 0.06), 
 # ---------------------------------------------------------------------------
 world = bpy.data.worlds.new("world_sky")
 SC.world = world
+if world.node_tree is None:  # Blender 4.x 要先開 use_nodes 才有 node_tree(5.x 一直是開的)
+    world.use_nodes = True
 wnt = world.node_tree
 bg = wnt.nodes.get("Background")
 grad_tc = wnt.nodes.new("ShaderNodeTexCoord")
@@ -2216,7 +2218,10 @@ SC["omixor_roles"] = ";".join(f"{r['id']}|{r['name']}|{r['color']}|{r['symbol']}
 # 渲染設定
 # ---------------------------------------------------------------------------
 R = SC.render
-R.engine = "BLENDER_EEVEE"
+try:
+    R.engine = "BLENDER_EEVEE"
+except TypeError:  # Blender 4.x 的識別名是 BLENDER_EEVEE_NEXT(5.x 改回 BLENDER_EEVEE)
+    R.engine = "BLENDER_EEVEE_NEXT"
 ee = SC.eevee
 ee.taa_render_samples = SAMPLES
 ee.use_raytracing = True

@@ -346,6 +346,17 @@ func (p *parser) parseOne(text string) (*Action, error) {
 	return &Action{Type: "goto", Agents: subj, Target: tg}, nil
 }
 
+// countParts 用「;」「;」換行拆開後,非空的命令條數
+func countParts(text string) int {
+	n := 0
+	for _, part := range splitRe.Split(text, -1) {
+		if strings.TrimSpace(part) != "" {
+			n++
+		}
+	}
+	return n
+}
+
 // parse 多條命令用「;」「;」或換行分開;回傳成功的動作與每條失敗的原因
 func (p *parser) parse(text string) ([]Action, []string) {
 	var actions []Action

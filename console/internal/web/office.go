@@ -19,6 +19,9 @@ import (
 //	GET  /api/office/state        角色最後狀態、檢視器、命令狀態
 //
 // /api/office/… 和其他 /api 一樣經過 guard(本機 Host / Origin、POST 要 JSON、啟用 LDAP 時要登入)。
+// officeWriteTimeout SSE 每次寫出的期限
+var officeWriteTimeout = 10 * time.Second
+
 func registerOffice(mux *http.ServeMux, hub *office.Hub) {
 	mux.HandleFunc("GET /office", hub.ServeStatic)
 	mux.HandleFunc("GET /office/", hub.ServeStatic)
@@ -92,11 +95,25 @@ func registerOffice(mux *http.ServeMux, hub *office.Hub) {
 		h.Set("Content-Type", "text/event-stream")
 		h.Set("Cache-Control", "no-cache")
 		h.Set("X-Accel-Buffering", "no")
+		// 每次寫出前設寫入期限:網路半斷時 Write 不會永遠卡住(不支援就降級成沒有期限)
+		rc := http.NewResponseController(w)
+		send := func(b []byte) error {
+			_ = rc.SetWriteDeadline(time.Now().Add(officeWriteTimeout))
+			if _, err := w.Write(b); err != nil {
+				return err
+			}
+			if err := rc.Flush(); err != nil {
+				if !errors.Is(err, http.ErrNotSupported) {
+					return err
+				}
+				fl.Flush()
+			}
+			return nil
+		}
 		w.WriteHeader(200)
-		if _, err := io.WriteString(w, "retry: 3000\n\n"); err != nil {
+		if err := send([]byte("retry: 3000\n\n")); err != nil {
 			return
 		}
-		fl.Flush()
 		ping := time.NewTicker(hub.Heartbeat())
 		defer ping.Stop()
 		for {
@@ -106,18 +123,16 @@ func registerOffice(mux *http.ServeMux, hub *office.Hub) {
 			case <-v.Gone:
 				return
 			case m := <-v.C:
-				if _, err := w.Write(office.FormatSSE(m)); err != nil {
+				if err := send(office.FormatSSE(m)); err != nil {
 					return
 				}
-				fl.Flush()
 				if m.CmdID != "" {
 					hub.Delivered(v, m.CmdID)
 				}
 			case <-ping.C:
-				if _, err := io.WriteString(w, "event: ping\ndata: {}\n\n"); err != nil {
+				if err := send([]byte("event: ping\ndata: {}\n\n")); err != nil {
 					return
 				}
-				fl.Flush()
 			}
 		}
 	})

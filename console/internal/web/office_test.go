@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -246,7 +248,7 @@ func TestOfficeSSEFlow(t *testing.T) {
 		t.Fatal("wait 沒有在抵達時回傳")
 	}
 	st := getJSON(t, srv.URL+"/api/office/state")
-	if st["viewerCount"].(float64) != 1 || st["primary"] != hello.ViewerID {
+	if st["viewerCount"].(float64) != 1 || st["hasPrimary"] != true || strings.Contains(fmt.Sprint(st), hello.ViewerID) {
 		t.Fatal(st)
 	}
 	for _, a := range st["agents"].([]any) {
@@ -271,6 +273,67 @@ func TestOfficeSSEFlow(t *testing.T) {
 }
 
 // 連線上限:超過回 503;斷掉一個就能再連
+func TestOfficeCommandTooMany(t *testing.T) {
+	srv, _, _ := officeServer(t, office.Options{})
+	code, out := postJSON(t, srv.URL+"/api/office/command", map[string]any{"text": strings.Repeat("ceo stop;", office.MaxCommandsPerSubmit+1)})
+	if code != 400 || !strings.Contains(fmt.Sprint(out["error"]), "最多") {
+		t.Fatal(code, out)
+	}
+	code, out = postJSON(t, srv.URL+"/api/office/command", map[string]any{"text": strings.Repeat("工", office.MaxTextRunes+1)})
+	if code != 400 {
+		t.Fatal(code, out)
+	}
+}
+
+// 寫出失敗(死連線):handler 要結束並把檢視器移除
+type deadWriter struct {
+	hdr      http.Header
+	deadline time.Time
+	setCalls int
+	block    bool
+}
+
+func (d *deadWriter) Header() http.Header { return d.hdr }
+func (d *deadWriter) WriteHeader(int)     {}
+func (d *deadWriter) Flush()              {}
+func (d *deadWriter) SetWriteDeadline(t time.Time) error {
+	d.deadline = t
+	d.setCalls++
+	return nil
+}
+func (d *deadWriter) Write(b []byte) (int, error) {
+	if d.block { // 模擬半斷的連線:卡到寫入期限才失敗
+		time.Sleep(time.Until(d.deadline))
+	}
+	return 0, errors.New("broken pipe")
+}
+
+func TestOfficeSSEWriteFailureUnsubscribes(t *testing.T) {
+	old := officeWriteTimeout
+	officeWriteTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { officeWriteTimeout = old })
+	for _, block := range []bool{false, true} {
+		hub := office.NewHub(office.Options{Dir: t.TempDir(), Logf: func(string, ...any) {}})
+		mux := http.NewServeMux()
+		registerOffice(mux, hub)
+		w := &deadWriter{hdr: http.Header{}, block: block}
+		req := httptest.NewRequest("GET", "/api/office/events", nil)
+		done := make(chan struct{})
+		go func() { mux.ServeHTTP(w, req); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("block=%v:寫入失敗後 handler 沒有結束", block)
+		}
+		if hub.Viewers() != 0 {
+			t.Fatalf("block=%v:handler 離開後檢視器要被移除", block)
+		}
+		if w.setCalls == 0 {
+			t.Fatal("寫出前沒有設定 write deadline")
+		}
+	}
+}
+
 func TestOfficeSSELimit(t *testing.T) {
 	srv, hub, _ := officeServer(t, office.Options{MaxViewers: 1})
 	ctx, cancel := context.WithCancel(context.Background())

@@ -13,7 +13,7 @@ python3 -m http.server 8000
 # 瀏覽器開 http://localhost:8000/viewer/
 ```
 
-需要能連到 `cdn.jsdelivr.net`（只有 three.js 本身從 CDN 載入）。
+需要能連到 `cdn.jsdelivr.net`（只有 three.js 本身從 CDN 載入）。import map 帶 `integrity`（SRI，sha384，共 6 個模組）；升級 three 版本時改 index.html 的版本號後執行 `node tools/gen-sri.mjs --write` 重算，再跑 `node test/sri_test.mjs`。
 
 ### 由 omixor console 提供（後端控制角色）
 

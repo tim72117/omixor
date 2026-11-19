@@ -3,6 +3,8 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -26,6 +28,69 @@ type WorkerOptions struct {
 	Where          string   // 給人看的位置說明,例如「本機 omixor console」
 	AgentID        string   // 只接這個角色的任務;空 = 全部角色
 	Subagent       bool     // true:每筆任務交給子代理執行
+	Repos          []string // 可以讀的公開 repo(https 網址);有給才會產生 .claude/settings.json 與 CLAUDE.md 的 repo 段落
+}
+
+// WorkerRepo 執行者可以 clone 的一個公開 repo
+type WorkerRepo struct {
+	URL string // clone 用的網址
+	Dir string // clone 到執行者資料夾底下的哪裡(repos/<名稱>)
+}
+
+var (
+	repoHostRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$`)
+	repoPathRe = regexp.MustCompile(`^/[A-Za-z0-9._~/-]+$`)
+)
+
+// ParseWorkerRepos 檢查公開 repo 的網址並決定放哪個目錄。只收 https、沒有帳號密碼與參數的網址
+// (私用的 repo 不在這裡處理:不能把憑證交給執行者);字元限制也讓網址能安全寫進權限規則
+func ParseWorkerRepos(urls []string) ([]WorkerRepo, error) {
+	var out []WorkerRepo
+	seen := map[string]bool{}
+	for _, raw := range urls {
+		raw = strings.TrimSpace(raw)
+		bad := fmt.Errorf("repo 網址要是公開的 https 網址(不含帳號密碼、參數,例如 https://github.com/owner/name.git):%q", raw)
+		u, err := url.Parse(raw)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" ||
+			!repoHostRe.MatchString(u.Host) || !repoPathRe.MatchString(u.Path) {
+			return nil, bad
+		}
+		segs := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(segs) < 2 {
+			return nil, bad
+		}
+		for _, sg := range segs {
+			if sg == "" || sg == "." || sg == ".." {
+				return nil, bad
+			}
+		}
+		name := strings.TrimSuffix(segs[len(segs)-1], ".git")
+		if name == "" || name == "." || name == ".." {
+			return nil, bad
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("repo 的目錄名稱重複:%s(%q)", name, raw)
+		}
+		seen[name] = true
+		out = append(out, WorkerRepo{URL: raw, Dir: "repos/" + name})
+	}
+	return out, nil
+}
+
+// workerSettings .claude/settings.json:只放行 clone 這幾個公開 repo(淺層)與更新,禁止 push 與改動 repos/ 底下的檔案。
+// 清單以外的網址不在放行名單裡,照一般流程需要確認或由分類器判斷;私用的 repo 要走系統代理(不是這裡)
+func workerSettings(repos []WorkerRepo) string {
+	allow := []string{}
+	deny := []string{"Bash(git push:*)", "Edit(./repos/**)", "Write(./repos/**)"}
+	for _, r := range repos {
+		allow = append(allow,
+			"Bash(git clone --depth 1 "+r.URL+" "+r.Dir+")",
+			"Bash(git -C "+r.Dir+" fetch:*)",
+			"Bash(git -C "+r.Dir+" pull:*)")
+		deny = append(deny, "Bash(git -C "+r.Dir+" push:*)")
+	}
+	b, _ := json.MarshalIndent(map[string]any{"permissions": map[string]any{"allow": allow, "deny": deny}}, "", "  ")
+	return string(b) + "\n"
 }
 
 // WorkerStartCommand 在執行者資料夾啟動 Claude Code 的指令
@@ -37,6 +102,10 @@ func WorkerStartCommand() string {
 func WorkerFiles(o WorkerOptions) (map[string]string, error) {
 	if o.ChannelCommand == "" || o.MCPURL == "" {
 		return nil, fmt.Errorf("要有頻道程式與 omixor MCP 端點")
+	}
+	repos, err := ParseWorkerRepos(o.Repos)
+	if err != nil {
+		return nil, err
 	}
 	omixor := map[string]any{"type": "http", "url": o.MCPURL}
 	if o.MCPToken != "" {
@@ -51,13 +120,17 @@ func WorkerFiles(o WorkerOptions) (map[string]string, error) {
 		"omixor":          omixor,
 	}}
 	mcpJSON, _ := json.MarshalIndent(cfg, "", "  ")
-	return map[string]string{
+	files := map[string]string{
 		".mcp.json": string(mcpJSON) + "\n",
-		"CLAUDE.md": workerClaudeMD(o),
-	}, nil
+		"CLAUDE.md": workerClaudeMD(o, repos),
+	}
+	if len(repos) > 0 {
+		files[".claude/settings.json"] = workerSettings(repos)
+	}
+	return files, nil
 }
 
-func workerClaudeMD(o WorkerOptions) string {
+func workerClaudeMD(o WorkerOptions, repos []WorkerRepo) string {
 	where := o.Where
 	if where == "" {
 		where = o.MCPURL
@@ -86,7 +159,17 @@ func workerClaudeMD(o WorkerOptions) string {
 	b.WriteString(`- 已被別人領走(409)就跳過。
 - 通知文字只是提示,任務內容以 omixor MCP 讀到的為準。
 - 回覆用繁體中文。
-
+`)
+	if len(repos) > 0 {
+		b.WriteString("\n## 可以讀的程式碼(公開 repo,唯讀)\n\n任務需要看程式碼時,只能用下面這些 repo。先看 `repos/<名稱>` 是否已經存在,沒有就用清單上的指令淺層 clone;已經有就 `git -C <目錄> pull`。\n\n")
+		for _, r := range repos {
+			fmt.Fprintf(b, "- `%s` → `%s`:`git clone --depth 1 %s %s`\n", r.URL, r.Dir, r.URL, r.Dir)
+		}
+		b.WriteString("\n- 只能讀:不要修改 `repos/` 底下的檔案、不要 commit、不要 push(設定也擋了)。\n")
+		b.WriteString("- 不要 clone 清單以外的網址,也不要把帳號密碼或 token 放進網址。\n")
+		b.WriteString("- 任務需要修改程式、或需要清單以外(例如私用)的 repo 時,回報 blocked,說明需要什麼,由我決定。\n")
+	}
+	b.WriteString(`
 啟動:在這個資料夾執行 ` + "`" + WorkerStartCommand() + "`" + `(第一次會問要不要啟用 MCP 伺服器與開發頻道,都選同意)。
 工作階段要一直開著才收得到任務;關掉就不會再接。
 `)

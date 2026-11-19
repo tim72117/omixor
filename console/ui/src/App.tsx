@@ -8,6 +8,7 @@ import { DirectoryProvider } from "./components/bits";
 import { Icon } from "./components/Icon";
 import { color, Segmented } from "./components/ui";
 import { guardedNavigate, useFeatures, useFeaturesError, useFeaturesSync, useLocalNotice, useTimedNotice } from "./features";
+import { openOffice, useOfficeAvailable } from "./officeLink";
 import { SECTION_VIEWS } from "./sections";
 import { SECTIONS, type Nav, type SectionId } from "./types";
 
@@ -39,6 +40,7 @@ export function App() {
   const assistantOn = flags.enabled("assistant");
   const showAssistant = assistantOn && showAssistantPref;
   const [palette, setPalette] = useState(false);
+  const officeOn = useOfficeAvailable();
 
   // ⌘K 指令面板、⌘J 顯示/隱藏 AI 助理
   useEffect(() => {
@@ -90,6 +92,7 @@ export function App() {
           </select>}
           <div className="row gap4" style={{ position: "absolute", right: 12 }}>
             <button className="btn link" title="搜尋頁面、服務、伺服器、事件(⌘K)" onClick={() => setPalette(true)}><Icon name="magnifyingglass" size={14} /></button>
+            {officeOn && <button className="btn link" title="3D 辦公室(新分頁)" onClick={openOffice}><Icon name="building.2" size={14} /></button>}
             {assistantOn && <button className="btn link" title={showAssistant ? "隱藏 AI 助理(⌘J)" : "顯示 AI 助理(⌘J)"} onClick={() => setShowAssistant(!showAssistant)}>
               <Icon name={showAssistant ? "sidebar.trailing" : "sparkles"} size={14} />
             </button>}

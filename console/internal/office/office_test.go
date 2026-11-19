@@ -73,6 +73,56 @@ func submit(t *testing.T, h *Hub, req Request) *Command {
 
 func status(h *Hub, id string) string { return h.Command(id).Status }
 
+func TestSubmitCommandLimit(t *testing.T) {
+	h := testHub(t, Options{})
+	v, _ := h.Subscribe()
+	atLimit := strings.TrimSuffix(strings.Repeat("ceo停;", MaxCommandsPerSubmit), ";")
+	cmds, err := h.Submit(Request{Text: atLimit})
+	if err != nil || len(cmds) != MaxCommandsPerSubmit {
+		t.Fatalf("剛好等於上限要通過:%d %v", len(cmds), err)
+	}
+	// 最壞情況:hello、snapshot、全部 command 事件都要放得進檢視器緩衝,不能被踢掉
+	select {
+	case <-v.Gone:
+		t.Fatal("上限內的命令不應踢掉檢視器")
+	default:
+	}
+	if MaxCommandsPerSubmit+3 >= viewerBuffer {
+		t.Fatal("命令上限太大,會塞滿檢視器緩衝")
+	}
+	before := len(h.State(0)["commands"].([]*Command))
+	_, err = h.Submit(Request{Text: atLimit + ";ceo停"})
+	var ve ValidationError
+	if !errors.As(err, &ve) || !strings.Contains(err.Error(), "最多 20 條") {
+		t.Fatalf("超過上限要被拒絕:%v", err)
+	}
+	if after := len(h.State(0)["commands"].([]*Command)); after != before {
+		t.Fatal("被拒絕的請求不應留下命令")
+	}
+	// 全形分號與換行也算
+	_, err = h.Submit(Request{Text: strings.Repeat("ceo停;\nceo停;", 11)})
+	if !errors.As(err, &ve) {
+		t.Fatalf("%v", err)
+	}
+	// 超長 text
+	_, err = h.Submit(Request{Text: strings.Repeat("工", MaxTextRunes+1)})
+	if !errors.As(err, &ve) {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestStateHidesViewerID(t *testing.T) {
+	h := testHub(t, Options{})
+	v, _ := h.Subscribe()
+	b, _ := json.Marshal(h.State(0))
+	if strings.Contains(string(b), v.ID) {
+		t.Fatalf("state 不能含 viewerId:%s", b)
+	}
+	if _, err := h.Report(Report{ViewerID: "v-forged"}); err != nil {
+		t.Log(err)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	h := testHub(t, Options{})
 	bad := []Request{
@@ -259,7 +309,7 @@ func TestCommandLifecycle(t *testing.T) {
 	if eng == nil || !eng.Reported || eng.State != "arrived" || eng.Place != "meeting" || !eng.Seated || eng.Position[0] != 3 || eng.CommandID != c.ID {
 		t.Fatalf("%+v", eng)
 	}
-	if st["viewerCount"] != 1 || st["primary"] != v.ID || st["lastReportAt"] == nil {
+	if st["viewerCount"] != 1 || st["hasPrimary"] != true || st["lastReportAt"] == nil {
 		t.Fatal(st)
 	}
 }
