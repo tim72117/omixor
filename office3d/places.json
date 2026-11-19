@@ -1,0 +1,3051 @@
+{
+ "version": 1,
+ "note": "three.js 座標（Y 朝上，公尺）。yaw = rotation.y（模型正面為本地 -Z）。spots 是可分配給多個角色的站位；sit=true 表示可坐下；pose 是抵達後的姿勢（desk=坐在辦公桌前、chair=坐椅子、stand=站著）。cell=[i,j] 對應 navgrid",
+ "agents": [
+  {
+   "id": "ceo",
+   "name": "CEO",
+   "aliases": [
+    "ceo",
+    "CEO",
+    "執行長",
+    "老闆",
+    "boss"
+   ],
+   "color": "purple",
+   "hex": "#AF52DE",
+   "seat": "seat_ceo",
+   "zone": "zone_ceo"
+  },
+  {
+   "id": "product-manager",
+   "name": "產品經理",
+   "aliases": [
+    "product-manager",
+    "產品經理",
+    "pm",
+    "產品",
+    "PM"
+   ],
+   "color": "indigo",
+   "hex": "#5856D6",
+   "seat": "seat_product-manager",
+   "zone": "zone_product-manager"
+  },
+  {
+   "id": "engineer",
+   "name": "工程師",
+   "aliases": [
+    "engineer",
+    "工程師",
+    "工程",
+    "eng",
+    "dev",
+    "developer"
+   ],
+   "color": "green",
+   "hex": "#34C759",
+   "seat": "seat_engineer",
+   "zone": "zone_engineer"
+  },
+  {
+   "id": "course-dev",
+   "name": "課程開發",
+   "aliases": [
+    "course-dev",
+    "課程開發",
+    "課程",
+    "course",
+    "coursedev",
+    "課程開發者"
+   ],
+   "color": "indigo",
+   "hex": "#5856D6",
+   "seat": "seat_course-dev",
+   "zone": "zone_course-dev"
+  },
+  {
+   "id": "narrator",
+   "name": "旁白製作",
+   "aliases": [
+    "narrator",
+    "旁白製作",
+    "旁白",
+    "配音",
+    "voice"
+   ],
+   "color": "purple",
+   "hex": "#AF52DE",
+   "seat": "seat_narrator",
+   "zone": "zone_narrator"
+  },
+  {
+   "id": "marketing",
+   "name": "行銷",
+   "aliases": [
+    "marketing",
+    "行銷",
+    "mkt",
+    "marketer",
+    "行銷人員"
+   ],
+   "color": "pink",
+   "hex": "#FF2D55",
+   "seat": "seat_marketing",
+   "zone": "zone_marketing"
+  },
+  {
+   "id": "visitor-analyst",
+   "name": "訪客分析師",
+   "aliases": [
+    "visitor-analyst",
+    "訪客分析師",
+    "分析師",
+    "analyst",
+    "訪客分析",
+    "數據"
+   ],
+   "color": "teal",
+   "hex": "#30B0C7",
+   "seat": "seat_visitor-analyst",
+   "zone": "zone_visitor-analyst"
+  },
+  {
+   "id": "triager",
+   "name": "Issue 整理員",
+   "aliases": [
+    "triager",
+    "Issue 整理員",
+    "整理員",
+    "issue整理員",
+    "triage",
+    "issue"
+   ],
+   "color": "orange",
+   "hex": "#FF9500",
+   "seat": "seat_triager",
+   "zone": "zone_triager"
+  }
+ ],
+ "places": [
+  {
+   "id": "seat_ceo",
+   "kind": "seat",
+   "owner": "ceo",
+   "name": "CEO的座位",
+   "aliases": [
+    "CEO seat",
+    "CEO's seat",
+    "CEO座位",
+    "CEO的位子",
+    "CEO的座位",
+    "boss seat",
+    "boss's seat",
+    "boss座位",
+    "boss的位子",
+    "boss的座位",
+    "ceo seat",
+    "ceo's seat",
+    "ceo座位",
+    "ceo的位子",
+    "ceo的座位",
+    "seat ceo",
+    "seat_ceo",
+    "執行長 seat",
+    "執行長's seat",
+    "執行長座位",
+    "執行長的位子",
+    "執行長的座位",
+    "老闆 seat",
+    "老闆's seat",
+    "老闆座位",
+    "老闆的位子",
+    "老闆的座位"
+   ],
+   "position": [
+    12.8,
+    0.0,
+    -6.85
+   ],
+   "yaw": 1.5708,
+   "sit": true,
+   "spots": [
+    {
+     "position": [
+      12.8,
+      0.0,
+      -6.85
+     ],
+     "yaw": 1.5708,
+     "cell": [
+      107,
+      8
+     ],
+     "sit": true,
+     "pose": "desk"
+    },
+    {
+     "position": [
+      12.875,
+      0.0,
+      -7.625
+     ],
+     "yaw": 2.4228,
+     "cell": [
+      107,
+      5
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      12.875,
+      0.0,
+      -6.125
+     ],
+     "yaw": 0.7188,
+     "cell": [
+      107,
+      11
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      13.375,
+      0.0,
+      -7.375
+     ],
+     "yaw": 1.9333,
+     "cell": [
+      109,
+      6
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      13.375,
+      0.0,
+      -6.375
+     ],
+     "yaw": 1.2083,
+     "cell": [
+      109,
+      10
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      13.375,
+      0.0,
+      -6.875
+     ],
+     "yaw": 1.5708,
+     "cell": [
+      109,
+      8
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "zone_ceo",
+   "kind": "workspace",
+   "owner": "ceo",
+   "name": "CEO的工作區",
+   "aliases": [
+    "CEO desk",
+    "CEO workspace",
+    "CEO 辦公室",
+    "CEO's desk",
+    "CEO工作區",
+    "CEO的工作區",
+    "CEO辦公室",
+    "boss desk",
+    "boss workspace",
+    "boss's desk",
+    "boss工作區",
+    "boss的工作區",
+    "ceo desk",
+    "ceo office",
+    "ceo workspace",
+    "ceo's desk",
+    "ceo工作區",
+    "ceo的工作區",
+    "office",
+    "zone ceo",
+    "zone_ceo",
+    "執行長 desk",
+    "執行長 workspace",
+    "執行長's desk",
+    "執行長工作區",
+    "執行長的工作區",
+    "老闆 desk",
+    "老闆 workspace",
+    "老闆's desk",
+    "老闆工作區",
+    "老闆的工作區",
+    "老闆辦公室"
+   ],
+   "position": [
+    12.875,
+    0.0,
+    -7.625
+   ],
+   "yaw": 2.4228,
+   "center": [
+    11.25,
+    0.0,
+    -6.25
+   ],
+   "spots": [
+    {
+     "position": [
+      12.875,
+      0.0,
+      -7.625
+     ],
+     "yaw": 2.4228,
+     "cell": [
+      107,
+      5
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      12.875,
+      0.0,
+      -6.125
+     ],
+     "yaw": 0.7188,
+     "cell": [
+      107,
+      11
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      13.375,
+      0.0,
+      -7.375
+     ],
+     "yaw": 1.9333,
+     "cell": [
+      109,
+      6
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      13.375,
+      0.0,
+      -6.375
+     ],
+     "yaw": 1.2083,
+     "cell": [
+      109,
+      10
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      13.375,
+      0.0,
+      -6.875
+     ],
+     "yaw": 1.5708,
+     "cell": [
+      109,
+      8
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      12.8,
+      0.0,
+      -6.85
+     ],
+     "yaw": 1.5708,
+     "cell": [
+      107,
+      8
+     ],
+     "sit": true,
+     "pose": "desk"
+    }
+   ]
+  },
+  {
+   "id": "seat_product-manager",
+   "kind": "seat",
+   "owner": "product-manager",
+   "name": "產品經理的座位",
+   "aliases": [
+    "PM seat",
+    "PM's seat",
+    "PM座位",
+    "PM的位子",
+    "PM的座位",
+    "pm seat",
+    "pm's seat",
+    "pm座位",
+    "pm的位子",
+    "pm的座位",
+    "product-manager seat",
+    "product-manager's seat",
+    "product-manager座位",
+    "product-manager的位子",
+    "product-manager的座位",
+    "seat product-manager",
+    "seat_product-manager",
+    "產品 seat",
+    "產品's seat",
+    "產品座位",
+    "產品的位子",
+    "產品的座位",
+    "產品經理 seat",
+    "產品經理's seat",
+    "產品經理座位",
+    "產品經理的位子",
+    "產品經理的座位"
+   ],
+   "position": [
+    0.0,
+    0.0,
+    -5.1
+   ],
+   "yaw": -0.0,
+   "sit": true,
+   "spots": [
+    {
+     "position": [
+      0.0,
+      0.0,
+      -5.1
+     ],
+     "yaw": -0.0,
+     "cell": [
+      56,
+      15
+     ],
+     "sit": true,
+     "pose": "desk"
+    },
+    {
+     "position": [
+      0.875,
+      0.0,
+      -4.875
+     ],
+     "yaw": 0.852,
+     "cell": [
+      59,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.875,
+      0.0,
+      -4.875
+     ],
+     "yaw": -0.852,
+     "cell": [
+      52,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.625,
+      0.0,
+      -4.125
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      58,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.625,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      53,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.125,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.0,
+     "cell": [
+      56,
+      19
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "zone_product-manager",
+   "kind": "workspace",
+   "owner": "product-manager",
+   "name": "產品經理的工作區",
+   "aliases": [
+    "PM desk",
+    "PM workspace",
+    "PM's desk",
+    "PM工作區",
+    "PM的工作區",
+    "kanban",
+    "pm desk",
+    "pm workspace",
+    "pm's desk",
+    "pm工作區",
+    "pm的工作區",
+    "product-manager desk",
+    "product-manager workspace",
+    "product-manager's desk",
+    "product-manager工作區",
+    "product-manager的工作區",
+    "zone product-manager",
+    "zone_product-manager",
+    "產品 desk",
+    "產品 workspace",
+    "產品's desk",
+    "產品工作區",
+    "產品的工作區",
+    "產品經理 desk",
+    "產品經理 workspace",
+    "產品經理's desk",
+    "產品經理工作區",
+    "產品經理的工作區",
+    "看板"
+   ],
+   "position": [
+    0.875,
+    0.0,
+    -4.875
+   ],
+   "yaw": 0.852,
+   "center": [
+    0.0,
+    0.0,
+    -5.4
+   ],
+   "spots": [
+    {
+     "position": [
+      0.875,
+      0.0,
+      -4.875
+     ],
+     "yaw": 0.852,
+     "cell": [
+      59,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.875,
+      0.0,
+      -4.875
+     ],
+     "yaw": -0.852,
+     "cell": [
+      52,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.625,
+      0.0,
+      -4.125
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      58,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.625,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      53,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.125,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.0,
+     "cell": [
+      56,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.0,
+      0.0,
+      -5.1
+     ],
+     "yaw": -0.0,
+     "cell": [
+      56,
+      15
+     ],
+     "sit": true,
+     "pose": "desk"
+    }
+   ]
+  },
+  {
+   "id": "seat_engineer",
+   "kind": "seat",
+   "owner": "engineer",
+   "name": "工程師的座位",
+   "aliases": [
+    "dev seat",
+    "dev's seat",
+    "developer seat",
+    "developer's seat",
+    "developer座位",
+    "developer的位子",
+    "developer的座位",
+    "dev座位",
+    "dev的位子",
+    "dev的座位",
+    "eng seat",
+    "eng's seat",
+    "engineer seat",
+    "engineer's seat",
+    "engineer座位",
+    "engineer的位子",
+    "engineer的座位",
+    "eng座位",
+    "eng的位子",
+    "eng的座位",
+    "seat engineer",
+    "seat_engineer",
+    "工程 seat",
+    "工程's seat",
+    "工程師 seat",
+    "工程師's seat",
+    "工程師座位",
+    "工程師的位子",
+    "工程師的座位",
+    "工程座位",
+    "工程的位子",
+    "工程的座位"
+   ],
+   "position": [
+    5.0,
+    0.0,
+    -5.1
+   ],
+   "yaw": -0.0,
+   "sit": true,
+   "spots": [
+    {
+     "position": [
+      5.0,
+      0.0,
+      -5.1
+     ],
+     "yaw": -0.0,
+     "cell": [
+      76,
+      15
+     ],
+     "sit": true,
+     "pose": "desk"
+    },
+    {
+     "position": [
+      5.875,
+      0.0,
+      -4.875
+     ],
+     "yaw": 0.852,
+     "cell": [
+      79,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      4.125,
+      0.0,
+      -4.875
+     ],
+     "yaw": -0.852,
+     "cell": [
+      72,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.625,
+      0.0,
+      -4.125
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      78,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      4.375,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      73,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.125,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.0,
+     "cell": [
+      76,
+      19
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "zone_engineer",
+   "kind": "workspace",
+   "owner": "engineer",
+   "name": "工程師的工作區",
+   "aliases": [
+    "dev desk",
+    "dev workspace",
+    "dev's desk",
+    "developer desk",
+    "developer workspace",
+    "developer's desk",
+    "developer工作區",
+    "developer的工作區",
+    "dev工作區",
+    "dev的工作區",
+    "eng desk",
+    "eng workspace",
+    "eng's desk",
+    "engineer desk",
+    "engineer workspace",
+    "engineer's desk",
+    "engineer工作區",
+    "engineer的工作區",
+    "eng工作區",
+    "eng的工作區",
+    "server rack",
+    "zone engineer",
+    "zone_engineer",
+    "伺服器",
+    "工程 desk",
+    "工程 workspace",
+    "工程's desk",
+    "工程工作區",
+    "工程師 desk",
+    "工程師 workspace",
+    "工程師's desk",
+    "工程師工作區",
+    "工程師的工作區",
+    "工程的工作區"
+   ],
+   "position": [
+    5.875,
+    0.0,
+    -4.875
+   ],
+   "yaw": 0.852,
+   "center": [
+    5.0,
+    0.0,
+    -5.4
+   ],
+   "spots": [
+    {
+     "position": [
+      5.875,
+      0.0,
+      -4.875
+     ],
+     "yaw": 0.852,
+     "cell": [
+      79,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      4.125,
+      0.0,
+      -4.875
+     ],
+     "yaw": -0.852,
+     "cell": [
+      72,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.625,
+      0.0,
+      -4.125
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      78,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      4.375,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      73,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.125,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.0,
+     "cell": [
+      76,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.0,
+      0.0,
+      -5.1
+     ],
+     "yaw": -0.0,
+     "cell": [
+      76,
+      15
+     ],
+     "sit": true,
+     "pose": "desk"
+    }
+   ]
+  },
+  {
+   "id": "seat_course-dev",
+   "kind": "seat",
+   "owner": "course-dev",
+   "name": "課程開發的座位",
+   "aliases": [
+    "course seat",
+    "course's seat",
+    "course-dev seat",
+    "course-dev's seat",
+    "course-dev座位",
+    "course-dev的位子",
+    "course-dev的座位",
+    "coursedev seat",
+    "coursedev's seat",
+    "coursedev座位",
+    "coursedev的位子",
+    "coursedev的座位",
+    "course座位",
+    "course的位子",
+    "course的座位",
+    "seat course-dev",
+    "seat_course-dev",
+    "課程 seat",
+    "課程's seat",
+    "課程座位",
+    "課程的位子",
+    "課程的座位",
+    "課程開發 seat",
+    "課程開發's seat",
+    "課程開發座位",
+    "課程開發的位子",
+    "課程開發的座位",
+    "課程開發者 seat",
+    "課程開發者's seat",
+    "課程開發者座位",
+    "課程開發者的位子",
+    "課程開發者的座位"
+   ],
+   "position": [
+    -5.0,
+    0.0,
+    -5.1
+   ],
+   "yaw": -0.0,
+   "sit": true,
+   "spots": [
+    {
+     "position": [
+      -5.0,
+      0.0,
+      -5.1
+     ],
+     "yaw": -0.0,
+     "cell": [
+      36,
+      15
+     ],
+     "sit": true,
+     "pose": "desk"
+    },
+    {
+     "position": [
+      -4.125,
+      0.0,
+      -4.875
+     ],
+     "yaw": 0.852,
+     "cell": [
+      39,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.875,
+      0.0,
+      -4.875
+     ],
+     "yaw": -0.852,
+     "cell": [
+      32,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -4.375,
+      0.0,
+      -4.125
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      38,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.625,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      33,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -4.875,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.0,
+     "cell": [
+      36,
+      19
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "zone_course-dev",
+   "kind": "workspace",
+   "owner": "course-dev",
+   "name": "課程開發的工作區",
+   "aliases": [
+    "bookshelf",
+    "course desk",
+    "course workspace",
+    "course's desk",
+    "course-dev desk",
+    "course-dev workspace",
+    "course-dev's desk",
+    "course-dev工作區",
+    "course-dev的工作區",
+    "coursedev desk",
+    "coursedev workspace",
+    "coursedev's desk",
+    "coursedev工作區",
+    "coursedev的工作區",
+    "course工作區",
+    "course的工作區",
+    "zone course-dev",
+    "zone_course-dev",
+    "書架",
+    "課程 desk",
+    "課程 workspace",
+    "課程's desk",
+    "課程工作區",
+    "課程的工作區",
+    "課程開發 desk",
+    "課程開發 workspace",
+    "課程開發's desk",
+    "課程開發工作區",
+    "課程開發的工作區",
+    "課程開發者 desk",
+    "課程開發者 workspace",
+    "課程開發者's desk",
+    "課程開發者工作區",
+    "課程開發者的工作區"
+   ],
+   "position": [
+    -4.125,
+    0.0,
+    -4.875
+   ],
+   "yaw": 0.852,
+   "center": [
+    -5.0,
+    0.0,
+    -5.4
+   ],
+   "spots": [
+    {
+     "position": [
+      -4.125,
+      0.0,
+      -4.875
+     ],
+     "yaw": 0.852,
+     "cell": [
+      39,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.875,
+      0.0,
+      -4.875
+     ],
+     "yaw": -0.852,
+     "cell": [
+      32,
+      16
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -4.375,
+      0.0,
+      -4.125
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      38,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.625,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      33,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -4.875,
+      0.0,
+      -4.125
+     ],
+     "yaw": -0.0,
+     "cell": [
+      36,
+      19
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.0,
+      0.0,
+      -5.1
+     ],
+     "yaw": -0.0,
+     "cell": [
+      36,
+      15
+     ],
+     "sit": true,
+     "pose": "desk"
+    }
+   ]
+  },
+  {
+   "id": "seat_narrator",
+   "kind": "seat",
+   "owner": "narrator",
+   "name": "旁白製作的座位",
+   "aliases": [
+    "narrator seat",
+    "narrator's seat",
+    "narrator座位",
+    "narrator的位子",
+    "narrator的座位",
+    "seat narrator",
+    "seat_narrator",
+    "voice seat",
+    "voice's seat",
+    "voice座位",
+    "voice的位子",
+    "voice的座位",
+    "旁白 seat",
+    "旁白's seat",
+    "旁白座位",
+    "旁白的位子",
+    "旁白的座位",
+    "旁白製作 seat",
+    "旁白製作's seat",
+    "旁白製作座位",
+    "旁白製作的位子",
+    "旁白製作的座位",
+    "配音 seat",
+    "配音's seat",
+    "配音座位",
+    "配音的位子",
+    "配音的座位"
+   ],
+   "position": [
+    12.25,
+    0.0,
+    -0.2
+   ],
+   "yaw": -1.5708,
+   "sit": true,
+   "spots": [
+    {
+     "position": [
+      12.25,
+      0.0,
+      -0.2
+     ],
+     "yaw": -1.5708,
+     "cell": [
+      105,
+      35
+     ],
+     "sit": true,
+     "pose": "desk"
+    },
+    {
+     "position": [
+      12.125,
+      0.0,
+      0.625
+     ],
+     "yaw": -0.7188,
+     "cell": [
+      104,
+      38
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      12.125,
+      0.0,
+      -1.125
+     ],
+     "yaw": -2.4228,
+     "cell": [
+      104,
+      31
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      11.375,
+      0.0,
+      0.375
+     ],
+     "yaw": -1.2083,
+     "cell": [
+      101,
+      37
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      11.375,
+      0.0,
+      -0.875
+     ],
+     "yaw": -1.9333,
+     "cell": [
+      101,
+      32
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      11.375,
+      0.0,
+      -0.125
+     ],
+     "yaw": -1.5708,
+     "cell": [
+      101,
+      35
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "zone_narrator",
+   "kind": "workspace",
+   "owner": "narrator",
+   "name": "旁白製作的工作區",
+   "aliases": [
+    "booth",
+    "narrator desk",
+    "narrator workspace",
+    "narrator's desk",
+    "narrator工作區",
+    "narrator的工作區",
+    "recording booth",
+    "studio",
+    "voice desk",
+    "voice workspace",
+    "voice's desk",
+    "voice工作區",
+    "voice的工作區",
+    "zone narrator",
+    "zone_narrator",
+    "旁白 desk",
+    "旁白 workspace",
+    "旁白's desk",
+    "旁白工作區",
+    "旁白的工作區",
+    "旁白製作 desk",
+    "旁白製作 workspace",
+    "旁白製作's desk",
+    "旁白製作工作區",
+    "旁白製作的工作區",
+    "配音 desk",
+    "配音 workspace",
+    "配音's desk",
+    "配音工作區",
+    "配音的工作區",
+    "錄音室",
+    "錄音間"
+   ],
+   "position": [
+    12.125,
+    0.0,
+    0.625
+   ],
+   "yaw": -0.7188,
+   "center": [
+    12.0,
+    0.0,
+    -0.0
+   ],
+   "spots": [
+    {
+     "position": [
+      12.125,
+      0.0,
+      0.625
+     ],
+     "yaw": -0.7188,
+     "cell": [
+      104,
+      38
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      12.125,
+      0.0,
+      -1.125
+     ],
+     "yaw": -2.4228,
+     "cell": [
+      104,
+      31
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      11.375,
+      0.0,
+      0.375
+     ],
+     "yaw": -1.2083,
+     "cell": [
+      101,
+      37
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      11.375,
+      0.0,
+      -0.875
+     ],
+     "yaw": -1.9333,
+     "cell": [
+      101,
+      32
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      11.375,
+      0.0,
+      -0.125
+     ],
+     "yaw": -1.5708,
+     "cell": [
+      101,
+      35
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      12.25,
+      0.0,
+      -0.2
+     ],
+     "yaw": -1.5708,
+     "cell": [
+      105,
+      35
+     ],
+     "sit": true,
+     "pose": "desk"
+    }
+   ]
+  },
+  {
+   "id": "seat_marketing",
+   "kind": "seat",
+   "owner": "marketing",
+   "name": "行銷的座位",
+   "aliases": [
+    "marketer seat",
+    "marketer's seat",
+    "marketer座位",
+    "marketer的位子",
+    "marketer的座位",
+    "marketing seat",
+    "marketing's seat",
+    "marketing座位",
+    "marketing的位子",
+    "marketing的座位",
+    "mkt seat",
+    "mkt's seat",
+    "mkt座位",
+    "mkt的位子",
+    "mkt的座位",
+    "seat marketing",
+    "seat_marketing",
+    "行銷 seat",
+    "行銷's seat",
+    "行銷人員 seat",
+    "行銷人員's seat",
+    "行銷人員座位",
+    "行銷人員的位子",
+    "行銷人員的座位",
+    "行銷座位",
+    "行銷的位子",
+    "行銷的座位"
+   ],
+   "position": [
+    -5.0,
+    0.0,
+    0.9
+   ],
+   "yaw": -0.0,
+   "sit": true,
+   "spots": [
+    {
+     "position": [
+      -5.0,
+      0.0,
+      0.9
+     ],
+     "yaw": -0.0,
+     "cell": [
+      36,
+      39
+     ],
+     "sit": true,
+     "pose": "desk"
+    },
+    {
+     "position": [
+      -4.125,
+      0.0,
+      1.125
+     ],
+     "yaw": 0.852,
+     "cell": [
+      39,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.875,
+      0.0,
+      1.125
+     ],
+     "yaw": -0.852,
+     "cell": [
+      32,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -4.375,
+      0.0,
+      1.875
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      38,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.625,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      33,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -4.875,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.0,
+     "cell": [
+      36,
+      43
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "zone_marketing",
+   "kind": "workspace",
+   "owner": "marketing",
+   "name": "行銷的工作區",
+   "aliases": [
+    "marketer desk",
+    "marketer workspace",
+    "marketer's desk",
+    "marketer工作區",
+    "marketer的工作區",
+    "marketing desk",
+    "marketing workspace",
+    "marketing's desk",
+    "marketing工作區",
+    "marketing的工作區",
+    "mkt desk",
+    "mkt workspace",
+    "mkt's desk",
+    "mkt工作區",
+    "mkt的工作區",
+    "posters",
+    "zone marketing",
+    "zone_marketing",
+    "海報牆",
+    "行銷 desk",
+    "行銷 workspace",
+    "行銷's desk",
+    "行銷人員 desk",
+    "行銷人員 workspace",
+    "行銷人員's desk",
+    "行銷人員工作區",
+    "行銷人員的工作區",
+    "行銷工作區",
+    "行銷的工作區"
+   ],
+   "position": [
+    -4.125,
+    0.0,
+    1.125
+   ],
+   "yaw": 0.852,
+   "center": [
+    -5.0,
+    0.0,
+    0.6
+   ],
+   "spots": [
+    {
+     "position": [
+      -4.125,
+      0.0,
+      1.125
+     ],
+     "yaw": 0.852,
+     "cell": [
+      39,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.875,
+      0.0,
+      1.125
+     ],
+     "yaw": -0.852,
+     "cell": [
+      32,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -4.375,
+      0.0,
+      1.875
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      38,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.625,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      33,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -4.875,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.0,
+     "cell": [
+      36,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -5.0,
+      0.0,
+      0.9
+     ],
+     "yaw": -0.0,
+     "cell": [
+      36,
+      39
+     ],
+     "sit": true,
+     "pose": "desk"
+    }
+   ]
+  },
+  {
+   "id": "seat_visitor-analyst",
+   "kind": "seat",
+   "owner": "visitor-analyst",
+   "name": "訪客分析師的座位",
+   "aliases": [
+    "analyst seat",
+    "analyst's seat",
+    "analyst座位",
+    "analyst的位子",
+    "analyst的座位",
+    "seat visitor-analyst",
+    "seat_visitor-analyst",
+    "visitor-analyst seat",
+    "visitor-analyst's seat",
+    "visitor-analyst座位",
+    "visitor-analyst的位子",
+    "visitor-analyst的座位",
+    "分析師 seat",
+    "分析師's seat",
+    "分析師座位",
+    "分析師的位子",
+    "分析師的座位",
+    "數據 seat",
+    "數據's seat",
+    "數據座位",
+    "數據的位子",
+    "數據的座位",
+    "訪客分析 seat",
+    "訪客分析's seat",
+    "訪客分析師 seat",
+    "訪客分析師's seat",
+    "訪客分析師座位",
+    "訪客分析師的位子",
+    "訪客分析師的座位",
+    "訪客分析座位",
+    "訪客分析的位子",
+    "訪客分析的座位"
+   ],
+   "position": [
+    5.0,
+    0.0,
+    0.9
+   ],
+   "yaw": -0.0,
+   "sit": true,
+   "spots": [
+    {
+     "position": [
+      5.0,
+      0.0,
+      0.9
+     ],
+     "yaw": -0.0,
+     "cell": [
+      76,
+      39
+     ],
+     "sit": true,
+     "pose": "desk"
+    },
+    {
+     "position": [
+      5.875,
+      0.0,
+      1.125
+     ],
+     "yaw": 0.852,
+     "cell": [
+      79,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      4.125,
+      0.0,
+      1.125
+     ],
+     "yaw": -0.852,
+     "cell": [
+      72,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.625,
+      0.0,
+      1.875
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      78,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      4.375,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      73,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.125,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.0,
+     "cell": [
+      76,
+      43
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "zone_visitor-analyst",
+   "kind": "workspace",
+   "owner": "visitor-analyst",
+   "name": "訪客分析師的工作區",
+   "aliases": [
+    "analyst desk",
+    "analyst workspace",
+    "analyst's desk",
+    "analyst工作區",
+    "analyst的工作區",
+    "dashboard",
+    "visitor-analyst desk",
+    "visitor-analyst workspace",
+    "visitor-analyst's desk",
+    "visitor-analyst工作區",
+    "visitor-analyst的工作區",
+    "zone visitor-analyst",
+    "zone_visitor-analyst",
+    "儀表板",
+    "分析師 desk",
+    "分析師 workspace",
+    "分析師's desk",
+    "分析師工作區",
+    "分析師的工作區",
+    "數據 desk",
+    "數據 workspace",
+    "數據's desk",
+    "數據工作區",
+    "數據的工作區",
+    "訪客分析 desk",
+    "訪客分析 workspace",
+    "訪客分析's desk",
+    "訪客分析工作區",
+    "訪客分析師 desk",
+    "訪客分析師 workspace",
+    "訪客分析師's desk",
+    "訪客分析師工作區",
+    "訪客分析師的工作區",
+    "訪客分析的工作區"
+   ],
+   "position": [
+    5.875,
+    0.0,
+    1.125
+   ],
+   "yaw": 0.852,
+   "center": [
+    5.0,
+    0.0,
+    0.6
+   ],
+   "spots": [
+    {
+     "position": [
+      5.875,
+      0.0,
+      1.125
+     ],
+     "yaw": 0.852,
+     "cell": [
+      79,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      4.125,
+      0.0,
+      1.125
+     ],
+     "yaw": -0.852,
+     "cell": [
+      72,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.625,
+      0.0,
+      1.875
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      78,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      4.375,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      73,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.125,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.0,
+     "cell": [
+      76,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      5.0,
+      0.0,
+      0.9
+     ],
+     "yaw": -0.0,
+     "cell": [
+      76,
+      39
+     ],
+     "sit": true,
+     "pose": "desk"
+    }
+   ]
+  },
+  {
+   "id": "seat_triager",
+   "kind": "seat",
+   "owner": "triager",
+   "name": "Issue 整理員的座位",
+   "aliases": [
+    "Issue 整理員 seat",
+    "Issue 整理員's seat",
+    "Issue 整理員座位",
+    "Issue 整理員的位子",
+    "Issue 整理員的座位",
+    "issue seat",
+    "issue's seat",
+    "issue座位",
+    "issue整理員 seat",
+    "issue整理員's seat",
+    "issue整理員座位",
+    "issue整理員的位子",
+    "issue整理員的座位",
+    "issue的位子",
+    "issue的座位",
+    "seat triager",
+    "seat_triager",
+    "triage seat",
+    "triage's seat",
+    "triager seat",
+    "triager's seat",
+    "triager座位",
+    "triager的位子",
+    "triager的座位",
+    "triage座位",
+    "triage的位子",
+    "triage的座位",
+    "整理員 seat",
+    "整理員's seat",
+    "整理員座位",
+    "整理員的位子",
+    "整理員的座位"
+   ],
+   "position": [
+    0.0,
+    0.0,
+    0.9
+   ],
+   "yaw": -0.0,
+   "sit": true,
+   "spots": [
+    {
+     "position": [
+      0.0,
+      0.0,
+      0.9
+     ],
+     "yaw": -0.0,
+     "cell": [
+      56,
+      39
+     ],
+     "sit": true,
+     "pose": "desk"
+    },
+    {
+     "position": [
+      0.875,
+      0.0,
+      1.125
+     ],
+     "yaw": 0.852,
+     "cell": [
+      59,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.875,
+      0.0,
+      1.125
+     ],
+     "yaw": -0.852,
+     "cell": [
+      52,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.625,
+      0.0,
+      1.875
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      58,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.625,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      53,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.125,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.0,
+     "cell": [
+      56,
+      43
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "zone_triager",
+   "kind": "workspace",
+   "owner": "triager",
+   "name": "Issue 整理員的工作區",
+   "aliases": [
+    "Issue 整理員 desk",
+    "Issue 整理員 workspace",
+    "Issue 整理員's desk",
+    "Issue 整理員工作區",
+    "Issue 整理員的工作區",
+    "inbox",
+    "issue desk",
+    "issue workspace",
+    "issue's desk",
+    "issue工作區",
+    "issue整理員 desk",
+    "issue整理員 workspace",
+    "issue整理員's desk",
+    "issue整理員工作區",
+    "issue整理員的工作區",
+    "issue的工作區",
+    "triage desk",
+    "triage workspace",
+    "triage's desk",
+    "triager desk",
+    "triager workspace",
+    "triager's desk",
+    "triager工作區",
+    "triager的工作區",
+    "triage工作區",
+    "triage的工作區",
+    "zone triager",
+    "zone_triager",
+    "分類櫃",
+    "整理員 desk",
+    "整理員 workspace",
+    "整理員's desk",
+    "整理員工作區",
+    "整理員的工作區"
+   ],
+   "position": [
+    0.875,
+    0.0,
+    1.125
+   ],
+   "yaw": 0.852,
+   "center": [
+    0.0,
+    0.0,
+    0.6
+   ],
+   "spots": [
+    {
+     "position": [
+      0.875,
+      0.0,
+      1.125
+     ],
+     "yaw": 0.852,
+     "cell": [
+      59,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.875,
+      0.0,
+      1.125
+     ],
+     "yaw": -0.852,
+     "cell": [
+      52,
+      40
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.625,
+      0.0,
+      1.875
+     ],
+     "yaw": 0.3625,
+     "cell": [
+      58,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.625,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.3625,
+     "cell": [
+      53,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.125,
+      0.0,
+      1.875
+     ],
+     "yaw": -0.0,
+     "cell": [
+      56,
+      43
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.0,
+      0.0,
+      0.9
+     ],
+     "yaw": -0.0,
+     "cell": [
+      56,
+      39
+     ],
+     "sit": true,
+     "pose": "desk"
+    }
+   ]
+  },
+  {
+   "id": "meeting",
+   "kind": "shared",
+   "name": "會議室",
+   "aliases": [
+    "會議室",
+    "會議",
+    "開會",
+    "meeting",
+    "meeting room",
+    "conference",
+    "conference room",
+    "zone_meeting"
+   ],
+   "position": [
+    -12.45,
+    0.0,
+    -5.32
+   ],
+   "yaw": -0.0,
+   "center": [
+    -11.05,
+    0.0,
+    -6.25
+   ],
+   "spots": [
+    {
+     "position": [
+      -12.45,
+      0.0,
+      -5.32
+     ],
+     "yaw": -0.0,
+     "cell": [
+      6,
+      14
+     ],
+     "sit": true,
+     "pose": "chair"
+    },
+    {
+     "position": [
+      -12.45,
+      0.0,
+      -7.18
+     ],
+     "yaw": -3.1416,
+     "cell": [
+      6,
+      7
+     ],
+     "sit": true,
+     "pose": "chair"
+    },
+    {
+     "position": [
+      -11.35,
+      0.0,
+      -5.32
+     ],
+     "yaw": -0.0,
+     "cell": [
+      10,
+      14
+     ],
+     "sit": true,
+     "pose": "chair"
+    },
+    {
+     "position": [
+      -11.35,
+      0.0,
+      -7.18
+     ],
+     "yaw": -3.1416,
+     "cell": [
+      10,
+      7
+     ],
+     "sit": true,
+     "pose": "chair"
+    },
+    {
+     "position": [
+      -10.25,
+      0.0,
+      -5.32
+     ],
+     "yaw": -0.0,
+     "cell": [
+      15,
+      14
+     ],
+     "sit": true,
+     "pose": "chair"
+    },
+    {
+     "position": [
+      -10.25,
+      0.0,
+      -7.18
+     ],
+     "yaw": -3.1416,
+     "cell": [
+      15,
+      7
+     ],
+     "sit": true,
+     "pose": "chair"
+    },
+    {
+     "position": [
+      -13.33,
+      0.0,
+      -6.25
+     ],
+     "yaw": -1.5708,
+     "cell": [
+      2,
+      10
+     ],
+     "sit": true,
+     "pose": "chair"
+    }
+   ]
+  },
+  {
+   "id": "commons",
+   "kind": "shared",
+   "name": "西側公共角落",
+   "aliases": [
+    "西側公共角落",
+    "公共角落",
+    "公共區",
+    "公共區域",
+    "圓桌",
+    "commons",
+    "common area",
+    "west corner",
+    "zone_commons"
+   ],
+   "position": [
+    -9.698,
+    0.0,
+    1.448
+   ],
+   "yaw": 2.3562,
+   "center": [
+    -10.25,
+    0.0,
+    2.0
+   ],
+   "spots": [
+    {
+     "position": [
+      -9.698,
+      0.0,
+      1.448
+     ],
+     "yaw": 2.3562,
+     "cell": [
+      17,
+      41
+     ],
+     "sit": true,
+     "pose": "chair"
+    },
+    {
+     "position": [
+      -10.802,
+      0.0,
+      1.448
+     ],
+     "yaw": -2.3562,
+     "cell": [
+      12,
+      41
+     ],
+     "sit": true,
+     "pose": "chair"
+    },
+    {
+     "position": [
+      -10.802,
+      0.0,
+      2.552
+     ],
+     "yaw": -0.7854,
+     "cell": [
+      12,
+      46
+     ],
+     "sit": true,
+     "pose": "chair"
+    },
+    {
+     "position": [
+      -9.698,
+      0.0,
+      2.552
+     ],
+     "yaw": 0.7854,
+     "cell": [
+      17,
+      46
+     ],
+     "sit": true,
+     "pose": "chair"
+    }
+   ]
+  },
+  {
+   "id": "printer",
+   "kind": "shared",
+   "name": "印表機",
+   "aliases": [
+    "印表機",
+    "影印機",
+    "printer",
+    "copier"
+   ],
+   "position": [
+    -12.625,
+    0.0,
+    4.625
+   ],
+   "yaw": 1.6476,
+   "center": [
+    -13.6,
+    0.0,
+    4.7
+   ],
+   "spots": [
+    {
+     "position": [
+      -12.625,
+      0.0,
+      4.625
+     ],
+     "yaw": 1.6476,
+     "cell": [
+      5,
+      54
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -12.625,
+      0.0,
+      5.375
+     ],
+     "yaw": 0.9653,
+     "cell": [
+      5,
+      57
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -12.625,
+      0.0,
+      3.875
+     ],
+     "yaw": 2.2731,
+     "cell": [
+      5,
+      51
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "pantry",
+   "kind": "shared",
+   "name": "茶水間",
+   "aliases": [
+    "茶水間",
+    "吧台",
+    "咖啡",
+    "咖啡機",
+    "喝咖啡",
+    "pantry",
+    "kitchen",
+    "coffee",
+    "bar"
+   ],
+   "position": [
+    11.1,
+    0.0,
+    5.4
+   ],
+   "yaw": -1.5708,
+   "center": [
+    11.65,
+    0.0,
+    6.05
+   ],
+   "spots": [
+    {
+     "position": [
+      11.1,
+      0.0,
+      5.4
+     ],
+     "yaw": -1.5708,
+     "cell": [
+      100,
+      57
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      11.1,
+      0.0,
+      6.05
+     ],
+     "yaw": -1.5708,
+     "cell": [
+      100,
+      60
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      11.1,
+      0.0,
+      6.7
+     ],
+     "yaw": -1.5708,
+     "cell": [
+      100,
+      62
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      12.2,
+      0.0,
+      5.4
+     ],
+     "yaw": 1.5708,
+     "cell": [
+      104,
+      57
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      12.2,
+      0.0,
+      6.05
+     ],
+     "yaw": 1.5708,
+     "cell": [
+      104,
+      60
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      12.2,
+      0.0,
+      6.7
+     ],
+     "yaw": 1.5708,
+     "cell": [
+      104,
+      62
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "lounge",
+   "kind": "shared",
+   "name": "休息區",
+   "aliases": [
+    "休息區",
+    "休息",
+    "沙發",
+    "lounge",
+    "rest area",
+    "sofa",
+    "zone_lounge"
+   ],
+   "position": [
+    9.875,
+    0.0,
+    6.375
+   ],
+   "yaw": 3.1212,
+   "center": [
+    9.85,
+    0.0,
+    7.6
+   ],
+   "spots": [
+    {
+     "position": [
+      9.875,
+      0.0,
+      6.375
+     ],
+     "yaw": 3.1212,
+     "cell": [
+      95,
+      61
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      8.625,
+      0.0,
+      7.375
+     ],
+     "yaw": -1.7524,
+     "cell": [
+      90,
+      65
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      9.125,
+      0.0,
+      6.375
+     ],
+     "yaw": -2.6072,
+     "cell": [
+      92,
+      61
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      10.625,
+      0.0,
+      6.375
+     ],
+     "yaw": 2.5775,
+     "cell": [
+      98,
+      61
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      10.625,
+      0.0,
+      7.625
+     ],
+     "yaw": 1.5385,
+     "cell": [
+      98,
+      66
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      11.375,
+      0.0,
+      7.625
+     ],
+     "yaw": 1.5544,
+     "cell": [
+      101,
+      66
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "reception",
+   "kind": "shared",
+   "name": "入口櫃台",
+   "aliases": [
+    "入口櫃台",
+    "櫃台",
+    "櫃檯",
+    "入口櫃檯",
+    "接待",
+    "接待處",
+    "reception",
+    "front desk",
+    "zone_reception"
+   ],
+   "position": [
+    1.375,
+    0.0,
+    7.875
+   ],
+   "yaw": 0.0,
+   "center": [
+    1.5,
+    0.0,
+    7.0
+   ],
+   "spots": [
+    {
+     "position": [
+      1.375,
+      0.0,
+      7.875
+     ],
+     "yaw": 0.0,
+     "cell": [
+      61,
+      67
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.875,
+      0.0,
+      7.875
+     ],
+     "yaw": 0.0,
+     "cell": [
+      59,
+      67
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      2.125,
+      0.0,
+      7.875
+     ],
+     "yaw": 0.0,
+     "cell": [
+      64,
+      67
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.125,
+      0.0,
+      7.875
+     ],
+     "yaw": 0.0,
+     "cell": [
+      56,
+      67
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      2.875,
+      0.0,
+      7.875
+     ],
+     "yaw": 0.0,
+     "cell": [
+      67,
+      67
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "entrance",
+   "kind": "shared",
+   "name": "入口",
+   "aliases": [
+    "入口",
+    "門口",
+    "大門",
+    "entrance",
+    "door",
+    "front door",
+    "exit"
+   ],
+   "position": [
+    1.375,
+    0.0,
+    8.125
+   ],
+   "yaw": -0.0154,
+   "center": [
+    1.5,
+    0.0,
+    9.0
+   ],
+   "spots": [
+    {
+     "position": [
+      1.375,
+      0.0,
+      8.125
+     ],
+     "yaw": -0.0154,
+     "cell": [
+      61,
+      68
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      2.125,
+      0.0,
+      8.125
+     ],
+     "yaw": 0.0768,
+     "cell": [
+      64,
+      68
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.625,
+      0.0,
+      8.125
+     ],
+     "yaw": -0.1073,
+     "cell": [
+      58,
+      68
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      2.875,
+      0.0,
+      8.125
+     ],
+     "yaw": 0.1676,
+     "cell": [
+      67,
+      68
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "window",
+   "kind": "shared",
+   "name": "窗邊",
+   "aliases": [
+    "窗邊",
+    "窗戶",
+    "落地窗",
+    "窗邊長椅",
+    "window",
+    "bench",
+    "window bench"
+   ],
+   "position": [
+    -2.625,
+    0.0,
+    -7.125
+   ],
+   "yaw": -0.0256,
+   "center": [
+    -2.5,
+    0.0,
+    -8.55
+   ],
+   "spots": [
+    {
+     "position": [
+      -2.625,
+      0.0,
+      -7.125
+     ],
+     "yaw": -0.0256,
+     "cell": [
+      45,
+      7
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -1.875,
+      0.0,
+      -7.375
+     ],
+     "yaw": 0.1343,
+     "cell": [
+      48,
+      6
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -3.375,
+      0.0,
+      -7.625
+     ],
+     "yaw": -0.1974,
+     "cell": [
+      42,
+      5
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -1.875,
+      0.0,
+      -6.625
+     ],
+     "yaw": 0.1158,
+     "cell": [
+      48,
+      9
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -1.125,
+      0.0,
+      -7.625
+     ],
+     "yaw": 0.3045,
+     "cell": [
+      51,
+      5
+     ],
+     "pose": "stand"
+    }
+   ]
+  },
+  {
+   "id": "center",
+   "kind": "shared",
+   "name": "中央走道",
+   "aliases": [
+    "中央走道",
+    "中間",
+    "中央",
+    "走道",
+    "center",
+    "middle",
+    "hall",
+    "hallway"
+   ],
+   "position": [
+    -0.125,
+    0.0,
+    -2.625
+   ],
+   "yaw": -1.7682,
+   "center": [
+    0.0,
+    0.0,
+    -2.6
+   ],
+   "spots": [
+    {
+     "position": [
+      -0.125,
+      0.0,
+      -2.625
+     ],
+     "yaw": -1.7682,
+     "cell": [
+      55,
+      25
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.625,
+      0.0,
+      -2.625
+     ],
+     "yaw": 1.6108,
+     "cell": [
+      58,
+      25
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.125,
+      0.0,
+      -1.875
+     ],
+     "yaw": -0.1707,
+     "cell": [
+      55,
+      28
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.125,
+      0.0,
+      -3.375
+     ],
+     "yaw": -2.9817,
+     "cell": [
+      55,
+      22
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      -0.875,
+      0.0,
+      -2.625
+     ],
+     "yaw": -1.5994,
+     "cell": [
+      52,
+      25
+     ],
+     "pose": "stand"
+    },
+    {
+     "position": [
+      0.625,
+      0.0,
+      -1.875
+     ],
+     "yaw": 0.7115,
+     "cell": [
+      58,
+      28
+     ],
+     "pose": "stand"
+    }
+   ]
+  }
+ ]
+}

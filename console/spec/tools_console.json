@@ -1,0 +1,75 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "虛擬辦公室:移動角色"
+    },
+    "description": "命令 3D 虛擬辦公室裡的角色移動。後端只下命令,由開著的檢視器(console 的 /office/ 頁面)尋路與走路,抵達後回報。action:goto 走到地點(或角色旁邊)、find 去找某個角色、return 回自己的座位、stop 停下;或只給 text(例如「工程師 去 會議室」「ceo 找 旁白」「全部 回座位」,多條用;分開,會拆成多個命令)。角色與地點會先驗證,不合法回錯誤。沒有檢視器連線時命令狀態是 no_viewer(不會執行,也不會之後補送)。wait 給秒數就等到全部抵達(或失敗、被取代、逾時)才回傳。角色 id 與地點 id 用 office_state 查。命令狀態:pending(還沒送出)、delivered(已送達檢視器)、running(走路中)、arrived(抵達)、done(stop 完成)、partial(部分失敗)、failed、superseded(被新命令取代)、no_viewer。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "goto、find、return、stop(給 text 時不用)",
+          "enum": [
+            "goto",
+            "find",
+            "return",
+            "stop"
+          ],
+          "type": "string"
+        },
+        "agents": {
+          "description": "角色 id 陣列(例如 [\"engineer\",\"ceo\"]);也接受中文名稱或別名,[\"all\"] 代表全部",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "target": {
+          "description": "goto:地點 id(例如 meeting、pantry、lounge、seat_ceo、zone_engineer)或角色 id(= find);find:角色 id。return、stop 不用",
+          "type": "string"
+        },
+        "text": {
+          "description": "自然語言命令(中英文都可以),給了就不要再給 action / agents / target",
+          "type": "string"
+        },
+        "wait": {
+          "description": "等抵達的秒數,0–120,預設 0(不等,馬上回傳命令 id 與狀態)",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "office_move",
+    "title": "虛擬辦公室:移動角色"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "虛擬辦公室:狀態"
+    },
+    "description": "3D 虛擬辦公室目前的狀態:連線中的檢視器(哪一個是主檢視器)、每個角色最後回報的位置/狀態(idle、walking、waiting、arrived)/是否坐著/所在地點、最近的命令與每個角色的命令狀態,以及可用的地點 id 與名稱。只讀。",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "只看這個命令 id 的狀態",
+          "type": "string"
+        },
+        "limit": {
+          "description": "最多列幾個最近的命令,預設 20,最多 200",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "office_state",
+    "title": "虛擬辦公室:狀態"
+  }
+]

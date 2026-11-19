@@ -87,12 +87,17 @@ func coreToolDefs() []any {
 	return out
 }
 
-// webToolDefs web 自己的工具定義(spec/tools.json)。和核心撞名的不收(以核心為準;測試 TestWebToolsDoNotShadowCore 會擋下)
+// webToolDefs web 自己的工具定義(spec/tools.json + spec/tools_console.json)。和核心撞名的不收(以核心為準;測試 TestWebToolsDoNotShadowCore 會擋下)
 func webToolDefs() ([]any, error) {
-	var all []any
+	var all, own []any
 	if err := json.Unmarshal(spec.ToolsJSON, &all); err != nil {
 		return nil, fmt.Errorf("spec/tools.json 讀不出來:%w", err)
 	}
+	// Go 版才有的工具(spec/tools_console.json,Swift 版沒有)接在後面
+	if err := json.Unmarshal(spec.ConsoleToolsJSON, &own); err != nil {
+		return nil, fmt.Errorf("spec/tools_console.json 讀不出來:%w", err)
+	}
+	all = append(all, own...)
 	out := []any{}
 	for _, d := range all {
 		m, ok := d.(map[string]any)

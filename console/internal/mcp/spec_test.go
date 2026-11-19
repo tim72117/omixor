@@ -116,6 +116,12 @@ func TestWebToolsDoNotShadowCore(t *testing.T) {
 	if len(all) == 0 {
 		t.Fatal("spec/tools.json 沒有工具")
 	}
+	// Go 版才有的工具(spec/tools_console.json)一樣不能撞名、不能和 tools.json 重複
+	var extra []map[string]any
+	if err := json.Unmarshal(spec.ConsoleToolsJSON, &extra); err != nil {
+		t.Fatal("spec/tools_console.json:", err)
+	}
+	all = append(all, extra...)
 	core := map[string]bool{}
 	for _, ct := range model.CoreTools {
 		core[ct.Name] = true

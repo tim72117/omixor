@@ -98,6 +98,39 @@ claude --dangerously-load-development-channels server:omixor-tasks
 - 第一次啟動會問要不要啟用 MCP 伺服器與開發頻道,都選同意。工作階段要一直開著才收得到;只能在終端機用,桌面 app 的 Code 分頁不支援 channels。
 - 頻道跟著 console 目前的組織(每次查詢重讀):console 晚開、中途換組織都跟得上,換組織時會先送一則新組織的待領清單。
 
+## 3D 虛擬辦公室(/office/)
+
+repo 最外層的 `office3d/`(three.js 檢視器)由 console 的畫面連接埠提供:開 http://127.0.0.1:5191/office/ 。
+**後端下命令、瀏覽器(檢視器)負責尋路與走路**,抵達後回報後端。程式在 `internal/office/`(Hub、命令解析、靜態檔)、
+`internal/web/office.go`(HTTP)、`internal/mcp/tools_office.go`(MCP)。
+
+| 環境變數 | 預設 | 說明 |
+|---|---|---|
+| `OMIXOR_OFFICE_DIR` | 依序找 `<執行檔>/../../office3d`、`<執行檔>/../office3d`、`<執行檔>/office3d`、`<工作目錄>/office3d`、`<工作目錄>/../office3d` | 有 `places.json` 才算找到。找不到只記 log:`/office/` 回 404、`/api/office/command` 回 503,console 照常啟動 |
+
+- 靜態檔每次從磁碟讀(不嵌進執行檔),只開放白名單:`office.glb`、`characters.glb`、`navgrid.json`、`places.json`、`viewer/index.html`、`viewer/js/<名稱>.js`;其他(.blend、.py、renders…)一律 404。用 `os.Root` 讀,`..` 與指到外面的符號連結都出不去。`/office/` 轉到 `/office/viewer/`。
+- `/api/office/…` 和其他 `/api` 一樣經過本機 Host / Origin 檢查、POST 要 `Content-Type: application/json`、啟用 LDAP 時要登入。
+
+### API
+
+| 方法與路徑 | 說明 |
+|---|---|
+| `POST /api/office/command` | `{"text":"工程師 去 會議室"}` 或 `{"action":"goto"\|"find"\|"return"\|"stop","agents":["engineer"],"target":"meeting"}`,可加 `"wait":秒數`(0–120,等抵達才回)。回 `{"result":{"id","ids","viewers","commands":[命令],"waited"?,"finished"?}}`;角色或地點不合法 400 `{"error"}`;找不到 office3d 503 |
+| `GET /api/office/events` | SSE(給檢視器):`hello {viewerId, primary}`、`snapshot {viewerId, primary, agents, active:[命令]}`、`command {id, action:{type,agents,target:{kind,id}}, description}`、`role {primary:true}`(接手當主檢視器)、`ping`(每 15 秒)。同時最多 8 個連線(超過 503);送不進去(太慢)的連線會被斷掉,檢視器重連時拿 snapshot |
+| `POST /api/office/report` | 檢視器回報 `{viewerId, type:"ack"\|"arrived"\|"superseded"\|"state", commandId?, agent?, results?:[{agent,ok,error}], arrived?:{target,position,seated,where}, agents?:[office.state()]}` → `{"result":{"accepted","primary","reason"?}}` |
+| `GET /api/office/state` | `{available, viewers:[{id,primary,connectedAt}], viewerCount, primary, strategy, lastReportAt, agents:[{id,name,reported,state,stateLabel,seated,position,yaw,task,where,place,commandId,updatedAt}], commands:[最近 50 個,新的在前]}` |
+
+- **text 命令**:後端用 Go 版的命令解析(`internal/office/parse.go`,照 `office3d/viewer/js/command.js` 搬,測試會直接跑 command.js 比對結果)先驗證角色與地點,不合法回 400;多條(`;`、`;`、換行)拆成多個命令。檢視器只收到結構化的動作。後端沒有「目前選取的角色」,省略角色是錯誤。
+- **命令狀態**(每個角色一個,命令的 `status` 是整理過的):`pending`(還沒寫出)、`delivered`(已送達檢視器)、`running`(檢視器開始執行)、`arrived`、`done`(stop)、`partial`(有的失敗)、`failed`(找不到路、角色沒載入、15 秒沒回應、檢視器全部斷線)、`superseded`(還沒抵達就被新命令或檢視器上的手動操作取代)、`no_viewer`(建立時沒有檢視器連線:不執行、之後也不補送)。最多保留 200 個命令(記憶體,重開就清空)。
+- **多個檢視器**:命令推給全部(每個畫面都會動),但只採用**主檢視器**的回報 = 目前連線中最早連上的那一個;它斷線時下一個最早的接手(收到 `role`)。其他檢視器的回報回 `accepted:false`、不改狀態,所以各自模擬的小差異不會互相打架。
+
+### MCP 工具(Go 版才有,定義在 `spec/tools_console.json`)
+
+- `office_move`:參數同 `POST /api/office/command`(`text`,或 `action` + `agents` + `target`;`wait` 秒數)。回傳同上的 `result`。
+- `office_state`:`{command?, limit?}` → 同 `GET /api/office/state`,另加 `places:[{id,name,kind,owner?}]`;給 `command` 只回那個命令。
+
+`spec/tools.json` 是從 Swift 版匯出的(`dump_spec.py` 會整份覆蓋),所以 Go 版才有的工具手寫在 `spec/tools_console.json`,`tools/list` 時接在後面(不能和核心或 tools.json 撞名,`spec_test.go` 擋)。conformance 比對 Swift 版時,這兩個工具會是多出來的差異。
+
 ## MCP 規格一致
 
 - `tools/list` = web 自己的工具(`spec/tools.json`)+ 核心工具(定義直接取自 `omixor-core/mcp.CoreToolDefs`,和 `/mcp/org` 同一份;

@@ -7,6 +7,7 @@
 //	POST /api/action/<名稱>    只有畫面能做的動作(見 core.RegisterAction)
 //	/api/auth/…               登入(LDAP)、登出、認證設定(見 auth.go)
 //	/api/issues/<組織>…        Issue 資料(給 macOS App(Swift 版)遠端存放用,見 issues_api.go)
+//	/api/office/…、/office/    3D 虛擬辦公室:下命令、SSE、檢視器回報、狀態;檢視器靜態檔(見 office.go)
 //	其他路徑                   React 畫面(ui/dist)
 //
 // 啟用 LDAP 時,/api 除了 /api/auth/status、/api/auth/login 都要登入(/api/issues/ 也可以用 OMIXOR_API_TOKEN);畫面的動作以登入者署名。
@@ -30,6 +31,7 @@ import (
 	"omixor-web/internal/auth"
 	"omixor-web/internal/core"
 	"omixor-web/internal/mcp"
+	"omixor-web/internal/office"
 
 	"omixor-core/env"
 )
@@ -65,6 +67,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 	mux := http.NewServeMux()
 	registerAuth(mux, app, au)
 	registerIssueAPI(mux, app)
+	registerOffice(mux, office.For(app))
 	mux.HandleFunc("GET /api/views", func(w http.ResponseWriter, r *http.Request) {
 		names := core.ViewNames()
 		sort.Strings(names)

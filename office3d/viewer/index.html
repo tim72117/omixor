@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>omixor 虛擬辦公室</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: rgba(255,255,255,.94); --ink: #1d1d1f; --muted: #6e6e73; --line: #e2e3e7;
+    --accent: #5856d6; --err: #d70015; --ok: #248a3d;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+  body { display: grid; grid-template-rows: 1fr auto; height: 100vh; }
+  #app { position: relative; overflow: hidden; min-height: 0; }
+  #app canvas { display: block; }
+  .labels { position: absolute; inset: 0; pointer-events: none; }
+  .nameplate {
+    pointer-events: auto; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border-radius: 999px;
+    background: rgba(255,255,255,.92); border: 2px solid var(--c); color: #1d1d1f;
+    font-size: 12px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.18);
+    transform: translateY(-4px);
+  }
+  .nameplate .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+  .nameplate .st { width: 6px; height: 6px; border-radius: 50%; background: #c7c7cc; }
+  .nameplate .st.s-walking, .nameplate .st.s-waiting { background: #ff9f0a; }
+  .nameplate .st.s-arrived { background: #30d158; }
+  .nameplate.sel { background: var(--c); color: #fff; }
+  .nameplate.sel .dot { background: #fff; }
+  #loading { position: absolute; inset: 0; display: grid; place-items: center; font-size: 15px; color: var(--muted); }
+  #loading.err { color: var(--err); padding: 24px; text-align: center; }
+  #topbar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; pointer-events: none; }
+  #topbar > * { pointer-events: auto; }
+  #topbar h1 { font-size: 15px; margin: 0 6px 0 0; padding: 6px 10px; background: var(--panel); border-radius: 8px; }
+  button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: #c7c7cc; }
+  button.on { background: var(--ink); color: #fff; }
+  #selected { font-size: 12px; color: var(--muted); background: var(--panel); padding: 6px 10px; border-radius: 8px; }
+  .conn { font-size: 12px; background: var(--panel); padding: 6px 10px; border-radius: 8px; color: var(--muted); margin-left: auto; }
+  .conn::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #c7c7cc; vertical-align: 0; }
+  .conn.c-connected::before { background: #30d158; }
+  .conn.c-connected { color: var(--ok); }
+  .conn.c-connected.secondary::before { background: #64d2ff; }
+  .conn.c-connecting::before, .conn.c-reconnecting::before { background: #ff9f0a; }
+  .conn.c-reconnecting { color: #c25e00; }
+  #panel { background: var(--panel); border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 1fr); gap: 12px; padding: 10px 12px; max-height: 38vh; }
+  #panel section { min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+  #cmd-form { display: flex; gap: 6px; }
+  #cmd { flex: 1; font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid #c7c7cc; border-radius: 8px; }
+  #cmd:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  #cmd-form button { background: var(--accent); color: #fff; border: 0; padding: 0 16px; }
+  #msg { font-size: 13px; min-height: 1.2em; }
+  #msg.err { color: var(--err); }
+  #examples { display: flex; gap: 6px; flex-wrap: wrap; }
+  #examples button { font-size: 12px; padding: 3px 8px; background: #f2f2f7; border-color: transparent; }
+  #log { list-style: none; margin: 0; padding: 0; overflow: auto; font-size: 12px; flex: 1; min-height: 60px; border-top: 1px solid var(--line); }
+  #log li { padding: 3px 0; border-bottom: 1px dashed #eee; }
+  #log li.err { color: var(--err); }
+  #log time { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  #status-wrap { overflow: auto; }
+  #status { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #status th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 3px 6px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
+  #status td { padding: 4px 6px; border-bottom: 1px solid #f0f0f2; white-space: nowrap; }
+  #status td.wh { color: var(--muted); overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  #status tr { cursor: pointer; }
+  #status tr.sel { background: #eef0ff; }
+  #status .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .st.s-idle { color: var(--muted); }
+  .st.s-walking, .st.s-waiting { color: #c25e00; font-weight: 600; }
+  .st.s-arrived { color: var(--ok); font-weight: 600; }
+  details { font-size: 12px; color: var(--muted); }
+  details code { background: #f2f2f7; padding: 0 4px; border-radius: 4px; color: var(--ink); }
+  @media (max-width: 760px) { #panel { grid-template-columns: 1fr; max-height: 50vh; overflow: auto; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="loading">載入中…</div>
+  <div id="topbar">
+    <h1>omixor 虛擬辦公室</h1>
+    <button id="btn-iso" type="button">等角視角</button>
+    <button id="btn-top" type="button">俯視</button>
+    <button id="btn-grid" type="button">顯示導航格</button>
+    <button id="btn-return" type="button">全部回座位</button>
+    <span id="selected"></span>
+    <span id="conn" class="conn c-connecting">檢查 console 連線…</span>
+  </div>
+</div>
+<div id="panel">
+  <section>
+    <form id="cmd-form" autocomplete="off">
+      <input id="cmd" list="place-list" placeholder="例如：工程師 去 會議室／ceo 找 旁白／all return（↑↓ 叫出歷史）">
+      <button type="submit">送出</button>
+    </form>
+    <datalist id="place-list"></datalist>
+    <div id="msg"></div>
+    <div id="examples"></div>
+    <details>
+      <summary>命令語法</summary>
+      <p><code>&lt;角色&gt; 去 &lt;地點&gt;</code>、<code>&lt;角色&gt; 找 &lt;角色&gt;</code>、<code>&lt;角色&gt; 回座位</code>、<code>&lt;角色&gt; 停</code>。
+      角色可寫 id、中文名或別名，多個用「、」或 and 分隔，<code>全部</code>/<code>all</code> 代表所有人；省略角色時用目前選取的角色。
+      地點：會議室、茶水間、休息區、入口櫃台、入口、西側公共角落、印表機、窗邊、中央走道、CEO 辦公室、錄音間、<code>&lt;角色&gt;的座位</code>、<code>&lt;角色&gt;的工作區</code>。
+      英文：<code>engineer go meeting</code>、<code>ceo find narrator</code>、<code>all return</code>。多條命令用「；」分開。</p>
+    </details>
+    <ul id="log"></ul>
+  </section>
+  <section id="status-wrap">
+    <table id="status">
+      <thead><tr><th>角色</th><th>狀態</th><th>位置 / 目標</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</div>
+<script type="module" src="./js/office.js"></script>
+</body>
+</html>

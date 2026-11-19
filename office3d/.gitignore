@@ -1,0 +1,6 @@
+# 由 build_office.py / build_characters.py 產生的大檔(見 README 重建方式),不進 git
+*.blend
+*.blend1
+*.glb
+renders/
+__pycache__/
