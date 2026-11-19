@@ -1,0 +1,85 @@
+# 公開映像:推 v* tag 時把 omixor-server 建好推到 ghcr.io/<owner>/omixor-server(標版本號與 latest),
+# 給自建伺服器用(部署設定在 repo 外的 omixor-deploy:GitLab CI 用 docker stack deploy 拉這個映像)。
+# 正式站 omixor.io 照舊是 deploy-server.yml(推 main → Cloud Run),和這裡無關。
+# ghcr 第一次建立的套件預設是私有的:要在 GitHub 套件設定改成公開,或部署端先 docker login ghcr.io。
+name: Release server image
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '映像標籤(例如 v0.1.0);沒填就用短 commit SHA,而且不更新 latest'
+        type: string
+        default: ''
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/omixor-server
+
+concurrency:
+  group: release-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: |
+            core/go.sum
+            server/go.sum
+      - run: go vet ./... && go test ./...
+        working-directory: core
+      - run: go vet ./... && go test ./...
+        working-directory: server
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve image tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "$INPUT_TAG" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' || { echo "不合法的映像標籤:$INPUT_TAG" >&2; exit 1; }
+            echo "value=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+          LATEST: ${{ steps.tag.outputs.latest }}
+        run: |
+          docker build -f server/Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --build-arg VERSION=$TAG \
+            --build-arg COMMIT=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            -t $IMAGE:$TAG .
+          docker push $IMAGE:$TAG
+          if [ "$LATEST" = "true" ]; then
+            docker tag $IMAGE:$TAG $IMAGE:latest
+            docker push $IMAGE:latest
+          fi
