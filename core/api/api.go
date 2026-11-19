@@ -1,6 +1,8 @@
 // Package api 是核心的 HTTP 路由。回應:成功 {"result": …}(登入與 /api/auth/me 例外,欄位在最上層),失敗 {"error": "…"} 加狀態碼。
 //
 //	POST /api/auth/evoleap                     {token, device} → {token, tokenId, expiresAt, user}(不用登入,有頻率限制)
+//	POST /api/auth/ldap                        {username, password, device} → 同上(LDAP 帳密換 token;伺服器有設 OMIXOR_LDAP_URL 才啟用,沒啟用 404;
+//	                                           第一次通過的人自動建成一般使用者,OMIXOR_LDAP_ADMINS 名單上的是伺服器管理員;帳號或密碼錯 401 同一句話)
 //	GET  /api/auth/me                          {user, token}
 //	POST /api/auth/logout                      撤銷目前這個 token
 //	POST /api/auth/pair                        已登入的使用者產生手機配對碼 → {code, expiresAt}(一次性、5 分鐘;見 service/pair.go)
@@ -205,6 +207,23 @@ func (a *API) Handler() http.Handler {
 			return
 		}
 		res, err := a.Svc.LoginWithEvoleap(in.Token, in.Device, service.ClientIP(r))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		writeJSON(w, 200, res)
+	})
+	mux.HandleFunc("POST /api/auth/ldap", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Device   string `json:"device"`
+		}
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		res, err := a.Svc.LoginWithLDAP(in.Username, in.Password, in.Device, service.ClientIP(r))
 		if err != nil {
 			reply(w, nil, err)
 			return

@@ -56,6 +56,19 @@ type Service struct {
 	TTL       time.Duration // token 有效期(0 是不到期)
 	Client    *http.Client
 	Now       func() time.Time
+	// LDAP 帳號密碼驗證(nil = 沒有啟用 LDAP 登入);LDAPAdmins 是伺服器管理員的帳號名單,
+	// LDAPEmailDomain 在目錄沒有 mail 時用「帳號@網域」當 email(見 ldap.go)
+	LDAP            Directory
+	LDAPAdmins      []string
+	LDAPEmailDomain string
+	// LDAPTrustMail true:管理員先用 email 加進名單、還沒登入過的人,會和目錄裡 mail 相同的 LDAP 帳號對上。
+	// 預設 false:目錄的 mail 如果使用者自己能改(OpenLDAP 常見),就能冒用別人預先加入的身分(見 ldap.go)
+	LDAPTrustMail bool
+	// LDAPMaxFailures、LDAPFailWindow 同一個帳號在這段時間內連續輸錯幾次就先擋(0 = 5 次、10 分鐘),見 ldap.go
+	LDAPMaxFailures int
+	LDAPFailWindow  time.Duration
+	ldapMu          sync.Mutex
+	ldapFails       map[string]ldapFail
 	// AgentCredTTL 角色憑證有效時間(0 = 2 小時)
 	AgentCredTTL time.Duration
 	agents       agentState
@@ -170,13 +183,6 @@ func (s *Service) LoginWithEvoleap(evoToken, device, ip string) (*LoginResult, e
 	if strings.TrimSpace(evoToken) == "" {
 		return nil, fail(400, "要給 evoleap 的 token")
 	}
-	device = strings.TrimSpace(device)
-	if device == "" {
-		device = "未命名裝置"
-	}
-	if r := []rune(device); len(r) > 80 {
-		device = string(r[:80])
-	}
 	req, _ := http.NewRequest("GET", strings.TrimRight(s.Evoleap, "/")+"/api/me", nil)
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(evoToken))
 	req.Header.Set("Accept", "application/json")
@@ -245,6 +251,18 @@ func (s *Service) LoginWithEvoleap(evoToken, device, ip string) (*LoginResult, e
 	if err := s.Store.SaveUser(*u); err != nil {
 		return nil, err
 	}
+	return s.issueToken(u, device, now, "")
+}
+
+// issueToken 替通過驗證的使用者發一個 omixor token(登入的共同尾段;via 是身分來源,只記在操作紀錄,"" 不記)
+func (s *Service) issueToken(u *model.User, device string, now model.Time, via string) (*LoginResult, error) {
+	device = strings.TrimSpace(device)
+	if device == "" {
+		device = "未命名裝置"
+	}
+	if r := []rune(device); len(r) > 80 {
+		device = string(r[:80])
+	}
 	raw := RandID(TokenPrefix, 32)
 	t := model.Token{ID: RandID("t_", 9), UserID: u.ID, Device: device, CreatedAt: now, Hash: HashToken(raw)}
 	if s.TTL > 0 {
@@ -254,7 +272,11 @@ func (s *Service) LoginWithEvoleap(evoToken, device, ip string) (*LoginResult, e
 	if err := s.Store.CreateToken(t); err != nil {
 		return nil, err
 	}
-	s.Audit(&model.Principal{User: *u, Token: t}, "login", "", map[string]any{"token": t.ID, "device": device})
+	detail := map[string]any{"token": t.ID, "device": device}
+	if via != "" {
+		detail["via"] = via
+	}
+	s.Audit(&model.Principal{User: *u, Token: t}, "login", "", detail)
 	return &LoginResult{Token: raw, TokenID: t.ID, ExpiresAt: t.ExpiresAt, User: *u}, nil
 }
 

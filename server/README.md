@@ -28,6 +28,31 @@ docker build -f server/Dockerfile -t omixor-server .   # 在 repo 根目錄
 - `GET /api/modules` 列出這台編進來的模組。
 
 環境變數見 `server.go` 開頭(`OMIXOR_DATABASE_URL`、`OMIXOR_ADMIN_BOOTSTRAP_EMAIL`、`OMIXOR_TOKEN_DAYS`、`EVOLEAP_URL`…)。
+
+**LDAP / Active Directory 登入(自建伺服器用)**:啟動時設 `OMIXOR_LDAP_URL` 就啟用 `POST /api/auth/ldap`
+(`{username, password, device}` → 同 `/api/auth/evoleap` 的 token);沒設就不啟用(回 404)。設了但不完整,伺服器**啟動失敗**並說明缺什麼,不會等到有人登入才發現。
+變數的完整說明在 `../core/ldapauth/ldapauth.go` 開頭;`OMIXOR_LDAP_ADMINS`、`OMIXOR_LDAP_EMAIL_DOMAIN` 在 `ldap.go`。
+
+- 流程:用服務帳號(`OMIXOR_LDAP_BIND_DN`)搜尋使用者,再用找到的 DN 和使用者輸入的密碼 bind。帳號不存在、被篩選掉(例如停用)、密碼錯,一律回同一句 401。
+- 誰能進:通過 LDAP 的人**第一次登入自動建成一般使用者**(不屬於任何組織,要組織管理員用 email 加進去)。
+  `OMIXOR_LDAP_ADMINS`(逗號分隔的帳號)是伺服器管理員:每次登入都確認,所以後來才加進名單的人下次登入會升級;從名單拿掉**不會**自動降級,要到使用者管理改。
+- email 取目錄的 `mail`;沒有就用 `帳號@OMIXOR_LDAP_EMAIL_DOMAIN`;兩個都沒有就不能建立(403)。
+  管理員先用 email 加進名單、還沒登入過的人:**預設不會**自動對上(回 403,說明原因)。目錄的 mail 如果使用者自己改得動(OpenLDAP 常見),能用自己填的 email 接手別人預先加入的身分和組織權限;確定 mail 只有管理員能改(AD 通常是)才設 `OMIXOR_LDAP_TRUST_MAIL=true`,之後第一次 LDAP 登入就會對上。
+  email 已經被別的身分(evoleap 或別的 LDAP 帳號)用了就拒絕,不接管。
+- LDAP 身分存在使用者的 `evoleap_id` 欄位,加前綴 `ldap:<帳號>`(欄位是唯一的文字,不用改資料庫)。
+- 範例(Active Directory,只允許啟用中的帳號):
+
+  ```
+  OMIXOR_LDAP_URL=ldap://ad.example.com:389
+  OMIXOR_LDAP_START_TLS=true
+  OMIXOR_LDAP_BIND_DN=cn=svc-omixor,cn=Users,dc=example,dc=com
+  OMIXOR_LDAP_BIND_PASSWORD_FILE=/run/secrets/ldap_password
+  OMIXOR_LDAP_BASE_DN=ou=Staff,dc=example,dc=com
+  OMIXOR_LDAP_USER_FILTER=(&(sAMAccountName=%s)(userAccountControl=512))
+  OMIXOR_LDAP_ADMINS=alice,bob
+  ```
+- 安全:`ldap://` 沒開 StartTLS 時,使用者密碼在網路上是明碼,啟動紀錄會警告;`OMIXOR_LDAP_INSECURE_SKIP_VERIFY` 只給測試環境。登入有兩層限制:每個來源每分鐘 10 次(來源 IP 取 X-Forwarded-For 的第一段,可以被偽造,只能當輔助);**每個帳號 10 分鐘內連續輸錯 5 次就先擋 10 分鐘,不再送到 LDAP**(AD 的鎖定是整個網域的,不擋的話任何人都能一直送錯密碼把別人鎖住;不存在的帳號也一樣計算,連不上 LDAP 這類伺服器端錯誤不算輸錯)。
+- 目前只有伺服器端:`omixor login`、網頁版、Mac App 還沒有 LDAP 登入畫面,先用 `curl -X POST …/api/auth/ldap` 取得 token。
 部署:`.github/workflows/deploy-server.yml`(`core/**`、`server/**` 或 `site/**` 有變動就部署)。
 測試:`.github/workflows/test.yml`(每次 push 與 pull_request,core/server/web 各跑 `go build`、`go vet`、`go test`)。
 

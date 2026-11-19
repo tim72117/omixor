@@ -11,6 +11,12 @@
 //	OMIXOR_AGENT_CRED_HOURS        角色憑證有效小時數(預設 2)
 //	OMIXOR_PUBLIC_URL              對外網址(例如 https://omixor.example.com);設了,領取任務時會附上角色端點網址
 //	OMIXOR_SITE_DIR                形象網站的資料夾(映像裡是 /site);設了才提供網站,見 site.go
+//	OMIXOR_LDAP_URL …              LDAP / Active Directory 登入(POST /api/auth/ldap):設了 OMIXOR_LDAP_URL 才啟用,設定不完整會直接啟動失敗。
+//	                               全部變數見 core/ldapauth;另外兩個在這裡:
+//	OMIXOR_LDAP_ADMINS             伺服器管理員的 LDAP 帳號,逗號分隔(小寫比對);第一次通過 LDAP 的其他人自動建成一般使用者
+//	OMIXOR_LDAP_EMAIL_DOMAIN       目錄沒有 mail 屬性時,用「帳號@這個網域」當 email
+//	OMIXOR_LDAP_TRUST_MAIL         true:管理員先用 email 加進名單、還沒登入過的人,會和目錄 mail 相同的 LDAP 帳號對上(預設 false;
+//	                               目錄的 mail 使用者自己改得動時不要開,否則能冒用別人預先加入的身分)
 //
 // 路由:
 //
@@ -109,6 +115,9 @@ func Run() {
 		Bootstrap: os.Getenv("OMIXOR_ADMIN_BOOTSTRAP_EMAIL"), TTL: time.Duration(days) * 24 * time.Hour}
 	if h, err := strconv.ParseFloat(os.Getenv("OMIXOR_AGENT_CRED_HOURS"), 64); err == nil && h > 0 {
 		svc.AgentCredTTL = time.Duration(h * float64(time.Hour))
+	}
+	if err := configureLDAP(svc, os.Getenv); err != nil {
+		log.Fatalf("LDAP 設定:%v", err)
 	}
 	if err := svc.EnsureOrgsForIssues(); err != nil {
 		log.Fatalf("補建組織失敗:%v", err)
