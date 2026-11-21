@@ -9,7 +9,7 @@
 import type { Issue, IssueComment } from "../src/sections/development/DevIssuesTab";
 import type {
   Agent, AgentRoutine, AgentTask, CabinetDoc, CabinetSection, CabinetTab, Channel, ChannelMessage, ChannelPage, ChainEdge,
-  Incident, IncidentEvent, OrgChain, Organization, Project,
+  Decision, DecisionOption, Incident, IncidentEvent, IssueItem, OrgChain, Organization, Project, ProjectMember, ProjectRepo,
 } from "../src/components/models";
 import type { Actor, ActorView } from "../src/types";
 
@@ -22,6 +22,16 @@ import channel from "../../../core/model/testdata/contract/channel.json";
 import channelList from "../../../core/model/testdata/contract/channel_list.json";
 import channelMessage from "../../../core/model/testdata/contract/channel_message.json";
 import channelMessages from "../../../core/model/testdata/contract/channel_messages.json";
+import decision from "../../../core/model/testdata/contract/decision.json";
+import decisionHelp from "../../../core/model/testdata/contract/decision_help.json";
+import decisionList from "../../../core/model/testdata/contract/decision_list.json";
+import issueItem from "../../../core/model/testdata/contract/issue_item.json";
+import issueItemBlocked from "../../../core/model/testdata/contract/issue_item_blocked.json";
+import issueItemDoing from "../../../core/model/testdata/contract/issue_item_doing.json";
+import issueItemList from "../../../core/model/testdata/contract/issue_item_list.json";
+import issueItemClaim from "../../../core/model/testdata/contract/issue_item_claim.json";
+import issueItemPromote from "../../../core/model/testdata/contract/issue_item_promote.json";
+import issueWithItems from "../../../core/model/testdata/contract/issue_with_items.json";
 import incident from "../../../core/model/testdata/contract/incident.json";
 import incidentList from "../../../core/model/testdata/contract/incident_list.json";
 import cabinet from "../../../core/model/testdata/contract/cabinet.json";
@@ -30,6 +40,8 @@ import cabinetProject from "../../../core/model/testdata/contract/cabinet_projec
 import cabinetDocProject from "../../../core/model/testdata/contract/cabinet_doc_project.json";
 import project from "../../../core/model/testdata/contract/project.json";
 import projectList from "../../../core/model/testdata/contract/project_list.json";
+import projectRepoList from "../../../core/model/testdata/contract/project_repo_list.json";
+import projectMemberList from "../../../core/model/testdata/contract/project_member_list.json";
 import orgChain from "../../../core/model/testdata/contract/org_chain.json";
 import org from "../../../core/model/testdata/contract/org.json";
 import actorList from "../../../core/model/testdata/contract/actor_list.json";
@@ -56,7 +68,7 @@ type NoMissing<K extends never> = K;
 // ---- Issue(開發 › Issue 的 Issue)
 conforms<Issue>()(issue);
 issueList.forEach((i) => conforms<Issue>()(i));
-type _issue = [NoExtra<Extra<typeof issue, Issue>>, NoMissing<Missing<typeof issue, Issue, "deletedAt">>]  // 刪除欄位只有在垃圾桶裡的 Issue 才有;
+type _issue = [NoExtra<Extra<typeof issue, Issue>>, NoMissing<Missing<typeof issue, Issue, "deletedAt" | "itemsOpen" | "itemsTotal">>]  // 刪除欄位只有在垃圾桶裡的 Issue 才有;
 type _issueComment = [NoExtra<Extra<typeof issue.comments, IssueComment>>, NoMissing<Missing<typeof issue.comments, IssueComment>>];
 
 // ---- 虛擬角色與任務
@@ -80,6 +92,27 @@ conforms<ChannelPage>()(channelMessages);
 type _message = [NoExtra<Extra<typeof channelMessage, ChannelMessage>>, NoMissing<Missing<typeof channelMessage, ChannelMessage>>];
 type _page = [NoExtra<Extra<typeof channelMessages, ChannelPage>>, NoMissing<Missing<typeof channelMessages, ChannelPage>>];
 
+// ---- 待決定 / 需要協助(decision.json 有選項與 answer;decision_help.json 有 evidence;列表含只有必填欄位的一筆)
+conforms<Decision>()(decision);
+conforms<Decision>()(decisionHelp);
+decisionList.forEach((d) => conforms<Decision>()(d));
+type _decision = [NoExtra<Extra<typeof decision, Decision>>, NoMissing<Missing<typeof decisionHelp, Decision>>];
+type _decisionOption = [NoExtra<Extra<typeof decision.options, DecisionOption>>, NoMissing<Missing<typeof decision.options, DecisionOption>>];
+
+// ---- Issue 子項(issue_item;list 涵蓋 blocked、doing、只有必填欄位三種形狀;promotedIssueId 在 promote 的結果裡)
+conforms<IssueItem>()(issueItem);
+conforms<IssueItem>()(issueItemBlocked);
+conforms<IssueItem>()(issueItemDoing);
+issueItemList.forEach((i) => conforms<IssueItem>()(i));
+conforms<IssueItem>()(issueItemClaim.item);
+conforms<IssueItem>()(issueItemPromote.item);
+conforms<Issue>()(issueItemPromote.issue);
+conforms<Issue>()(issueWithItems);
+conforms<AgentTask>()(issueItemClaim.task);
+type _item = [NoExtra<Extra<typeof issueItemList, IssueItem>>, NoMissing<Missing<typeof issueItemList, IssueItem, "promotedIssueId">>];
+type _itemPromoted = [NoExtra<Extra<typeof issueItemPromote.item, IssueItem>>, NoMissing<Missing<typeof issueItemPromote.item, IssueItem, "claimedBy" | "claimedByActor" | "lockedUntil" | "evidence" | "files" | "acceptance" | "dependsOn" | "blockReason" | "waitForKind" | "waitFor" | "taskId">>];
+type _issueWithItems = [NoExtra<Extra<typeof issueWithItems, Issue>>, NoMissing<Missing<typeof issueWithItems, Issue, "deletedAt">>];
+
 // ---- 事件:alertIds、createdBy 前端還沒用
 conforms<Incident>()(incident);
 incidentList.forEach((i) => conforms<Incident>()(i));
@@ -102,6 +135,8 @@ type _docProject = [NoExtra<Extra<typeof cabinetDocProject, CabinetDoc>>, NoMiss
 // ---- 專案(專案的文件櫃多帶 project;layoutSaved 前端沒用)
 conforms<Project>()(project);
 projectList.forEach((p) => conforms<Project>()(p));
+projectRepoList.forEach((l) => conforms<ProjectRepo>()(l));
+projectMemberList.forEach((m) => conforms<ProjectMember>()(m));
 type _project = [NoExtra<Extra<typeof project, Project>>, NoMissing<Missing<typeof project, Project>>];
 type CabinetProjectLike = CabinetViewLike & { project: string };
 conforms<CabinetProjectLike>()(cabinetProject);

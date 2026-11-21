@@ -62,6 +62,21 @@ func (b appBackend) CreateProject(org string, in service.ProjectInput) (*model.P
 func (b appBackend) UpdateProject(org, id string, p service.ProjectPatch) (*model.Project, error) {
 	return b.a.CabinetOps().UpdateProject(org, id, p)
 }
+func (b appBackend) LinkProjectRepo(org, project, repo string) (*model.Project, error) {
+	return b.a.CabinetOps().LinkProjectRepo(org, project, repo)
+}
+func (b appBackend) UnlinkProjectRepo(org, project, repo string) (*model.Project, error) {
+	return b.a.CabinetOps().UnlinkProjectRepo(org, project, repo)
+}
+func (b appBackend) ListProjectMembers(org, project string) ([]model.ProjectMember, error) {
+	return b.a.CabinetOps().ListProjectMembers(org, project)
+}
+func (b appBackend) SetProjectMember(org, project string, in service.ProjectMemberInput) (*model.ProjectMember, error) {
+	return b.a.CabinetOps().SetProjectMember(org, project, in)
+}
+func (b appBackend) RemoveProjectMember(org, project, actor string) error {
+	return b.a.CabinetOps().RemoveProjectMember(org, project, actor)
+}
 func (b appBackend) DeleteProject(org, id string) error {
 	return b.a.CabinetOps().DeleteProject(org, id)
 }

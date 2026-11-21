@@ -116,6 +116,10 @@
 //	GET  /api/orgs/{org}/incidents/{id}
 //	POST /api/orgs/{org}/incidents/{id}        {status?, note?, finding?, aiSummary?, impact?, title?, sev?, services?, commander?, events?, addFollowUps?, addAlertIds?} 更新
 //	POST /api/orgs/{org}/incidents/import      {incidents} 第一次搬資料用(組織管理員;已經有事件就拒絕)
+//	GET  /api/orgs/{org}/decisions?status=&kind=&issue=&mine=1   待決定 / 需要協助(成員,角色憑證也可以;只列看得到的:來源 Issue 在受限專案的依專案可見性)
+//	POST /api/orgs/{org}/decisions             {kind?, title, body, options?, sourceIssue?, blocks?} 提出 → DEC-<n>(署名一律是呼叫者本人,沒有指定「誰」的欄位)
+//	GET  /api/orgs/{org}/decisions/summary | /decisions/{id}   摘要(來源 Issue key → open / decided 筆數)| 單筆(看不到的 404)
+//	POST /api/orgs/{org}/decisions/{id}/answer | withdraw | reopen | to-issue   處理(只有人)| 撤回(建立者或管理員)| 重新開啟(管理員或原處理人)| 由它開 Issue(只有人);說明見 decision.go
 //	  伺服器管理員可以用 actor({kind, id})或 author 指定執行者(見 service/incident.go)
 //
 //	選用模組(core/module;入口程式 import 才有,沒編進來的模組路由 404):
@@ -492,6 +496,8 @@ func (a *API) Handler() http.Handler {
 	a.chainRoutes(mux)
 	a.channelRoutes(mux)
 	a.incidentRoutes(mux)
+	a.decisionRoutes(mux)
+	a.issueItemRoutes(mux)
 	a.moduleRoutes(mux) // 選用模組(modules.go;例如 GitHub、GitLab 設定)
 	a.mcpRoutes(mux)
 	a.systemRoutes(mux)

@@ -84,6 +84,10 @@ func (s *Service) ClaimTask(p *model.Principal, org string, in ClaimInput) (*Cla
 	if !g.Active { // 停用的角色不能領任務(指定任務 id 或不指定都一樣;ClaimNext 本來就只挑啟用中的角色)
 		return nil, fail(409, "角色 %s 已停用,不能領取任務", g.Name)
 	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
 	s.agents.mu.Lock()
 	defer s.agents.mu.Unlock()
 	var pick *model.AgentTask
@@ -91,6 +95,11 @@ func (s *Service) ClaimTask(p *model.Principal, org string, in ClaimInput) (*Cla
 		t, err := s.findTask(org, in.TaskID)
 		if err != nil {
 			return nil, err
+		}
+		if hidden, err := acc.TaskHidden(t); err != nil { // 連到看不到的專案的 Issue:和不存在一樣
+			return nil, err
+		} else if hidden {
+			return nil, fail(404, "找不到任務 %s", in.TaskID)
 		}
 		if t.AgentID != g.ID {
 			owner := t.AgentID
@@ -117,6 +126,10 @@ func (s *Service) ClaimTask(p *model.Principal, org string, in ClaimInput) (*Cla
 				queued = append(queued, t)
 			}
 		}
+		if queued, err = acc.FilterTasks(queued); err != nil {
+			return nil, err
+		}
+		queued = s.dropItemTasks(org, queued) // 由子項產生的任務只經子項領取
 		sortQueued(queued)
 		if len(queued) > 0 {
 			c := queued[0]
@@ -214,6 +227,17 @@ func (s *Service) ReportTask(p *model.Principal, org, id string, in TaskReport) 
 	}
 	if p.Agent != nil && t.AgentID != p.Agent.AgentID {
 		return nil, fail(404, "找不到任務 %s", id)
+	}
+	if p.Agent == nil { // 人:連到看不到的專案的 Issue 的任務和不存在一樣(角色憑證綁定的就是它的任務,不篩)
+		acc, err := s.newProjectAccess(p, org)
+		if err != nil {
+			return nil, err
+		}
+		if hidden, err := acc.TaskHidden(t); err != nil {
+			return nil, err
+		} else if hidden {
+			return nil, fail(404, "找不到任務 %s", id)
+		}
 	}
 	// 人回報:只有這筆任務的領取者本人或組織管理員可以(完成、取消、改狀態、留言都算)。
 	// 否則任何組織成員都能把別人領走的任務標成完成或取消,繞過「取消要組織管理員」與領取鎖,備註還會署名成那個角色。
@@ -347,6 +371,14 @@ func (s *Service) ClaimNext(p *model.Principal, org, agentID string) (*ClaimResu
 		}
 		queued = append(queued, t)
 	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	if queued, err = acc.FilterTasks(queued); err != nil { // 看不到的專案的 Issue 的任務不挑
+		return nil, err
+	}
+	queued = s.dropItemTasks(org, queued) // 由子項產生的任務只經子項領取
 	sortQueued(queued)
 	for _, t := range queued {
 		pick := t

@@ -98,3 +98,11 @@
 - `incident_note`(事件註記)、`jira_import`、Facebook 的 5 個動作不再把任意 `err.Error()` 包成「刻意給人看」的訊息:`service.Error` 與 Graph API 的說明文字(不含內部細節時)照給,其餘照 `httperr` 分類,資料庫文字、路徑、連線位址換成通用訊息、原文進 log。
 - 錯誤原文 log 的節流改成 `op` 加原文的雜湊(固定長度,原文再長也不吃記憶體),原文與 `op` 都截斷(1000 與 100 字元),並加全域速率上限:整體每秒最多 50 行,超過的只累計,下一次輸出補「已略過 M 筆」。
 - 遮蔽規則補了 `no such host`、`Bearer <權杖>`、`xxx_secret=`、`xxx_token=`、UNC 路徑(`\\主機\共用`)。
+
+## 專案成員與受限專案(ISS-34 第 3 階段)
+
+- 專案新增 `restricted`(受限)旗標與專案成員(`GET/POST /api/orgs/{org}/projects/{id}/members`、`…/members/remove`;MCP `project_save` 的 `restricted`、`add_members`、`remove_members`、`member_role`;CLI `omixor projects restrict|unrestrict|members|member-add|member-remove`;console action `project_members`、`project_member_set`、`project_member_remove`、`project_update`/`project_create` 帶 `restricted`)。
+- **行為變更只影響受限專案**:受限專案只有專案成員、組織管理員、伺服器管理員看得到;其他人(含角色憑證)看到的和「不存在」一樣(列表沒有、單筆 404)。沒有受限專案時行為完全不變。
+- `Project` 的 JSON 多了 `restricted`(bool)與 `myRole`(admin、member,不是成員沒有);新增 `ProjectMember` 輸出(`project_member_list.json`)。Swift 未動(新欄位照舊可解碼)。
+- 角色憑證預設視為非成員:受限專案的 Issue 要先把角色加為專案成員才能指派給它。
+- console 限制見 `docs/authorization.md` §0.2。

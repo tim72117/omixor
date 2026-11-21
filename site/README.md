@@ -26,7 +26,7 @@
 
 - `server/Dockerfile` 把上表「對外」的檔案複製到映像的 `/site`,並設 `OMIXOR_SITE_DIR=/site`。
 - `server/site.go` 只提供白名單路徑:`/`(index.html)、`/pricing`(pricing.html)、`/favicon.svg`、`/og.png`、`/robots.txt`、`/sitemap.xml`、`/llms.txt`;其他路徑(例如 `/zh.html`)一律 404,也不會蓋到 `/api/`、`/mcp/`、`/health`。
-- 改了 `site/` 推到 main 就會重新部署(`.github/workflows/deploy-server.yml` 的 paths 含 `site/**`)。
+- 改了 `site/` 要推 `v*` tag 才會重新部署(`.github/workflows/deploy-server.yml` 只在 tag 觸發;推 main 只跑測試)。
 - 新增對外檔案:要同時改 `server/site.go` 的 `sitePublicFiles`、`server/Dockerfile` 的 COPY,以及上表。
 
 ## SEO 清單

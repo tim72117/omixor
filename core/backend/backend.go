@@ -109,6 +109,15 @@ type Backend interface {
 	UpdateProject(org, id string, p service.ProjectPatch) (*model.Project, error)
 	// DeleteProject 專案裡還有文件時回 409
 	DeleteProject(org, id string) error
+	// LinkProjectRepo、UnlinkProjectRepo 專案與 repo 的連結(組織管理員;只用於預設值與篩選,見 model.ProjectRepo),回傳更新後的專案(含 Repos)。
+	// ListProjectRepos 專案連結的 repo(project 空 = 整個組織)
+	LinkProjectRepo(org, project, repo string) (*model.Project, error)
+	UnlinkProjectRepo(org, project, repo string) (*model.Project, error)
+	ListProjectRepos(org, project string) ([]model.ProjectRepo, error)
+	// 專案成員(組織管理員或專案管理員管理;受限專案只有成員與組織管理員看得到,見 service/project_access.go)
+	ListProjectMembers(org, project string) ([]model.ProjectMember, error)
+	SetProjectMember(org, project string, in service.ProjectMemberInput) (*model.ProjectMember, error)
+	RemoveProjectMember(org, project, actor string) error
 
 	// 訊息頻道(權限同 service/channel.go:成員建頻道、看自己是成員的頻道,組織管理員看全部;角色身分只能看與發自己是成員的頻道)。
 	// as 只有伺服器管理員給的算數(以角色或別人的身分)。實作在 channel.go
@@ -129,6 +138,32 @@ type Backend interface {
 	DeclareIncident(org string, in service.IncidentInput) (*model.Incident, error)
 	UpdateIncident(org, id string, in service.IncidentPatch) (*model.Incident, error)
 	ImportIncidents(org string, list []model.Incident) (*model.ImportResult, error)
+
+	// 待決定 / 需要協助(權限與可見性同 service/decision.go:成員看、提出;角色身分可以看與提出、撤回自己提的,不能處理;有來源 Issue 的決定依該 Issue 的專案可見性篩選;
+	// 署名一律是呼叫者本人)。實作在 decision.go
+	ListDecisions(org string, q service.DecisionListQuery) ([]model.Decision, error)
+	GetDecision(org, id string) (*model.Decision, error) // 不分大小寫
+	AddDecision(org string, in service.DecisionInput) (*model.Decision, error)
+	AnswerDecision(org, id string, in service.DecisionAnswer) (*model.Decision, error)
+	WithdrawDecision(org, id string) (*model.Decision, error)
+	ReopenDecision(org, id string) (*model.Decision, error)
+	DecisionToIssue(org, id string, in service.DecisionToIssueInput) (*service.DecisionIssueResult, error)
+	DecisionSummaries(org string) (map[string]model.DecisionSummary, error)
+
+	// Issue 子項(issue_item;權限與可見性同 service/issue_items.go:繼承所屬 Issue;角色身分可以看、新增、回報自己綁定任務的子項)。
+	// issue 是 Issue 編號(key、id),item 是子項 key、序號或 id。實作在 issue_items.go
+	ListIssueItems(org, issue string, q service.ItemListQuery) ([]model.IssueItem, error)
+	GetIssueItem(org, issue, item string) (*model.IssueItem, error)
+	AddIssueItem(org, issue string, in service.ItemInput) (*model.IssueItem, error)
+	UpdateIssueItem(org, issue, item string, in service.ItemPatch) (*model.IssueItem, error)
+	DeleteIssueItem(org, issue, item string) error
+	ClaimIssueItem(org, issue, item string, in service.ItemClaimInput) (*service.ItemClaimResult, error)
+	ReleaseIssueItem(org, issue, item string) (*model.IssueItem, error)
+	ReportIssueItem(org, issue, item string, in service.ItemReport) (*model.IssueItem, error)
+	BlockIssueItem(org, issue, item string, in service.ItemReport) (*model.IssueItem, error)
+	UnblockIssueItem(org, issue, item string) (*model.IssueItem, error)
+	CancelIssueItem(org, issue, item string) (*model.IssueItem, error)
+	PromoteIssueItem(org, issue, item string, in service.ItemPromoteInput) (*service.ItemPromoteResult, error)
 
 	// 組織的 GitHub、GitLab 設定搬到選用模組 core/modules/integrations(它自己的 Backend 介面與 Local / Remote 實作,見 module.go)
 

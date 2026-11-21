@@ -8,6 +8,7 @@ package service
 //	s.cabinetMu      文件櫃(結構、文件、範本)
 //	s.channelMu      訊息頻道(成員、綁 Issue、已讀)
 //	s.incidentMu     事件
+//	s.decisionMu     待決定 / 需要協助(只包 Store 的讀寫與可見性判斷;來源 Issue 的留言在放掉鎖之後才寫)
 //	s.ModuleLock(id) 選用模組各自的設定(例如 integrations 模組的 GitHub / GitLab 設定;s.moduleMu 只保護鎖的 map)
 //	s.mcpMu          外部 MCP 伺服器登記、工具清單、角色權限
 //	s.systemMu       系統設定(功能開關)
@@ -21,7 +22,7 @@ package service
 //	s.agents.mu → issueLock     DeleteAgent 在 agents.mu 內呼叫 reassignIssue(UpdateIssue 的 syncAssignee 在 Issue 的鎖外才拿 agents.mu)
 //	s.agents.mu → s.cabinetMu   DeleteProject 先拿 agents.mu 再拿 cabinetMu(刪專案、清角色的 docAccess)
 //
-// 其餘的鎖(issueLock、issueMu、cabinetMu、incidentMu、ModuleLock、moduleMu、systemMu、failMu、limMu)都是最內層:拿著時不再拿任何鎖。
+// 其餘的鎖(issueLock、issueMu、cabinetMu、incidentMu、decisionMu、ModuleLock、moduleMu、systemMu、failMu、limMu)都是最內層:拿著時不再拿任何鎖。
 // 拿著 channelMu、mcpMu 或 cabinetMu 時不可以再拿 agents.mu。
 //
 // 和 store.PG 批次(Batch)的關係:批次是一個資料庫交易,批次裡用另一個 Service 實例

@@ -36,6 +36,12 @@ var adminActions = map[string]string{
 	"project_create":      "新增專案",
 	"project_update":      "改專案",
 	"project_delete":      "刪除專案",
+	"project_repo_link":   "連結專案與 repo",
+	"project_repo_unlink": "取消專案與 repo 的連結",
+	// 專案成員:核心是組織管理員或專案管理員,但 web 共用同一個核心身分、分不出是哪個專案管理員,所以限 web 管理員
+	"project_members":       "看專案成員",
+	"project_member_set":    "加入或改專案成員",
+	"project_member_remove": "移除專案成員",
 	// Issue 垃圾桶(核心:組織管理員;移到垃圾桶 issue_delete 是一般成員可以做的,不列)
 	"issue_trash":   "看 Issue 垃圾桶",
 	"issue_restore": "從垃圾桶還原 Issue",

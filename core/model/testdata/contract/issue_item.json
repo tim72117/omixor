@@ -1,0 +1,40 @@
+{
+  "id": "0197b3a4-1111-7e8f-9a0b-1c2d3e4f5a6b",
+  "issueId": "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b",
+  "seq": 2,
+  "key": "ISS-37.2",
+  "title": "service 授權與 API",
+  "status": "done",
+  "assignee": "agent:eng",
+  "assigneeActor": {
+    "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+    "kind": "agent",
+    "handle": "eng",
+    "name": "工程師",
+    "status": "active"
+  },
+  "dependsOn": "ISS-37.1",
+  "files": [
+    "core/service/issue_items.go",
+    "core/api/issue_items.go"
+  ],
+  "acceptance": "守門測試通過",
+  "evidence": {
+    "commit": "abc1234",
+    "note": "沒驗證 Swift",
+    "tests": "go test ./... 通過"
+  },
+  "taskId": "T-12",
+  "createdBy": "tim@example.com",
+  "createdByActor": {
+    "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+    "kind": "user",
+    "handle": "tim@example.com",
+    "name": "Tim",
+    "email": "tim@example.com",
+    "status": "active"
+  },
+  "createdAt": "2026-11-21T08:00:00Z",
+  "updatedAt": "2026-11-21T09:00:00Z",
+  "completedAt": "2026-11-21T09:00:00Z"
+}

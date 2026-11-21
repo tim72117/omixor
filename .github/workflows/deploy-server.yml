@@ -7,14 +7,12 @@
 #     (不是機密;只在使用者表是空的時候用,沒設就不會自動建立管理員)
 name: Deploy omixor server
 
+#   - 觸發:只有推 v* tag 才部署(例如 git tag v0.2.0 && git push origin v0.2.0);推 main 只跑 test.yml 的測試,不部署。
+#     同一個 v* tag 也會觸發 release-image.yml(ghcr.io 的自建伺服器映像)。要手動重部署用 workflow_dispatch。
 on:
   push:
-    branches: [main]
-    paths:
-      - 'core/**'
-      - 'server/**'
-      - 'site/**'
-      - '.github/workflows/deploy-server.yml'
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 env:
@@ -87,7 +85,7 @@ jobs:
         run: |
           gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
           docker build -f server/Dockerfile \
-            --build-arg VERSION=${{ github.sha }} \
+            --build-arg VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }} \
             --build-arg COMMIT=${{ github.sha }} \
             --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
             -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .

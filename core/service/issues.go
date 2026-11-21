@@ -24,8 +24,9 @@ type IssueInput struct {
 	Author string `json:"author"` // 伺服器管理員(app、omixor-web)可以指定;其他人一律是自己的 email
 	// Assignee 指派給的角色 id(空 = 不指派);角色必須存在(否則 400),且 active 時會自動替它排一筆任務
 	Assignee string `json:"assignee,omitempty"`
-	// Project 放進的專案 id(空 = 組織層級,key 是 ISS-<n>);專案要存在(404)而且設定了代號(400),key 是 <代號>-<n>
-	Project string `json:"project,omitempty"`
+	// Project 放進的專案 id(空字串 = 明確指定組織層級,key 是 ISS-<n>);專案要存在(404)而且設定了代號(400),key 是 <代號>-<n>。
+	// nil(沒給)= 預設:Repo 只連到一個專案(model.ProjectRepo;專案有代號)就放進那個專案,其他情況是組織層級;給了就不看 repo 的連結
+	Project *string `json:"project,omitempty"`
 }
 
 // IssuePatch 修改 Issue:有給的欄位整個取代(同 app 的 issue_update)
@@ -94,14 +95,32 @@ func (s *Service) ResolveIssueID(p *model.Principal, org, ref string) (string, e
 	if err := s.viewer(p, org); err != nil {
 		return "", err
 	}
-	return s.resolveIssueID(org, ref)
+	id, err := s.resolveIssueID(org, ref)
+	if err != nil {
+		return "", err
+	}
+	// 受限專案(看不到的)的 key、別名、UUID 都當作不存在:404 與真的不存在同一句話
+	a, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return "", err
+	}
+	if hidden, err := a.IssueHidden(id); err != nil {
+		return "", err
+	} else if hidden {
+		return "", issueNotFound(ref)
+	}
+	return id, nil
 }
 
-// issueProject Issue 要放進的專案:空白 = 組織層級;否則要存在(404)而且有代號(400)。回傳存起來的專案 id
-func (s *Service) issueProject(org, project string) (string, error) {
+// issueProject Issue 要放進的專案:空白 = 組織層級;否則要存在(404)而且有代號(400)。回傳存起來的專案 id。
+// 呼叫者看不到的專案(受限)和不存在一樣回 404,而且先於「沒有代號」的檢查(不洩漏存在)
+func (s *Service) issueProject(a *projectAccess, org, project string) (string, error) {
 	pid, err := s.projectID(org, project)
 	if err != nil || pid == "" {
 		return pid, err
+	}
+	if !a.Sees(pid) {
+		return "", errProjectNotFound(project)
 	}
 	x, err := s.findProject(org, pid)
 	if err != nil {
@@ -175,7 +194,15 @@ func (s *Service) ListIssues(p *model.Principal, org string) ([]model.Issue, err
 	if err != nil {
 		return nil, err
 	}
-	return s.presentIssues(list)
+	a, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	out, err := s.presentIssues(a.FilterIssues(list))
+	if err != nil {
+		return nil, err
+	}
+	return s.withItemCounts(org, out), nil
 }
 
 // ListDeletedIssues 垃圾桶裡的 Issue(組織管理員;新的在前)
@@ -204,6 +231,9 @@ func (s *Service) QueryIssues(p *model.Principal, org string, q model.IssueQuery
 	if err != nil {
 		return nil, err
 	}
+	if q, err = s.withRepoLinks(org, q); err != nil {
+		return nil, err
+	}
 	return model.QueryIssues(list, q), nil
 }
 
@@ -216,6 +246,9 @@ func (s *Service) IssueBoard(p *model.Principal, org string, q model.IssueQuery)
 	}
 	list, err := s.ListIssues(p, org)
 	if err != nil {
+		return nil, err
+	}
+	if q, err = s.withRepoLinks(org, q); err != nil {
 		return nil, err
 	}
 	b := model.BuildIssueBoard(list, q)
@@ -245,7 +278,21 @@ func (s *Service) GetIssue(p *model.Principal, org, id string) (*model.Issue, er
 	if err != nil {
 		return nil, err
 	}
-	return s.presentIssue(i)
+	a, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.issueErr(i, id); err != nil {
+		return nil, err
+	}
+	out, err := s.presentIssue(i)
+	if err != nil {
+		return nil, err
+	}
+	if l := s.withItemCounts(org, []model.Issue{*out}); len(l) == 1 {
+		*out = l[0]
+	}
+	return out, nil
 }
 
 func (s *Service) CreateIssue(p *model.Principal, org string, in IssueInput) (*model.Issue, error) {
@@ -269,6 +316,10 @@ func (s *Service) CreateIssue(p *model.Principal, org string, in IssueInput) (*m
 	if err != nil {
 		return nil, err
 	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
 	assignee, err := s.resolveIssueAssignee(p, org, in.Assignee)
 	if err != nil {
 		return nil, err
@@ -278,8 +329,19 @@ func (s *Service) CreateIssue(p *model.Principal, org string, in IssueInput) (*m
 			return nil, err
 		}
 	}
-	project, err := s.issueProject(org, in.Project)
+	var project string
+	if in.Project != nil { // 明確指定(含空字串 = 不分專案),不看 repo 的連結
+		project, err = s.issueProject(acc, org, *in.Project)
+	} else { // 沒指定:repo 只連到一個專案就預設放進去(呼叫者看不到的專案不會被預設進去,退回組織層級)
+		project, err = s.defaultProjectForRepo(org, repo)
+		if err == nil && !acc.Sees(project) {
+			project = ""
+		}
+	}
 	if err != nil {
+		return nil, err
+	}
+	if err := s.checkAssigneeProject(org, project, assignee); err != nil {
 		return nil, err
 	}
 	now := s.mt()
@@ -326,8 +388,12 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 		}
 		in.Assignee = &a
 	}
-	if in.Project != nil { // 換成存起來的專案 id(不存在 404、沒有代號 400)
-		pr, err := s.issueProject(org, *in.Project)
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	if in.Project != nil { // 換成存起來的專案 id(不存在或看不到 404、沒有代號 400)
+		pr, err := s.issueProject(acc, org, *in.Project)
 		if err != nil {
 			return nil, err
 		}
@@ -337,13 +403,14 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 	if err != nil {
 		return nil, err
 	}
+	ref := id
 	id, err = s.resolveIssueID(org, id) // 鎖與存放處都用內部 id(同一張 Issue 用不同編號也是同一把鎖)
 	if err != nil {
 		return nil, err
 	}
 	mu := s.issueLock(org, id)
 	mu.Lock()
-	n, cur, err := s.patchIssue(p, org, id, in)
+	n, cur, err := s.patchIssue(p, acc, org, id, ref, in)
 	mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -355,12 +422,15 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 }
 
 // patchIssue UpdateIssue 的「讀了再改」(拿著 issueLock 呼叫);回傳改好的與改之前的
-func (s *Service) patchIssue(p *model.Principal, org, id string, in IssuePatch) (*model.Issue, *model.Issue, error) {
+func (s *Service) patchIssue(p *model.Principal, acc *projectAccess, org, id, ref string, in IssuePatch) (*model.Issue, *model.Issue, error) {
 	cur, err := s.Store.GetIssue(org, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil, issueNotFound(id)
 	}
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := acc.issueErr(cur, ref); err != nil { // 看不到的專案的 Issue:和不存在一樣(訊息用呼叫者給的編號,不帶內部 id;先於版本檢查,409 會帶出內容)
 		return nil, nil, err
 	}
 	if in.Version != nil && *in.Version != cur.Version {
@@ -373,6 +443,23 @@ func (s *Service) patchIssue(p *model.Principal, org, id string, in IssuePatch) 
 	// 換指派給別的角色:有設定組織鏈時,和直接派任務(AssignTask、DelegateTask)走同一套規則,不能繞過(見 checkIssueAssign)
 	if in.Assignee != nil && *in.Assignee != "" && *in.Assignee != cur.Assignee {
 		if err := s.checkIssueAssign(p, org, *in.Assignee); err != nil {
+			return nil, nil, err
+		}
+	}
+	// 受限專案的規則:搬出去要專案管理員(否則一般成員能把內容公開出去);指派的角色要能看到目標專案
+	toProject := cur.Project
+	if in.Project != nil {
+		toProject = *in.Project
+	}
+	if toProject != cur.Project && acc.Restricted(cur.Project) && !acc.Admins(cur.Project) {
+		return nil, nil, fail(403, "要組織管理員或專案 %s 的管理員才能把 Issue 搬出受限專案", cur.Project)
+	}
+	toAssignee := cur.Assignee
+	if in.Assignee != nil {
+		toAssignee = *in.Assignee
+	}
+	if toProject != cur.Project || toAssignee != cur.Assignee {
+		if err := s.checkAssigneeProject(org, toProject, toAssignee); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -567,6 +654,9 @@ func (s *Service) AddIssueComment(p *model.Principal, org, id string, in Comment
 	if err != nil {
 		return nil, err
 	}
+	if err := s.needIssueVisible(p, org, id, ref); err != nil { // 看不到的專案的 Issue:和不存在一樣(不能留言)
+		return nil, err
+	}
 	mu := s.issueLock(org, id)
 	mu.Lock()
 	i, err := s.Store.AddIssueComment(org, id, c)
@@ -614,6 +704,9 @@ func (s *Service) DeleteIssue(p *model.Principal, org, id string) error {
 	}
 	iid, err := s.resolveIssueID(org, id)
 	if err != nil {
+		return err
+	}
+	if err := s.needIssueVisible(p, org, iid, id); err != nil {
 		return err
 	}
 	mu := s.issueLock(org, iid)

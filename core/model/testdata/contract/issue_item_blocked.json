@@ -1,0 +1,21 @@
+{
+  "id": "0197b3a4-2222-7e8f-9a0b-1c2d3e4f5a6b",
+  "issueId": "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b",
+  "seq": 3,
+  "key": "ISS-37.3",
+  "title": "決定欄位型別",
+  "status": "blocked",
+  "blockReason": "text[] 還是 jsonb 要人決定",
+  "waitForKind": "user_decision",
+  "waitFor": "DEC-6",
+  "createdBy": "agent:eng",
+  "createdByActor": {
+    "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+    "kind": "agent",
+    "handle": "eng",
+    "name": "工程師",
+    "status": "active"
+  },
+  "createdAt": "2026-11-21T08:30:00Z",
+  "updatedAt": "2026-11-21T09:10:00Z"
+}

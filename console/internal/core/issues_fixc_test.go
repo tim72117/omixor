@@ -191,7 +191,7 @@ func TestIssueResolveOldKeyAndTrashed(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Mu.Lock()
-	is := a.CreateIssueIn(service.IssueInput{Title: "搬家", Author: "mcp", Project: p1.ID})
+	is := a.CreateIssueIn(service.IssueInput{Title: "搬家", Author: "mcp", Project: &p1.ID})
 	a.Mu.Unlock()
 	if is.Key != "AAA-1" {
 		t.Fatalf("key:%s %v", is.Key, a.IssueRemoteError())

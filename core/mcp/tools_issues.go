@@ -83,7 +83,7 @@ func RegisterIssueTools(s *Server) {
 		labels, _ := c.Args.Strings("labels")
 		issue, err := e.Backend().CreateIssue(e.Org(), service.IssueInput{Title: title, Body: body, Priority: priority,
 			Labels: labels, Source: c.Args.Str("source"), Link: c.Args.Str("link"), Repo: c.Args.Str("repo"), Author: author, Assignee: c.Args.Str("assignee"),
-			Project: c.Args.Str("project")})
+			Project: c.Args.Opt("project")}) // 沒給 = 依 repo 的專案連結預設;空字串 = 不分專案
 		if err != nil { // Issue 伺服器連不上(同 Swift)
 			return nil, prefixErr("Issue 沒有存起來:", err)
 		}
@@ -221,6 +221,11 @@ func RegisterIssueTools(s *Server) {
 		q := model.IssueQuery{Q: c.Args.Str("query"), Status: status, Repo: c.Args.Str("repo"), Project: c.Args.Str("project"), Sort: model.IssueSortPriority}
 		if label := c.Args.Opt("label"); label != nil {
 			q.Label = *label
+		}
+		if q.Repo != "" && q.Repo != model.IssueFilterNone { // 篩 repo 時帶入專案連結:連到該 repo 的專案裡沒標 repo 的 Issue 也算
+			if ps, err := bk.ListProjects(org); err == nil {
+				q.RepoProjects = model.ProjectsLinkedToRepo(ps, q.Repo)
+			}
 		}
 		list := model.QueryIssues(all, q)
 		limit := 30

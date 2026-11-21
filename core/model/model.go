@@ -97,6 +97,9 @@ type Issue struct {
 	Status    string `json:"status"`
 	Title     string `json:"title"`
 	UpdatedAt Time   `json:"updatedAt"`
+	// ItemsOpen、ItemsTotal 子項(issue_item)計數:未完成(todo/doing/blocked)與全部(不含取消);沒有子項省略。不存庫,服務層出口補
+	ItemsOpen  int `json:"itemsOpen,omitempty"`
+	ItemsTotal int `json:"itemsTotal,omitempty"`
 }
 
 // RepoMaxLen Issue repo 標記的長度上限

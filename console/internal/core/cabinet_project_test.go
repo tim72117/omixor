@@ -76,3 +76,35 @@ func TestCabinetProjectActions(t *testing.T) {
 		t.Fatal(q)
 	}
 }
+
+// 專案與 repo 的連結:畫面動作 project_repo_link / project_repo_unlink 回傳更新後的專案(含 repos),專案清單(view)也跟著更新
+func TestProjectRepoActions(t *testing.T) {
+	a := newTestApp(t)
+	if _, err := Action(a, "project_create", map[string]any{"name": "官網", "key": "WEB"}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Action(a, "project_repo_link", map[string]any{"id": "prj-1", "repo": "Acme/Web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := out.(*model.Project); len(p.Repos) != 1 || p.Repos[0] != "Acme/Web" {
+		t.Fatal(p)
+	}
+	if l := a.projectsOf(a.currentOrgNow()); len(l) != 1 || len(l[0].Repos) != 1 {
+		t.Fatal("專案清單要帶 repos", l)
+	}
+	if _, err := Action(a, "project_repo_link", map[string]any{"id": "PRJ-1", "repo": "bad repo!"}); err == nil {
+		t.Fatal("repo 格式不合要失敗")
+	}
+	// 沒指定 project 的 Issue 依連結預設放進專案
+	is := a.CreateIssueIn(service.IssueInput{Title: "預設", Author: "mcp", Repo: "acme/web"})
+	if is.Project != "PRJ-1" {
+		t.Fatal(is)
+	}
+	if out, err = Action(a, "project_repo_unlink", map[string]any{"id": "PRJ-1", "repo": "github:ACME/web"}); err != nil || len(out.(*model.Project).Repos) != 0 {
+		t.Fatal(out, err)
+	}
+	if _, err := Action(a, "project_repo_unlink", map[string]any{"id": "PRJ-1", "repo": "acme/web"}); err == nil {
+		t.Fatal("沒連過要失敗")
+	}
+}

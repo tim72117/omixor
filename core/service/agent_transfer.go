@@ -114,6 +114,11 @@ func (s *Service) DeleteAgentTo(p *model.Principal, org, id, transferTo string) 
 		if err := s.pruneChannelNodeOn(tx, org, g.ActorID); err != nil {
 			return err
 		}
+		if g.ActorID != "" { // 專案成員資格一併清掉(同 id 重建的角色是新的 actor,不繼承)
+			if _, err := tx.RemoveProjectMembershipsOf(org, g.ActorID); err != nil {
+				return err
+			}
+		}
 		// 外部 MCP 權限一併清掉(同 id 重建的角色不會繼承);在 s.agents.mu 內,和 SaveMCPGrants 互斥
 		if err := s.pruneAgentMCPGrantsOn(tx, org, g.ID); err != nil {
 			return err
@@ -137,6 +142,7 @@ func (s *Service) DeleteAgentTo(p *model.Principal, org, id, transferTo string) 
 	if err != nil {
 		return err
 	}
+	s.pruneAllRestrictedTasks(p, org) // 任務可能轉給了不是受限專案成員的角色(拿著 agents.mu)
 	detail := map[string]any{"agent": g.ID}
 	if to != nil {
 		detail["transferTo"] = to.ID
@@ -184,6 +190,7 @@ func (s *Service) TransferAgentTasks(p *model.Principal, org string, in AgentTra
 	if err != nil {
 		return nil, err
 	}
+	s.pruneAllRestrictedTasks(p, org) // 轉給不是受限專案成員的角色:那個專案 Issue 的待領取任務取消
 	s.Audit(p, "agent.task.transfer", org, map[string]any{"from": from.ID, "to": to.ID, "scope": scope,
 		"total": res.Total, "byStatus": res.ByStatus, "released": res.Released})
 	return &AgentTransferResult{From: from.ID, To: to.ID, Scope: scope, AgentTransferResult: res}, nil
@@ -253,6 +260,15 @@ func (s *Service) reassignIssue(st store.Store, org, issueID, actorID string, to
 			return fail(500, "目標角色 %s 沒有 actor,不能改派 Issue", to.ID)
 		}
 		i.Assignee = to.ActorID
+		if i.Project != "" { // 受限專案:目標角色不是專案成員就只清掉指派(不能讓它排到帶出 Issue 內容的任務)
+			if pr, err := st.GetProject(org, i.Project); err == nil && pr.Restricted {
+				if m, err := st.ProjectMemberships(org, to.ActorID); err != nil {
+					return err
+				} else if m[i.Project] == "" {
+					i.Assignee = ""
+				}
+			}
+		}
 	}
 	i.UpdatedAt, i.Comments = now, nil
 	return st.UpdateIssue(org, *i)

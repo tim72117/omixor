@@ -264,7 +264,27 @@ func cabinetContext(e Env, g model.Agent, includeBodies bool) map[string]any {
 // projectJSON 專案的輸出
 func projectJSON(x model.Project) map[string]any {
 	return map[string]any{"id": x.ID, "name": x.Name, "key": x.Key, "description": x.Description,
-		"createdAt": iso(x.CreatedAt.Time), "updatedAt": iso(x.UpdatedAt.Time)}
+		"repos": nonNilStrings(x.Repos), "restricted": x.Restricted, "myRole": x.MyRole, "createdAt": iso(x.CreatedAt.Time), "updatedAt": iso(x.UpdatedAt.Time)}
+}
+
+// projectMembersJSON 專案成員的輸出:node(user:<email>、agent:<角色 id>)、角色、actor 物件
+func projectMembersJSON(l []model.ProjectMember) []any {
+	out := []any{}
+	for _, m := range l {
+		o := map[string]any{"node": m.Node, "role": m.Role, "since": iso(m.CreatedAt.Time)}
+		if m.Actor != nil {
+			o["actor"] = m.Actor
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+func nonNilStrings(l []string) []string {
+	if l == nil {
+		return []string{}
+	}
+	return l
 }
 
 // withProject 文件櫃工具輸出加上專案(未分專案不加)
@@ -285,12 +305,27 @@ func RegisterCabinetTools(s *Server) {
 			return nil, terr(err)
 		}
 		out := []any{}
+		only := ""
+		if id := c.Args.Opt("id"); id != nil {
+			only = strings.TrimSpace(*id)
+		}
 		for _, x := range list {
+			if only != "" && !strings.EqualFold(only, x.ID) { // 給 id 只看那個專案(看不到的受限專案不在 list 裡:回找不到,和不存在一樣)
+				continue
+			}
 			o := projectJSON(x)
 			if cab, err := getCabinet(e, x.ID); err == nil {
 				o["docs"] = len(cab.Docs)
 			}
+			if only != "" { // 單一專案附成員名單(角色端點不能列成員:略過)
+				if ms, err := e.Backend().ListProjectMembers(e.Org(), x.ID); err == nil {
+					o["members"] = projectMembersJSON(ms)
+				}
+			}
 			out = append(out, o)
+		}
+		if only != "" && len(out) == 0 {
+			return nil, Errorf("找不到專案 %s", only)
 		}
 		return map[string]any{"organization": e.OrgName(), "projects": out,
 			"note": "文件櫃工具(cabinet、docs、doc_save、cabinet_layout_save)帶 project(專案 id)操作那個專案;不帶是未分專案"}, nil
@@ -299,26 +334,93 @@ func RegisterCabinetTools(s *Server) {
 	s.Register("project_save", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		bk, org := e.Backend(), e.Org()
-		if id := c.Args.Opt("id"); id != nil && *id != "" {
-			p := service.ProjectPatch{Name: c.Args.Opt("name"), Key: c.Args.Opt("key"), Description: c.Args.Opt("description")}
-			if p.Name == nil && p.Description == nil && p.Key == nil {
-				return nil, ToolError{Message: "要給 name、key 或 description"}
+		link, _ := c.Args.Strings("link_repos")
+		unlink, _ := c.Args.Strings("unlink_repos")
+		addMembers, _ := c.Args.Strings("add_members")
+		removeMembers, _ := c.Args.Strings("remove_members")
+		role := c.Args.Str("member_role")
+		var restricted *bool
+		if v, ok := c.Args.Bool("restricted"); ok {
+			restricted = &v
+		}
+		// 專案成員:專案存好之後依序套用(加入、改角色、移除);回傳最後的專案與成員名單
+		remember := func(x *model.Project) (any, error) {
+			for _, m := range addMembers {
+				if _, err := bk.SetProjectMember(org, x.ID, service.ProjectMemberInput{Actor: m, Role: role}); err != nil {
+					return nil, terr(err)
+				}
 			}
-			x, err := bk.UpdateProject(org, *id, p)
+			for _, m := range removeMembers {
+				if err := bk.RemoveProjectMember(org, x.ID, m); err != nil {
+					return nil, terr(err)
+				}
+			}
+			out := projectJSON(*x)
+			if len(addMembers)+len(removeMembers) > 0 {
+				if ms, err := bk.ListProjectMembers(org, x.ID); err == nil {
+					out["members"] = projectMembersJSON(ms)
+				}
+			}
+			return out, nil
+		}
+		// 連結 repo、取消連結:專案存好之後依序套用(只用於預設值與篩選,見 model.ProjectRepo);回傳最後的專案
+		relink := func(x *model.Project) (any, error) {
+			for _, r := range link {
+				y, err := bk.LinkProjectRepo(org, x.ID, r)
+				if err != nil {
+					return nil, terr(err)
+				}
+				x = y
+			}
+			for _, r := range unlink {
+				y, err := bk.UnlinkProjectRepo(org, x.ID, r)
+				if err != nil {
+					return nil, terr(err)
+				}
+				x = y
+			}
+			return remember(x)
+		}
+		if id := c.Args.Opt("id"); id != nil && *id != "" {
+			p := service.ProjectPatch{Name: c.Args.Opt("name"), Key: c.Args.Opt("key"), Description: c.Args.Opt("description"), Restricted: restricted}
+			only := p.Name == nil && p.Description == nil && p.Key == nil && p.Restricted == nil // 只改連結、成員:不更新專案本身
+			if only && len(link)+len(unlink)+len(addMembers)+len(removeMembers) == 0 {
+				return nil, ToolError{Message: "要給 name、key、description、restricted、link_repos、unlink_repos、add_members 或 remove_members"}
+			}
+			var x *model.Project
+			var err error
+			if only { // 成員管理(專案管理員也可以):不經 UpdateProject(它要組織管理員)
+				var list []model.Project
+				if list, err = bk.ListProjects(org); err == nil {
+					err = Errorf("找不到專案 %s", *id)
+					for i := range list {
+						if strings.EqualFold(list[i].ID, strings.TrimSpace(*id)) {
+							x, err = &list[i], nil
+							break
+						}
+					}
+				}
+			} else {
+				x, err = bk.UpdateProject(org, *id, p)
+			}
 			if err != nil {
 				return nil, terr(err)
 			}
-			return projectJSON(*x), nil
+			return relink(x)
 		}
 		name, err := c.Args.Require("name")
 		if err != nil {
 			return nil, err
 		}
-		x, err := bk.CreateProject(org, service.ProjectInput{Name: name, Key: c.Args.Str("key"), Description: c.Args.Str("description")})
+		in := service.ProjectInput{Name: name, Key: c.Args.Str("key"), Description: c.Args.Str("description")}
+		if restricted != nil {
+			in.Restricted = *restricted
+		}
+		x, err := bk.CreateProject(org, in)
 		if err != nil {
 			return nil, terr(err)
 		}
-		return projectJSON(*x), nil
+		return relink(x)
 	})
 
 	s.Register("cabinet", func(c *Call) (any, error) {

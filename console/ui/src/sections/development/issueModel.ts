@@ -19,6 +19,8 @@ export type Issue = {
   deletedBy?: string;
   /** 同名字串欄位旁邊的 actor 物件(ISS-36 C-3);沒有或查不到就沒有 */
   createdByActor?: ActorView; assigneeActor?: ActorView; deletedByActor?: ActorView;
+  /** 子項(issue_item)計數:未完成(todo / doing / blocked)與全部(不含 canceled);沒有子項沒有這兩個欄位(core 出口補,不存庫) */
+  itemsOpen?: number; itemsTotal?: number;
 };
 
 /** 優先度的顯示文字與顏色(排序規則在核心,畫面不排) */

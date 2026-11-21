@@ -140,6 +140,72 @@ func sampleMessage() model.ChannelMessage {
 	}
 }
 
+func sampleDecision() model.Decision {
+	return model.Decision{
+		ID: "DEC-3", Kind: "decision", Title: "待決定的結構要不要和需要協助合成一張表?", Body: "## 背景\n\n兩種都是「要人」的事。",
+		Options: []model.DecisionOption{
+			{ID: "o1", Label: "合成一張表", Description: "用 kind 欄分開", Recommended: true},
+			{ID: "o2", Label: "分兩張表"},
+		},
+		Status: "decided", Answer: "o1", AnswerNote: "同一個狀態機就夠了", SourceIssue: "ISS-37", Blocks: []string{"ISS-38", "等憑證"},
+		CreatedBy: "agent:eng", CreatedByActor: avEng, DecidedBy: "tim@example.com", DecidedByActor: avTim, CreatedAt: ct("2026-11-21T08:00:00Z"),
+		DecidedAt: ctp("2026-11-21T09:00:00Z"), UpdatedAt: ct("2026-11-21T09:00:00Z"),
+	}
+}
+
+func sampleHelp() model.Decision {
+	return model.Decision{
+		ID: "DEC-4", Kind: "help", Title: "請在 Mac 上編譯 iOS 版", Body: "需要 Xcode 16。", Options: []model.DecisionOption{},
+		Status: "decided", Answer: "done", AnswerNote: "已編譯", Evidence: "https://example.com/build/42", SourceIssue: "", Blocks: []string{},
+		CreatedBy: "mcp", CreatedByActor: avMCP, DecidedBy: "tim@example.com", DecidedByActor: avTim, CreatedAt: ct("2026-11-21T08:10:00Z"),
+		DecidedAt: ctp("2026-11-21T09:30:00Z"), UpdatedAt: ct("2026-11-21T09:30:00Z"),
+	}
+}
+
+// 只有必填欄位:開放中(answer、answerNote 是空字串,沒有 decidedAt、decidedByActor),沒有來源 Issue
+func minimalDecision() model.Decision {
+	return model.Decision{
+		ID: "DEC-5", Kind: "decision", Title: "最少欄位", Options: []model.DecisionOption{{ID: "o1", Label: "A"}, {ID: "o2", Label: "B"}},
+		Status: "open", Blocks: []string{}, CreatedBy: "tim@example.com", CreatedByActor: avTim, CreatedAt: ct("2026-11-21T10:00:00Z"), UpdatedAt: ct("2026-11-21T10:00:00Z"),
+	}
+}
+
+// 子項(issue_item):完成的一筆(帶證據、前置、領取者已清空)
+func sampleItem() model.IssueItem {
+	return model.IssueItem{
+		ID: "0197b3a4-1111-7e8f-9a0b-1c2d3e4f5a6b", IssueID: "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b", Seq: 2, Key: "ISS-37.2", Title: "service 授權與 API", Status: "done",
+		Assignee: "agent:eng", AssigneeActor: avEng, DependsOn: "ISS-37.1", Files: []string{"core/service/issue_items.go", "core/api/issue_items.go"},
+		Acceptance: "守門測試通過", Evidence: []byte(`{"commit":"abc1234","note":"沒驗證 Swift","tests":"go test ./... 通過"}`), TaskID: "T-12",
+		CreatedBy: "tim@example.com", CreatedByActor: avTim, CreatedAt: ct("2026-11-21T08:00:00Z"), UpdatedAt: ct("2026-11-21T09:00:00Z"), CompletedAt: ctp("2026-11-21T09:00:00Z"),
+	}
+}
+
+// 卡住的一筆:在等使用者決定,有領取者以外的所有欄位(領取已清空)
+func sampleItemBlocked() model.IssueItem {
+	return model.IssueItem{
+		ID: "0197b3a4-2222-7e8f-9a0b-1c2d3e4f5a6b", IssueID: "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b", Seq: 3, Key: "ISS-37.3", Title: "決定欄位型別", Status: "blocked",
+		BlockReason: "text[] 還是 jsonb 要人決定", WaitForKind: "user_decision", WaitFor: "DEC-6", CreatedBy: "agent:eng", CreatedByActor: avEng,
+		CreatedAt: ct("2026-11-21T08:30:00Z"), UpdatedAt: ct("2026-11-21T09:10:00Z"),
+	}
+}
+
+// 進行中的一筆:輕量領取(領取者與租約,沒有任務)
+func sampleItemDoing() model.IssueItem {
+	return model.IssueItem{
+		ID: "0197b3a4-3333-7e8f-9a0b-1c2d3e4f5a6b", IssueID: "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b", Seq: 4, Key: "ISS-37.4", Title: "CLI 與 MCP", Status: "doing",
+		Assignee: "tim@example.com", AssigneeActor: avTim, ClaimedBy: "tim@example.com", ClaimedByActor: avTim, LockedUntil: ctp("2026-11-21T17:00:00Z"),
+		CreatedBy: "tim@example.com", CreatedByActor: avTim, CreatedAt: ct("2026-11-21T08:40:00Z"), UpdatedAt: ct("2026-11-21T09:20:00Z"),
+	}
+}
+
+// 只有必填欄位:待領取、沒有負責人與前置
+func minimalItem() model.IssueItem {
+	return model.IssueItem{
+		ID: "0197b3a4-4444-7e8f-9a0b-1c2d3e4f5a6b", IssueID: "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b", Seq: 5, Key: "ISS-37.5", Title: "最少欄位", Status: "todo",
+		CreatedBy: "tim@example.com", CreatedByActor: avTim, CreatedAt: ct("2026-11-21T10:00:00Z"), UpdatedAt: ct("2026-11-21T10:00:00Z"),
+	}
+}
+
 func sampleIncident() model.Incident {
 	return model.Incident{
 		ID: "INC-2041", Title: "API 延遲飆高", Sev: 2, Status: "resolved", Services: []string{"api", "db"},
@@ -188,7 +254,7 @@ func sampleCabinet() model.Cabinet {
 }
 
 func sampleProject() model.Project {
-	return model.Project{ID: "PRJ-2", Name: "官網改版", Description: "2027 年官網與文件站改版", CreatedAt: ct("2026-11-01T00:00:00Z"), UpdatedAt: ct("2026-11-05T08:00:00Z")}
+	return model.Project{ID: "PRJ-2", Name: "官網改版", Description: "2027 年官網與文件站改版", Key: "WEB", Repos: []string{"acme/website", "gitlab:acme/docs"}, Restricted: true, MyRole: model.ProjectRoleAdmin, CreatedAt: ct("2026-11-01T00:00:00Z"), UpdatedAt: ct("2026-11-05T08:00:00Z")}
 }
 
 // sampleProjectDoc 放在專案裡的文件(project 有值;未分專案的文件不帶 project,見 sampleDoc)
@@ -249,6 +315,49 @@ func contractFixtures() map[string]any {
 		"incident.json": sampleIncident(),
 		// GET /api/orgs/{org}/incidents
 		"incident_list.json": []model.Incident{sampleIncident(), minimalIncident()},
+		// GET /api/orgs/{org}/decisions/{id}、POST 提出/answer/withdraw/reopen(decision:有選項,answer 是選項 id 或 other)。
+		// 署名一律是呼叫者本人:createdBy、decidedBy 是相容字串(人 = email、角色 = agent:<handle>),createdByActor、decidedByActor 是 actor 物件;sourceIssue 是來源 Issue 的顯示編號 key
+		"decision.json": sampleDecision(),
+		// help(需要協助):沒有選項,answer 是 done / declined,可附 evidence
+		"decision_help.json": sampleHelp(),
+		// GET /api/orgs/{org}/decisions(舊的在前;只列呼叫者看得到的:來源 Issue 在受限專案、呼叫者不是成員的不列;開放中的 answer、answerNote 是空字串,沒有 decidedAt)
+		"decision_list.json": []model.Decision{sampleDecision(), sampleHelp(), minimalDecision()},
+		// POST /api/orgs/{org}/decisions/{id}/to-issue(body {priority?, labels?, repo?, project?};只有人;新 Issue 的 source 是 DEC-n,決定的 sourceIssue 指向新 Issue 的 key)
+		"decision_to_issue.json": service.DecisionIssueResult{Issue: &model.Issue{ID: "0197b3a4-5c6d-7e8f-9a0b-1c2d3e4f5a6b", Key: "ISS-40", Num: 40, Version: 1, Title: "待決定的結構", Status: "open", Priority: "normal",
+			Labels: []string{"待決定"}, Comments: []model.Comment{}, Source: "DEC-5", CreatedBy: "tim@example.com", CreatedByActor: avTim, CreatedAt: ct("2026-11-21T10:01:00Z"),
+			UpdatedAt: ct("2026-11-21T10:01:00Z")}, Decision: func() *model.Decision { d := minimalDecision(); d.SourceIssue = "ISS-40"; return &d }()},
+		// GET /api/orgs/{org}/decisions/summary(來源 Issue key → 筆數;只算呼叫者看得到的決定)
+		"decision_summary.json": map[string]model.DecisionSummary{"ISS-37": {Open: 1, Decided: 2}},
+		// GET /api/orgs/{org}/issues/{id}/items/{itemId}、POST 新增、PATCH 修改、claim(輕量)/release/report/block/unblock/cancel 的回應。
+		// key = Issue 顯示編號.序號;assignee、claimedBy、createdBy 是相容字串(人 = email、角色 = agent:<handle>)並存 xxxActor 物件;dependsOn、waitFor(item)輸出成子項 key;
+		// 沒有負責人、前置、files、證據的欄位省略;完成的有 evidence(JSON 物件)與 completedAt
+		"issue_item.json": sampleItem(),
+		// 卡住:blockReason 必填,waitForKind(user_decision / item / external)與 waitFor 成對
+		"issue_item_blocked.json": sampleItemBlocked(),
+		// 進行中(輕量領取):claimedBy、claimedByActor、lockedUntil(租約到期)
+		"issue_item_doing.json": sampleItemDoing(),
+		// GET /api/orgs/{org}/issues/{id}/items(seq 順序;預設只回未完成,includeDone=1 連 done、canceled 一起;status= 指定單一狀態)
+		"issue_item_list.json": []model.IssueItem{sampleItemBlocked(), sampleItemDoing(), minimalItem(), sampleItem()},
+		// POST /api/orgs/{org}/issues/{id}/items/{itemId}/claim:負責人是角色時帶 task(綁定的 agent_task,links = [Issue id, 子項 id])與一次性 credential
+		"issue_item_claim.json": service.ItemClaimResult{Item: func() *model.IssueItem {
+			i := sampleItemDoing()
+			i.Assignee, i.AssigneeActor, i.TaskID = "agent:eng", avEng, "T-12"
+			return &i
+		}(), Task: &model.AgentTask{ID: "T-12", AgentID: "eng", Status: "inProgress", Title: "處理子項 ISS-37.4:CLI 與 MCP", Instructions: "請處理 Issue ISS-37 的子項 ISS-37.4",
+			Links: []string{"0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b", "0197b3a4-3333-7e8f-9a0b-1c2d3e4f5a6b"}, Notes: []model.AgentTaskNote{}, Priority: "normal",
+			CreatedBy: "tim@example.com", CreatedByActor: avTim, ClaimedBy: "tim@example.com", ClaimedByActor: avTim, LockedUntil: ctp("2026-11-21T17:00:00Z"),
+			CreatedAt: ct("2026-11-21T09:20:00Z"), UpdatedAt: ct("2026-11-21T09:20:00Z")},
+			Credential: &model.AgentGrant{AgentID: "eng", TaskID: "T-12", Secret: "s3cr3t-only-shown-once", Code: "123456", ExpiresAt: "2026-11-21T17:00:00Z"}},
+		// POST /api/orgs/{org}/issues/{id}/items/{itemId}/promote:新 Issue(source 是子項 key、內文帶驗收與檔案)與標為 canceled、promotedIssueId 是新 Issue 顯示編號的子項
+		"issue_item_promote.json": service.ItemPromoteResult{Issue: &model.Issue{ID: "0197b3a4-5c6d-7e8f-9a0b-1c2d3e4f5a6b", Key: "ISS-41", Num: 41, Version: 1, Title: "CLI 與 MCP", Status: "open", Priority: "normal",
+			Labels: []string{}, Comments: []model.Comment{}, Source: "ISS-37.4", CreatedBy: "tim@example.com", CreatedByActor: avTim, CreatedAt: ct("2026-11-21T10:01:00Z"),
+			UpdatedAt: ct("2026-11-21T10:01:00Z")}, Item: func() *model.IssueItem {
+			i := sampleItemDoing()
+			i.Status, i.ClaimedBy, i.ClaimedByActor, i.LockedUntil, i.PromotedIssueID, i.CompletedAt = "canceled", "", nil, nil, "ISS-41", ctp("2026-11-21T10:01:00Z")
+			return &i
+		}()},
+		// GET /api/orgs/{org}/issues、GET /api/orgs/{org}/issues/{id}:有子項的 Issue 帶 itemsOpen(todo / doing / blocked)與 itemsTotal(不含 canceled);沒有子項就沒有這兩個欄位
+		"issue_with_items.json": func() model.Issue { i := sampleIssue(); i.ItemsOpen, i.ItemsTotal = 2, 4; return i }(),
 		// GET /api/orgs/{org}/cabinet
 		"cabinet.json": sampleCabinet(),
 		// GET /api/orgs/{org}/docs/{id}、POST 新增/修改
@@ -256,9 +365,23 @@ func contractFixtures() map[string]any {
 		// GET /api/orgs/{org}/projects/{id}、POST /api/orgs/{org}/projects、PUT /api/orgs/{org}/projects/{id}
 		"project.json": sampleProject(),
 		// GET /api/orgs/{org}/projects(依建立順序;description 沒填是空字串)
+		// restricted = 受限專案(只有專案成員與組織管理員看得到,看不到的不出現在清單);myRole = 呼叫者在專案的角色(admin、member,不是成員沒有這個欄位)
 		"project_list.json": []model.Project{
-			{ID: "PRJ-1", Name: "App", Description: "", CreatedAt: ct("2026-10-01T00:00:00Z"), UpdatedAt: ct("2026-10-01T00:00:00Z")},
+			{ID: "PRJ-1", Name: "App", Description: "", Repos: []string{}, CreatedAt: ct("2026-10-01T00:00:00Z"), UpdatedAt: ct("2026-10-01T00:00:00Z")},
 			sampleProject(),
+		},
+		// GET /api/orgs/{org}/projects/{id}/members(依加入時間;看不到的專案 404)。POST …/members(body {"actor": "bob@example.com", "role": "member"})回傳這位成員(同其中一筆);
+		// POST …/members/remove(body {"actor": "…"})回 true。node 是相容的節點寫法(user:<email>、agent:<角色 id>),actor 是 actor 物件
+		"project_member_list.json": []model.ProjectMember{
+			{Project: "PRJ-2", Actor: avTim, Node: "user:tim@example.com", Role: model.ProjectRoleAdmin, CreatedAt: ct("2026-11-02T00:00:00Z")},
+			{Project: "PRJ-2", Actor: avEng, Node: "agent:eng", Role: model.ProjectRoleMember, CreatedAt: ct("2026-11-03T00:00:00Z")},
+		},
+		// GET /api/orgs/{org}/projects/repos(整個組織的專案與 repo 連結,依專案號碼、連結時間;GET …/projects/{id}/repos 只有那個專案的)。
+		// POST …/projects/{id}/repos、…/repos/delete(body {"repo": "…"})回傳更新後的專案(同 project.json,repos 是連結的 repo)
+		"project_repo_list.json": []model.ProjectRepo{
+			{Project: "PRJ-1", Repo: "acme/app", CreatedAt: ct("2026-11-02T00:00:00Z")},
+			{Project: "PRJ-2", Repo: "acme/website", CreatedAt: ct("2026-11-03T00:00:00Z")},
+			{Project: "PRJ-2", Repo: "gitlab:acme/docs", CreatedAt: ct("2026-11-03T00:00:01Z")},
 		},
 		// GET /api/orgs/{org}/docs/{id}、POST 新增/修改(放在專案裡的文件:多一個 project)
 		"cabinet_doc_project.json": sampleProjectDoc(),

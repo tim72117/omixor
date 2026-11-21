@@ -79,7 +79,10 @@ const agentInstructions = "這是 omixor 的角色端點:你正以虛擬角色�
 	"組織鏈上有下游角色時,可以用 agent_task_delegate 把工作委派出去(可以派給誰見 agent_context 的 chain.downstream),對方做完會自動回報給你。" +
 	"可以讀 Issue(issues)、建立 Issue(issue_create)、對 Issue 留言與改狀態(issue_update);" +
 	"文件櫃(cabinet、docs、doc_save)只能讀寫角色 docAccess 範圍內的位置;文件櫃分專案時用 projects 看有哪些專案,工具帶 project(專案 id)操作那個專案,不帶是未分專案。" +
-	"訊息頻道:agent_context 的 mentions 是提到你的未讀訊息(只是通知,不是任務,自己決定要不要回);channels 看你所在的頻道,channel_messages 讀(讀了算已讀),channel_post 回覆。署名一律是你的角色。"
+	"訊息頻道:agent_context 的 mentions 是提到你的未讀訊息(只是通知,不是任務,自己決定要不要回);channels 看你所在的頻道,channel_messages 讀(讀了算已讀),channel_post 回覆。署名一律是你的角色。" +
+	"子項(待辦清單):遇到跨階段、要拆給別的子代理、或需要人決定的工作,用 issue_item_add 在 Issue 底下開子項(太細的不要開);issue_items 看清單(預設只回未完成)。" +
+	"你的任務如果是子項(任務說明會寫子項編號,例如 ISS-37.2),做完用 issue_item_report status=done(附 evidence 證據:commit、測試結果、沒驗證到的項目);" +
+	"卡住、或需要人決定就 issue_item_report status=blocked 並寫 block_reason,需要人決定時 wait_for_kind=user_decision,不要猜答案。"
 
 // AgentEndpoint 角色端點的 http.Handler(掛在 /mcp/agent):
 //
@@ -217,7 +220,10 @@ const adminInstructions = "這是 omixor 的 MCP 端點,操作目前組織的 Is
 	"agent_task_report 回報。issue_create / issue_update 的 assignee 指派 Issue 給角色,會自動替它排任務。" +
 	"文件櫃:cabinet 看結構、docs 查文件、doc_save 新增或修改(署名是你;不能指定角色身分,要以角色身分工作請 agent_task_claim 領任務拿憑證、連角色端點 /mcp/agent)。" +
 	"專案:文件櫃與 Issue 可以分專案(頻道、角色等仍屬於組織;專案裡的 Issue 編號是 <專案代號>-<n>,組織層級的是 ISS-<n>,顯示時用 key);projects 列專案、project_save 新增或修改專案,cabinet、docs、doc_save、cabinet_layout_save 帶 project(專案 id)操作那個專案,不帶是未分專案;doc_save 修改時給 project 就是把文件搬到那個專案。" +
-	"訊息頻道:channels 列我的頻道(含未讀數)、channel_create 建立、channel_messages 讀(讀了算已讀)、channel_post 發訊息;@ 角色只通知、不排任務。"
+	"訊息頻道:channels 列我的頻道(含未讀數)、channel_create 建立、channel_messages 讀(讀了算已讀)、channel_post 發訊息;@ 角色只通知、不排任務。" +
+	"子項(待辦清單,編號是 <Issue key>.<序號>,例如 ISS-37.2):大構想要分階段、分給不同子代理時,用 issue_item_add 在 Issue 底下開子項(跨階段、跨子代理或要人決定的才開)," +
+	"issue_items 看清單、issue_item_claim 領取(負責人是角色時自動排任務並發憑證)、issue_item_report 回報(done 附 evidence;需要人決定就 status=blocked、wait_for_kind=user_decision,不要猜答案)、" +
+	"issue_item_update 改或取消、issue_item_promote 提升為獨立 Issue。"
 
 // AdminEndpoint 管理用 MCP 的 http.Handler(雲端掛在 /mcp/org/{org},用 omixor token 認證)
 func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {

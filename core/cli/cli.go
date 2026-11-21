@@ -11,11 +11,26 @@
 //	omixor users | users add <email> [--role admin|member] | users role <email> <role> | users disable|enable <email>
 //	omixor tokens | tokens revoke <id>
 //	omixor audit [--limit 100]
+//	omixor projects [list] [--org default]         專案(id、代號、名稱、連結的 repo)
+//	omixor projects link <專案 id> <repo> [--org default]     連結專案與 repo(組織管理員;只用於預設值與篩選,不是權限來源)
+//	omixor projects unlink <專案 id> <repo> [--org default]   取消連結
+//	omixor projects restrict|unrestrict <專案 id>             受限專案(只有專案成員與組織管理員看得到;組織管理員)
+//	omixor projects members <專案 id>                         專案成員
+//	omixor projects member-add <專案 id> <email|agent:<角色 id>> [--role admin|member]   加入成員或改角色(組織管理員或專案管理員)
+//	omixor projects member-remove <專案 id> <成員>            移除成員
 //	omixor issues list [--org default]
 //	omixor issues export [--org default] [-o 檔案]
 //	omixor issues import [--org default] <檔案>     第一次搬資料用;伺服器上已經有 Issue 就會拒絕
 //	omixor issues restore <id>… --from <檔案> [--org default]   資料被改壞時改回檔案裡的內容(不是同步)
 //	omixor issues delete <id>… | --all [--org default] [--yes]   沒加 --yes 只列出
+//	omixor decisions [list] [--kind decision|help] [--status open|decided|withdrawn] [--issue ISS-n] [--mine] [--org default]   待決定 / 需要協助
+//	omixor decisions show <DEC-n> | add <標題> [--kind help] [--body 背景] [--options "*A;B"] [--issue ISS-n] [--blocks ISS-1,ISS-2]
+//	omixor decisions answer <DEC-n> <選項 id|other|done|declined> [--note 說明] [--evidence 證據] | withdraw <DEC-n> | reopen <DEC-n> | to-issue <DEC-n>
+//	omixor items list <Issue> [--include-done] [--status todo|doing|blocked|done|canceled]   Issue 子項(待辦清單;編號 ISS-37.2)
+//	omixor items add <Issue> <標題> [--files a,b] [--acceptance 驗收] [--assignee 人或 agent:角色] [--depends 序號]
+//	omixor items show|claim|release|unblock|cancel|delete <子項>   claim 負責人是角色時會印出一次性憑證
+//	omixor items report <子項> todo|doing|blocked|done [--evidence 證據] [--note 備註] [--reason 原因] [--wait-kind user_decision|item|external --wait-for 對象]
+//	omixor items block <子項> <原因> | promote <子項> [--priority high] [--labels a,b] | update <子項> [新標題] [--acceptance …]
 //	omixor channel [--org default] [--agent 角色] [--interval 30s] [--auto]   任務通知頻道(stdio MCP,給 Claude Code 的 channels;見 core/mcp/channel.go)
 //	omixor agents import [--org default] <agents.json>   第一次搬資料用:角色與任務(格式同 app 的 agents.json);伺服器上已經有角色或任務就會拒絕
 //
@@ -200,7 +215,7 @@ func reorder(args []string, valued map[string]bool) []string {
 	return append(flags, pos...)
 }
 
-var valued = map[string]bool{"role": true, "org": true, "o": true, "limit": true, "server": true, "agent": true, "interval": true, "device": true, "from": true, "name": true, "kind": true, "q": true, "status": true, "evoleap": true, "evoleap-console": true}
+var valued = itemValued(decisionValued(map[string]bool{"role": true, "org": true, "o": true, "limit": true, "server": true, "agent": true, "interval": true, "device": true, "from": true, "name": true, "kind": true, "q": true, "status": true, "evoleap": true, "evoleap-console": true}))
 
 // actorID 輸出用:actor 物件的 id;沒有(查不到)是空字串
 func actorID(a *model.ActorView) string {
@@ -227,7 +242,7 @@ func readIssues(file string) ([]model.Issue, error) {
 	return list, nil
 }
 
-const usage = `用法:omixor login|logout|whoami|orgs|members|actors|users|tokens|audit|issues|agents|channel …(說明見 core/cli/cli.go)`
+const usage = `用法:omixor login|logout|whoami|orgs|members|actors|users|tokens|audit|projects|issues|decisions|items|agents|channel …(說明見 core/cli/cli.go)`
 
 // Main 給 cmd 用:執行並在出錯時結束程式
 func Main(args []string) {
@@ -271,6 +286,8 @@ func Run(args []string, out io.Writer) error {
 	agentFlag := fs.String("agent", "", "角色 id")
 	interval := fs.Duration("interval", 30*time.Second, "查詢間隔")
 	auto := fs.Bool("auto", false, "收到任務就領取處理")
+	df := newDecisionFlags(fs, kindFlag, statusFlag)
+	itf := newItemFlags(fs)
 	if err := fs.Parse(reorder(rest, valued)); err != nil {
 		return err
 	}
@@ -463,8 +480,14 @@ func Run(args []string, out io.Writer) error {
 			return err
 		}
 		printJSON(out, l)
+	case "projects":
+		return projects(cl, out, sub, pos, *org, *role)
 	case "issues":
 		return issues(cl, out, sub, pos, *org, *outFile, *from, *yes, *all)
+	case "decisions":
+		return decisions(cl, out, sub, pos, *org, df)
+	case "items":
+		return items(cl, out, sub, pos, *org, itf, df)
 	case "channel":
 		// stdout 是 MCP 協定,訊息與錯誤只寫 stderr
 		lg := log.New(os.Stderr, "", log.LstdFlags)
@@ -493,6 +516,82 @@ func Run(args []string, out io.Writer) error {
 		}
 	default:
 		return errors.New(usage)
+	}
+	return nil
+}
+
+func projects(cl *client.Client, out io.Writer, sub string, pos []string, org, role string) error {
+	switch sub {
+	case "", "list":
+		l, err := cl.ListProjects(org)
+		if err != nil {
+			return err
+		}
+		for _, x := range l {
+			key := x.Key
+			if key == "" {
+				key = "-"
+			}
+			lock := ""
+			if x.Restricted {
+				lock = " [受限]"
+			}
+			fmt.Fprintf(out, "%-8s %-10s %-20s %s%s\n", x.ID, key, x.Name, strings.Join(x.Repos, ", "), lock)
+		}
+	case "restrict", "unrestrict": // 受限旗標(組織管理員)
+		if len(pos) < 2 {
+			return fmt.Errorf("用法:omixor projects %s <專案 id> [--org 組織]", sub)
+		}
+		v := sub == "restrict"
+		x, err := cl.UpdateProject(org, pos[1], service.ProjectPatch{Restricted: &v})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "%s 受限:%v\n", x.ID, x.Restricted)
+	case "members": // 專案成員名單
+		if len(pos) < 2 {
+			return errors.New("用法:omixor projects members <專案 id> [--org 組織]")
+		}
+		l, err := cl.ListProjectMembers(org, pos[1])
+		if err != nil {
+			return err
+		}
+		for _, m := range l {
+			fmt.Fprintf(out, "%-30s %s\n", m.Node, m.Role)
+		}
+	case "member-add", "member-remove": // 加入、改角色、移除成員(組織管理員或專案管理員)
+		if len(pos) < 3 {
+			return fmt.Errorf("用法:omixor projects %s <專案 id> <成員:email 或 agent:<角色 id>> [--role admin|member] [--org 組織]", sub)
+		}
+		if sub == "member-remove" {
+			if err := cl.RemoveProjectMember(org, pos[1], pos[2]); err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "已把 %s 從 %s 移除\n", pos[2], pos[1])
+			return nil
+		}
+		m, err := cl.SetProjectMember(org, pos[1], service.ProjectMemberInput{Actor: pos[2], Role: role})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "%s 在 %s 是 %s\n", m.Node, pos[1], m.Role)
+	case "link", "unlink":
+		if len(pos) < 3 {
+			return fmt.Errorf("用法:omixor projects %s <專案 id> <repo> [--org 組織]", sub)
+		}
+		var x *model.Project
+		var err error
+		if sub == "link" {
+			x, err = cl.LinkProjectRepo(org, pos[1], pos[2])
+		} else {
+			x, err = cl.UnlinkProjectRepo(org, pos[1], pos[2])
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "%s 連結的 repo:%s\n", x.ID, strings.Join(x.Repos, ", "))
+	default:
+		return errors.New("用法:omixor projects [list] | link <專案 id> <repo> | unlink <專案 id> <repo> | restrict|unrestrict <專案 id> | members <專案 id> | member-add|member-remove <專案 id> <成員>")
 	}
 	return nil
 }

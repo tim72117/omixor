@@ -63,7 +63,7 @@ func CoreToolDefs() []any {
 				"labels":   pStrs("標籤,例如 [\"evoleap\", \"訪客\"]"),
 				"link":     pStr("相關網址"),
 				"priority": pEnum("優先度,預設 normal", prio...),
-				"project":  pStr("放進的專案 id(例如 PRJ-1;專案要先設定代號,編號會是 <代號>-<n>);不給 = 組織層級(ISS-<n>)"),
+				"project":  pStr("放進的專案 id(例如 PRJ-1;專案要先設定代號,編號會是 <代號>-<n>);不給 = repo 只連到一個專案(見 project_save 的 link_repos)就放進那個專案,否則組織層級(ISS-<n>);空字串 = 明確不分專案(組織層級)"),
 				"repo":     pStr("所屬程式碼倉庫,例如 owner/name(GitHub)或 group/sub/project(GitLab),可加 github:、gitlab: 前綴;只能用英數與 - _ . / :"),
 				"source":   pStr("從哪裡發現的,例如「網站訪客 7d」"),
 				"title":    pStr("標題,一句話說明問題"),
@@ -91,11 +91,11 @@ func CoreToolDefs() []any {
 			obj(map[string]any{
 				"id":      pStr("Issue 編號:key(例如 ISS-3、APP-12)或內部 id"),
 				"project": pStr("只列這個專案的(專案 id,例如 PRJ-1);\"-\" = 只列組織層級的;不給 = 全部"),
-				"label":  pStr("只列有這個標籤的"),
-				"limit":  pInt("最多幾筆,預設 30"),
-				"query":  pStr("搜尋標題、內文、留言、編號與標籤(不分大小寫;以空白分隔的每個字都要出現)"),
-				"repo":   pStr("只列標記這個程式碼倉庫的(不分大小寫;github:、gitlab: 前綴一邊沒寫就忽略)"),
-				"status": pEnum("open、closed 或 all,預設 open", "open", "closed", "all"),
+				"label":   pStr("只列有這個標籤的"),
+				"limit":   pInt("最多幾筆,預設 30"),
+				"query":   pStr("搜尋標題、內文、留言、編號與標籤(不分大小寫;以空白分隔的每個字都要出現)"),
+				"repo":    pStr("只列標記這個程式碼倉庫的(不分大小寫;github:、gitlab: 前綴一邊沒寫就忽略)"),
+				"status":  pEnum("open、closed 或 all,預設 open", "open", "closed", "all"),
 			})),
 		coreDef("agents",
 			"列出組織的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。要以某角色身分工作,先讀它的 instructions,再用 agent_task_claim 領任務拿角色憑證、連角色端點。", true,
@@ -161,17 +161,23 @@ func CoreToolDefs() []any {
 				"to":    pStr("目標角色 id 或名稱"),
 			}, "from", "to")),
 		coreDef("projects",
-			"列出組織的專案(id、名稱、代號 key、描述、文件數)。專案用來分文件櫃與 Issue:每個專案有自己的文件櫃結構與文件;有代號的專案可以放 Issue(issue_create、issue_update 帶 project);不屬於任何專案的是「未分專案」/組織層級。"+
+			"列出組織的專案(id、名稱、代號 key、描述、連結的 repo、restricted(受限)、myRole、文件數)。受限專案只有專案成員與組織管理員看得到,看不到的不會出現在清單裡。給 id 只看那個專案並附成員名單(人類端點;看不到的專案回找不到)。專案用來分文件櫃與 Issue:每個專案有自己的文件櫃結構與文件;有代號的專案可以放 Issue(issue_create、issue_update 帶 project);不屬於任何專案的是「未分專案」/組織層級。"+
 				"文件櫃工具(cabinet、docs、doc_save、cabinet_layout_save)帶 project 參數操作那個專案,不帶就是未分專案。", true,
-			obj(map[string]any{})),
+			obj(map[string]any{"id": pStr("只看這個專案(含成員名單 members);不給 = 全部")})),
 		coreDef("project_save",
 			"新增專案(不給 id;name 必填)或修改專案的名稱、代號、描述(給 id)(組織管理員)。名稱在組織內不能重複;新專案的 id 是 PRJ-<n>,文件櫃結構是空白的(用 cabinet_layout_save 帶 project 建區塊)。"+
 				"代號(key,例如 APP)設定後才能在專案裡建 Issue,編號是 <代號>-<n>;專案裡已經有 Issue 就不能再改代號。", false,
 			obj(map[string]any{
-				"id":          pStr("要修改的專案 id,例如 PRJ-1;新增時不給"),
-				"key":         pStr("專案代號:2 到 10 個大寫英數字、英文字母開頭,組織內不重複;ISS、PRJ、T、DOC、CH、INC 是保留字"),
-				"name":        pStr("專案名稱(新增時必填)"),
-				"description": pStr("專案描述"),
+				"id":             pStr("要修改的專案 id,例如 PRJ-1;新增時不給"),
+				"key":            pStr("專案代號:2 到 10 個大寫英數字、英文字母開頭,組織內不重複;ISS、PRJ、T、DOC、CH、INC 是保留字"),
+				"name":           pStr("專案名稱(新增時必填)"),
+				"description":    pStr("專案描述"),
+				"link_repos":     pStrs("連結這些程式碼倉庫(owner/name 或 group/sub/project,可加 github:、gitlab: 前綴,不分大小寫;已經連過的略過)。連結只用於預設值與篩選:建立 Issue 沒指定 project、repo 只連到一個專案時預設放進那個專案;issues 依 repo 篩選時,連到該 repo 的專案裡沒標 repo 的 Issue 也算。沒連任何專案的 repo = 組織共用;不是權限來源,也不會搬動既有 Issue"),
+				"unlink_repos":   pStrs("取消連結這些程式碼倉庫(沒連過的回錯誤)"),
+				"restricted":     pBool("受限專案(只有組織管理員能改):true = 只有專案成員、組織管理員看得到(Issue、文件櫃、專案本身;其他人看到的和不存在一樣),false = 組織成員都看得到(預設)。改成受限時,不是專案成員的角色手上還沒領取的、這個專案 Issue 的任務會取消"),
+				"add_members":    pStrs("加入專案成員(組織管理員或專案管理員):使用者(email、user:<email>)或角色(agent:<角色 id>)。已經是成員就是改角色。受限專案的 Issue 只能指派給成員角色"),
+				"remove_members": pStrs("移除專案成員(組織管理員或專案管理員;不是成員回錯誤)。移除角色成員時,它在受限專案還沒領取的任務一併取消"),
+				"member_role":    pEnum("add_members 的角色,預設 member(不給且對方已是成員 = 角色不變)", "member", "admin"),
 			})),
 		coreDef("cabinet",
 			"列出文件櫃的區塊與頁籤,以及各處有幾份文件。給 project 看那個專案的文件櫃(省略 = 未分專案)。", true,
@@ -233,6 +239,8 @@ func CoreToolDefs() []any {
 	defs = append(defs, ChainToolDefs()...)
 	defs = append(defs, ChannelToolDefs()...)
 	defs = append(defs, IncidentToolDefs()...)
+	defs = append(defs, DecisionToolDefs()...)
+	defs = append(defs, ItemToolDefs()...)
 	defs = append(defs, WireframeToolDefs()...)
 	return append(defs, FlowchartToolDefs()...)
 }
@@ -261,6 +269,8 @@ func NewCoreServer(instructions string) *Server {
 	RegisterChainTools(s)
 	RegisterChannelTools(s)
 	RegisterIncidentTools(s)
+	RegisterDecisionTools(s)
+	RegisterItemTools(s)
 	RegisterWireframeTools(s)
 	RegisterFlowchartTools(s)
 	return s

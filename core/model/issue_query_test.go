@@ -145,13 +145,13 @@ func TestIssueQueryValidateAndValues(t *testing.T) {
 		}
 	}
 	q := model.IssueQuery{Q: "登入 bug", Status: "open", Priority: "high", Label: "前端", Repo: "github:a/b", Assignee: model.IssueFilterNone, Sort: "priority"}
-	if back := model.ParseIssueQuery(q.Values()); back != q {
+	if back := model.ParseIssueQuery(q.Values()); !reflect.DeepEqual(back, q) {
 		t.Errorf("Values ↔ ParseIssueQuery 不一致:%+v", back)
 	}
 	if v := (model.IssueQuery{}).Values(); len(v) != 0 {
 		t.Errorf("零值不放參數:%v", v)
 	}
-	if got := model.ParseIssueQuery(url.Values{"q": {"a"}, "other": {"x"}}); got != (model.IssueQuery{Q: "a"}) {
+	if got := model.ParseIssueQuery(url.Values{"q": {"a"}, "other": {"x"}}); !reflect.DeepEqual(got, model.IssueQuery{Q: "a"}) {
 		t.Errorf("ParseIssueQuery = %+v", got)
 	}
 }

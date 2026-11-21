@@ -1,8 +1,14 @@
 {
   "id": "PRJ-2",
   "name": "官網改版",
-  "key": "",
+  "key": "WEB",
   "description": "2027 年官網與文件站改版",
+  "repos": [
+    "acme/website",
+    "gitlab:acme/docs"
+  ],
+  "restricted": true,
+  "myRole": "admin",
   "createdAt": "2026-11-01T00:00:00Z",
   "updatedAt": "2026-11-05T08:00:00Z"
 }

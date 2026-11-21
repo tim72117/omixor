@@ -65,7 +65,7 @@ func TestAgentToolsFollowRoleSettings(t *testing.T) {
 
 	// 什麼都沒設:只有任務、Issue 與不需要設定的工具(線框圖、流程圖)
 	got := listTools(t, role, auth)
-	want := []string{"agent_context", "agent_tasks", "agent_task_report", "issues", "issue_create", "issue_update", "wireframe_render", "flowchart_render"}
+	want := []string{"agent_context", "agent_tasks", "agent_task_report", "issues", "issue_create", "issue_update", "issue_decision_add", "issue_decisions", "issue_item_add", "issue_items", "issue_item_report", "wireframe_render", "flowchart_render"}
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
@@ -77,7 +77,7 @@ func TestAgentToolsFollowRoleSettings(t *testing.T) {
 	}
 	ctx := ok(t, role, auth, "agent_context", map[string]any{})
 	tools := ctx["tools"].(map[string]any)
-	if n := len(tools["available"].([]any)); n != 8 {
+	if n := len(tools["available"].([]any)); n != 13 {
 		t.Fatal(tools)
 	}
 	un := tools["unavailable"].([]any)

@@ -99,8 +99,14 @@ func TestOrgsMembersIssues(t *testing.T) {
 		t.Fatal(err)
 	}
 	alice := e.login("evo-alice")
+	if _, err := alice.SaveMember("lab", "bob@example.com", "member"); status(err) != 403 {
+		t.Fatal("組織管理員不能順便建立還不存在的伺服器使用者(R-9)", err)
+	}
+	if _, err := boss.SaveMember("lab", "bob@example.com", "member"); err != nil { // 伺服器管理員可以替新 email 建立使用者並加入
+		t.Fatal(err)
+	}
 	if _, err := alice.SaveMember("lab", "bob@example.com", "member"); err != nil {
-		t.Fatal("組織管理員可以加人", err)
+		t.Fatal("組織管理員可以加(或改角色)已存在的使用者", err)
 	}
 	bob := e.login("evo-bob")
 	if orgs, _ := bob.ListOrgs(); len(orgs) != 1 || orgs[0].ID != "lab" || orgs[0].MyRole != "member" {

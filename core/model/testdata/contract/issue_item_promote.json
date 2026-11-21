@@ -1,0 +1,58 @@
+{
+  "issue": {
+    "body": "",
+    "comments": [],
+    "createdAt": "2026-11-21T10:01:00Z",
+    "createdBy": "tim@example.com",
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "id": "0197b3a4-5c6d-7e8f-9a0b-1c2d3e4f5a6b",
+    "key": "ISS-41",
+    "project": "",
+    "number": 41,
+    "version": 1,
+    "labels": [],
+    "link": "",
+    "priority": "normal",
+    "source": "ISS-37.4",
+    "status": "open",
+    "title": "CLI 與 MCP",
+    "updatedAt": "2026-11-21T10:01:00Z"
+  },
+  "item": {
+    "id": "0197b3a4-3333-7e8f-9a0b-1c2d3e4f5a6b",
+    "issueId": "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b",
+    "seq": 4,
+    "key": "ISS-37.4",
+    "title": "CLI 與 MCP",
+    "status": "canceled",
+    "assignee": "tim@example.com",
+    "assigneeActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "promotedIssueId": "ISS-41",
+    "createdBy": "tim@example.com",
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "createdAt": "2026-11-21T08:40:00Z",
+    "updatedAt": "2026-11-21T09:20:00Z",
+    "completedAt": "2026-11-21T10:01:00Z"
+  }
+}

@@ -583,6 +583,10 @@ func (p *PG) DeleteIssue(org, id string) error {
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
+	// 子項隨 Issue cascade 刪掉了;它們的序號列(item:<issue id>)也清掉,免得序號表留垃圾
+	if _, err := tx.Exec(c, `delete from omixor_seq where org = $1 and scope = $2`, org, "item:"+iid); err != nil {
+		return err
+	}
 	return tx.Commit(c)
 }
 

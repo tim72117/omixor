@@ -1,0 +1,29 @@
+[
+  {
+    "project": "PRJ-2",
+    "actor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "node": "user:tim@example.com",
+    "role": "admin",
+    "createdAt": "2026-11-02T00:00:00Z"
+  },
+  {
+    "project": "PRJ-2",
+    "actor": {
+      "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+      "kind": "agent",
+      "handle": "eng",
+      "name": "工程師",
+      "status": "active"
+    },
+    "node": "agent:eng",
+    "role": "member",
+    "createdAt": "2026-11-03T00:00:00Z"
+  }
+]

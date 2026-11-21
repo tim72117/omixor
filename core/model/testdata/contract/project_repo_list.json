@@ -1,0 +1,17 @@
+[
+  {
+    "project": "PRJ-1",
+    "repo": "acme/app",
+    "createdAt": "2026-11-02T00:00:00Z"
+  },
+  {
+    "project": "PRJ-2",
+    "repo": "acme/website",
+    "createdAt": "2026-11-03T00:00:00Z"
+  },
+  {
+    "project": "PRJ-2",
+    "repo": "gitlab:acme/docs",
+    "createdAt": "2026-11-03T00:00:01Z"
+  }
+]

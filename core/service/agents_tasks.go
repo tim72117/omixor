@@ -191,6 +191,13 @@ func (s *Service) ListAgentTasks(p *model.Principal, org string, f TaskFilter) (
 		}
 		out = append(out, t)
 	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	if out, err = acc.FilterTasks(out); err != nil { // 連到看不到的專案的 Issue 的任務不列(任務標題與說明帶有 Issue 的標題與內文)
+		return nil, err
+	}
 	return s.presentTasks(out)
 }
 
@@ -222,6 +229,15 @@ func (s *Service) GetAgentTask(p *model.Principal, org, id string) (*model.Agent
 	if p.Agent != nil && t.AgentID != p.Agent.AgentID {
 		return nil, fail(404, "找不到任務 %s", id)
 	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	if hidden, err := acc.TaskHidden(t); err != nil {
+		return nil, err
+	} else if hidden {
+		return nil, fail(404, "找不到任務 %s", id)
+	}
 	return s.presentTask(t)
 }
 
@@ -251,6 +267,9 @@ func (s *Service) saveTaskChange(org string, before model.AgentTask, change func
 		if err := s.Store.DeleteAgentCredentials(org, t.ID, ""); err != nil {
 			return nil, err
 		}
+	}
+	if before.Status == "inProgress" && t.Status != "inProgress" { // 由子項產生的任務:結果回寫子項(issue_items_task.go)
+		s.syncItemFromTask(org, before, t)
 	}
 	return &t, nil
 }
@@ -376,6 +395,7 @@ func (s *Service) syncAssignee(p *model.Principal, org string, issue model.Issue
 	if err != nil || !g.Active {
 		return
 	}
+	tasks = s.dropItemTasks(org, tasks) // 由子項產生的任務不算「這張 Issue 的任務」(它處理的是子項)
 	for _, t := range tasks {
 		if t.AgentID == g.ID && model.TaskIsOpen(t.Status) && s.linksIssue(org, t.Links, issue) {
 			return // 這個 Issue 已經有一筆未結束的任務,不重複排

@@ -25,6 +25,8 @@ func init() {
 	coremcp.RegisterCabinetTools(srv)
 	coremcp.RegisterChainTools(srv)
 	coremcp.RegisterChannelTools(srv)
+	coremcp.RegisterDecisionTools(srv) // issue_decision_add、issue_decisions、issue_decision_answer、issue_decision_to_issue(見 core/mcp/tools_decision.go)
+	coremcp.RegisterItemTools(srv)     // issue_item_add、issue_items、issue_item_update、issue_item_claim、issue_item_report、issue_item_promote(見 core/mcp/tools_issue_items.go、tools_issue_items.go)
 	coremcp.RegisterIncidentTools(srv) // incidents、incident_declare、incident_update(見 tools_incident.go)
 }
 

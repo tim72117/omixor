@@ -112,6 +112,31 @@ func (s *Service) docViewer(p *model.Principal, org string) (*model.Agent, error
 	return g, nil
 }
 
+// projectIDFor 文件櫃操作的專案參數(同 projectID),另外檢查呼叫者看得到:看不到的受限專案和不存在一樣 404。
+// g 是角色身分的角色(人是 nil;角色憑證可以靠 docAccess 明確列出的專案)
+func (s *Service) projectIDFor(a *projectAccess, g *model.Agent, org, project string) (string, error) {
+	id, err := s.projectID(org, project)
+	if err != nil || id == "" {
+		return id, err
+	}
+	if !a.SeesDocs(id, g) {
+		return "", errProjectNotFound(project)
+	}
+	return id, nil
+}
+
+// findDocFor 同 findDoc,看不到的專案的文件和不存在一樣 404(不能先回 403:會洩漏存在)
+func (s *Service) findDocFor(a *projectAccess, g *model.Agent, org, id string) (*model.CabinetDoc, error) {
+	d, err := s.findDoc(org, id)
+	if err != nil {
+		return nil, err
+	}
+	if !a.SeesDocs(d.Project, g) {
+		return nil, fail(404, "找不到文件 %s", strings.TrimSpace(id))
+	}
+	return d, nil
+}
+
 func (s *Service) findDoc(org, id string) (*model.CabinetDoc, error) {
 	id = strings.TrimSpace(id)
 	if d, err := s.Store.GetDoc(org, id); err == nil {
@@ -148,7 +173,11 @@ func (s *Service) GetCabinet(p *model.Principal, org, project string) (*model.Ca
 	if err != nil {
 		return nil, err
 	}
-	project, err = s.projectID(org, project)
+	a, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	project, err = s.projectIDFor(a, g, org, project)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +211,11 @@ func (s *Service) GetDoc(p *model.Principal, org, id string) (*model.CabinetDoc,
 	if err != nil {
 		return nil, err
 	}
-	d, err := s.findDoc(org, id)
+	a, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.findDocFor(a, g, org, id)
 	if err != nil {
 		return nil, err
 	}
@@ -237,9 +270,13 @@ func (s *Service) CreateDoc(p *model.Principal, org string, in DocInput) (*model
 	if err != nil {
 		return nil, err
 	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
 	s.cabinetMu.Lock()
 	defer s.cabinetMu.Unlock()
-	project, err := s.projectID(org, in.Project)
+	project, err := s.projectIDFor(acc, g, org, in.Project)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +291,7 @@ func (s *Service) CreateDoc(p *model.Principal, org string, in DocInput) (*model
 	if err != nil {
 		return nil, err
 	}
-	if e := model.ValidateDocBody(in.Body, docs); e != "" {
+	if e := model.ValidateDocBody(in.Body, acc.FilterDocs(docs, g)); e != "" { // 範本只看呼叫者看得到的(受限專案的範本不能被拿來探測)
 		return nil, fail(400, "%s", e)
 	}
 	now := s.mt()
@@ -281,9 +318,13 @@ func (s *Service) UpdateDoc(p *model.Principal, org, id string, in DocPatch) (*m
 	if in.Title != nil && strings.TrimSpace(*in.Title) == "" {
 		return nil, fail(400, "標題不能是空的")
 	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
 	s.cabinetMu.Lock()
 	defer s.cabinetMu.Unlock()
-	cur, err := s.findDoc(org, id)
+	cur, err := s.findDocFor(acc, g, org, id)
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +337,10 @@ func (s *Service) UpdateDoc(p *model.Principal, org, id string, in DocPatch) (*m
 
 // updateDocLocked UpdateDoc 的本體(呼叫時要拿著 cabinetMu;g 是角色身分的角色,人是 nil)
 func (s *Service) updateDocLocked(p *model.Principal, g *model.Agent, org, id string, cur *model.CabinetDoc, in DocPatch) (*model.CabinetDoc, error) {
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
 	l, _, err := s.layoutOf(org, cur.Project)
 	if err != nil {
 		return nil, err
@@ -311,9 +356,12 @@ func (s *Service) updateDocLocked(p *model.Principal, g *model.Agent, org, id st
 	d := cur.Clone()
 	// 搬到別的專案:目標專案要存在,結構要有對應的區塊與頁籤(沒給 Section 時沿用原本的位置)
 	if in.Project != nil {
-		target, err := s.projectID(org, *in.Project)
+		target, err := s.projectIDFor(acc, g, org, *in.Project)
 		if err != nil {
 			return nil, err
+		}
+		if target != cur.Project && acc.Restricted(cur.Project) && !acc.Admins(cur.Project) { // 搬出受限專案 = 公開出去:要專案管理員
+			return nil, fail(403, "要組織管理員或專案 %s 的管理員才能把文件搬出受限專案", cur.Project)
 		}
 		if target != cur.Project {
 			tl, _, err := s.layoutOf(org, target)
@@ -355,7 +403,7 @@ func (s *Service) updateDocLocked(p *model.Principal, g *model.Agent, org, id st
 	if err != nil {
 		return nil, err
 	}
-	if e := model.ValidateDocBody(d.Body, docs); e != "" {
+	if e := model.ValidateDocBody(d.Body, acc.FilterDocs(docs, g)); e != "" {
 		return nil, fail(400, "%s", e)
 	}
 	if sameDoc(d, *cur) {
@@ -393,9 +441,13 @@ func (s *Service) DeleteDoc(p *model.Principal, org, id string) error {
 	if _, err := s.orgRole(p, org); err != nil {
 		return err
 	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return err
+	}
 	s.cabinetMu.Lock()
 	defer s.cabinetMu.Unlock()
-	d, err := s.findDoc(org, id)
+	d, err := s.findDocFor(acc, nil, org, id)
 	if err != nil {
 		return err
 	}

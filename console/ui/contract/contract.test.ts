@@ -5,9 +5,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  agentAccess, arr, boardDropStatus, DOC_ACCESS_LABEL, INC_STATUS_LABEL, leaseLabel, PRIORITY_LABEL, ROUTINE_KIND_LABEL, tabTitle, TASK_LABEL, taskOpen,
+  agentAccess, arr, boardDropStatus, DECISION_STATUS_LABEL, DOC_ACCESS_LABEL, INC_STATUS_LABEL, ITEM_STATUS_LABEL, ITEM_STATUSES, ITEM_WAIT_LABEL, leaseLabel, PRIORITY_LABEL, ROUTINE_KIND_LABEL, tabTitle, TASK_LABEL, taskOpen,
   type Agent, type AgentTask, type CabinetDoc, type CabinetSection, type Channel, type ChannelMessage, type ChannelPage,
-  type Incident, type OrgChain, type Project,
+  type Decision, type Incident, type IssueItem, type OrgChain, type Project, type ProjectMember, type ProjectRepo,
 } from "../src/components/models.ts";
 import {
   conflictCurrent, draftChanges, draftDiff, draftOf, findIssue, isIssueRef, isVersionConflict, issueKey, issueRefLabel, mergeLatest,
@@ -117,6 +117,72 @@ test("頻道", () => {
   assert.deepEqual(p.messages.map((x) => x.id), ["M-4", "M-5"]);
 });
 
+test("待決定與需要協助", () => {
+  const d = load<Decision>("decision.json");
+  has(d, ["id", "kind", "title", "body", "options", "status", "answer", "answerNote", "sourceIssue", "blocks", "createdBy", "decidedBy", "createdByActor", "decidedByActor", "createdAt", "decidedAt", "updatedAt"], "decision");
+  assert.equal(d.kind, "decision");
+  assert.equal(DECISION_STATUS_LABEL[d.status](d.kind), "已決定");
+  assert.deepEqual(d.options.map((o) => o.id), ["o1", "o2"]);
+  assert.equal(d.options[0].recommended, true);
+  assert.equal(d.options[1].recommended, undefined);
+  assert.equal(d.decidedByActor?.kind, "user");
+  isTime(d.decidedAt, "decision.decidedAt");
+  const h = load<Decision>("decision_help.json");
+  assert.equal(h.kind, "help");
+  assert.deepEqual(h.options, [], "help 沒有選項是空陣列");
+  assert.equal(h.answer, "done");
+  assert.equal(h.evidence, "https://example.com/build/42");
+  assert.equal(DECISION_STATUS_LABEL[h.status](h.kind), "已處理");
+  const [, , open] = arr<Decision>(load("decision_list.json"));
+  assert.equal(open.status, "open");
+  assert.equal(DECISION_STATUS_LABEL[open.status](open.kind), "待處理");
+  assert.equal(open.answer, "", "沒處理 answer 是空字串");
+  assert.equal(open.decidedBy, "", "沒處理 decidedBy 是空字串");
+  assert.equal(open.decidedAt, undefined);
+  assert.equal(open.decidedByActor, undefined);
+  assert.equal(open.sourceIssue, "", "沒有來源 Issue 是空字串");
+  const r = load<{ issue: Issue; decision: Decision }>("decision_to_issue.json");
+  assert.equal(r.decision.sourceIssue, r.issue.key, "決定的來源 Issue 是新 Issue 的 key");
+  assert.equal(r.issue.source, r.decision.id);
+  const sum = load<Record<string, { open: number; decided: number }>>("decision_summary.json");
+  assert.deepEqual(sum["ISS-37"], { open: 1, decided: 2 });
+});
+
+test("Issue 子項", () => {
+  const done = load<IssueItem>("issue_item.json");
+  has(done, ["id", "issueId", "seq", "key", "title", "status", "assignee", "assigneeActor", "dependsOn", "files", "acceptance", "evidence", "taskId", "createdBy", "createdByActor", "createdAt", "updatedAt", "completedAt"], "issue_item");
+  assert.equal(ITEM_STATUS_LABEL[done.status], "完成");
+  assert.equal(done.key, "ISS-37.2", "key = Issue key.序號");
+  assert.equal(done.dependsOn, "ISS-37.1", "dependsOn 輸出成前置的 key");
+  assert.equal(done.evidence?.commit, "abc1234");
+  assert.equal(done.claimedBy, undefined, "完成後領取者清空");
+  isTime(done.completedAt, "issueItem.completedAt");
+  const blocked = load<IssueItem>("issue_item_blocked.json");
+  assert.equal(ITEM_STATUS_LABEL[blocked.status], "卡住");
+  assert.ok(blocked.waitForKind && ITEM_WAIT_LABEL[blocked.waitForKind], "等待種類前端要認得");
+  assert.equal(blocked.waitFor, "DEC-6");
+  const doing = load<IssueItem>("issue_item_doing.json");
+  assert.equal(ITEM_STATUS_LABEL[doing.status], "進行中");
+  has(doing, ["claimedBy", "claimedByActor", "lockedUntil"], "issue_item_doing");
+  isTime(doing.lockedUntil, "issueItem.lockedUntil");
+  const [first, , minimal] = arr<IssueItem>(load("issue_item_list.json"));
+  assert.equal(first.status, "blocked");
+  assert.equal(minimal.assignee, undefined, "沒有負責人省略欄位");
+  assert.equal(minimal.files, undefined);
+  for (const s of ITEM_STATUSES) assert.ok(ITEM_STATUS_LABEL[s]);
+  const c = load<{ item: IssueItem; task?: { id: string; links: string[] }; credential?: { agentId: string; secret: string } }>("issue_item_claim.json");
+  assert.equal(c.item.taskId, c.task?.id, "角色領取:子項綁定任務");
+  assert.equal(c.task?.links[1], c.item.id, "任務的 links = [Issue id, 子項 id]");
+  assert.ok(c.credential?.secret, "角色領取帶一次性憑證");
+  const p = load<{ issue: Issue; item: IssueItem }>("issue_item_promote.json");
+  assert.equal(p.item.status, "canceled");
+  assert.equal(p.item.promotedIssueId, p.issue.key, "提升後原子項記新 Issue 的 key");
+  assert.equal(p.issue.source, p.item.key, "新 Issue 的 source 是子項 key");
+  const i = load<Issue>("issue_with_items.json");
+  assert.deepEqual([i.itemsOpen, i.itemsTotal], [2, 4]);
+  assert.equal(load<Issue>("issue.json").itemsTotal, undefined, "沒有子項沒有計數欄位");
+});
+
 test("事件", () => {
   const i = load<Incident>("incident.json");
   has(i, ["id", "title", "sev", "status", "services", "commander", "startedAt", "resolvedAt", "impact", "timeline", "aiSummary", "followUps"], "incident");
@@ -150,13 +216,25 @@ test("文件櫃", () => {
 
 test("專案與專案的文件櫃", () => {
   const p = load<Project>("project.json");
-  has(p, ["id", "name", "key", "description", "createdAt", "updatedAt"], "project");
+  has(p, ["id", "name", "key", "description", "repos", "restricted", "myRole", "createdAt", "updatedAt"], "project");
+  assert.equal(p.restricted, true);
+  assert.equal(p.myRole, "admin");
+  assert.deepEqual(p.repos, ["acme/website", "gitlab:acme/docs"]);
   assert.ok(/^PRJ-\d+$/.test(p.id), `project.id 應該是 PRJ-<n>:${p.id}`);
   isTime(p.createdAt, "project.createdAt");
   isTime(p.updatedAt, "project.updatedAt");
   const list = arr<Project>(load("project_list.json"));
   assert.deepEqual(list.map((x) => x.id), ["PRJ-1", "PRJ-2"]);
   assert.equal(list[0].description, "", "沒有說明是空字串");
+  assert.deepEqual(list[0].repos, [], "沒連 repo 是空陣列");
+  assert.equal(list[0].restricted, false, "預設不受限");
+  assert.equal(list[0].myRole, undefined, "不是成員沒有 myRole");
+  const members = arr<ProjectMember>(load("project_member_list.json"));
+  assert.deepEqual(members.map((m) => `${m.node} ${m.role}`), ["user:tim@example.com admin", "agent:eng member"]);
+  members.forEach((m) => { has(m, ["project", "actor", "node", "role", "createdAt"], "projectMember"); isTime(m.createdAt, "projectMember.createdAt"); });
+  const links = arr<ProjectRepo>(load("project_repo_list.json"));
+  assert.deepEqual(links.map((l) => `${l.project} ${l.repo}`), ["PRJ-1 acme/app", "PRJ-2 acme/website", "PRJ-2 gitlab:acme/docs"]);
+  links.forEach((l) => { has(l, ["project", "repo", "createdAt"], "projectRepo"); isTime(l.createdAt, "projectRepo.createdAt"); });
   const d = load<CabinetDoc>("cabinet_doc_project.json");
   has(d, ["id", "title", "body", "section", "tags", "author", "createdAt", "updatedAt", "project"], "doc");
   assert.equal(d.project, "PRJ-2");

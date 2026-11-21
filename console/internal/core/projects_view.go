@@ -1,9 +1,11 @@
 package core
 
 import (
+	"errors"
 	"sync"
 	"time"
 
+	"omixor-core/backend"
 	"omixor-core/config"
 	"omixor-core/model"
 )
@@ -46,6 +48,7 @@ func (a *App) StopProjectsTimer() {
 
 // projectsRefresh 從核心重讀 org 的專案換進快取(不拿 Mu),回傳內容有沒有變;讀不到時保留原本的
 func (a *App) projectsRefresh(org string) bool {
+	a.InvalidateRestricted() // 專案、成員有變:受限專案的快取作廢
 	var list []model.Project
 	be, err := agentBackend()
 	if err == nil {
@@ -127,4 +130,65 @@ func init() {
 			}
 		}()
 	})
+}
+
+// ---- 受限專案(給 web 層篩選用)----
+//
+// console 對核心用同一個身分(本機是伺服器管理員、遠端是 web 共用的權杖),核心依「呼叫者」篩選受限專案的規則在這裡分不出是哪位 web 使用者,
+// 所以 web 層(console/internal/web/restricted.go)對「不是 web 管理員的登入者」另外把受限專案的資料整個擋掉。這裡只負責問核心:
+// 目前有哪些受限專案(5 秒快取;問不到回錯誤,呼叫端要當作「全部專案都不能看」)。
+
+type restrictedCache struct {
+	mu   sync.Mutex
+	org  string
+	set  map[string]bool
+	at   time.Time
+	list bool
+}
+
+var restrictedCaches sync.Map // *App → *restrictedCache
+
+// RestrictedProjectIDsOf 組織的受限專案 id(5 秒快取)。沒有專案功能(核心不支援)回空集合
+func (a *App) RestrictedProjectIDsOf(org string) (map[string]bool, error) {
+	v, _ := restrictedCaches.LoadOrStore(a, &restrictedCache{})
+	c := v.(*restrictedCache)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.list && c.org == org && time.Since(c.at) < 5*time.Second {
+		return c.set, nil
+	}
+	be, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	list, err := be.ListProjects(org)
+	if err != nil {
+		if errors.Is(err, backend.ErrUnsupported) { // 沒有專案功能
+			return map[string]bool{}, nil
+		}
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, x := range list {
+		if x.Restricted {
+			set[x.ID] = true
+		}
+	}
+	c.org, c.set, c.at, c.list = org, set, time.Now(), true
+	return set, nil
+}
+
+// RestrictedProjectIDs 目前組織的受限專案 id
+func (a *App) RestrictedProjectIDs() (map[string]bool, error) {
+	return a.RestrictedProjectIDsOf(a.currentOrgNow())
+}
+
+// InvalidateRestricted 專案或成員有變時清掉快取
+func (a *App) InvalidateRestricted() {
+	if v, ok := restrictedCaches.Load(a); ok {
+		c := v.(*restrictedCache)
+		c.mu.Lock()
+		c.list = false
+		c.mu.Unlock()
+	}
 }

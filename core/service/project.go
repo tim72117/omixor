@@ -11,8 +11,9 @@ import (
 // 專案:組織底下的一層,目前只有文件櫃(結構與文件)分專案(見 model/project.go)。
 //
 // 權限:
-//   - 組織成員(含角色身分):列出、讀取專案(組織成員看得到所有專案,沒有另外的專案成員)
-//   - 組織管理員:新增、修改、刪除專案(和改文件櫃結構一樣)
+//   - 組織成員(含角色身分):列出、讀取專案;受限專案(Restricted)只有專案成員、組織管理員看得到,其他人看不到(列表沒有、單筆 404),
+//     規則集中在 project_access.go
+//   - 組織管理員:新增、修改(含受限旗標)、刪除專案(和改文件櫃結構一樣);專案成員的管理見 project_members.go(組織管理員或專案管理員)
 //
 // 名稱必填、組織內不重複(不分大小寫,去掉前後空白比);代號選填(專案裡的 Issue 要有代號才能建,key 是 <代號>-<n>),
 // 組織內不重複、專案已經有 Issue 時不能改(第一版);刪除時專案裡還有文件或 Issue(含垃圾桶)就拒絕(409)。
@@ -23,6 +24,8 @@ type ProjectInput struct {
 	// Key 專案代號(選填,例如 APP;規則見 model.CleanProjectKey,組織內不重複);沒有代號的專案不能放 Issue
 	Key         string `json:"key,omitempty"`
 	Description string `json:"description,omitempty"`
+	// Restricted 建立成受限專案:只有專案成員與組織管理員看得到(預設 false = 組織成員都看得到)
+	Restricted bool `json:"restricted,omitempty"`
 }
 
 // ProjectPatch 修改專案:有給的欄位才改
@@ -31,6 +34,8 @@ type ProjectPatch struct {
 	// Key 改代號("" = 清掉);專案裡已經有 Issue(含垃圾桶)時不能改(409)
 	Key         *string `json:"key,omitempty"`
 	Description *string `json:"description,omitempty"`
+	// Restricted 改成受限(true)或公開(false);只有組織管理員。改成受限時,不是專案成員的角色排給受限專案 Issue 的、還沒領取的任務會取消
+	Restricted *bool `json:"restricted,omitempty"`
 }
 
 // findProject 依 id 找專案(不分大小寫);找不到回 404
@@ -130,18 +135,54 @@ func projectKeyErr(err error) error {
 
 // ListProjects 組織的專案(依建立順序)
 func (s *Service) ListProjects(p *model.Principal, org string) ([]model.Project, error) {
-	if err := s.viewer(p, org); err != nil {
+	g, err := s.docViewer(p, org)
+	if err != nil {
 		return nil, err
 	}
-	return s.Store.ListProjects(org)
+	if g != nil && len(g.DocAccess) == 0 { // 角色沒有任何 docAccess:和文件櫃一致,看不到專案(清單是空的;R-8)
+		return []model.Project{}, nil
+	}
+	list, err := s.Store.ListProjects(org)
+	if err != nil {
+		return nil, err
+	}
+	links, err := s.Store.ListProjectRepos(org)
+	if err != nil {
+		return nil, err
+	}
+	m := reposOf(links)
+	for k := range list {
+		list[k].Repos = append([]string{}, m[list[k].ID]...)
+	}
+	a, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	return a.FilterProjects(list, g), nil // 看不到的受限專案不出現(連專案 id 也不洩漏)
 }
 
 // GetProject 依 id 取專案(不分大小寫)
 func (s *Service) GetProject(p *model.Principal, org, id string) (*model.Project, error) {
-	if err := s.viewer(p, org); err != nil {
+	g, err := s.docViewer(p, org)
+	if err != nil {
 		return nil, err
 	}
-	return s.findProject(org, id)
+	if g != nil && len(g.DocAccess) == 0 { // 同 GetDoc:沒有 docAccess 的角色 403(R-8)
+		return nil, fail(403, "%s沒有文件權限,不能看專案(在角色設定的「文件權限」加位置)", g.Name)
+	}
+	x, err := s.findProject(org, id)
+	if err != nil {
+		return nil, err
+	}
+	a, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	if !a.SeesDocs(x.ID, g) { // 看不到的受限專案:和不存在一樣
+		return nil, errProjectNotFound(id)
+	}
+	x.MyRole = a.Role(x.ID)
+	return x, s.fillProjectRepos(org, x)
 }
 
 // CreateProject 新增專案(組織管理員;id 是 PRJ-<最大號+1>)
@@ -160,30 +201,44 @@ func (s *Service) CreateProject(p *model.Principal, org string, in ProjectInput)
 		return nil, err
 	}
 	now := s.mt()
-	x, err := s.Store.CreateProject(org, model.Project{Name: name, Key: key, Description: strings.TrimSpace(in.Description), CreatedAt: now, UpdatedAt: now})
+	x, err := s.Store.CreateProject(org, model.Project{Name: name, Key: key, Description: strings.TrimSpace(in.Description), Restricted: in.Restricted, CreatedAt: now, UpdatedAt: now})
 	if err != nil {
 		return nil, projectKeyErr(err)
 	}
-	s.Audit(p, "project.create", org, map[string]any{"id": x.ID, "name": x.Name})
+	s.Audit(p, "project.create", org, map[string]any{"id": x.ID, "name": x.Name, "restricted": x.Restricted})
+	x.Repos = []string{}
+	x.MyRole = model.ProjectRoleAdmin // 組織管理員
 	return &x, nil
 }
 
 // UpdateProject 修改專案名稱、描述(組織管理員);沒有變就不更新時間
 func (s *Service) UpdateProject(p *model.Principal, org, id string, in ProjectPatch) (*model.Project, error) {
-	if err := s.needOrgAdmin(p, org); err != nil {
+	x, wasOpen, err := s.updateProject(p, org, id, in)
+	if err != nil {
 		return nil, err
+	}
+	if wasOpen && x.Restricted { // 改成受限:非成員的角色手上還沒領取的、這個專案 Issue 的任務取消(鎖的順序 agents.mu → cabinetMu,所以在 cabinetMu 外做)
+		s.pruneProjectTasks(p, org, x.ID)
+	}
+	return x, nil
+}
+
+// updateProject UpdateProject 的本體(拿著 cabinetMu);wasOpen = 修改前不是受限專案
+func (s *Service) updateProject(p *model.Principal, org, id string, in ProjectPatch) (*model.Project, bool, error) {
+	if err := s.needOrgAdmin(p, org); err != nil {
+		return nil, false, err
 	}
 	s.cabinetMu.Lock()
 	defer s.cabinetMu.Unlock()
 	cur, err := s.findProject(org, id)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	x := *cur
 	if in.Name != nil {
 		x.Name = strings.TrimSpace(*in.Name)
 		if err := s.checkProjectName(org, x.ID, x.Name); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	if in.Description != nil {
@@ -192,21 +247,29 @@ func (s *Service) UpdateProject(p *model.Principal, org, id string, in ProjectPa
 	if in.Key != nil {
 		k, err := s.checkProjectKey(org, x.ID, *in.Key)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		x.Key = k
 	}
-	if x.Name == cur.Name && x.Description == cur.Description && x.Key == cur.Key {
-		return &x, nil
+	if in.Restricted != nil {
+		x.Restricted = *in.Restricted
+	}
+	x.MyRole = model.ProjectRoleAdmin // 組織管理員
+	if x.Name == cur.Name && x.Description == cur.Description && x.Key == cur.Key && x.Restricted == cur.Restricted {
+		return &x, false, s.fillProjectRepos(org, &x)
 	}
 	x.UpdatedAt = s.mt()
 	if err := s.Store.UpdateProject(org, x); errors.Is(err, store.ErrNotFound) {
-		return nil, fail(404, "找不到專案 %s", id)
+		return nil, false, fail(404, "找不到專案 %s", id)
 	} else if err != nil {
-		return nil, projectKeyErr(err)
+		return nil, false, projectKeyErr(err)
 	}
-	s.Audit(p, "project.update", org, map[string]any{"id": x.ID})
-	return &x, nil
+	detail := map[string]any{"id": x.ID}
+	if x.Restricted != cur.Restricted {
+		detail["restricted"] = x.Restricted
+	}
+	s.Audit(p, "project.update", org, detail)
+	return &x, !cur.Restricted, s.fillProjectRepos(org, &x)
 }
 
 // DeleteProject 刪除專案與它的文件櫃結構(組織管理員)。專案裡還有文件就拒絕(409),要先搬走或刪除;

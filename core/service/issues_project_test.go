@@ -27,10 +27,10 @@ func TestIssueCreateInProject(t *testing.T) {
 	if web.Key != "WEB" {
 		t.Fatal("代號轉大寫", web.Key)
 	}
-	if _, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "x", Project: "PRJ-99"}); code(err) != 404 {
+	if _, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "x", Project: sp("PRJ-99")}); code(err) != 404 {
 		t.Fatal("專案不存在", err)
 	}
-	_, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "x", Project: bare.ID})
+	_, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "x", Project: sp(bare.ID)})
 	if code(err) != 400 || !strings.Contains(err.Error(), "這個專案還沒設定代號") {
 		t.Fatal("沒有代號 400", err)
 	}
@@ -38,7 +38,7 @@ func TestIssueCreateInProject(t *testing.T) {
 		t.Fatal("失敗不能留下 Issue", l)
 	}
 	mk := func(project string) *model.Issue {
-		i, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t", Project: project})
+		i, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t", Project: sp(project)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -189,7 +189,7 @@ func TestProjectKeyRules(t *testing.T) {
 	}
 
 	// 專案有 Issue 之後
-	i, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t", Project: app.ID})
+	i, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t", Project: sp(app.ID)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestProjectKeyRules(t *testing.T) {
 	}
 	// 搬走也可以(不是永久刪除)
 	p2 := mkProject(t, svc, boss, "P2", "PTWO")
-	j, _ := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t", Project: p2.ID})
+	j, _ := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t", Project: sp(p2.ID)})
 	if _, err := svc.UpdateIssue(alice, "o1", j.Key, service.IssuePatch{Project: sp("")}); err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestProjectKeyAliasGuard(t *testing.T) {
 	}
 	// 專案 A 的 Issue 搬走後,別名 APP-1 還在:專案自己改名不被擋,代號換掉後別的專案不能沿用 APP
 	a := mkProject(t, svc, boss, "A", "APP")
-	i, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t", Project: a.ID})
+	i, err := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t", Project: sp(a.ID)})
 	if err != nil {
 		t.Fatal(err)
 	}

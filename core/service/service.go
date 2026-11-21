@@ -103,6 +103,8 @@ type Service struct {
 	channelMu sync.Mutex
 	// incidentMu 事件的「讀了再改」在這把鎖裡(單一程式內)
 	incidentMu sync.Mutex
+	// decisionMu 待決定 / 需要協助的「讀了再改」在這把鎖裡(單一程式內;多個實例靠 store 的條件式更新)
+	decisionMu sync.Mutex
 	// moduleLocks 選用模組各自的「讀了再改」鎖(見 module.go 的 ModuleLock;moduleMu 只保護這個 map)
 	moduleMu    sync.Mutex
 	moduleLocks map[string]*sync.Mutex
@@ -572,7 +574,8 @@ func (s *Service) ListMembers(p *model.Principal, org string) ([]model.Member, e
 	return l, nil
 }
 
-// SaveMember 把人加進組織或改角色(組織管理員);名單上還沒有這個 email 就先建一個待連結的使用者
+// SaveMember 把人加進組織或改角色(組織管理員)。組織管理員只能加入已存在的伺服器使用者;
+// 名單上還沒有這個 email 時要建立待連結的使用者,等同新增伺服器使用者(SaveUser),所以只有伺服器管理員可以(R-9)
 func (s *Service) SaveMember(p *model.Principal, org, email, role string) (*model.Member, error) {
 	if err := s.needOrgAdmin(p, org); err != nil {
 		return nil, err
@@ -589,6 +592,13 @@ func (s *Service) SaveMember(p *model.Principal, org, email, role string) (*mode
 	}
 	u, err := s.Store.UserByEmail(email)
 	if errors.Is(err, store.ErrNotFound) {
+		// 先驗格式(400),再談權限(403):沒有 @ 或保留的本機身分不論誰來都是 400,不要被權限檢查蓋掉
+		if err := validUserEmail(email); err != nil {
+			return nil, err
+		}
+		if err := needServerAdmin(p); err != nil {
+			return nil, fail(403, "%s 還不是伺服器的使用者:只有伺服器管理員可以新增使用者,請伺服器管理員先建立,或請對方先登入一次", email)
+		}
 		u = &model.User{ID: RandID("u_", 9), Email: email, Role: "member", CreatedAt: s.mt()}
 		if err := s.saveUser(u); err != nil {
 			return nil, err
@@ -621,6 +631,7 @@ func (s *Service) RemoveMember(p *model.Principal, org, email string) error {
 	s.pruneChainNode(org, u.ActorID) // 組織鏈、頻道的成員是 actor id
 	s.agents.mu.Unlock()
 	s.pruneChannelNode(org, u.ActorID)
+	s.dropProjectMemberships(p, org, u.ActorID) // 專案成員資格也清掉(再加回組織不會自動恢復受限專案的權限)
 	s.Audit(p, "member.remove", org, map[string]any{"email": u.Email})
 	return nil
 }

@@ -140,6 +140,61 @@ func (a *API) projectRoutes(mux *http.ServeMux) {
 		x, err := a.Svc.UpdateProject(p, r.PathValue("org"), r.PathValue("id"), in)
 		reply(w, x, err)
 	}))
+	// 專案與 repo 的連結(組織管理員連結、取消;成員可看)。{id} 路由和 /repos 並存:GET …/projects/repos 是整個組織的連結
+	mux.HandleFunc("GET "+pj+"/repos", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		l, err := a.Svc.ListProjectRepos(p, r.PathValue("org"), "")
+		reply(w, l, err)
+	}))
+	mux.HandleFunc("GET "+pj+"/{id}/repos", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		l, err := a.Svc.ListProjectRepos(p, r.PathValue("org"), r.PathValue("id"))
+		reply(w, l, err)
+	}))
+	mux.HandleFunc("POST "+pj+"/{id}/repos", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in struct {
+			Repo string `json:"repo"`
+		}
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		x, err := a.Svc.LinkProjectRepo(p, r.PathValue("org"), r.PathValue("id"), in.Repo)
+		reply(w, x, err)
+	}))
+	mux.HandleFunc("POST "+pj+"/{id}/repos/delete", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in struct {
+			Repo string `json:"repo"`
+		}
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		x, err := a.Svc.UnlinkProjectRepo(p, r.PathValue("org"), r.PathValue("id"), in.Repo)
+		reply(w, x, err)
+	}))
+	// 專案成員(組織管理員或專案管理員管理;受限專案只有成員與組織管理員看得到,看不到的專案一律 404)
+	mux.HandleFunc("GET "+pj+"/{id}/members", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		l, err := a.Svc.ListProjectMembers(p, r.PathValue("org"), r.PathValue("id"))
+		reply(w, l, err)
+	}))
+	mux.HandleFunc("POST "+pj+"/{id}/members", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in service.ProjectMemberInput
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		m, err := a.Svc.SetProjectMember(p, r.PathValue("org"), r.PathValue("id"), in)
+		reply(w, m, err)
+	}))
+	mux.HandleFunc("POST "+pj+"/{id}/members/remove", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in struct {
+			Actor string `json:"actor"`
+		}
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		reply(w, true, a.Svc.RemoveProjectMember(p, r.PathValue("org"), r.PathValue("id"), in.Actor))
+	}))
 	mux.HandleFunc("POST "+pj+"/{id}/delete", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		reply(w, true, a.Svc.DeleteProject(p, r.PathValue("org"), r.PathValue("id")))
 	}))

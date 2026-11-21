@@ -176,7 +176,7 @@ func (a *App) CreateIssueFor(title, body, priority string, labels []string, sour
 		Source: source, Link: link, Author: author, Assignee: assignee, Repo: repo})
 }
 
-// CreateIssueIn 同 CreateIssueFor,用完整的輸入(多了 Project:放進的專案 id,空 = 組織層級;專案要存在而且有代號,否則核心回錯)
+// CreateIssueIn 同 CreateIssueFor,用完整的輸入(多了 Project:放進的專案 id,空字串 = 組織層級,nil = 依 repo 的專案連結預設;專案要存在而且有代號,否則核心回錯)
 func (a *App) CreateIssueIn(in service.IssueInput) model.Issue {
 	s := a.issueSt()
 	in.Labels = CleanLabels(in.Labels)
@@ -185,7 +185,7 @@ func (a *App) CreateIssueIn(in service.IssueInput) model.Issue {
 	if err != nil {
 		// 核心存不進去(伺服器連不上、沒有資料庫、欄位格式不對…):回傳沒有存起來的草稿(id 是空的),同 Swift
 		a.issueRemoteFailed(err)
-		return model.Issue{Title: in.Title, Body: in.Body, Priority: in.Priority, Labels: in.Labels, Repo: in.Repo, Project: in.Project, Status: "open", CreatedBy: in.Author, Comments: []model.Comment{}}
+		return model.Issue{Title: in.Title, Body: in.Body, Priority: in.Priority, Labels: in.Labels, Repo: in.Repo, Project: derefStr(in.Project), Status: "open", CreatedBy: in.Author, Comments: []model.Comment{}}
 	}
 	a.issueRemoteOK(s)
 	s.gen++

@@ -116,3 +116,22 @@ var ActorColumns = []ActorColumn{
 
 // Key 欄位的識別字串(表.欄位,來源欄位名)
 func (a ActorColumn) Key() string { return a.Table + "." + a.Column }
+
+// NewTableActorField ISS-36 之後新增的表裡的「誰」欄位:新表直接以最終結構建立(actor id、有外鍵),不經過上面的轉換引擎(ActorColumns 只描述
+// 「舊字串 → actor id」的欄位);外鍵由 migrateForeignKeys 補(fkSpecs 的一般關聯,不算 actor 外鍵;因為 omixor_actors 在 pgSchema 之後才建)。
+// 測試用它確認每個欄位都有外鍵;新增這類表時登記在這裡。
+type NewTableActorField struct {
+	Table, Column string
+	Nullable      bool   // 沒有時是 NULL(程式裡是空字串)
+	FK            string // 外鍵名稱(references omixor_actors(id))
+}
+
+// NewTableActorFields 見 NewTableActorField
+var NewTableActorFields = []NewTableActorField{
+	{"omixor_project_members", "actor_id", false, "fk_project_members_actor"},
+	{"omixor_decisions", "created_by", false, "fk_decisions_created_by"},
+	{"omixor_decisions", "decided_by", true, "fk_decisions_decided_by"},
+	{"omixor_issue_items", "assignee", true, "fk_issue_items_assignee"},
+	{"omixor_issue_items", "claimed_by", true, "fk_issue_items_claimed_by"},
+	{"omixor_issue_items", "created_by", false, "fk_issue_items_created_by"},
+}

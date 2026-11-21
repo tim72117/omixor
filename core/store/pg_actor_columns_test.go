@@ -1055,8 +1055,9 @@ func TestActorFKSpecsRegistered(t *testing.T) {
 	}
 }
 
-// baseFKSpecs 沒有 actor 外鍵的 fkSpecs 條數(9 條關聯 + 每個有 org 的表一條)
-func baseFKSpecs() int { return 9 + len(orgFKTables) }
+// baseFKSpecs 沒有 actor 外鍵(ActorColumns 的 22 條)的 fkSpecs 條數(15 條關聯 + 每個有 org 的表一條;
+// 關聯含 ISS-36 之後新表的 actor 外鍵——專案成員 1、待決定的建立者與處理人 2、子項 3——這些新表直接是最終結構,不在 ActorColumns)
+func baseFKSpecs() int { return 15 + len(orgFKTables) }
 
 var _ = context.Background
 

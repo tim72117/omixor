@@ -465,3 +465,39 @@ store 的領域讀寫已是 actor id(C-2a~e 完成:model 欄位存 actor id、�
 - 孤兒:`OrphanReport()`(含 22 條 actor 外鍵)或每欄 `select count(*) from t x where x.col is not null and not exists (select 1 from omixor_actors a where a.id = x.col)` 必須 0。
 - 還沒轉完的欄位:啟動會失敗並列出欄位與原因;啟動彙總也會列「尚未轉成 actor id 的欄位」(查欄位註解標記)。
 - 測試:`go test ./store -run 'TestActorColumns|TestActorLegacyStructure|TestActorFK|TestResolveLegacy|TestBootstrapSchema|TestActorBatchUpdate'`(獨立審查修正的測試在 `pg_actor_columns_fx1_test.go`)(需要 PostgreSQL,見 `storetest/testdb`)。舊結構的樣本由測試輔助 `legacyActorStructure`(`pg_actor_final_test.go`)把空的全新資料庫還原成舊結構產生。
+
+
+## ISS-37 子項:`omixor_issue_items`(Issue 子項,方案 B 獨立表)
+
+**只加不改,沒有資料搬移,不重寫任何既有大表。** 全部在 `bootstrapSchema` / `migrateForeignKeys` 內冪等完成:
+
+| 項目 | 內容 |
+|---|---|
+| 新表 `omixor_issue_items` | `create table if not exists`(直接是最終結構,fresh 與舊庫補建後結構一致,結構指紋測試 `TestIssueItemsMigrationStructure`)。主鍵 `(org, id)`(id = UUIDv7);唯一 `(org, issue_id, seq)`;`status` check(todo/doing/blocked/done/canceled);`wait_for_kind` check(空/user_decision/item/external);`files text[]`、`evidence jsonb`。建表時就有的外鍵:`(org, issue_id) → ops_issues` **cascade**(Issue 永久刪除時子項跟著刪)、`(org, depends_on) →` 本表 **set null (depends_on)**、`(org, promoted_issue_id) → ops_issues` **set null (promoted_issue_id)**(皆 on update cascade) |
+| 索引 | `omixor_issue_items_issue (org, issue_id)`、`omixor_issue_items_assignee (org, assignee)`(`pgSchemaIndexes`) |
+| actor 外鍵(`fkSpecs`,先 not valid 再背景 validate) | `fk_issue_items_assignee`(set null)、`fk_issue_items_claimed_by`(set null)、`fk_issue_items_created_by`(restrict)→ `omixor_actors(id)`;新表直接存 actor id,不走「誰」欄位轉換引擎,登記在 `NewTableActorFields`。另 `omixor_issue_items.org → omixor_orgs` cascade(`orgFKTables`)。fkSpecs 共 +4 條(關聯 +3、org +1) |
+| `omixor_agent_tasks.item_id text` | `pgSchemaColumns` 補的可 NULL 欄位(可 NULL、無預設值,PG 11 起不重寫表);**不設外鍵**:任務與子項互不 cascade,雙向回寫由 service 處理 |
+| 編號序號 | `omixor_seq` 的 scope `item:<Issue 內部 id>`;`seqScopeMax` 取 `max(seq)` 自癒(序號列被清或落後時不撞唯一約束);Issue 永久刪除時 `DeleteIssue` 一併清序號列;`DeleteOrg` 清子項與序號 |
+
+行為備註:
+
+- 領取(`ClaimIssueItem`)是單句條件式更新:`status = 'todo'`,或 `doing` 且(租約空 / 已到期 / 持有者是自己〔續租〕);其餘回 `ErrLocked`(blocked、done、canceled 也回 `ErrLocked`)。
+- 依賴(`depends_on`)在交易內檢查:必須是同一 Issue 的另一個子項、不可自指、不可成環;違反回 `ErrBadRef`(訊息含原因)。檢查時先鎖住該 Issue 的全部子項列,序列化並發修改。
+- 回滾:只能整個還原備份;舊版程式不認得此表(不讀不寫),新表與 `item_id` 欄位留著無害。刪表前先確認沒有子項資料。
+- 測試:`go test ./store -run 'IssueItems|TestPGFKAllInstalled|TestActorColumnsFKSpecCount'`(需要 PostgreSQL,見 `storetest/testdb`)。
+
+
+## 待決定 / 需要協助:`omixor_decisions`
+
+**只加不改,沒有資料搬移,不重寫任何既有表。** 全部在 `bootstrapSchema` / `migrateSeq` / `migrateForeignKeys` 內冪等完成:
+
+| 項目 | 內容 |
+|---|---|
+| 新表 `omixor_decisions` | `create table if not exists`,直接是最終結構(fresh 與舊庫補建後結構一致,結構指紋測試 `TestDecisionsTableStructure`)。主鍵 `(org, id)`(id = `DEC-<n>`);`kind` check(decision/help)、`status` check(open/decided/withdrawn);`options`、`blocks` 是 jsonb;`created_by` not null、`decided_by` 可 NULL(都是 actor id);`source_issue` 可 NULL,存 Issue 的**內部 id**,建表時就有外鍵 `(org, source_issue) → ops_issues (org, id)` **set null (source_issue)**、on update cascade(Issue 永久刪除時清成空;進垃圾桶不清) |
+| 索引 | `omixor_decisions_org_status (org, status)`、`omixor_decisions_org_issue (org, source_issue)`(`pgSchemaIndexes`);`(org, number) where number > 0` 部分唯一索引 `omixor_decisions_org_number`(`seqTables`,`migrateSeq` 用 concurrently 建,失敗只告警) |
+| 編號序號 | `omixor_seq` 的 scope `decision`;`seqScopeMax` 取 `max(number)` 自癒;`DeleteOrg` 一併清 |
+| actor 外鍵(`fkSpecs` 一般關聯,先 not valid 再背景 validate) | `fk_decisions_created_by`、`fk_decisions_decided_by` → `omixor_actors(id)` **restrict**;`omixor_decisions.org → omixor_orgs` cascade(`orgFKTables`)。因為 `omixor_actors` 在 `pgSchema` 之後才建,所以和 `omixor_project_members` 一樣由 `migrateForeignKeys` 補 |
+| 為什麼不進 `ActorColumns` | `ActorColumns` / `IdentityFields` 描述「舊字串 → actor id」的轉換(舊結構、`legacyActorStructure` 還原測試、22 條外鍵計數);新表從來沒有舊字串,直接以最終結構建立。「誰」欄位登記在 `identity_fields.go:NewTableActorFields`(測試確認外鍵存在),`pg_actor_columns_test.go:baseFKSpecs` 的關聯條數同步 +2 |
+| `RenameIdentity` | 不含這張表(欄位是 actor id,不是字串身分) |
+
+回滾:只能整個還原備份;舊版程式不認得此表(不讀不寫),新表留著無害。測試:`go test ./store -run 'TestStoreSuite/pg/Decisions|TestDecisions|TestStoreSuite/pg/DeleteOrgCascade|TestActorFKSpecsRegistered'`(需要 PostgreSQL,見 `storetest/testdb`)。

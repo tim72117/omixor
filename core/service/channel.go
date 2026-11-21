@@ -123,6 +123,8 @@ type chanActor struct {
 	id    string // actor id
 	agent bool   // 角色規則:只能碰自己是成員的頻道
 	admin bool   // 組織管理員(看得到全部頻道、可以管成員)
+	// hidden 呼叫者看不到的(受限專案的)Issue 內部 id:頻道綁了這些 Issue 時,輸出的 issueId 清空、依 Issue 篩選當作沒有、不能綁(見 project_access.go)
+	hidden map[string]bool
 }
 
 func (a chanActor) canSee(c model.Channel) bool {
@@ -135,6 +137,21 @@ func (a chanActor) canManage(c model.Channel) bool {
 
 // channelActor 呼叫者的身分:角色憑證 → 角色自己;伺服器管理員給 as → 那個角色(只能代角色,不能代別的使用者:D9,給了使用者靜默當本人);其他 → 呼叫者本人(Principal.Actor)
 func (s *Service) channelActor(p *model.Principal, org, as string) (chanActor, *chainNodes, error) {
+	a, n, err := s.channelActorBase(p, org, as)
+	if err != nil {
+		return a, n, err
+	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return chanActor{}, nil, err
+	}
+	if a.hidden, err = acc.hiddenIssueIDs(); err != nil {
+		return chanActor{}, nil, err
+	}
+	return a, n, nil
+}
+
+func (s *Service) channelActorBase(p *model.Principal, org, as string) (chanActor, *chainNodes, error) {
 	if p.Agent != nil {
 		if err := s.viewer(p, org); err != nil {
 			return chanActor{}, nil, err
@@ -221,6 +238,9 @@ func (s *Service) summaries(org string, a chanActor, list []model.Channel) ([]mo
 	}
 	out := []model.ChannelSummary{}
 	for _, c := range list {
+		if a.hidden[c.IssueID] { // 綁的 Issue 在呼叫者看不到的受限專案:不輸出綁定(連 Issue 編號都不洩漏)
+			c.IssueID = ""
+		}
 		x := model.ChannelSummary{Channel: c, Unread: unread[c.ID]}
 		if m, ok := last[c.ID]; ok {
 			t := m.At
@@ -257,6 +277,9 @@ func (s *Service) ListChannels(p *model.Principal, org string, f ChannelFilter) 
 	if issue != "" { // Issue 編號(UUID、目前或舊的 key)→ 內部 id;找不到就照原字串比(結果是空的)
 		if id, err := s.Store.ResolveIssueID(org, issue); err == nil {
 			issue = id
+			if a.hidden[id] { // 看不到的受限專案的 Issue:和不存在一樣(結果是空的)
+				issue = "__hidden__"
+			}
 		}
 	}
 	list := []model.Channel{}
@@ -342,8 +365,8 @@ func (s *Service) CreateChannel(p *model.Principal, org string, in ChannelInput)
 	defer s.channelMu.Unlock()
 	issueID := strings.TrimSpace(in.IssueID)
 	if issueID != "" {
-		i, err := s.Store.GetIssue(org, issueID) // 接受 UUID、目前或舊的 key;垃圾桶裡的當作不存在
-		if errors.Is(err, store.ErrNotFound) {
+		i, err := s.Store.GetIssue(org, issueID)                                 // 接受 UUID、目前或舊的 key;垃圾桶裡的當作不存在
+		if errors.Is(err, store.ErrNotFound) || (err == nil && a.hidden[i.ID]) { // 看不到的受限專案的 Issue:和不存在一樣
 			return nil, fail(404, "找不到 Issue %s", issueID)
 		}
 		if err != nil {

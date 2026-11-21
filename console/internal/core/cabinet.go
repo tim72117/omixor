@@ -414,6 +414,71 @@ func (o CabinetOps) DeleteProject(org, id string) error {
 	return err
 }
 
+// LinkProjectRepo 連結專案與程式碼倉庫(核心:組織管理員;只用於預設值與篩選,不是權限來源)
+func (o CabinetOps) LinkProjectRepo(org, project, repo string) (*model.Project, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	x, err := b.LinkProjectRepo(org, project, repo)
+	if err == nil {
+		o.a.projectsRefresh(org)
+		o.a.Changed("cabinet")
+	}
+	return x, err
+}
+
+// UnlinkProjectRepo 取消專案與程式碼倉庫的連結(不影響已經建立的 Issue)
+func (o CabinetOps) UnlinkProjectRepo(org, project, repo string) (*model.Project, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	x, err := b.UnlinkProjectRepo(org, project, repo)
+	if err == nil {
+		o.a.projectsRefresh(org)
+		o.a.Changed("cabinet")
+	}
+	return x, err
+}
+
+// ListProjectMembers 專案成員(核心:看得到專案的組織成員;受限專案要是專案成員或組織管理員)
+func (o CabinetOps) ListProjectMembers(org, project string) ([]model.ProjectMember, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	return b.ListProjectMembers(org, project)
+}
+
+// SetProjectMember 加入專案成員或改角色(核心:組織管理員或專案管理員)
+func (o CabinetOps) SetProjectMember(org, project string, in service.ProjectMemberInput) (*model.ProjectMember, error) {
+	b, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	m, err := b.SetProjectMember(org, project, in)
+	if err == nil {
+		o.a.projectsRefresh(org)
+		o.a.Changed("cabinet")
+	}
+	return m, err
+}
+
+// RemoveProjectMember 移除專案成員(核心:組織管理員或專案管理員)
+func (o CabinetOps) RemoveProjectMember(org, project, actor string) error {
+	b, err := agentBackend()
+	if err != nil {
+		return err
+	}
+	err = b.RemoveProjectMember(org, project, actor)
+	if err == nil {
+		o.a.projectsRefresh(org)
+		o.a.Changed("cabinet")
+	}
+	return err
+}
+
 func (o CabinetOps) Import(org string, in service.CabinetImport) (*service.CabinetImportResult, error) {
 	b, err := agentBackend()
 	if err != nil {
@@ -600,8 +665,9 @@ func init() {
 	})
 	RegisterAction("project_create", func(a *App, args map[string]any) (any, error) {
 		name := strings.TrimSpace(agentArg(args, "name"))
+		restricted, _ := args["restricted"].(bool) // 受限專案:只有專案成員與組織管理員看得到
 		x, err := a.CabinetOps().CreateProject(a.currentOrgNow(), service.ProjectInput{Name: name, Key: strings.TrimSpace(agentArg(args, "key")),
-			Description: strings.TrimSpace(agentArg(args, "description"))})
+			Description: strings.TrimSpace(agentArg(args, "description")), Restricted: restricted})
 		if err != nil {
 			return nil, agentConflictErr(err) // 代號格式、重複、保留字的訊息原樣帶回
 		}
@@ -621,14 +687,54 @@ func init() {
 			v = strings.TrimSpace(v)
 			p.Key = &v
 		}
-		if p.Name == nil && p.Description == nil && p.Key == nil {
-			return nil, UserError{"要給 name、key 或 description"}
+		if v, ok := args["restricted"].(bool); ok { // 受限專案:只有專案成員與組織管理員看得到(核心:組織管理員)
+			p.Restricted = &v
+		}
+		if p.Name == nil && p.Description == nil && p.Key == nil && p.Restricted == nil {
+			return nil, UserError{"要給 name、key、description 或 restricted"}
 		}
 		x, err := a.CabinetOps().UpdateProject(a.currentOrgNow(), agentArg(args, "id"), p)
 		if err != nil {
 			return nil, agentConflictErr(err)
 		}
 		return x, nil
+	})
+	// 專案與 repo 的連結(參數 id = 專案 id、repo;核心:組織管理員)
+	RegisterAction("project_repo_link", func(a *App, args map[string]any) (any, error) {
+		x, err := a.CabinetOps().LinkProjectRepo(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "repo"))
+		if err != nil {
+			return nil, agentConflictErr(err)
+		}
+		return x, nil
+	})
+	RegisterAction("project_repo_unlink", func(a *App, args map[string]any) (any, error) {
+		x, err := a.CabinetOps().UnlinkProjectRepo(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "repo"))
+		if err != nil {
+			return nil, agentConflictErr(err)
+		}
+		return x, nil
+	})
+	// 專案成員(參數 id = 專案 id;set 帶 actor、role;remove 帶 actor;核心:組織管理員或專案管理員)
+	RegisterAction("project_members", func(a *App, args map[string]any) (any, error) {
+		l, err := a.CabinetOps().ListProjectMembers(a.currentOrgNow(), agentArg(args, "id"))
+		if err != nil {
+			return nil, agentUserErr(err)
+		}
+		if l == nil {
+			l = []model.ProjectMember{}
+		}
+		return l, nil
+	})
+	RegisterAction("project_member_set", func(a *App, args map[string]any) (any, error) {
+		m, err := a.CabinetOps().SetProjectMember(a.currentOrgNow(), agentArg(args, "id"),
+			service.ProjectMemberInput{Actor: agentArg(args, "actor"), Role: agentArg(args, "role")})
+		if err != nil {
+			return nil, agentConflictErr(err)
+		}
+		return m, nil
+	})
+	RegisterAction("project_member_remove", func(a *App, args map[string]any) (any, error) {
+		return nil, agentUserErr(a.CabinetOps().RemoveProjectMember(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "actor")))
 	})
 	RegisterAction("project_delete", func(a *App, args map[string]any) (any, error) {
 		return nil, agentUserErr(a.CabinetOps().DeleteProject(a.currentOrgNow(), agentArg(args, "id")))

@@ -39,7 +39,16 @@ import (
 //	                                              pos 大的在前;tags 在 omixor_doc_tags(舊 jsonb 欄位已不再寫,下一版 drop);tab 可以是 null)
 //	omixor_projects                               專案(主鍵 (org, id) = PRJ-<n>;依 number 排序;key 是專案代號,(org, upper(key)) where key <> '' 唯一;方法在 pg_project.go)
 //	omixor_project_seq                            專案最後發出去的號碼(主鍵 org;刪掉的號碼不再使用)
-//	omixor_seq                                    Issue、任務、文件、頻道、事件、頻道訊息(scope msg:<頻道 id>)最後發出去的號碼(主鍵 (org, scope);見 pg_seq.go)
+//	omixor_project_repos                          專案與程式碼倉庫的多對多連結(主鍵 (org, project, repo_key);repo_key 是 model.RepoKey 的標準寫法、repo 是連結時寫的樣子;
+//	                                              (org, project) 外鍵指向專案,cascade。只用於預設值與篩選,不是權限來源;方法在 pg_project_repo.go)
+//	omixor_project_members                        專案成員(主鍵 (org, project, actor_id);role 是 admin 或 member;(org, project) 外鍵指向專案 cascade,actor_id 外鍵指向 omixor_actors cascade(fk_project_members_actor,
+//	                                              由 migrateForeignKeys 補,因為 omixor_actors 在 pgSchema 之後才建)。受限專案(omixor_projects.restricted)只有成員與管理員看得到;方法在 pg_project_members.go)
+//	omixor_decisions                              待決定(decision)/ 需要協助(help)(主鍵 (org, id) = DEC-<n>;created_by、decided_by 是 actor id(fk_decisions_created_by / _decided_by,由 migrateForeignKeys 補);
+//	                                              (org, source_issue) 外鍵指向 ops_issues 的內部 id,Issue 永久刪除時清成 NULL;方法在 pg_decision.go)
+//	omixor_issue_items                            Issue 子項(主鍵 (org, id) = uuidv7;(org, issue_id, seq) 唯一,seq 由 omixor_seq 的 item:<issueID> scope 發;
+//	                                               assignee、claimed_by、created_by 是 actor id(fk_issue_items_*,由 migrateForeignKeys 補);depends_on 自參照、issue_id cascade、promoted_issue_id set null 在建表時就有;
+//	                                               新表直接是最終結構;task_id 是 omixor_agent_tasks.id 的字串參照,不設外鍵;規則在 service/issue_items.go)
+//	omixor_seq                                    Issue、任務、文件、頻道、事件、待決定、頻道訊息(scope msg:<頻道 id>)最後發出去的號碼(主鍵 (org, scope);見 pg_seq.go)
 //	omixor_org_chains                             組織鏈(主鍵 org;邊在 omixor_org_chain_edges;edges(jsonb)、split_at 是舊格式遺留,不再寫,下一版 drop;見 pg_split_channels.go)
 //	omixor_channels                               訊息頻道(主鍵 (org, id) = CH-<n>;成員在 omixor_channel_members(舊 members jsonb 已不再寫,見 pg_split_channels.go);issue_id 沒綁是 NULL,同組織的 issue_id 不重複)
 //	omixor_channel_messages                       頻道訊息(主鍵 (org, channel_id, id) = M-<n>,每個頻道各自編號;@ 的人在 omixor_channel_mentions(舊 mentions jsonb 已不再寫))
@@ -275,6 +284,24 @@ create table if not exists omixor_project_seq (
   org text primary key,
   last integer not null
 );
+create table if not exists omixor_project_repos (
+  org text not null,
+  project text not null,
+  repo_key text not null,
+  repo text not null,
+  created_at timestamptz not null default now(),
+  primary key (org, project, repo_key),
+  foreign key (org, project) references omixor_projects (org, id) on delete cascade
+);
+create table if not exists omixor_project_members (
+  org text not null,
+  project text not null,
+  actor_id text not null,
+  role text not null check (role in ('admin', 'member')),
+  created_at timestamptz not null default now(),
+  primary key (org, project, actor_id),
+  foreign key (org, project) references omixor_projects (org, id) on delete cascade
+);
 create table if not exists omixor_org_chains (
   org text primary key,
   edges jsonb not null default '[]',
@@ -347,6 +374,57 @@ create table if not exists omixor_incidents (
   started_at timestamptz not null,
   data jsonb not null,
   primary key (org, id)
+);
+create table if not exists omixor_decisions (
+  org text not null,
+  id text not null,
+  number integer not null,
+  kind text not null check (kind in ('decision', 'help')),
+  title text not null,
+  body text not null default '',
+  options jsonb not null default '[]',
+  status text not null check (status in ('open', 'decided', 'withdrawn')),
+  answer text not null default '',
+  answer_note text not null default '',
+  evidence text not null default '',
+  source_issue text,
+  blocks jsonb not null default '[]',
+  created_by text not null,
+  decided_by text,
+  created_at timestamptz not null,
+  decided_at timestamptz,
+  updated_at timestamptz not null,
+  primary key (org, id),
+  foreign key (org, source_issue) references ops_issues (org, id) on delete set null (source_issue) on update cascade
+);
+create table if not exists omixor_issue_items (
+  org text not null,
+  id text not null,
+  issue_id text not null,
+  seq integer not null,
+  title text not null,
+  status text not null check (status in ('todo', 'doing', 'blocked', 'done', 'canceled')),
+  assignee text,
+  depends_on text,
+  files text[] not null default '{}',
+  acceptance text not null default '',
+  evidence jsonb,
+  block_reason text not null default '',
+  wait_for_kind text not null default '' check (wait_for_kind in ('', 'user_decision', 'item', 'external')),
+  wait_for text not null default '',
+  claimed_by text,
+  locked_until timestamptz,
+  task_id text,
+  promoted_issue_id text,
+  created_by text not null,
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  completed_at timestamptz,
+  primary key (org, id),
+  unique (org, issue_id, seq),
+  foreign key (org, issue_id) references ops_issues (org, id) on delete cascade on update cascade,
+  foreign key (org, depends_on) references omixor_issue_items (org, id) on delete set null (depends_on) on update cascade,
+  foreign key (org, promoted_issue_id) references ops_issues (org, id) on delete set null (promoted_issue_id) on update cascade
 );
 create table if not exists omixor_org_integrations (
   org text not null,

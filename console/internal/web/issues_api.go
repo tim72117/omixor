@@ -110,6 +110,15 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		var list []model.Issue
 		app.WithOrgIssues(o, func() { list = append([]model.Issue{}, app.Issues()...) })
 		app.Mu.Unlock()
+		if set, unk, active := issueAPIRestricted(r, app, o); active { // 登入的非管理員:受限專案的 Issue 拿掉(見 restricted.go)
+			kept := []model.Issue{}
+			for _, i := range list {
+				if i.Project == "" || (!unk && !set[i.Project]) {
+					kept = append(kept, i)
+				}
+			}
+			list = kept
+		}
 		writeJSON(w, 200, map[string]any{"result": list})
 	})
 
@@ -121,6 +130,10 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		in, err := readArgs(r)
 		if err != nil {
 			badRequest(w, err)
+			return
+		}
+		if set, unk, active := issueAPIRestricted(r, app, o); active && restrictedArg(in, set, unk) {
+			notFoundRestricted(w)
 			return
 		}
 		title := strings.TrimSpace(str(in, "title"))
@@ -140,7 +153,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		var failure error
 		app.WithOrgIssues(o, func() {
 			issue = app.CreateIssueIn(service.IssueInput{Title: str(in, "title"), Body: str(in, "body"), Priority: priority, Labels: labels,
-				Source: str(in, "source"), Link: str(in, "link"), Author: author, Repo: str(in, "repo"), Project: str(in, "project")})
+				Source: str(in, "source"), Link: str(in, "link"), Author: author, Repo: str(in, "repo"), Project: projectArg(in)})
 			if issue.ID == "" { // 核心沒存(專案不存在、專案沒有代號、伺服器連不上…):帶原因回去,不要回一份沒有 id 的草稿當成功
 				failure = app.IssueRemoteErr()
 			}
@@ -191,6 +204,10 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		}
 		author := issueAPIAuthor(r, app, in)
 		id := r.PathValue("id")
+		if issueAPIHidden(r, app, o, id) || issueAPIProjectHidden(r, app, o, in) { // 受限專案的 Issue、搬進受限專案:和不存在一樣
+			notFoundRestricted(w)
+			return
+		}
 		// 樂觀鎖:body 的 version,或標準的 If-Match 標頭(可以帶引號);有給而且和核心目前的版本不同,核心回 409(Data 有目前內容與版本)
 		version, err := issueVersionOf(in, r.Header.Get("If-Match"))
 		if err != nil {
@@ -264,6 +281,10 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 			return
 		}
 		id := r.PathValue("id")
+		if issueAPIHidden(r, app, o, id) {
+			notFoundRestricted(w)
+			return
+		}
 		in, _ := readArgs(r) // 可以沒有 body;有的話 author 用來署名動態牆
 		if in == nil {
 			in = map[string]any{}
@@ -295,4 +316,13 @@ func IssueAPI(app *core.App) http.Handler {
 		app.Mu.Unlock()
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// projectArg 請求裡的 project:有給(含空字串 = 不分專案)回指標,沒給回 nil(核心依 repo 的專案連結預設)
+func projectArg(in map[string]any) *string {
+	if _, ok := in["project"]; !ok {
+		return nil
+	}
+	v, _ := in["project"].(string)
+	return &v
 }

@@ -1,0 +1,33 @@
+{
+  "id": "DEC-4",
+  "kind": "help",
+  "title": "請在 Mac 上編譯 iOS 版",
+  "body": "需要 Xcode 16。",
+  "options": [],
+  "status": "decided",
+  "answer": "done",
+  "answerNote": "已編譯",
+  "evidence": "https://example.com/build/42",
+  "sourceIssue": "",
+  "blocks": [],
+  "createdBy": "mcp",
+  "createdByActor": {
+    "id": "sys_legacy_mcp",
+    "kind": "system",
+    "handle": "legacy_mcp",
+    "name": "mcp",
+    "status": "active"
+  },
+  "decidedBy": "tim@example.com",
+  "decidedByActor": {
+    "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+    "kind": "user",
+    "handle": "tim@example.com",
+    "name": "Tim",
+    "email": "tim@example.com",
+    "status": "active"
+  },
+  "createdAt": "2026-11-21T08:10:00Z",
+  "decidedAt": "2026-11-21T09:30:00Z",
+  "updatedAt": "2026-11-21T09:30:00Z"
+}

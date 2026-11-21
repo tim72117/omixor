@@ -1,0 +1,82 @@
+{
+  "item": {
+    "id": "0197b3a4-3333-7e8f-9a0b-1c2d3e4f5a6b",
+    "issueId": "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b",
+    "seq": 4,
+    "key": "ISS-37.4",
+    "title": "CLI 與 MCP",
+    "status": "doing",
+    "assignee": "agent:eng",
+    "assigneeActor": {
+      "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+      "kind": "agent",
+      "handle": "eng",
+      "name": "工程師",
+      "status": "active"
+    },
+    "claimedBy": "tim@example.com",
+    "claimedByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "lockedUntil": "2026-11-21T17:00:00Z",
+    "taskId": "T-12",
+    "createdBy": "tim@example.com",
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "createdAt": "2026-11-21T08:40:00Z",
+    "updatedAt": "2026-11-21T09:20:00Z"
+  },
+  "task": {
+    "agentId": "eng",
+    "claimedBy": "tim@example.com",
+    "claimedByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "createdAt": "2026-11-21T09:20:00Z",
+    "createdBy": "tim@example.com",
+    "id": "T-12",
+    "instructions": "請處理 Issue ISS-37 的子項 ISS-37.4",
+    "links": [
+      "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b",
+      "0197b3a4-3333-7e8f-9a0b-1c2d3e4f5a6b"
+    ],
+    "lockedUntil": "2026-11-21T17:00:00Z",
+    "notes": [],
+    "priority": "normal",
+    "result": "",
+    "status": "inProgress",
+    "title": "處理子項 ISS-37.4:CLI 與 MCP",
+    "updatedAt": "2026-11-21T09:20:00Z"
+  },
+  "credential": {
+    "agentId": "eng",
+    "taskId": "T-12",
+    "secret": "s3cr3t-only-shown-once",
+    "code": "123456",
+    "expiresAt": "2026-11-21T17:00:00Z"
+  }
+}

@@ -11,6 +11,9 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// ErrStale 條件式更新時資料的狀態已經不是呼叫者讀到的(別人先改了)
+var ErrStale = errors.New("stale")
+
 // ErrVersionConflict 樂觀鎖的版本不符(實際回傳 *VersionConflictError,帶目前版本)
 var ErrVersionConflict = errors.New("version conflict")
 
@@ -181,6 +184,23 @@ type Store interface {
 	UpdateProject(org string, p model.Project) error
 	// DeleteProject 刪專案與它的文件櫃結構(不存在回 ErrNotFound)。文件不動:專案裡還有沒有文件由 service 先檢查
 	DeleteProject(org, id string) error
+	// ListProjectRepos 組織全部的專案 repo 連結(依專案號碼、連結時間排序);專案刪除時連結跟著刪(外鍵 cascade)。方法在 pg_project_repo.go
+	ListProjectRepos(org string) ([]model.ProjectRepo, error)
+	// LinkProjectRepo 連結專案與 repo(repo 以 model.RepoKey 比對,不分大小寫、github:/gitlab: 前綴可省);已經連過回 created=false(不改);專案不存在回 ErrBadRef
+	LinkProjectRepo(org, project, repo string, at time.Time) (created bool, err error)
+	// UnlinkProjectRepo 取消連結;原本沒連回 removed=false
+	UnlinkProjectRepo(org, project, repo string) (removed bool, err error)
+	// 專案成員(第 3 階段;表 omixor_project_members,方法在 pg_project_members.go)。成員以 actor id 存;受限專案只有成員與管理員看得到,可見性判斷在 service
+	// ListProjectMembers 專案(空字串 = 整個組織)的成員(依專案號碼、加入時間)
+	ListProjectMembers(org, project string) ([]model.ProjectMember, error)
+	// ProjectMemberships actor 在組織裡每個專案的角色(專案 id → admin/member)
+	ProjectMemberships(org, actorID string) (map[string]string, error)
+	// SetProjectMember 加入成員或改角色;回傳有沒有變動;專案或 actor 不存在回 ErrBadRef
+	SetProjectMember(org, project, actorID, role string, at time.Time) (changed bool, err error)
+	// RemoveProjectMember 移除成員;原本不是成員回 removed=false
+	RemoveProjectMember(org, project, actorID string) (removed bool, err error)
+	// RemoveProjectMembershipsOf 把 actor 從組織所有專案拿掉(使用者離開組織、角色被刪),回傳拿掉的專案 id
+	RemoveProjectMembershipsOf(org, actorID string) ([]string, error)
 
 	// 文件櫃(依組織分;DeleteOrg 一併刪除)。id 比對精確,不分大小寫的查找在 service。
 	// 結構以 (org, project) 為鍵,project 空字串 = 未分專案(原本的組織文件櫃)。
@@ -232,6 +252,40 @@ type Store interface {
 	UpdateIncident(org string, i model.Incident) error // 整筆取代(位置不變)
 	// ImportIncidents 第一次搬資料用:保留 id、時間與時間軸;list 是新的在前;組織已經有事件就回錯誤
 	ImportIncidents(org string, list []model.Incident) (int, error)
+
+	// 待決定 / 需要協助(依組織分;DeleteOrg 一併刪除;見 model/decision.go;方法在 pg_decision.go)。id 比對精確(DEC-<n>),不分大小寫的查找在 service。
+	// CreatedBy、DecidedBy 是 actor id;SourceIssue 是 Issue 內部 id(Issue 永久刪除時清成空)
+	ListDecisions(org string) ([]model.Decision, error) // 依編號(舊的在前);沒有回空切片
+	GetDecision(org, id string) (*model.Decision, error)
+	// CreateDecision 發新的 id(omixor_seq 的 decision scope:DEC-<n>),回傳存好的;actor 或來源 Issue 不存在回 ErrBadRef
+	CreateDecision(org string, d model.Decision) (model.Decision, error)
+	// UpdateDecision 條件式更新可變欄位(標題、內文、選項、狀態、回答、證據、來源 Issue、blocks、處理人與時間;編號、kind、建立者不變):
+	// 目前的狀態要是 fromStatus 才改(不是就回 ErrStale,同時處理只有一個成功);不存在回 ErrNotFound
+	UpdateDecision(org string, d model.Decision, fromStatus string) error
+
+	// Issue 子項(依組織分;隨 Issue 永久刪除 cascade、DeleteOrg 一併刪除;見 model/issue_item.go;方法在 pg_issue_items.go)。
+	// issueID 一律是 Issue 的內部 id;Assignee、ClaimedBy、CreatedBy 是 actor id(空 = NULL);Key 不存(service 填)。
+	// ListIssueItems 依 seq(舊的在前);沒有回空切片。ListIssueItemsByOrg 批次:一次查多張 Issue,回 issueID → 子項(沒有子項的 Issue 不在 map 裡);
+	// issueIDs 是 nil 或空 = 整個組織全部。
+	ListIssueItems(org, issueID string) ([]model.IssueItem, error)
+	ListIssueItemsByOrg(org string, issueIDs []string) (map[string][]model.IssueItem, error)
+	GetIssueItem(org, id string) (*model.IssueItem, error)
+	// CreateIssueItem 在交易內以 omixor_seq 的 item:<issueID> scope 配 Seq(連號、刪掉的號碼不重用、失敗的建立不佔號),ID 沒給就發 UUIDv7,
+	// CreatedAt/UpdatedAt 沒給用現在;回傳存好的。Issue 不存在、actor 不存在、DependsOn 不是同一 Issue 的子項 → ErrBadRef;
+	// 同一 Issue 的子項數已達 model.MaxItemsPerIssue → ErrBadRef。呼叫端先用 it.Clean() 驗證輸入
+	CreateIssueItem(org string, it *model.IssueItem) (*model.IssueItem, error)
+	// UpdateIssueItem 條件式更新可變欄位(標題、狀態、指派、依賴、files、驗收、證據、卡住原因與等待、領取者與租約、任務、升級 Issue、完成時間、updated_at;
+	// Seq、IssueID、建立者、建立時間不變):目前的狀態要是 fromStatus 才改(不是回 ErrStale,同時處理只有一個成功);不存在回 ErrNotFound;
+	// DependsOn 不是同一 Issue 的子項、或會成環(含依賴自己)→ ErrBadRef(訊息含「成環」)
+	UpdateIssueItem(org string, it *model.IssueItem, fromStatus string) error
+	// ClaimIssueItem 領取:狀態是 todo,或 doing 但租約過期(locked_until 空或 <= 現在)、或租約是自己的(續租)→ 改 doing、claimed_by = actor、
+	// locked_until = until,回傳更新後的子項;已被別人持有有效租約、或 blocked / done / canceled → ErrLocked(blocked 等狀態不是領取的對象);不存在 ErrNotFound
+	ClaimIssueItem(org, id, actor string, until time.Time) (*model.IssueItem, error)
+	// ReleaseIssueItem 釋放領取:doing → todo、清領取者與租約。actor 非空時只有持有者能放(不是持有者 ErrLocked);actor 空 = 不檢查(管理員 / 系統);
+	// 狀態不是 doing 回 ErrStale;不存在 ErrNotFound
+	ReleaseIssueItem(org, id, actor string) error
+	// DeleteIssueItem 刪除(別的子項對它的依賴清成空);不存在 ErrNotFound。序號不重用
+	DeleteIssueItem(org, id string) error
 
 	// 組織設定文件(通用):選用模組(core/module)存自己的組織層設定用,一個組織每種 kind 一份,例如 GitHub、GitLab 模組的
 	// kind = github、gitlab。依組織分;DeleteOrg 一併刪除。Get 沒存過回 ErrNotFound;Save 整份取代。

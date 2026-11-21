@@ -13,7 +13,7 @@ import (
 )
 
 // 編號序號表:每個 (org, scope) 一列,記「最後發出去的號碼」,刪掉的號碼不再使用。
-// scope:issue(組織層級 Issue 的 ISS-<n>)、issue:<專案 id>(專案裡 Issue 的 <代號>-<n>)、task、doc、channel、incident、
+// scope:issue(組織層級 Issue 的 ISS-<n>)、issue:<專案 id>(專案裡 Issue 的 <代號>-<n>)、task、doc、channel、incident、decision(DEC-<n>)、
 // msg:<channel_id>(訊息編號每個頻道各自一組)。
 // (專案的 omixor_project_seq 維持原樣。)
 //
@@ -46,6 +46,11 @@ func seqScopeMax(scope string) (sql string, extra []any) {
 		return fmt.Sprintf(f, "omixor_channels", ""), nil
 	case "incident":
 		return fmt.Sprintf(f, "omixor_incidents", ""), nil
+	case "decision":
+		return fmt.Sprintf(f, "omixor_decisions", ""), nil
+	}
+	if is, ok := strings.CutPrefix(scope, "item:"); ok { // 子項的序號欄位叫 seq(不是 number),每個 Issue 一組
+		return `(select max(seq) from omixor_issue_items where org = $1 and issue_id = $4)`, []any{is}
 	}
 	if pr, ok := strings.CutPrefix(scope, "issue:"); ok {
 		return fmt.Sprintf(f, "ops_issues", " and project = $4"), []any{pr}
@@ -89,6 +94,7 @@ var seqTables = []struct{ table, index, extra string }{
 	{"omixor_channels", "omixor_channels_org_number", ""},
 	{"omixor_channel_messages", "omixor_channel_messages_org_chan_number", "channel_id"},
 	{"omixor_incidents", "omixor_incidents_org_number", ""},
+	{"omixor_decisions", "omixor_decisions_org_number", ""},
 }
 
 // migrateSeq 建序號表,並對每個 (org, scope) 以「現有最大號碼」與「已存在的序號列」取較大者初始化
@@ -124,6 +130,8 @@ func (p *PG) migrateSeq() error {
 		`insert into omixor_seq (org, scope, last) select org, 'channel', max(number) from omixor_channels group by org
 			on conflict (org, scope) do update set last = greatest(omixor_seq.last, excluded.last)`,
 		`insert into omixor_seq (org, scope, last) select org, 'incident', max(number) from omixor_incidents group by org
+			on conflict (org, scope) do update set last = greatest(omixor_seq.last, excluded.last)`,
+		`insert into omixor_seq (org, scope, last) select org, 'decision', max(number) from omixor_decisions group by org
 			on conflict (org, scope) do update set last = greatest(omixor_seq.last, excluded.last)`,
 		`insert into omixor_seq (org, scope, last) select org, 'msg:' || channel_id, max(number) from omixor_channel_messages group by org, channel_id
 			on conflict (org, scope) do update set last = greatest(omixor_seq.last, excluded.last)`,

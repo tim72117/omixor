@@ -1,0 +1,63 @@
+{
+  "issue": {
+    "body": "",
+    "comments": [],
+    "createdAt": "2026-11-21T10:01:00Z",
+    "createdBy": "tim@example.com",
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "id": "0197b3a4-5c6d-7e8f-9a0b-1c2d3e4f5a6b",
+    "key": "ISS-40",
+    "project": "",
+    "number": 40,
+    "version": 1,
+    "labels": [
+      "待決定"
+    ],
+    "link": "",
+    "priority": "normal",
+    "source": "DEC-5",
+    "status": "open",
+    "title": "待決定的結構",
+    "updatedAt": "2026-11-21T10:01:00Z"
+  },
+  "decision": {
+    "id": "DEC-5",
+    "kind": "decision",
+    "title": "最少欄位",
+    "body": "",
+    "options": [
+      {
+        "id": "o1",
+        "label": "A"
+      },
+      {
+        "id": "o2",
+        "label": "B"
+      }
+    ],
+    "status": "open",
+    "answer": "",
+    "answerNote": "",
+    "sourceIssue": "ISS-40",
+    "blocks": [],
+    "createdBy": "tim@example.com",
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "decidedBy": "",
+    "createdAt": "2026-11-21T10:00:00Z",
+    "updatedAt": "2026-11-21T10:00:00Z"
+  }
+}

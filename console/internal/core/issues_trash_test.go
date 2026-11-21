@@ -38,7 +38,7 @@ func TestIssueQueryProjectCountsAndTrash(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Mu.Lock()
-	in := a.CreateIssueIn(service.IssueInput{Title: "專案內", Author: "mcp", Project: pr.ID})
+	in := a.CreateIssueIn(service.IssueInput{Title: "專案內", Author: "mcp", Project: &pr.ID})
 	top := a.CreateIssueFor("組織層級", "", "", nil, "", "", "mcp", "", "")
 	a.UpdateIssue(top.ID, "mcp", func(i *model.Issue) { i.Status = "closed" })
 	a.Mu.Unlock()

@@ -41,6 +41,9 @@ type IssueQuery struct {
 	Label string `json:"label,omitempty"`
 	// Repo 標記這個倉庫的(規則見 RepoMatch);IssueFilterNone = 沒標記倉庫的;"" = 全部
 	Repo string `json:"repo,omitempty"`
+	// RepoProjects 連到 Repo 的專案 id(由 service 依專案與 repo 的連結填,不是 URL 參數):篩 Repo 時,屬於這些專案、
+	// 而且沒標記倉庫的 Issue 也算符合(專案已經連到這個 repo,沒標 repo 的 Issue 視為同一個倉庫)。空 = 只看 Issue 自己的 Repo
+	RepoProjects []string `json:"-"`
 	// Assignee 指派給這個角色 id 的(不分大小寫);IssueFilterNone = 沒指派的;"" = 全部
 	Assignee string `json:"assignee,omitempty"`
 	// Project 所屬專案:"" = 全部;IssueProjectNone("-",也接受 IssueFilterNone)= 只看組織層級的;PRJ-<n> = 只看那個專案(不分大小寫)
@@ -161,7 +164,7 @@ func issueMatches(i Issue, q IssueQuery, words []string) bool {
 		if strings.TrimSpace(i.Repo) != "" {
 			return false
 		}
-	} else if r != "" && !RepoMatch(i.Repo, r) {
+	} else if r != "" && !RepoMatch(i.Repo, r) && !(strings.TrimSpace(i.Repo) == "" && i.Project != "" && slices.ContainsFunc(q.RepoProjects, func(x string) bool { return strings.EqualFold(x, i.Project) })) {
 		return false
 	}
 	if a := strings.TrimSpace(q.Assignee); a == IssueFilterNone {

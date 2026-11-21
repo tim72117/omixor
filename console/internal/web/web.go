@@ -82,6 +82,14 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		if name == "system" || name == "members" {
 			v = forViewer(name, v, isAdmin(r, app, au))
 		}
+		if set, unk, active := restrictedSetFor(r, app, au, ""); active { // 不是 web 管理員:受限專案的資料拿掉(見 restricted.go)
+			nv, drop := scrubRestricted(core.Object(v), set, unk)
+			if drop {
+				notFoundRestricted(w)
+				return
+			}
+			v = nv
+		}
 		writeJSON(w, 200, v)
 	})
 	mux.HandleFunc("POST /api/tool/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -97,12 +105,25 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			badRequest(w, err)
 			return
 		}
+		set, unk, active := restrictedSetFor(r, app, au, "")
+		if active && (restrictedArg(args, set, unk) || restrictedTarget(app, r.PathValue("name"), args, set, unk)) {
+			notFoundRestricted(w)
+			return
+		}
 		out, err := mcp.Run(app, r.PathValue("name"), args, core.Person(userID(r, app)))
 		if err != nil {
 			writeFail(w, r, err)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"result": core.Object(out)})
+		res := core.Object(out)
+		if active {
+			var drop bool
+			if res, drop = scrubRestricted(res, set, unk); drop {
+				notFoundRestricted(w)
+				return
+			}
+		}
+		writeJSON(w, 200, map[string]any{"result": res})
 	})
 	mux.HandleFunc("POST /api/action/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
@@ -115,6 +136,11 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			badRequest(w, err)
 			return
 		}
+		set, unk, active := restrictedSetFor(r, app, au, "")
+		if active && (restrictedArg(args, set, unk) || restrictedTarget(app, name, args, set, unk)) {
+			notFoundRestricted(w)
+			return
+		}
 		args[core.UserKey] = userID(r, app)
 		out, err := core.Action(app, name, args)
 		if err != nil {
@@ -122,6 +148,13 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			return
 		}
 		res := core.Object(out)
+		if active {
+			var drop bool
+			if res, drop = scrubRestricted(res, set, unk); drop {
+				notFoundRestricted(w)
+				return
+			}
+		}
 		if v, ok := actionView[name]; ok {
 			res = forViewer(v, res, isAdmin(r, app, au))
 		}

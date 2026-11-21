@@ -1,0 +1,78 @@
+{
+  "body": "## 重現步驟\n\n1. 開 Safari\n2. 進 /login\n\n![截圖](/api/attachments/att-1)",
+  "closedAt": "2026-11-03T10:00:05Z",
+  "comments": [
+    {
+      "at": "2026-11-01T09:00:00Z",
+      "author": "tim@example.com",
+      "authorActor": {
+        "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+        "kind": "user",
+        "handle": "tim@example.com",
+        "name": "Tim",
+        "email": "tim@example.com",
+        "status": "active"
+      },
+      "id": "5f0c6c1e-7a52-4d0b-9a3e-2a1c2b3d4e5f",
+      "text": "我這邊也遇到"
+    },
+    {
+      "at": "2026-11-03T09:59:00Z",
+      "author": "agent:eng",
+      "authorActor": {
+        "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+        "kind": "agent",
+        "handle": "eng",
+        "name": "工程師",
+        "status": "active"
+      },
+      "id": "jira-10023",
+      "text": "已修正,見 PR #42"
+    }
+  ],
+  "createdAt": "2026-11-01T08:30:00Z",
+  "createdBy": "tim@example.com",
+  "createdByActor": {
+    "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+    "kind": "user",
+    "handle": "tim@example.com",
+    "name": "Tim",
+    "email": "tim@example.com",
+    "status": "active"
+  },
+  "deletedByActor": {
+    "id": "usr_019a3f2c-0000-7000-8000-000000000004",
+    "kind": "user",
+    "handle": "old@example.com",
+    "name": "Old",
+    "email": "old@example.com",
+    "status": "disabled"
+  },
+  "assigneeActor": {
+    "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+    "kind": "agent",
+    "handle": "eng",
+    "name": "工程師",
+    "status": "active"
+  },
+  "id": "019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8d",
+  "key": "APP-12",
+  "project": "PRJ-1",
+  "number": 12,
+  "version": 3,
+  "deletedBy": "old@example.com",
+  "labels": [
+    "bug",
+    "前端"
+  ],
+  "link": "https://example.com/login",
+  "priority": "high",
+  "repo": "github:acme/web",
+  "source": "網站訪客 7d",
+  "assignee": "eng",
+  "status": "closed",
+  "title": "登入頁在 Safari 白畫面",
+  "updatedAt": "2026-11-03T10:00:05Z",
+  "itemsOpen": 2,
+  "itemsTotal": 4
+}

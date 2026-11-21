@@ -109,16 +109,38 @@ func (s *Service) ListAgents(p *model.Principal, org string) ([]model.Agent, err
 		return nil, err
 	}
 	list, err := s.Store.ListAgents(org)
-	if err != nil || p.Agent == nil {
-		return list, err
+	if err != nil {
+		return nil, err
+	}
+	a, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
 	}
 	out := []model.Agent{}
 	for _, g := range list {
-		if g.ID == p.Agent.AgentID {
-			out = append(out, g)
+		if p.Agent != nil && g.ID != p.Agent.AgentID {
+			continue
 		}
+		out = append(out, a.hideAgentProjects(g))
 	}
 	return out, nil
+}
+
+// hideAgentProjects 角色的 docAccess 裡指向呼叫者看不到的專案的 key 拿掉(key 是 "<專案 id>:<位置>",會洩漏受限專案的 id 與位置)。
+// 回傳複本,不動原本的
+func (a *projectAccess) hideAgentProjects(g model.Agent) model.Agent {
+	if !a.AnyRestricted() || (a.p != nil && a.p.Agent != nil && a.p.Agent.AgentID == g.ID) { // 角色看自己的權限不篩
+		return g
+	}
+	acc := map[string]string{}
+	for k, v := range g.DocAccess {
+		if pid, _ := model.SplitDocAccessKey(k); pid != "" && !a.Sees(pid) {
+			continue
+		}
+		acc[k] = v
+	}
+	g.DocAccess = acc
+	return g
 }
 
 // GetAgent 依 id 或名稱取角色(角色身分只能取自己)
@@ -133,7 +155,12 @@ func (s *Service) GetAgent(p *model.Principal, org, id string) (*model.Agent, er
 	if p.Agent != nil && g.ID != p.Agent.AgentID {
 		return nil, fail(404, "找不到角色 %s", id)
 	}
-	return g, nil
+	a, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
+	hg := a.hideAgentProjects(*g)
+	return &hg, nil
 }
 
 func newAgentID(name string, taken func(string) bool) string {

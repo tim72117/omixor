@@ -84,7 +84,7 @@ func TestImportKeyOnly(t *testing.T) {
 	if err != nil || a.Key != "ISS-8" {
 		t.Fatal(a, err)
 	}
-	b, err := svc.CreateIssue(boss, "o1", service.IssueInput{Title: "新的 APP", Project: "PRJ-1"})
+	b, err := svc.CreateIssue(boss, "o1", service.IssueInput{Title: "新的 APP", Project: sp("PRJ-1")})
 	if err != nil || b.Key != "APP-4" {
 		t.Fatal(b, err)
 	}
@@ -321,7 +321,7 @@ func TestImportVersion(t *testing.T) {
 // 匯出帶 project、key、number、version、deletedAt/deletedBy(withDeleted 時);欄位名稱和 model 一致
 func TestExportFields(t *testing.T) {
 	svc, _, root, boss := impEnv(t)
-	a, _ := svc.CreateIssue(boss, "o1", service.IssueInput{Title: "專案的", Project: "PRJ-1"})
+	a, _ := svc.CreateIssue(boss, "o1", service.IssueInput{Title: "專案的", Project: sp("PRJ-1")})
 	b, _ := svc.CreateIssue(boss, "o1", service.IssueInput{Title: "要刪的"})
 	if err := svc.DeleteIssue(boss, "o1", b.ID); err != nil {
 		t.Fatal(err)
@@ -371,8 +371,8 @@ func alice0(t *testing.T, svc *service.Service) *model.Principal {
 func TestExportImportRoundTrip(t *testing.T) {
 	svc, st, root, boss := impEnv(t)
 	for _, in := range []service.IssueInput{
-		{Title: "組織一", Labels: []string{"a"}}, {Title: "APP 一", Project: "PRJ-1", Body: "內文", Priority: "high"},
-		{Title: "要進垃圾桶", Project: "PRJ-1"}, {Title: "組織二"},
+		{Title: "組織一", Labels: []string{"a"}}, {Title: "APP 一", Project: sp("PRJ-1"), Body: "內文", Priority: "high"},
+		{Title: "要進垃圾桶", Project: sp("PRJ-1")}, {Title: "組織二"},
 	} {
 		if _, err := svc.CreateIssue(boss, "o1", in); err != nil {
 			t.Fatal(err)
@@ -437,7 +437,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil || a.Key != "ISS-3" {
 		t.Fatal(a, err)
 	}
-	b, err := svc.CreateIssue(root, "o2", service.IssueInput{Title: "新的 APP", Project: "PRJ-1"})
+	b, err := svc.CreateIssue(root, "o2", service.IssueInput{Title: "新的 APP", Project: sp("PRJ-1")})
 	if err != nil || b.Key != "APP-3" {
 		t.Fatal(b, err)
 	}
@@ -524,7 +524,7 @@ func TestImportConcurrentWithCreate(t *testing.T) {
 			defer wg.Done()
 			in := service.IssueInput{Title: fmt.Sprintf("建立 %d", k)}
 			if k%2 == 1 {
-				in.Project = "PRJ-1"
+				in.Project = sp("PRJ-1")
 			}
 			_, err := svc.CreateIssue(boss, "o1", in)
 			errs <- err

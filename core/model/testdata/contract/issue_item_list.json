@@ -1,0 +1,120 @@
+[
+  {
+    "id": "0197b3a4-2222-7e8f-9a0b-1c2d3e4f5a6b",
+    "issueId": "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b",
+    "seq": 3,
+    "key": "ISS-37.3",
+    "title": "決定欄位型別",
+    "status": "blocked",
+    "blockReason": "text[] 還是 jsonb 要人決定",
+    "waitForKind": "user_decision",
+    "waitFor": "DEC-6",
+    "createdBy": "agent:eng",
+    "createdByActor": {
+      "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+      "kind": "agent",
+      "handle": "eng",
+      "name": "工程師",
+      "status": "active"
+    },
+    "createdAt": "2026-11-21T08:30:00Z",
+    "updatedAt": "2026-11-21T09:10:00Z"
+  },
+  {
+    "id": "0197b3a4-3333-7e8f-9a0b-1c2d3e4f5a6b",
+    "issueId": "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b",
+    "seq": 4,
+    "key": "ISS-37.4",
+    "title": "CLI 與 MCP",
+    "status": "doing",
+    "assignee": "tim@example.com",
+    "assigneeActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "claimedBy": "tim@example.com",
+    "claimedByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "lockedUntil": "2026-11-21T17:00:00Z",
+    "createdBy": "tim@example.com",
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "createdAt": "2026-11-21T08:40:00Z",
+    "updatedAt": "2026-11-21T09:20:00Z"
+  },
+  {
+    "id": "0197b3a4-4444-7e8f-9a0b-1c2d3e4f5a6b",
+    "issueId": "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b",
+    "seq": 5,
+    "key": "ISS-37.5",
+    "title": "最少欄位",
+    "status": "todo",
+    "createdBy": "tim@example.com",
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "createdAt": "2026-11-21T10:00:00Z",
+    "updatedAt": "2026-11-21T10:00:00Z"
+  },
+  {
+    "id": "0197b3a4-1111-7e8f-9a0b-1c2d3e4f5a6b",
+    "issueId": "0197b3a4-0000-7e8f-9a0b-1c2d3e4f5a6b",
+    "seq": 2,
+    "key": "ISS-37.2",
+    "title": "service 授權與 API",
+    "status": "done",
+    "assignee": "agent:eng",
+    "assigneeActor": {
+      "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+      "kind": "agent",
+      "handle": "eng",
+      "name": "工程師",
+      "status": "active"
+    },
+    "dependsOn": "ISS-37.1",
+    "files": [
+      "core/service/issue_items.go",
+      "core/api/issue_items.go"
+    ],
+    "acceptance": "守門測試通過",
+    "evidence": {
+      "commit": "abc1234",
+      "note": "沒驗證 Swift",
+      "tests": "go test ./... 通過"
+    },
+    "taskId": "T-12",
+    "createdBy": "tim@example.com",
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "createdAt": "2026-11-21T08:00:00Z",
+    "updatedAt": "2026-11-21T09:00:00Z",
+    "completedAt": "2026-11-21T09:00:00Z"
+  }
+]

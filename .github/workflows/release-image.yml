@@ -1,6 +1,6 @@
 # 公開映像:推 v* tag 時把 omixor-server 建好推到 ghcr.io/<owner>/omixor-server(標版本號與 latest),
 # 給自建伺服器用(部署設定在 repo 外的 omixor-deploy:GitLab CI 用 docker stack deploy 拉這個映像)。
-# 正式站 omixor.io 照舊是 deploy-server.yml(推 main → Cloud Run),和這裡無關。
+# 正式站 omixor.io 是 deploy-server.yml(同樣推 v* tag → Cloud Run;推 main 不部署)。同一個 tag 會兩邊都觸發。
 # ghcr 第一次建立的套件預設是私有的:要在 GitHub 套件設定改成公開,或部署端先 docker login ghcr.io。
 name: Release server image
 

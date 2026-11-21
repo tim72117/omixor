@@ -119,9 +119,13 @@ func (s *Service) EditDoc(p *model.Principal, org, id string, in DocEdit) (*DocE
 	if ops != 1 {
 		return nil, fail(400, "要給剛好一種修改:edits、replaceSection 或 appendToSection")
 	}
+	acc, err := s.newProjectAccess(p, org)
+	if err != nil {
+		return nil, err
+	}
 	s.cabinetMu.Lock()
 	defer s.cabinetMu.Unlock()
-	cur, err := s.findDoc(org, id)
+	cur, err := s.findDocFor(acc, g, org, id)
 	if err != nil {
 		return nil, err
 	}

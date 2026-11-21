@@ -62,6 +62,18 @@ var CoreTools = []CoreTool{
 	{Name: "incident_declare", Title: "宣告事件", Group: "事件", Admin: true},
 	{Name: "incident_update", Title: "更新事件", Group: "事件", Admin: true},
 
+	{Name: "issue_decision_add", Title: "提出待決定或需要協助", Group: "待決定", Admin: true, Agent: true},
+	{Name: "issue_decisions", Title: "查待決定與需要協助", Group: "待決定", Admin: true, Agent: true},
+	{Name: "issue_decision_answer", Title: "處理待決定或需要協助", Group: "待決定", Admin: true},
+	{Name: "issue_decision_to_issue", Title: "由待決定開出問題 Issue", Group: "待決定", Admin: true},
+
+	{Name: "issue_item_add", Title: "新增 Issue 子項", Group: "子項", Admin: true, Agent: true},
+	{Name: "issue_items", Title: "查 Issue 子項", Group: "子項", Admin: true, Agent: true},
+	{Name: "issue_item_update", Title: "修改或取消 Issue 子項", Group: "子項", Admin: true},
+	{Name: "issue_item_claim", Title: "領取 Issue 子項", Group: "子項", Admin: true},
+	{Name: "issue_item_report", Title: "回報 Issue 子項", Group: "子項", Admin: true, Agent: true},
+	{Name: "issue_item_promote", Title: "把子項提升為 Issue", Group: "子項", Admin: true},
+
 	{Name: "wireframe_render", Title: "繪製線框圖", Group: "設計工具", Admin: true, Agent: true},
 	{Name: "flowchart_render", Title: "繪製流程圖", Group: "設計工具", Admin: true, Agent: true},
 

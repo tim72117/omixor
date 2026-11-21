@@ -195,3 +195,80 @@ func TestCLIRestoreHistoricalComments(t *testing.T) {
 		t.Fatalf("歷史作者要保留顯示:%+v", got.Comments)
 	}
 }
+
+// projects 指令:列出、連結、取消連結 repo(不檢查登入資料檔案權限,Windows 也能跑)
+func TestCLIProjects(t *testing.T) {
+	evo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"user":{"id":"e1","email":"boss@example.com","name":"老闆","google":true}}`))
+	}))
+	defer evo.Close()
+	st := storetest.New(t)
+	svc := &service.Service{Store: st, Evoleap: evo.URL, Bootstrap: "boss@example.com", TTL: time.Hour}
+	srv := httptest.NewServer(api.New(svc).Handler())
+	defer srv.Close()
+	dir := t.TempDir()
+	t.Setenv("OMIXOR_CONFIG_DIR", dir)
+	t.Setenv("OMIXOR_CREDENTIALS", filepath.Join(dir, "cred.json"))
+	t.Setenv("OMIXOR_SERVER", "")
+	res, err := client.New(srv.URL).LoginWithEvoleap("x", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = saveCred(credentials{Server: srv.URL, Token: res.Token})
+	run := func(args ...string) (string, error) {
+		var b bytes.Buffer
+		err := Run(args, &b)
+		return b.String(), err
+	}
+	if _, err := run("orgs", "create", "default", "--name", "evoleap"); err != nil {
+		t.Fatal(err)
+	}
+	cl := client.New(srv.URL)
+	cl.Token = func() string { return res.Token }
+	if _, err := cl.CreateProject("default", service.ProjectInput{Name: "官網", Key: "WEB"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run("projects", "link", "PRJ-1", "Acme/Web"); err != nil || !strings.Contains(out, "PRJ-1 連結的 repo:Acme/Web") {
+		t.Fatal(out, err)
+	}
+	if out, err := run("projects"); err != nil || !strings.Contains(out, "WEB") || !strings.Contains(out, "Acme/Web") {
+		t.Fatal(out, err)
+	}
+	if _, err := run("projects", "link", "PRJ-1"); err == nil {
+		t.Fatal("少參數要用法提示")
+	}
+	if out, err := run("projects", "unlink", "PRJ-1", "github:acme/web"); err != nil || strings.Contains(out, "Acme") {
+		t.Fatal(out, err)
+	}
+	if _, err := run("projects", "unlink", "PRJ-1", "acme/web"); err == nil {
+		t.Fatal("沒連過要失敗")
+	}
+	// 受限專案與成員
+	if _, err := cl.SaveMember("default", "bob@example.com", "member"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run("projects", "restrict", "PRJ-1"); err != nil || !strings.Contains(out, "PRJ-1 受限:true") {
+		t.Fatal(out, err)
+	}
+	if out, err := run("projects"); err != nil || !strings.Contains(out, "[受限]") {
+		t.Fatal(out, err)
+	}
+	if out, err := run("projects", "member-add", "PRJ-1", "bob@example.com", "--role", "admin"); err != nil || !strings.Contains(out, "user:bob@example.com 在 PRJ-1 是 admin") {
+		t.Fatal(out, err)
+	}
+	if out, err := run("projects", "members", "PRJ-1"); err != nil || !strings.Contains(out, "user:bob@example.com") || !strings.Contains(out, "admin") {
+		t.Fatal(out, err)
+	}
+	if _, err := run("projects", "member-add", "PRJ-1"); err == nil {
+		t.Fatal("少參數要用法提示")
+	}
+	if _, err := run("projects", "member-add", "PRJ-1", "nobody@example.com"); err == nil {
+		t.Fatal("找不到的人要失敗")
+	}
+	if out, err := run("projects", "member-remove", "PRJ-1", "bob@example.com"); err != nil || !strings.Contains(out, "已把 bob@example.com 從 PRJ-1 移除") {
+		t.Fatal(out, err)
+	}
+	if out, err := run("projects", "unrestrict", "PRJ-1"); err != nil || !strings.Contains(out, "PRJ-1 受限:false") {
+		t.Fatal(out, err)
+	}
+}

@@ -30,6 +30,9 @@ import (
 //	omixor_cabinet_sections (org, project_ref)        → omixor_projects (org, id)      (cascade)
 //	omixor_cabinet_tabs (org, project, section_id)    → omixor_cabinet_sections (org, project, id)   (cascade;update cascade)
 //	omixor_agent_tasks (org, agent_id)                → omixor_agents (org, id)        (restrict:名下還有任務的角色不能刪,先轉移)
+//	omixor_project_members (actor_id)                 → omixor_actors (id)             (cascade;(org, project) → omixor_projects 另在建表時就有,cascade)
+//	omixor_decisions (created_by)、(decided_by)       → omixor_actors (id)             (restrict;(org, source_issue) → ops_issues 在建表時就有,set null (source_issue);update cascade)
+//	omixor_issue_items (assignee)、(claimed_by)、(created_by) → omixor_actors (id)         (assignee、claimed_by:set null;created_by:restrict;(org, issue_id)、(org, depends_on)、(org, promoted_issue_id) 在建表時就有)
 //	各表的 org                                        → omixor_orgs (id)               (cascade)
 //
 // 「空字串」的處理:
@@ -66,7 +69,7 @@ var orgFKTables = []string{
 	"ops_issues", "omixor_attachments", "omixor_agents", "omixor_agent_tasks", "omixor_agent_credentials",
 	"omixor_cabinet_layouts", "omixor_cabinet_sections", "omixor_cabinet_tabs", "omixor_docs", "omixor_projects",
 	"omixor_project_seq", "omixor_org_chains", "omixor_channels", "omixor_channel_messages", "omixor_channel_reads",
-	"omixor_incidents", "omixor_org_integrations", "omixor_org_system",
+	"omixor_incidents", "omixor_decisions", "omixor_issue_items", "omixor_org_integrations", "omixor_org_system",
 }
 
 func fkSpecs() []fkSpec {
@@ -95,6 +98,26 @@ func fkSpecs() []fkSpec {
 		{"fk_cabinet_tabs_section", "omixor_cabinet_tabs",
 			`foreign key (org, project, section_id) references omixor_cabinet_sections (org, project, id) on delete cascade on update cascade`,
 			`select count(*) from omixor_cabinet_tabs x where not exists (select 1 from omixor_cabinet_sections y where y.org = x.org and y.project = x.project and y.id = x.section_id)`, ""},
+		{"fk_project_members_actor", "omixor_project_members",
+			`foreign key (actor_id) references omixor_actors (id) on delete cascade`,
+			`select count(*) from omixor_project_members x where not exists (select 1 from omixor_actors y where y.id = x.actor_id)`, ""},
+		// 待決定:建立者、處理人是 actor(表是 ISS-36 之後的新表,直接是最終結構,不走「誰」欄位轉換引擎;source_issue 的外鍵在建表時就有)
+		{"fk_decisions_created_by", "omixor_decisions",
+			`foreign key (created_by) references omixor_actors (id) on delete restrict`,
+			`select count(*) from omixor_decisions x where not exists (select 1 from omixor_actors y where y.id = x.created_by)`, ""},
+		{"fk_decisions_decided_by", "omixor_decisions",
+			`foreign key (decided_by) references omixor_actors (id) on delete restrict`,
+			`select count(*) from omixor_decisions x where x.decided_by is not null and not exists (select 1 from omixor_actors y where y.id = x.decided_by)`, ""},
+		// Issue 子項:指派、領取、建立者是 actor(新表,最終結構;指派與領取者被刪清成 NULL,建立者 restrict;issue_id、depends_on、promoted_issue_id 的外鍵在建表時就有)
+		{"fk_issue_items_assignee", "omixor_issue_items",
+			`foreign key (assignee) references omixor_actors (id) on delete set null`,
+			`select count(*) from omixor_issue_items x where x.assignee is not null and not exists (select 1 from omixor_actors y where y.id = x.assignee)`, ""},
+		{"fk_issue_items_claimed_by", "omixor_issue_items",
+			`foreign key (claimed_by) references omixor_actors (id) on delete set null`,
+			`select count(*) from omixor_issue_items x where x.claimed_by is not null and not exists (select 1 from omixor_actors y where y.id = x.claimed_by)`, ""},
+		{"fk_issue_items_created_by", "omixor_issue_items",
+			`foreign key (created_by) references omixor_actors (id) on delete restrict`,
+			`select count(*) from omixor_issue_items x where not exists (select 1 from omixor_actors y where y.id = x.created_by)`, ""},
 		{"fk_agent_tasks_agent", "omixor_agent_tasks",
 			`foreign key (org, agent_id) references omixor_agents (org, id) on delete restrict`,
 			`select count(*) from omixor_agent_tasks x where not exists (select 1 from omixor_agents y where y.org = x.org and y.id = x.agent_id)`, ""},

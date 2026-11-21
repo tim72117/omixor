@@ -16,6 +16,121 @@
 | 最大的結構性問題 | (1) **console 與 core 是兩套身分**:console 用 `localPrincipal`(伺服器管理員)或共用的 server token 呼叫 core,web 使用者的權限只靠 `adminActions/adminTools` 的 **deny-list**(新增 action 預設放行);(2) **console 的 MCP 連接埠本來完全沒有驗證(2026-11-20 已補上共享 Bearer 權杖,見 R-1;但通過驗證後仍不經 deny-list、身分是 `localPrincipal`)**;(3) MCP 工具表的 `Admin` 旗標其實是「端點類別」而不是「需要管理員」,名稱誤導;(4) 角色身分(task-bound credential)與一般成員之間,有幾條**繞過組織鏈/領取鎖**的路。 |
 | 最先該補的缺口 | 見 §5.4。排序:① console MCP 連接埠驗證與 deny-list 改 allow-list;② 成員可 `ReportTask` 取消/改別人領取的任務;③ Issue `assignee` 繞過組織鏈派工;④ incidents 在 REST 對角色憑證開放、MCP 卻不開;⑤ 停用角色不作廢既有憑證。 |
 
+### 0.1 操作表與守門測試(ISS-33 第 1 階段,2026-11-21)
+
+**表在哪**:`core/service/authz_table.go`(`AuthzOps` 81 個操作、`AuthzTools` 37 個 MCP 工具標記、`AuthzExempt` 9 個「帶 Principal 但不是操作」的方法與原因、`AuthzToolsNoOp` 2 個純渲染工具)。每個操作有:操作名(例 `issue.create`、`agent.task.transfer`)、範圍(server / org / project / self)、最低身分 `Level`(authenticated / orgMember / orgAdmin / serverAdmin)、角色憑證可否呼叫 `Agent`(no / org / self / only)、附加條件 `Caps`(chainEdge、claimer、leaseCode、docRead/docWrite、channel、downstream、featureMCP…)、對應的 service 方法、MCP 工具、REST 路由(`[a]` = authed,`[aa]` = authedOrAgent)。**表是現況描述,不執行授權**(第 3 階段才會收斂成 `Authorize`);內容都是讀實作確認過的。
+
+**守門測試**(`core/service/authz_table_test.go`、`authz_denied_test.go`,跑法 `go test ./service -run TestAuthz`,約 100 秒):
+- `TestAuthzTableCoversEveryServiceMethod`:go/ast 掃 `core/service` 所有帶 `*model.Principal` 的公開方法(現約 120 個),每個都要在 `AuthzOps[].Methods` 或 `AuthzExempt`(要寫原因);表裡列的方法也必須真的存在。
+- `TestAuthzTableCoversEveryAPIServiceCall`:掃 `core/api`,每個 `a.Svc.X` 呼叫都要在表裡。
+- `TestAuthzToolMarksMatchCoreTools`、`TestAuthzToolsConsistentWithOps`:`AuthzTools` 與 `model/tools.go` 的 Admin / Agent / Worker / Needs 逐欄一致;每個工具有對應操作;工具與操作的角色憑證、docAccess、頻道、下游條件互相對得上。已知差異放在白名單(`toolAgentKnownDiff`、`toolNeedsKnownDiff`),修好時測試會要求移除。
+- `TestAuthzDeniedMatrix`:依表自動產生「未授權被拒」測試。每個操作最多用四種呼叫者各試一次:一般成員(要管理員以上、領取者、頻道成員、鏈上有邊、AgentOnly 時預期被拒)、外部組織成員、本組織角色憑證(表說 Agent=no 或探測別人的資源時預期被拒)、外部組織角色憑證(一律預期被拒);預期 403(頻道看不到回 404 也接受)。差異登記在 `knownDenyGaps`(預期被拒卻放行)與 `knownDenyCodes`(有拒絕但不是 403),不改行為;白名單項目修好時測試會要求移除。
+- `TestAuthzKnownGapsStillPresent`:「確認漏檢現在還在」(剩 R-4、R-10);R-3、R-8、R-9 已修,改成正向被拒測試 `TestAuthzIssueAssigneeFollowsChain`、`TestAuthzSaveMemberNeedsExistingUser`、`TestAuthzProjectNeedsDocAccess`。
+
+**怎麼維護**:
+1. 新增或改名帶 `*model.Principal` 的公開方法 → 在 `AuthzOps` 加一筆(或進 `AuthzExempt` 並寫原因),否則測試失敗。
+2. 新增 MCP 工具 → `model/tools.go` 與 `AuthzTools` 各登記一次,並把工具名放進對應 `Op.Tools`。
+3. 新增 REST 路由 → 把路由字串寫進對應 `Op.Routes`;用到新的 `Svc.X` 要有 `Op.Methods`。
+4. 新增操作 → 在 `authz_denied_test.go` 的 `authzProbes` 加一個探測(或在 `noProbe` 寫原因);表上標管理員以上、Agent=no 的操作,測試自動要求被拒。
+5. 行為與表不符時**不要為了讓測試過而改行為或放寬表**:把差異寫進白名單(附原因與風險)與下面的清單。
+
+**第 1 階段發現的不一致與漏檢(風險高的優先;R- 編號沿用 §4.2,本階段用測試確認仍存在)**
+
+| 優先 | 編號 | 內容 | 測試證據 |
+|---|---|---|---|
+| 中高 | R-3(**已修**) | Issue 的 `assignee` 繞過組織鏈:鏈上沒有任何邊時,一般成員 `AssignTask` 被 403,但 `CreateIssue`/`UpdateIssue` 帶 `assignee` 就能替任一啟用中角色排任務;**角色憑證**也能改 assignee 替(不在其下游的)角色排任務 | `TestAuthzIssueAssigneeFollowsChain`(修後:有設定組織鏈時成員要有 user→agent 邊、角色要有 agent→agent 邊;沒設定組織鏈維持原行為;組織管理員不受限) |
+| 中 | R-4 | 事件:service 與 REST 對角色憑證開放讀、宣告、更新,MCP 工具表只開管理端點 | 同上;`toolAgentKnownDiff` |
+| 中 | 表與工具不吻合 | `agents`、`chain`、`incidents`、`incident_declare`、`incident_update` 在 service 允許角色憑證,但工具表不開給角色端點(多為刻意:agent_context 取代);`projects` 標 `NeedDocRead`,service 原本不看 docAccess(R-8 已修,`toolNeedsKnownDiff` 已清空) | `toolAgentKnownDiff` |
+| 低中 | R-9(**已修**) | `SaveMember` 由組織管理員呼叫,原本會順便建立伺服器使用者(`SaveUser` 要伺服器管理員);現在組織管理員只能加入已存在的使用者,email 不存在要伺服器管理員 | `TestAuthzSaveMemberNeedsExistingUser` |
+| 低 | R-8(**已修**) | 沒有任何 docAccess 的角色憑證原本仍可 `ListProjects`/`GetProject`;現在與文件櫃一致:列是空清單、取 403 | `TestAuthzProjectNeedsDocAccess` |
+| 低 | R-10 | 一般成員可刪 Issue 與文件(無作者或管理員限制) | 同上 |
+| 低 | 新:N-1 | `ListOrgs` 沒有拒絕分支:角色憑證與外部角色憑證在 service 層不被拒(回空清單,無外洩;REST 只收 `omx_` token 到不了) | `knownDenyGaps["org.list/agent"]`、`["org.list/extAgent"]` |
+| 低 | 新:N-2 | 角色憑證讀別的角色(`GetAgent`)或別人的任務(`GetAgentTask`)回 **404**(不洩漏存在),表上寫 self;同屬「403 或 404」的設計待決定(ISS-33 風險段已列) | `knownDenyCodes["agent.read/agent"]`、`["agent.task.read/agent"]` |
+| 資訊 | 新:N-3 | `org.update` 只有伺服器管理員(組織管理員不能改自己組織的名稱/圖示);`agent.task.delegate` 人類只有伺服器管理員帶 `from` 才行,組織管理員也 403 | 表的 Note、`TestAuthzDeniedMatrix` |
+| 資訊 | 新:N-4 | 走 `authedOrAgent` 的 channel 路由(建立、改設定、改成員)接受角色憑證,全靠 service 層拒絕(表 Agent=no)。路由層沒有第二道防線 | 表 Note;`TestAuthzDeniedMatrix` 的 agent 案例通過 |
+| 資訊 | ISS-34 | 專案與 repo 連結(`ListProjectRepos` viewer、`Link/UnlinkProjectRepo` needOrgAdmin,`service/project_repo.go`)已按現況列入表;沒有 MCP 工具。ISS-34 仍在進行,之後改動要同步表 | `project.repo.*` |
+| 仍開 | R-1 | console MCP 通過驗證後不經 deny-list、共用 `localPrincipal`(第二階段隨 ISS-36);**本階段未涵蓋 console**(表只涵蓋 core service) | §4.2 |
+
+本階段**沒有改任何授權行為**。表的範圍是 `core/service`、`core/api` 與 `core/model/tools.go`;console 的 `adminActions/adminTools` deny-list 與 console MCP 還沒有對應的表(第 4 階段)。
+
+
+### 0.2 專案成員與受限專案(ISS-34 第 3 階段,2026-11-21)
+
+**這一階段改了授權行為**(只影響「受限專案」;沒有受限專案時行為完全不變,有回歸測試 `TestUnrestrictedProjectKeepsOrgVisibility`)。判斷集中在 `core/service/project_access.go`(`projectAccess`:`Sees`、`SeesDocs`、`Role`、`Admins`、`Filter*`),其他檔案不自己判斷。
+
+**資料**:`omixor_projects.restricted`(預設 false)、`omixor_project_members (org, project, actor_id, role admin|member)`(外鍵:(org, project) → 專案 cascade、actor_id → `omixor_actors` cascade,`fk_project_members_actor`);成員是 actor(使用者或角色)。
+
+**規則**
+| 呼叫者 | 非受限專案 | 受限專案 |
+|---|---|---|
+| 組織管理員、伺服器管理員 | 全部 | 全部,而且是專案管理員 |
+| 專案成員(member) | 全部 | 看得到、能讀寫專案裡的 Issue 與文件 |
+| 專案管理員(成員角色 admin) | 全部 | 同成員,另外能加入、移除、改角色(`SetProjectMember`、`RemoveProjectMember`),能把 Issue、文件搬出專案;**不能**改受限旗標、代號、刪專案(組織管理員) |
+| 一般組織成員(非成員) | 全部 | **看不到**:列表沒有、單筆 404(訊息和不存在一樣)、依 key / 舊 key / UUID 查也是 404 |
+| 角色憑證 | 全部 | 預設視為非成員;被加成員才看得到專案與 Issue;文件另看 docAccess(管理員明確列出的位置),docAccess 列出的專案連專案本身也看得到 |
+| 外部組織的成員、角色憑證 | 整個組織 403 | 整個組織 403 |
+
+**其他規則**:受限專案的 Issue 只能指派給成員角色(否則 400;改成受限、移除成員角色、角色轉移或刪除時,非成員角色手上還沒領取的該專案任務取消,Issue 指派改派時對非成員只清掉);搬出受限專案要專案管理員(403),搬進去要看得到(否則 404);Issue 預設專案(repo 連結)落在看不到的受限專案時退回組織層級;使用者被移出組織、角色被刪時專案成員資格一併清掉(再加回組織不會自動恢復);`ValidateDocBody` 的範本只用呼叫者看得到的文件(受限專案的範本不能被探測)。
+
+**入口一覽**(每個入口的「非成員看不到」測試見 `core/service/project_restricted_test.go` 的 `hiddenCases`,表驅動,對一般成員與非成員角色憑證各跑一次;另有 core/api、core/mcp、console/web 的測試):
+`ListIssues`、`QueryIssues`(含搜尋、依專案)、`IssueBoard`、`GetIssue`(id、key、小寫 key、舊 key)、`ResolveIssueID`(key、別名、UUID)、`UpdateIssue`(含帶舊版本不能靠 409 取內容、搬進受限專案)、`AddIssueComment`、`DeleteIssue`、`CreateIssue`(指定專案)、`ListProjects`、`GetProject`、`ListProjectRepos`、`ListProjectMembers`、`SetProjectMember`、`RemoveProjectMember`、`GetCabinet`(受限專案與未分專案)、`GetDoc`、`ReadDoc`、`UpdateDoc`、`EditDoc`、`DeleteDoc`、`CreateDoc`、文件搬進專案、`ListChannels`(依 Issue 篩選、輸出的 issueId)、`GetChannel`、`CreateChannel`(綁 Issue)、`ListAgentTasks`、`GetAgentTask`、`ClaimTask`/`ClaimNext`/`ReportTask`(任務連結到看不到的 Issue)、`ListAgents`/`GetAgent`(docAccess 的專案 key)。MCP 人類端點與角色端點的 `issues`、`issue_create`、`issue_update`、`projects`、`cabinet`、`docs`、`doc_save`、`agent_context`、`project_save` 見 `core/mcp/project_restricted_test.go`;REST 與 client 見 `core/api/project_restricted_test.go`;CLI `omixor projects restrict|unrestrict|members|member-add|member-remove`。
+
+**console 的限制(沒有解決)**:console 對核心只用一個身分(本機是伺服器管理員、遠端是 web 共用的權杖),核心的篩選分不出是哪位 web 使用者。目前的做法是 web 層(`console/internal/web/restricted.go`)對「登入但不是 web 管理員」的使用者把受限專案的資料整個擋掉(view、action、tool 的輸出把帶 `project` 欄位的物件與 `restricted` 專案拿掉,單筆與引數指到受限專案回 404;專案成員的 action 限 web 管理員)。這是輸出層的篩選,不是授權;**由 Issue、文件衍生的聚合沒有逐一篩選**:badges 的數字、`issue_repos` 候選、助理摘要、動態牆文字、頻道與任務的畫面、Mac App 的 MCP 代理。要真正依成員篩選,console 需要用每位使用者自己的身分呼叫核心(隨 ISS-36 console 身分第二階段)。
+
+**已知未處理**:(1) 已經在進行中(inProgress)的角色任務,角色被移出專案或專案改成受限後仍留在角色手上(待領取的才會取消),任務說明帶有 Issue 標題與內文;(2) 頻道綁了 Issue 之後 Issue 搬進受限專案:頻道成員(頻道自己的名單)仍讀得到頻道訊息,只是不再看到綁定;(3) 附件是內容雜湊 id(unguessable),不依專案篩選;(4) 稽核(`ListAudit`,只有伺服器管理員)的 detail 含 Issue key 與專案 id;(5) 事件(incident)沒有專案關聯,不受影響。
+
+操作表新增 3 個操作:`project.member.list`、`project.member.set`、`project.member.remove`(`CapProjectView`、`CapProjectAdmin` 兩個新能力標記;既有的 Issue、文件、任務、頻道、專案讀取操作加上 `CapProjectView`)。
+
+### 0.3 待決定與需要協助(decision / help,2026-11-21)
+
+資料 `omixor_decisions`(見 `core/model/decision.go`、`core/service/decision.go`);`kind = decision`(要人選一個選項,或選 `other` 附說明)或 `help`(要人做某件事,處理結果是 `done` 附備註與證據、或 `declined` 附原因)。狀態 open → decided / withdrawn;decided 可 reopen。
+
+**授權**(操作表 8 個操作;守門測試 (a)(b)(c) 涵蓋,「未授權被拒」由 `TestAuthzDeniedMatrix` 對非成員、外部組織成員、角色憑證各跑一次;新增能力標記 `CapOwnerOrAdmin`)
+| 操作 | 誰 | MCP 工具 | REST |
+|---|---|---|---|
+| `decision.add` | 組織成員、角色憑證(署名一律是呼叫者本人:`SelfActor`,**不接受指定「誰」**,伺服器管理員也不能冒名) | `issue_decision_add`(Admin+Agent) | `POST /decisions` |
+| `decision.list` / `decision.get` / `decision.summary` | 組織成員、角色憑證 | `issue_decisions`(Admin+Agent) | `GET /decisions`、`/decisions/{id}`、`/decisions/summary` |
+| `decision.answer` | **只有人**(組織成員;角色憑證 403);重複回答 409(store 條件式更新 `ErrStale`) | `issue_decision_answer`(Admin) | `POST /decisions/{id}/answer` |
+| `decision.reopen` | 組織管理員或原處理人(一般成員 403、角色憑證 403);留稽核與來源 Issue 系統留言 | 無 | `POST …/reopen` |
+| `decision.withdraw` | open 才能;建立者或組織管理員;角色憑證只能撤回自己提的 | 無 | `POST …/withdraw` |
+| `decision.to_issue` | **只有人**;新 Issue 可指定專案(沒指定依 repo 連結規則,同 `CreateIssue`);已有來源或已撤回 409 | `issue_decision_to_issue`(Admin) | `POST …/to-issue` |
+
+REST 路由都用 `authedOrAgent`(角色憑證能到 service,由 service 層回 403,和頻道一樣);人類端點沒有任何 `agent`、`author` 參數(`identity_agent.go` 的規則不變)。稽核:`decision.add`、`decision.answer`、`decision.reopen`、`decision.withdraw`、`decision.to_issue`。
+
+**受限可見性(ISS-34 第 3 階段)**:有來源 Issue 的決定**繼承該 Issue 的可見性**(來源 Issue 在受限專案,只有專案成員、組織管理員、伺服器管理員看得到;角色憑證要是專案成員),沒有來源視為組織層(大家看得到);不是建立當時的快照,Issue 搬進受限專案後決定跟著看不到。判斷用 `projectAccess.Sees`(`decisionAccess`,`core/service/decision.go`)。`ListDecisions`、`GetDecision`、`DecisionSummaries`、`mine` 都依此篩選;看不到的決定單筆回和不存在一樣的 404(`answer`、`withdraw`、`reopen`、`to-issue` 也是);以看不到的 Issue 當來源提出和來源不存在一樣回 400;由決定開 Issue 指定看不到的專案和不存在的專案一樣 404。測試:`core/service/decision_restricted_test.go`、`core/api/decision_test.go` 的 `TestDecisionRestrictedRoutes`、`core/mcp/decision_test.go`。
+
+**已知未處理**:(1) console 的 appBackend 只轉發給核心,console 畫面還沒有待決定的視圖(console 層對受限專案的篩選屬 web 層,見 0.2);(2) 稽核 detail 含 DEC 編號與 Issue key。
+
+### 0.4 Issue 子項(issue_item,ISS-37,2026-11-21)
+
+資料 `omixor_issue_items`(見 `core/model/issue_item.go`、`core/service/issue_items*.go`);Issue 底下可領取、有狀態(todo / doing / blocked / done / canceled)、依賴、驗收與證據的小工作。編號 = 所屬 Issue 顯示編號 + `.` + 序號(`ISS-37.2`,序號不重用)。
+
+**可見性:完全繼承所屬 Issue**(`itemIssue` 呼叫 `projectAccess.issueErr`,不另存可見性)。Issue 在受限專案,只有專案成員、組織管理員、伺服器管理員看得到子項(角色憑證要是專案成員);看不到的 Issue 底下的子項,所有入口(列、取、新增、領取、回報、改、取消、提升、刪除)都回和「Issue 不存在」一樣的 404(訊息帶的是呼叫者給的編號);垃圾桶裡的 Issue 當作不存在;Issue 搬進受限專案後子項跟著看不到。測試:`core/service/issue_items_test.go` 的 `TestIssueItemRestrictedProjectVisibility`、`core/api/issue_items_test.go`、`core/mcp/issue_items_test.go`。
+
+**授權**(操作表 11 個操作 `issue.item.*`;守門測試 (a)(b)(c) 涵蓋,「未授權被拒」由 `TestAuthzDeniedMatrix` 對非成員、外部組織成員、角色憑證各跑一次;探測的是 boss 建立並領取中的子項):
+
+| 操作 | 誰 | MCP 工具 | REST(都在 `/api/orgs/{org}/issues/{id}/items` 底下) |
+|---|---|---|---|
+| `issue.item.read` | 組織成員、角色憑證(`CapProjectView`) | `issue_items`(Admin+Agent) | `GET …`、`GET …/{itemId}` |
+| `issue.item.add` | 組織成員、角色憑證(署名一律呼叫者本人;**角色憑證的負責人只能留空或是自己**,指給人或別的角色 403) | `issue_item_add`(Admin+Agent) | `POST …` |
+| `issue.item.update` | **只有人**(角色憑證 403);完成與取消的 409;被別人持有有效租約時不能換負責人 409 | `issue_item_update`(Admin) | `PATCH …/{itemId}` |
+| `issue.item.claim` | **只有人**;前置未 done 409;被別人持有有效租約 409;負責人是別的人時只有組織管理員可領;卡住的不能領 409 | `issue_item_claim`(Admin) | `POST …/claim` |
+| `issue.item.release` | 領取者本人或組織管理員(`CapClaimer`);角色憑證 403 | 無(用 report status=todo) | `POST …/release` |
+| `issue.item.report` / `issue.item.block` | 人:沒被別人持有有效租約、或是領取者本人、或組織管理員;**角色憑證只能回報自己綁定任務的那個子項**(狀態限 doing / blocked / done);done 需前置 done;blocked 要附原因 | `issue_item_report`(Admin+Agent) | `POST …/report`、`POST …/block` |
+| `issue.item.unblock` | **只有人**(組織成員皆可,通常是做決定的人) | 無(用 report status=todo) | `POST …/unblock` |
+| `issue.item.cancel` | **只有人**;已完成 409 | `issue_item_update` 的 `cancel=true` | `POST …/cancel` |
+| `issue.item.promote` | **只有人**;新 Issue 預設放進來源 Issue 的專案(可指定;看不到的專案 404);已提升或已完成 409 | `issue_item_promote`(Admin) | `POST …/promote` |
+| `issue.item.delete` | 建立者或組織管理員(`CapOwnerOrAdmin`);角色憑證 403 | 無 | `DELETE …/{itemId}` |
+
+REST 路由都用 `authedOrAgent`(角色憑證能到 service,由 service 層回 403)。稽核:`issue_item.add / update / claim / release / report / block / unblock / cancel / promote / delete`。
+
+**領取與角色任務**:輕量領取(負責人是人或沒指派)只寫 `claimed_by` 與租約(長度同角色憑證 `credTTL`),不發憑證。負責人是角色時,領取同時建立並領取一筆綁定的 `agent_task`(`links = [Issue id, 子項 id]`,沿用 `claimPicked` 的憑證、租約與鎖),回傳一次性憑證;任務離開進行中(`saveTaskChange`:done、blocked、退回待領取、取消、租約逾時)會回寫子項(done → done 並記任務結果為證據、blocked → blocked、其餘 → todo);反方向子項回報 done / blocked 時任務跟著結束。由子項產生的任務不會被 `ClaimNext`、`ClaimTask`(不指定任務)撿走,也不算 Issue 指派排的任務(`dropItemTasks`)。鎖順序 `agents.mu → issueLock`,子項的寫入一律在 `agents.mu` 內。
+
+**受限專案**:角色負責人要是專案成員(新增或改負責人時 400);角色被移出專案、Issue 搬進受限專案時,非成員角色的子項負責人清空(`pruneProjectItemsLocked`,和任務的 `pruneProjectTasksLocked` 同一個入口)。
+
+**關閉 Issue**:不被未完成子項阻擋;Issue 輸出帶 `itemsOpen`(todo / doing / blocked)與 `itemsTotal`(不含 canceled),不存庫(`withItemCounts`,一次批次查詢;沒有子項就沒有這兩個欄位)。
+
+**已知未處理**:(1) 沒有 `issue_block` / `issue_unblock`(Issue 級卡住旗標要動 Issue 結構與遷移,範圍比子項大,另開);(2) console 畫面還沒有子項的視圖,console 的 appBackend 只轉發給核心;(3) 等待的子項 done 時不自動解除 blocked(第二階段);等待 `user_decision` 先存文字,待決定功能整合後可指向 DEC-n;(4) 子項沒有自己的留言,完成 / 卡住 / 提升會在所屬 Issue 留系統留言;(5) CLI 不能清空欄位(旗標空字串視為沒給);(6) done / canceled 的子項不能重開(要重做請新增子項)。
 ---
 
 ## 1. 身分與憑證
@@ -26,7 +141,7 @@
 |---|---|---|---|---|---|
 | 一般使用者(含組織成員) | `Principal{User(role=member), Token}` | 一個人 | evoleap(Google 驗證)換 token:`LoginWithEvoleap`(`service/service.go`);LDAP:`LoginWithLDAP`(`service/ldap.go`,伺服器以環境變數啟用);手機配對碼:`CreatePairCode`/`ClaimPairCode`(`service/pair.go`) | token 前綴 `omx_`,只存 SHA-256;`OMIXOR_TOKEN_DAYS`(預設 90 天);`Logout`(自己)、`RevokeToken`(伺服器管理員)作廢;帳號 `Disabled` 時 `Authenticate` 直接 403 | `Service.Authenticate(raw)`(`service.go:307`),被 `api.authed`(`api/api.go`)、`server.Handler` 的 `/mcp/org/{org}`、`/mcp/worker/{org}`、`server/local.go` 的 `/local/*` 使用 |
 | 伺服器管理員 | 同上,`User.Role == "admin" && !Disabled`(`model.Principal.ServerAdmin()`) | 一個人,在**每個組織**視同 admin | 第一個使用者:`OMIXOR_ADMIN_BOOTSTRAP_EMAIL`(僅在使用者數為 0 時);LDAP:`OMIXOR_LDAP_ADMINS` 名單(每次登入確認,不會自動降級);之後由 `SaveUser` 指定 | 同上。每次 `Authenticate` 都從資料庫讀 role,降級立即生效 | 同上;`orgRole` 對 ServerAdmin 回傳 `"admin"`(`service.go:415`) |
-| 組織角色(admin / member) | `Member{Org,UserID,Role}`;不在 Principal 裡,`orgRole()` 每次查 `Store.MemberRole` | 一個人在某組織內 | 組織管理員 `SaveMember`;**名單上沒有該 email 會順便建立一個待連結的伺服器使用者**(見 §4 的 R-9) | 隨成員移除(`RemoveMember`) | `service.orgRole` / `needOrgAdmin` |
+| 組織角色(admin / member) | `Member{Org,UserID,Role}`;不在 Principal 裡,`orgRole()` 每次查 `Store.MemberRole` | 一個人在某組織內 | 組織管理員 `SaveMember`;**名單上沒有該 email 時,只有伺服器管理員會建立待連結的伺服器使用者;組織管理員只能加已存在的使用者**(R-9 已修) | 隨成員移除(`RemoveMember`) | `service.orgRole` / `needOrgAdmin` |
 | 角色憑證(task-bound agent credential) | `Principal{User(id=email="agent:<id>", role=member), Agent:*AgentIdentity{Org,AgentID,TaskID}}` | 一個虛擬角色(代為執行一筆任務) | 組織成員 `ClaimTask`/`ClaimNext` 領取時簽發:32 bytes 隨機密鑰(base64url)只回傳一次,DB 只存雜湊;使用格式 `Bearer <agentId>:<secret>` | `OMIXOR_AGENT_CRED_HOURS`(預設 2 小時);回報進度續約但總長上限 `MaxLeaseTotal` = 8 小時;任務離開 `inProgress`(done/blocked/canceled/重新排隊)、角色被刪、逾時、重領都作廢;同一任務同時只有一組有效 | `Service.AuthenticateAgent`(`agents_auth.go:49`):常數時間比對、失敗一律同一個 401、同 IP 每分鐘超過 10 次失敗回 429。被 `mcp.AgentEndpoint`(`/mcp/agent`)與 `api.authedOrAgent`(少數 REST 路由,見 §1.2)使用 |
 | 執行者代角色(worker) | 用**人的** `Principal` 呼叫 → `claimedAgent()` 轉成與角色憑證相同的 `Principal{Agent}` | 領取任務的那個人,以角色署名回報/留言/委派 | `/mcp/worker/{org}` 的 `dispatch_*`;需是領取者本人、租約未過期、帶領取驗證碼(`ClaimCode`,由憑證雜湊算 6 位數) | 隨租約 | `service.claimedAgent`(`agents_auth.go:107`),用在 `WorkerReport`、`WorkerComment`、`WorkerDelegate` |
 | console 本機模式 | `console/internal/core.localPrincipal` = `Principal{User{Email:"omixor-console", Role:"admin"}}`(**全程共用的單一指標**) | 這台 console 的所有使用者 | 不需登入(未啟用 web LDAP 時 `currentUser` 直接回管理員) | 無 | `backend.Local{P: localPrincipal, EnsureOrg: true}`(`console/internal/core/issues_remote.go:64,103`) |
@@ -95,9 +210,9 @@ console 欄:**不擋** = 不在 deny-list(任何已登入 web 使用者可做,�
 | 組織與成員 | 列組織 | M(SA 全部) | `orgs` 表 Admin | `org_switch` 不擋 | console 的 `org_switch` 是**全域狀態**(所有 web 使用者共用目前組織) |
 | | 建立 / 改 / 刪組織 | SA | — | `org_create/update/delete` WA | console 只擋 web 管理員,實際再由 `localPrincipal`(SA)或共用 token 決定 |
 | | 列成員 | M | — | view `members` | |
-| | 加入 / 改角色 / 移除成員 | OA | — | `member_save/remove` WA | `SaveMember` 會順便建立伺服器使用者(R-9) |
+| | 加入 / 改角色 / 移除成員 | OA | — | `member_save/remove` WA | `SaveMember` 組織管理員只能加已存在的使用者,新 email 要伺服器管理員(R-9 已修) |
 | Issue | 列 / 查 / 看板 / 取單筆 | M | `issues` 表 Admin+Agent | 不擋 | REST 不接受角色憑證;角色只能經 MCP |
-| | 建立 / 修改 / 留言 | M | `issue_create/update` 表 Admin+Agent | 不擋 | 角色與成員都可改 `assignee`,**繞過組織鏈**(R-3) |
+| | 建立 / 修改 / 留言 | M | `issue_create/update` 表 Admin+Agent | 不擋 | 角色與成員改 `assignee` 要過組織鏈(`checkIssueAssign`;沒設鏈不限、OA 不限;R-3 已修) |
 | | 刪除 | M | —(無工具) | `issue_delete` 不擋 | 一般成員即可刪除任何 Issue;是否設計如此待確認(R-10) |
 | | 匯出 / 匯入 | OA | — | console 只有 CLI import | |
 | | 上傳 / 讀附件 | M(角色拒絕) | — | 不擋 | |
@@ -115,7 +230,7 @@ console 欄:**不擋** = 不在 deny-list(任何已登入 web 使用者可做,�
 | | 新增 / 改 / 搬 / 局部改 | M;A 受 docAccess 可寫 | `doc_save` 表 Admin+Agent+`NeedDocWrite` | 不擋 | 管理端點不再接受 `agent` 參數(400);docAccess 檢查只在角色端點的 MCP 工具內做(`mcp/tools_cabinet.go`),不是 service(R-12) |
 | | 刪文件 | M(A 拒絕) | —(無工具) | `cabinet_doc_delete` 不擋 | |
 | | 改結構 / 匯入 | OA | `cabinet_layout_save` 表 Admin | `cabinet_layout_save` WA | |
-| 專案 | 列 / 取專案 | M、A(**A 不檢查 docAccess**) | `projects` 表 Admin+Agent+`NeedDocRead` | 不擋 | 角色能否看到專案,只靠 MCP 的 `Needs`,service 不管(R-8) |
+| 專案 | 列 / 取專案 | M、A(A 沒有任何 docAccess 時列空、取 403;R-8 已修) | `projects` 表 Admin+Agent+`NeedDocRead` | 不擋 | service 與文件櫃一致檢查 docAccess(R-8 已修),MCP 另有 `Needs` |
 | | 建 / 改 / 刪專案 | OA | `project_save` 表 Admin | `project_create/update/delete` WA | |
 | 頻道 | 列 / 取 / 讀訊息 / 標已讀 / 收件匣 | M(OA 看全部);A 只看自己是成員的 | `channels`、`channel_messages` 表 Admin+Agent+`NeedChannel` | 不擋 | |
 | | 建立 | M(A 拒絕) | `channel_create` 表 Admin | 不擋 | |
@@ -124,6 +239,13 @@ console 欄:**不擋** = 不在 deny-list(任何已登入 web 使用者可做,�
 | 事件 | 列 / 取 | M、**A** | `incidents` 表 **Admin only** | 不擋 | REST 對角色憑證開放,MCP 不開(R-4) |
 | | 宣告 / 更新 | M、**A** | `incident_declare/update` 表 **Admin only** | `incident_note` 不擋 | 同上 |
 | | 匯入 | OA | — | — | |
+| 待決定 | 提出 / 列 / 取 / 摘要 | M、A(署名一律是呼叫者本人;依來源 Issue 的專案可見性篩選) | `issue_decision_add`、`issue_decisions` 表 Admin+Agent | 不擋 | 見 0.3 |
+| | 處理 / 開 Issue | M(A 403) | `issue_decision_answer`、`issue_decision_to_issue` 表 Admin | 不擋 | 見 0.3 |
+| | 撤回 / 重開 | 撤回:建立者或 OA(A 只能撤回自己提的);重開:原處理人或 OA(A 403) | — | 不擋 | 見 0.3 |
+| Issue 子項 | 列 / 取 / 新增 | M、A(繼承所屬 Issue 的專案可見性;A 新增時負責人只能是自己或留空) | `issue_items`、`issue_item_add` 表 Admin+Agent | 不擋 | 見 0.4 |
+| | 改 / 取消 / 提升 / 領取 / 解除卡住 | M(A 403) | `issue_item_update`、`issue_item_promote`、`issue_item_claim` 表 Admin | 不擋 | 見 0.4 |
+| | 回報(done / blocked / doing) | 人:領取者或無有效租約或 OA;A:只限自己綁定任務的子項 | `issue_item_report` 表 Admin+Agent | 不擋 | 見 0.4 |
+| | 放棄領取 / 刪除 | 領取者或 OA / 建立者或 OA(A 403) | — | 不擋 | 見 0.4 |
 | 組織鏈 | 讀 | M、A | `chain` 表 **Admin only**(但 `agent_context.chain` 對 Agent 提供上下游) | view | service/REST 對角色開放,工具不開 |
 | | 改 | OA | `chain_save` 表 Admin | `chain_save` WA(+`adminTools`) | |
 | 設定與整合 | 組織功能開關讀 | M、A | — | view `system` | |
@@ -142,7 +264,7 @@ console 欄:**不擋** = 不在 deny-list(任何已登入 web 使用者可做,�
 | 工具 | 表上標記 | service 實際 | 吻合? |
 |---|---|---|---|
 | `orgs` | Admin | `ListOrgs`:任何登入者(角色身分查不到組織) | 吻合 |
-| `issues` / `issue_create` / `issue_update` | Admin,Agent | `viewer` | 吻合(但見 R-3) |
+| `issues` / `issue_create` / `issue_update` | Admin,Agent | `viewer` | 吻合(R-3 已修) |
 | `agents` | Admin | `ListAgents`:`viewer`,A 只回自己 | **不吻合**:service 允許角色,表不開 |
 | `agent_context`、`agent_tasks`、`agent_task_report` | Admin,Agent | `viewer` | 吻合(`agent_task_report` 見 R-2) |
 | `agent_task_claim` | Admin | `ClaimTask`:M、拒絕角色 | 吻合 |
@@ -193,13 +315,13 @@ console 欄:**不擋** = 不在 deny-list(任何已登入 web 使用者可做,�
 |---|---|---|---|---|
 | R-1 | **已補驗證(第一階段:共享權杖);第二階段未做** | console MCP 連接埠 | **2026-11-20 決定:所有接進 MCP 的人一律要驗證身分,不再有「沒有登入的 MCP」。第一階段已完成:`/mcp`、`/mcp/worker` 與其餘路徑一律要 `Authorization: Bearer <console 的 MCP 權杖>`(401 / 429 只針對錯誤的嘗試,常數時間比對,沒有 loopback 例外;Host 白名單 localhost、127.0.0.1、[::1],`OMIXOR_MCP_ADDR` 設了非本機位址時再加上它);現有用戶端(omixor-mcp 轉接、`--channel`、`--init-worker`)已改成帶權杖。尚未處理:(a) 通過驗證後仍不經 `adminTools` deny-list、身分是 `localPrincipal`(SA),所有持權杖者共用一個身分、署名是字串 `mcp`;(b) 權杖是共享的,洩漏要靠 `mcp_token_rotate` 換新。第二階段(每人各一把、署名成本機使用者 actor 加來源標記)隨 ISS-36。** 原本的問題:`/mcp`、`/mcp/worker` **沒有任何驗證**,也不經 `adminTools` deny-list;工具包含核心 Admin 工具(`agent_upsert`、`chain_save`、`cabinet_layout_save`、`project_save`…)與 console 的 gcp/facebook/server 等工具,身分是 `localPrincipal`(SA)。預設只聽 127.0.0.1,但 `OMIXOR_MCP_ADDR=0.0.0.0` 是文件化的 Docker 設定;且即使 web 啟用了 LDAP,這個連接埠仍不受其約束。同機任何程序、或網路可達者(Docker 發布設定錯誤時)即可繞過 web 登入與管理員區分 | `console/internal/mcp/server.go:37,58`;`worker_endpoint.go` 註解「和 /mcp 一樣沒有額外驗證」;`console/internal/web/web.go:88-102` 只在 `/api/tool` 套 `adminTools` |
 | R-2 | **已修(程式);(c) 人的回報備註署名仍是 `agent:<角色>`,維持未修** | `ReportTask` | **(a)(b)(d) 已修:`ReportTask` 現在要求領取者本人或組織管理員(OA)才能改 `canceled`/`done`、續約別人領取中的任務,測試涵蓋;(c) 備註署名仍固定記成 `agent:<角色>`,人的操作被記成角色,尚未改(待決定要改記實際呼叫者或人與角色並記)。** 原本的問題:組織成員(非管理員)可回報**任何**任務,狀態可設為 `canceled`、`done`、`inProgress`:(a) 繞過 `CancelTask`(要 OA);(b) 繞過領取鎖(`ClaimTask` 說「連原領取者也不能再領」,但任何成員可續約/結案別人領取中的任務);(c) 備註署名固定是 `agent:<角色>`,人的操作被記成角色;(d) 會觸發 `chainReport`。`ReleaseTask` 才有「領取者或 OA」檢查 | `core/service/agents_claim.go:177-246`(`viewer` 後沒有領取者/OA 檢查;`:189` 只有「非角色才多 canceled」);對照 `agents_tasks.go:235`(CancelTask 要 OA)、`agents_claim.go:329`(Release 檢查領取者) |
-| R-3 | **中高** | Issue `assignee` | 任何 viewer(含**角色憑證**與**不在鏈上的一般成員**)建立/修改 Issue 時給 `assignee`,`syncAssignee` 就替**任一啟用中的角色**排任務,完全不檢查組織鏈:`AssignTask`(成員需鏈上有邊)與 `DelegateTask`(角色需鏈上有邊)形同可被 Issue 繞過。角色憑證因此可令其他角色(含不在其下游者)執行任務,並把 Issue 內文放進任務說明,是 prompt-injection 的放大路徑 | `issues.go:152`(CreateIssue)、`:187`(UpdateIssue)只有 `viewer`;`agents_tasks.go:314`(syncAssignee)無權限檢查;對照 `chain.go:266,283` |
+| R-3 | **已修(中高)** | Issue `assignee` | 任何 viewer(含**角色憑證**與**不在鏈上的一般成員**)建立/修改 Issue 時給 `assignee`,`syncAssignee` 就替**任一啟用中的角色**排任務,完全不檢查組織鏈:`AssignTask`(成員需鏈上有邊)與 `DelegateTask`(角色需鏈上有邊)形同可被 Issue 繞過。角色憑證因此可令其他角色(含不在其下游者)執行任務,並把 Issue 內文放進任務說明,是 prompt-injection 的放大路徑 | `issues.go:152`(CreateIssue)、`:187`(UpdateIssue)只有 `viewer`;`agents_tasks.go:314`(syncAssignee)無權限檢查;對照 `chain.go:266,283` |
 | R-4 | **中** | 事件(incidents)入口不一致 | REST 對角色憑證開放事件的讀/宣告/更新(`authedOrAgent` + service `viewer`),但 MCP 工具表把事件工具標成 Admin only。任一任務綁定憑證因此可經 REST 寫事件(執行者記為 `ai:<角色>`)。屬於「表與實作不吻合」,且 REST 路徑沒有 `Needs`/白名單 | `core/api/incident.go:13-39`;`service/incident.go:186,193,201,272`;`model/tools.go` incidents 三項 |
 | R-5 | **中** | console deny-list | web 權限是 **deny-list**:`adminActions`(約 44)/`adminTools`(5)以外的 action 一律放行,新增 action 預設無保護;測試只驗證清單內都被擋(`admin_test.go` 迭代 `adminActions`),**沒有測試保證「核心要管理員的操作都在清單內」**。已知清單外的:`jira_import`(本機模式直接寫 store、無稽核)、`facebook_publish`/`facebook_draft_*`/`facebook_managed`、`gcp_refresh`、`integration_set`、`automation_toggle/autonomy`、`org_switch`(全域狀態) | `console/internal/web/admin.go:22-80`;`web/web.go:88,104`;`console/internal/core/jira.go:616`、`issues_remote.go:198` |
 | R-6 | **中** | console 身分模型 | (a) web 使用者的 `Admin`(LDAP 群組)與 core 的組織角色無關;(b) 本機模式所有 web 使用者共用 `localPrincipal`(SA),遠端模式共用同一把 server token → 非管理員 web 使用者 `AssignTask` 不受「鏈上要有邊」限制、`ReleaseTask`/「我領取的」失去個人意義、可看/操作該帳號能看到的**所有組織**(沒有「web 使用者 → 組織」的對應);(c) `org_switch` 改的是全域目前組織,會影響同時在線的其他人(`system_save` 帶 `org` 做 409 比對是既有的補丁) | `console/internal/core/issues_remote.go:64`;`web/admin.go:12-20` 的說明;`core/members.go:10` |
 | R-7 | **已修(程式)** | 停用角色不作廢憑證 / 領取 | **已修:`AuthenticateAgent` 與 `ClaimTask` 現在都檢查 `Agent.Active`,停用角色的憑證與領取一律拒絕。** 原本的問題:`AuthenticateAgent` 只驗雜湊、角色存在、任務 inProgress,**不檢查 `Agent.Active`**;停用角色後既有憑證仍可用到任務結束或逾時。`ClaimTask`(指定 TaskID 或自動挑選)也不檢查 `Active`,只有 `ClaimNext` 檢查 | `agents_auth.go:89-96`;`agents_claim.go:71-125` vs `ClaimNext` 的 `agents[i].Active` |
-| R-8 | **低** | `ListProjects` / `GetProject` | `viewer` 即可,**不看 docAccess**。目前只靠 MCP 的 `NeedDocRead`(角色沒有任何 docAccess 時 `projects` 不列、呼叫被擋)。若有其他路徑把角色 Principal 接上 Backend,專案名稱與描述會外洩 | `project.go:81-95`;`model/tools.go` projects;`core/mcp/server.go:301` |
-| R-9 | **低中**(待產品確認) | `SaveMember` 會建立伺服器使用者 | 組織管理員(非 SA)加入一個不存在的 email,`SaveMember` 直接 `Store.SaveUser` 建立使用者(role=member)。`LoginWithEvoleap` 會讓 Google 驗證 email 相符的人接手這個「待連結使用者」→ **OA 等於可以邀請新人進入整台伺服器**,而 `SaveUser`(新增使用者)要求 SA。可能是刻意設計(邀請流程),但授權邊界與「伺服器使用者由 SA 管理」不一致 | `service.go:526-556`(`:540` 起);`:241`(pending 接手);對照 `:346` |
+| R-8 | **已修(低)** | `ListProjects` / `GetProject` | `viewer` 即可,**不看 docAccess**。目前只靠 MCP 的 `NeedDocRead`(角色沒有任何 docAccess 時 `projects` 不列、呼叫被擋)。若有其他路徑把角色 Principal 接上 Backend,專案名稱與描述會外洩 | `project.go:81-95`;`model/tools.go` projects;`core/mcp/server.go:301` |
+| R-9 | **已修(低中)** | `SaveMember` 會建立伺服器使用者 | 組織管理員(非 SA)加入一個不存在的 email,`SaveMember` 直接 `Store.SaveUser` 建立使用者(role=member)。`LoginWithEvoleap` 會讓 Google 驗證 email 相符的人接手這個「待連結使用者」→ **OA 等於可以邀請新人進入整台伺服器**,而 `SaveUser`(新增使用者)要求 SA。可能是刻意設計(邀請流程),但授權邊界與「伺服器使用者由 SA 管理」不一致 | `service.go:526-556`(`:540` 起);`:241`(pending 接手);對照 `:346` |
 | R-10 | **低**(待確認) | 成員可刪 Issue / 文件 | `DeleteIssue`、`DeleteDoc` 只要求成員(`orgRole`),無「作者或管理員」限制;MCP 沒有刪除工具,所以只有 REST 與 console 看得到 | `issues.go:385`、`cabinet.go:386` |
 | R-11 | **低** | 範本欄位檢查洩漏 | `ValidateDocBody` 的錯誤訊息帶出範本文件 id(`見範本 DOC-n`),即使該範本在角色 docAccess 之外 | `core/model/doctemplates.go:110-139` |
 | R-12 | **低**(結構) | docAccess 兩處實作 | docAccess 過濾與寫入檢查在 MCP 工具內做(`g.CanReadDoc`、`g.CanWriteIn`),只有角色端點會走(2026-11-20 起人類端點帶 `agent` 一律 400,不再有「成員身分 + 角色權限」的混合情況);規則仍是 MCP 工具與 service 兩份,日後易偏離 | `core/mcp/tools_cabinet.go`(`docs`、`doc_save` 的 `visible`/`checkWrite`) |
@@ -281,7 +403,7 @@ func (s *Service) Authorize(p *model.Principal, op string, res Resource) error
 
 1. **R-1 console MCP 連接埠**:未驗證、不經 deny-list。最小改法:`OMIXOR_MCP_ADDR` 非 loopback 或 web 已啟用 LDAP 時,要求共享密鑰(或沿用 web session),並對 `/mcp` 套用 `adminTools` 同一份清單;預設單人本機維持現狀。
 2. **R-2 `ReportTask`(已修;只剩 (c) 署名未修)**:非角色呼叫者要求「領取者本人 或 OA」才能把狀態改為 `canceled`/`done`、續約別人領取中的任務(對應 `ReleaseTask` 的規則);備註署名改記實際呼叫者(或同時記人與角色)。補測試:成員甲領取、成員乙回報 `canceled` 應 403。
-3. **R-3 Issue `assignee`**:`syncAssignee` 前檢查:呼叫者是 OA、或(成員)鏈上有 `user:<自己> → agent:<目標>`、或(角色)鏈上有 `agent:<自己> → agent:<目標>`;不符時回 403。補測試。
+3. **R-3 Issue `assignee`(已修,`checkIssueAssign`)**:`syncAssignee` 前檢查:呼叫者是 OA、或(成員)鏈上有 `user:<自己> → agent:<目標>`、或(角色)鏈上有 `agent:<自己> → agent:<目標>`;不符時回 403。補測試。
 4. **R-4 事件入口**:決定「角色是否可寫事件」——要的話把 `incidents/incident_declare/incident_update` 在表上標 Agent(並設 `Needs`);不要的話 service 的 `DeclareIncident/UpdateIncident` 對角色身分拒絕,REST 改用 `authed`。
 5. **R-7 停用角色(已修)**:`AuthenticateAgent` 與 `ClaimTask` 加 `Active` 檢查;停用角色時順手作廢其進行中任務的憑證。
 6. **名稱與文件**:`CoreTool.Admin` 改名為端點旗標;修正 `api/api.go` 檔頭與 worker 端點註解(R-15)。

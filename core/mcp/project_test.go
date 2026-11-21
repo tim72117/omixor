@@ -44,7 +44,7 @@ func TestProjectTools(t *testing.T) {
 	if u := ok(t, admin, "", "project_save", map[string]any{"id": "prj-1", "description": "官網改版"}); u["name"] != "官網" || u["description"] != "官網改版" {
 		t.Fatal(u)
 	}
-	fails(t, admin, "", "project_save", map[string]any{"id": "PRJ-1"}, "要給 name、key 或 description")
+	fails(t, admin, "", "project_save", map[string]any{"id": "PRJ-1"}, "要給 name、key、description、restricted、link_repos、unlink_repos、add_members 或 remove_members")
 
 	// 專案的結構:cabinet_layout_save 帶 project,不影響未分專案
 	lay := ok(t, admin, "", "cabinet_layout_save", map[string]any{"project": "PRJ-1",

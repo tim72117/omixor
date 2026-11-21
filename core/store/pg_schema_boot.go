@@ -42,10 +42,12 @@ var pgSchemaColumns = []schemaColumn{
 	{"omixor_agents", "split_at", "timestamptz"},
 	{"omixor_cabinet_layouts", "version", "bigint not null default 0"},
 	{"omixor_projects", "key", "text not null default ''"},
+	{"omixor_projects", "restricted", "boolean not null default false"},
 	{"omixor_channels", "split_at", "timestamptz"},
 	{"omixor_channel_messages", "split_at", "timestamptz"},
 	{"omixor_org_chains", "split_at", "timestamptz"},
 	{"omixor_audit", "source", "text not null default ''"},
+	{"omixor_agent_tasks", "item_id", "text"}, // 綁定的 Issue 子項(omixor_issue_items.id;字串參照,不設外鍵,互不 cascade,回寫由 service 處理)
 }
 
 // pgSchemaIndexes 索引(缺才建)。依賴上面補的欄位,所以在欄位之後
@@ -59,11 +61,16 @@ var pgSchemaIndexes = []schemaIndex{
 	{"omixor_docs_org_pos", `create index if not exists omixor_docs_org_pos on omixor_docs (org, pos desc)`},
 	{"omixor_doc_tags_tag", `create index if not exists omixor_doc_tags_tag on omixor_doc_tags (org, tag)`},
 	{"omixor_projects_org_key", `create unique index if not exists omixor_projects_org_key on omixor_projects (org, upper(key)) where key <> ''`},
+	{"omixor_project_members_actor", `create index if not exists omixor_project_members_actor on omixor_project_members (org, actor_id)`},
 	{"omixor_channels_issue", `create unique index if not exists omixor_channels_issue on omixor_channels (org, issue_id) where issue_id <> ''`},
 	{"omixor_channel_messages_num", `create index if not exists omixor_channel_messages_num on omixor_channel_messages (org, channel_id, number)`},
 	{"omixor_channel_members_member", `create index if not exists omixor_channel_members_member on omixor_channel_members (org, member)`},
 	{"omixor_channel_mentions_member", `create index if not exists omixor_channel_mentions_member on omixor_channel_mentions (org, member)`},
 	{"omixor_incidents_org_pos", `create index if not exists omixor_incidents_org_pos on omixor_incidents (org, pos desc)`},
+	{"omixor_decisions_org_status", `create index if not exists omixor_decisions_org_status on omixor_decisions (org, status)`},
+	{"omixor_decisions_org_issue", `create index if not exists omixor_decisions_org_issue on omixor_decisions (org, source_issue)`},
+	{"omixor_issue_items_issue", `create index if not exists omixor_issue_items_issue on omixor_issue_items (org, issue_id)`},
+	{"omixor_issue_items_assignee", `create index if not exists omixor_issue_items_assignee on omixor_issue_items (org, assignee)`},
 }
 
 // bootstrapSchema 建表、補欄位、補索引、文件櫃結構主鍵。全部「已經有就不拿鎖」:另一個連線持有熱表的 ACCESS EXCLUSIVE 鎖時,

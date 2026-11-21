@@ -253,19 +253,38 @@ func issueSave(scope, org string, updates, creates []model.Issue) error {
 		return nil
 	}
 	for _, i := range updates {
-		labels, comments := i.Labels, i.Comments
+		labels, comments := i.Labels, remoteExternalComments(i.Comments)
 		if _, err := b.UpdateIssue(org, i.ID, service.IssuePatch{Title: &i.Title, Body: &i.Body, Status: &i.Status,
-			Priority: &i.Priority, Labels: &labels, Source: &i.Source, Link: &i.Link, Repo: &i.Repo, Comments: &comments, Author: i.CreatedBy}); err != nil {
+			Priority: &i.Priority, Labels: &labels, Source: &i.Source, Link: &i.Link, Repo: &i.Repo, Comments: &comments, Author: remoteExternalAuthor(i.CreatedBy)}); err != nil {
 			return err
 		}
 	}
 	for _, i := range creates {
 		if _, err := b.CreateIssue(org, service.IssueInput{Title: i.Title, Body: i.Body, Priority: i.Priority,
-			Labels: i.Labels, Source: i.Source, Link: i.Link, Repo: i.Repo, Author: i.CreatedBy}); err != nil {
+			Labels: i.Labels, Source: i.Source, Link: i.Link, Repo: i.Repo, Author: remoteExternalAuthor(i.CreatedBy)}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// ---- 遠端模式的外部作者(Jira 人名):伺服器只接受署名是呼叫者本人,外部人名會被 AuthorReject 擋 400 ----
+
+// remoteExternalAuthor 遠端送出時一律署名本人(空字串 = 呼叫者);外部人名改放進留言內文(見 remoteExternalComments)
+func remoteExternalAuthor(string) string { return "" }
+
+// remoteExternalComments 把 Jira 來的留言(id 以 jira- 開頭)的外部作者名放進內文開頭「【Jira:名字】」,作者改本人;
+// 本機加的留言(作者已是合法 actor)原樣保留。不改動傳入的 slice
+func remoteExternalComments(in []model.Comment) []model.Comment {
+	out := make([]model.Comment, len(in))
+	for k, c := range in {
+		if strings.HasPrefix(c.ID, "jira-") && strings.TrimSpace(c.Author) != "" {
+			c.Text = "【Jira:" + strings.TrimSpace(c.Author) + "】\n" + c.Text
+			c.Author = ""
+		}
+		out[k] = c
+	}
+	return out
 }
 
 // legacyIssueActors 直接寫 Store 之前,把 Issue 裡的「誰」從相容字串(Jira 的人名、核心輸出的 email、agent:<id>、舊的 mcp/tim…)

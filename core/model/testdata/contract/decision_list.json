@@ -1,0 +1,114 @@
+[
+  {
+    "id": "DEC-3",
+    "kind": "decision",
+    "title": "待決定的結構要不要和需要協助合成一張表?",
+    "body": "## 背景\n\n兩種都是「要人」的事。",
+    "options": [
+      {
+        "id": "o1",
+        "label": "合成一張表",
+        "description": "用 kind 欄分開",
+        "recommended": true
+      },
+      {
+        "id": "o2",
+        "label": "分兩張表"
+      }
+    ],
+    "status": "decided",
+    "answer": "o1",
+    "answerNote": "同一個狀態機就夠了",
+    "sourceIssue": "ISS-37",
+    "blocks": [
+      "ISS-38",
+      "等憑證"
+    ],
+    "createdBy": "agent:eng",
+    "createdByActor": {
+      "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+      "kind": "agent",
+      "handle": "eng",
+      "name": "工程師",
+      "status": "active"
+    },
+    "decidedBy": "tim@example.com",
+    "decidedByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "createdAt": "2026-11-21T08:00:00Z",
+    "decidedAt": "2026-11-21T09:00:00Z",
+    "updatedAt": "2026-11-21T09:00:00Z"
+  },
+  {
+    "id": "DEC-4",
+    "kind": "help",
+    "title": "請在 Mac 上編譯 iOS 版",
+    "body": "需要 Xcode 16。",
+    "options": [],
+    "status": "decided",
+    "answer": "done",
+    "answerNote": "已編譯",
+    "evidence": "https://example.com/build/42",
+    "sourceIssue": "",
+    "blocks": [],
+    "createdBy": "mcp",
+    "createdByActor": {
+      "id": "sys_legacy_mcp",
+      "kind": "system",
+      "handle": "legacy_mcp",
+      "name": "mcp",
+      "status": "active"
+    },
+    "decidedBy": "tim@example.com",
+    "decidedByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "createdAt": "2026-11-21T08:10:00Z",
+    "decidedAt": "2026-11-21T09:30:00Z",
+    "updatedAt": "2026-11-21T09:30:00Z"
+  },
+  {
+    "id": "DEC-5",
+    "kind": "decision",
+    "title": "最少欄位",
+    "body": "",
+    "options": [
+      {
+        "id": "o1",
+        "label": "A"
+      },
+      {
+        "id": "o2",
+        "label": "B"
+      }
+    ],
+    "status": "open",
+    "answer": "",
+    "answerNote": "",
+    "sourceIssue": "",
+    "blocks": [],
+    "createdBy": "tim@example.com",
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "decidedBy": "",
+    "createdAt": "2026-11-21T10:00:00Z",
+    "updatedAt": "2026-11-21T10:00:00Z"
+  }
+]

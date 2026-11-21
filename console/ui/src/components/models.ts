@@ -39,6 +39,84 @@ export const INC_STATUS_COLOR: Record<IncidentStatus, string> = { investigating:
 export const INC_STATUS_ICON: Record<IncidentStatus, string> = { investigating: "magnifyingglass", identified: "scope", monitoring: "eye", resolved: "checkmark.circle.fill" };
 export type IncidentEventKind = "status" | "note" | "action" | "alert" | "deploy" | "aiFinding";
 export type IncidentEvent = { id: string; date: string; actor: Actor; actorRef?: ActorView; kind: IncidentEventKind; text: string };
+/** 待決定(decision:要人選一個)與需要協助(help:要人做事)——同一張表,用 kind 分開(core/model/decision.go) */
+export type DecisionKind = "decision" | "help";
+export type DecisionStatus = "open" | "decided" | "withdrawn";
+export type DecisionOption = { id: string; label: string; description?: string; recommended?: boolean };
+export type Decision = {
+  id: string;
+  kind: DecisionKind;
+  title: string;
+  body: string;
+  /** help 一律是空陣列 */
+  options: DecisionOption[];
+  status: DecisionStatus;
+  /** decision:選項 id 或 "other";help:"done" 或 "declined";沒處理是空字串 */
+  answer: string;
+  answerNote: string;
+  /** help 完成的證據 */
+  evidence?: string;
+  /** 來源 Issue 的顯示編號 key(沒有是空字串;來源 Issue 在看不到的受限專案時,整筆決定不會出現) */
+  sourceIssue: string;
+  blocks: string[];
+  /** 建立者、處理人:相容字串(人 = email、角色 = agent:<handle>),旁邊是 actor 物件(ISS-36 C-3;沒處理沒有 decidedByActor) */
+  createdBy: string;
+  decidedBy: string;
+  createdByActor?: ActorView;
+  decidedByActor?: ActorView;
+  createdAt: string;
+  decidedAt?: string;
+  updatedAt: string;
+};
+/** help 的 decided 畫面顯示「已處理」 */
+export const DECISION_STATUS_LABEL: Record<DecisionStatus, (kind: DecisionKind) => string> = {
+  open: () => "待處理",
+  decided: (k) => (k === "help" ? "已處理" : "已決定"),
+  withdrawn: () => "已撤回",
+};
+
+/** Issue 子項(issue_item,ISS-37:Issue 底下可領取、有依賴與驗收證據的小工作;core/model/issue_item.go)。畫面還沒做,先備型別與契約 */
+export type ItemStatus = "todo" | "doing" | "blocked" | "done" | "canceled";
+export type ItemWaitKind = "user_decision" | "item" | "external";
+export const ITEM_STATUSES: ItemStatus[] = ["todo", "doing", "blocked", "done", "canceled"];
+export const ITEM_STATUS_LABEL: Record<ItemStatus, string> = { todo: "待領取", doing: "進行中", blocked: "卡住", done: "完成", canceled: "取消" };
+export const ITEM_WAIT_LABEL: Record<ItemWaitKind, string> = { user_decision: "使用者決定", item: "另一個子項", external: "外部條件" };
+export type IssueItem = {
+  id: string;
+  issueId: string;
+  seq: number;
+  /** 顯示編號:<Issue key>.<序號>,例如 ISS-37.2 */
+  key: string;
+  title: string;
+  status: ItemStatus;
+  /** 負責人、領取者、建立者:相容字串(人 = email、角色 = agent:<handle>),旁邊是 actor 物件;沒指派 / 沒領取沒有欄位 */
+  assignee?: string;
+  assigneeActor?: ActorView;
+  /** 前置子項的 key(同 Issue;未完成前置不能領取、完成) */
+  dependsOn?: string;
+  files?: string[];
+  acceptance?: string;
+  /** 完成證據:JSON 物件({commit, tests, note, summary, unverified[]…}) */
+  evidence?: Record<string, unknown>;
+  blockReason?: string;
+  waitForKind?: ItemWaitKind;
+  /** user_decision:問題或 DEC-n;item:同 Issue 另一子項的 key;external:說明 */
+  waitFor?: string;
+  claimedBy?: string;
+  claimedByActor?: ActorView;
+  /** 租約到期時間(領取中才有) */
+  lockedUntil?: string;
+  /** 負責人是角色時,領取綁定的 agent_task id */
+  taskId?: string;
+  /** 提升為獨立 Issue 後,新 Issue 的顯示編號(原子項同時標為 canceled) */
+  promotedIssueId?: string;
+  createdBy: string;
+  createdByActor?: ActorView;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+};
+
 export type Incident = {
   id: string; title: string; sev: number; status: IncidentStatus; services: string[]; commander: string; startedAt: string;
   resolvedAt?: string | null; impact: string; timeline: IncidentEvent[]; aiSummary?: string | null; followUps: string[];
@@ -195,8 +273,18 @@ export type CabinetSection = { id: string; label: string; path?: string; tabs: C
 export type CabinetDoc = { id: string; title: string; body: string; section: string; tab?: string | null; tags: string[]; author: string; authorActor?: ActorView; createdAt: string; updatedAt: string; project?: string };
 /** layoutVersion:結構的版本號(沒存過是 0,每存一次 +1);存結構時帶 expectedVersion 做樂觀鎖 */
 export type CabinetView = { layout: CabinetSection[]; docs: CabinetDoc[]; layoutVersion: number };
-/** 組織底下的專案(core 的 model.Project;PRJ-<n>);目前只有文件櫃分專案,權限沿用組織成員 */
-export type Project = { id: string; name: string; key?: string; description: string; createdAt: string; updatedAt: string };
+/** 組織底下的專案(core 的 model.Project;PRJ-<n>)。
+ *  restricted = 受限專案:只有專案成員、組織管理員看得到(Issue、文件櫃、專案本身),看不到的不會出現在清單、單筆回 404;false = 組織成員都看得到。
+ *  myRole = 呼叫者在專案的角色("admin" 組織管理員或專案管理員、"member" 專案成員;不是成員沒有這個欄位)。
+ *  改旗標用 action("project_update", { id, restricted }) 或建立時 project_create 帶 restricted(組織管理員) */
+export type Project = { id: string; name: string; key?: string; description: string; repos: string[]; restricted: boolean; myRole?: string; createdAt: string; updatedAt: string };
+/** 專案成員(core 的 model.ProjectMember;GET …/projects/{id}/members)。node 是相容的節點寫法(user:<email>、agent:<角色 id>),role 是 "admin" | "member"。
+ *  管理用 action("project_members" | "project_member_set" | "project_member_remove", { id: 專案 id, actor, role }),console 限 web 管理員 */
+export type ProjectMember = { project: string; actor?: ActorView; node: string; role: string; createdAt: string };
+/** 專案與程式碼倉庫的連結(core 的 model.ProjectRepo;GET …/projects/repos)。只用於預設值與篩選,不是權限來源:
+ *  建立 Issue 沒指定專案、repo 只連到一個專案時預設放進那個專案;依 repo 篩選時連到該 repo 的專案裡沒標 repo 的 Issue 也算。沒連任何專案 = 組織共用。
+ *  連結、取消連結用 action("project_repo_link" | "project_repo_unlink", { id: 專案 id, repo }),回傳更新後的 Project(組織管理員) */
+export type ProjectRepo = { project: string; repo: string; createdAt: string };
 /** cabinet_query 的回傳:某個專案(空字串 = 未分專案)的結構與文件,加上組織的專案清單 */
 export type CabinetQuery = CabinetView & { project: string; layoutSaved: boolean; projects: Project[]; projectsError?: string; error?: string };
 export const tabTitle = (t: CabinetTab) => (t.code ? `${t.code} ${t.label}` : t.label);

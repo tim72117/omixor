@@ -61,6 +61,7 @@ var storeSuite = []struct {
 	{"ProjectCabinet", suiteProjectCabinet},
 	{"Channels", suiteChannels},
 	{"Incidents", suiteIncidents},
+	{"Decisions", suiteDecisions},
 	{"OrgDoc", suiteOrgDoc},
 	{"MCPConfig", suiteMCPConfig},
 	{"SystemSettings", suiteSystemSettings},
@@ -1366,6 +1367,9 @@ func fillOrg(t *testing.T, s Store, org string, hash byte) {
 	chk(t, s.SaveChannelRead(org, model.ChannelRead{ChannelID: ch.ID, Member: lid(t, s, org, "user:a"), LastRead: 1, At: at}))
 	_, err = s.CreateIncident(org, model.Incident{Title: "i", Sev: 2, Status: "investigating", StartedAt: at})
 	chk(t, err)
+	_, err = s.CreateDecision(org, model.Decision{Kind: "help", Title: "d", Options: []model.DecisionOption{}, Status: "open", Blocks: []string{},
+		CreatedBy: lid(t, s, org, "user:a"), CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
 	chk(t, s.SaveOrgDoc(org, "github", OrgDoc{Data: json.RawMessage(`{"repos":["a/b"]}`), UpdatedAt: &at}))
 	chk(t, s.SaveMCPConfig(org, model.OrgMCPConfig{Servers: []model.MCPServerReg{{ID: "fs", Name: "fs", Transport: "stdio", Command: "x"}}, UpdatedAt: &at}))
 	chk(t, s.SaveSystemSettings(org, model.OrgSystemSettings{Features: map[string]bool{"channels": false}, UpdatedAt: &at}))
@@ -1414,6 +1418,8 @@ func orgEmpty(t *testing.T, s Store, org string, hash byte) {
 	empty("ChannelReads", len(rs), err)
 	ins, err := s.ListIncidents(org)
 	empty("ListIncidents", len(ins), err)
+	dcs, err := s.ListDecisions(org)
+	empty("ListDecisions", len(dcs), err)
 	_, err = s.GetOrgDoc(org, "github")
 	wantNotFound(t, "GetOrgDoc", err)
 	_, err = s.GetMCPConfig(org)

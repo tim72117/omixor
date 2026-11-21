@@ -471,6 +471,9 @@ func TestActorColumnsGuard(t *testing.T) {
 			}
 		}
 	}
+	for _, f := range NewTableActorFields { // ISS-36 之後的新表:直接是最終結構(actor id + 外鍵),登記在 NewTableActorFields,不走轉換引擎
+		registered[f.Table+"."+f.Column] = true
+	}
 	// 排除名單:不是「誰」(或不由這個引擎轉)的同名欄位
 	excluded := map[string]string{
 		"omixor_tokens.user_id":         "使用者 id(u_…,D11 不改寫),不是 actor id",
