@@ -92,7 +92,8 @@ final class OrgChainTests: XCTestCase {
         let store = app.startTestAgents()
         // core 只把 email(或 user:<…>)署名的任務當成鏈上的人(model.NodeOfAuthor);本機使用者 tim 不是 email,這裡用另一位成員測
         _ = try store.remote.sendJSON("POST", store.remote.orgURL(app.currentOrgId, ["members"]), ["email": "ceo@example.com", "role": "member"])
-        try store.saveChain([e("agent:course-dev", "agent:marketing"), e("user:ceo@example.com", "agent:course-dev", "目標")])
+        // 真人建立者要是登入的人自己:伺服器管理員(本機使用者)不能代別的使用者署名(core ISS-36,給了別人會記成自己)
+        try store.saveChain([e("agent:course-dev", "agent:marketing"), e("user:tim", "agent:course-dev", "目標")])
 
         let t = try store.delegate(from: "course-dev", to: "marketing", title: "寫推廣文", instructions: "")
         _ = try store.claim(agent: "marketing", task: t.id)
@@ -123,13 +124,13 @@ final class OrgChainTests: XCTestCase {
         XCTAssertEqual(app.agentTasks.filter { $0.title == "檢視回報:拍影片" }.count, 1)
 
         // 真人建立者:不建任務,原任務留備註,出現在「回報給我的任務」
-        let h = try XCTUnwrap(store.assign(to: "course-dev", title: "訂季度目標", by: "ceo@example.com"))
+        let h = try XCTUnwrap(store.assign(to: "course-dev", title: "訂季度目標", by: "tim"))
         let before = app.agentTasks.count
         _ = try store.claim(agent: "course-dev", task: h.id)
         _ = try store.report(h.id, status: .done, result: "定好了", note: nil, links: nil)
         XCTAssertEqual(app.agentTasks.count, before)
-        XCTAssertEqual(store.task(h.id)?.notes.last?.text, "已回報給 ceo@example.com", "\(String(describing: store.task(h.id)))")
-        XCTAssertEqual(try store.remote.reportedTasks(org: app.currentOrgId, reportTo: "user:ceo@example.com").map(\.id), [h.id])
+        XCTAssertEqual(store.task(h.id)?.notes.last?.text, "已回報給 tim", "\(String(describing: store.task(h.id)))")
+        XCTAssertEqual(try store.remote.reportedTasks(org: app.currentOrgId, reportTo: "user:tim").map(\.id), [h.id])
 
         // 沒有邊:不回報
         let n = try XCTUnwrap(store.assign(to: "marketing", title: "沒有鏈", by: "tim"))

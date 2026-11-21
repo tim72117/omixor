@@ -73,7 +73,7 @@ private struct BlockedTaskCard: View {
                             .font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if let iss = task.issueId {
+                    if let iss = task.issueKey(in: app.issues) {
                         Button(iss) { app.go(.development, focus: iss) }.buttonStyle(.link).font(.body)
                     }
                     Button("打開任務") { app.go(.automation, focus: task.id) }.buttonStyle(.link).font(.body)

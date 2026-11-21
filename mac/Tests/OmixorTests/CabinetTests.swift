@@ -28,30 +28,38 @@ final class CabinetTests: XCTestCase {
         let app = AppState()
         app.startTestAgents()
         let mcp = MCPHandler(app: app)
+        let role = RoleMCP(app: app)
+
+        // App 的 MCP(人類端點)不能用 agent 參數指定角色身分(core ISS-36):以角色身分要領任務拿憑證、連角色端點
+        var (_, rejected, isErr) = try await call(mcp, "doc_save", ["agent": "course-dev", "tab": "L0", "title": "x"])
+        XCTAssertTrue(isErr)
+        XCTAssertTrue(rejected.contains("不能指定角色身分"), rejected)
+        (_, rejected, isErr) = try await call(mcp, "docs", ["agent": "marketing"])
+        XCTAssertTrue(isErr, rejected)
 
         // 課程開發:課程區塊可讀寫
-        var (d, text, err) = try await call(mcp, "doc_save", ["agent": "course-dev", "tab": "L0", "title": "L0 改版筆記", "body": "# 筆記"])
+        var (d, text, err) = try await role.call("course-dev", "doc_save", ["tab": "L0", "title": "L0 改版筆記", "body": "# 筆記"])
         XCTAssertFalse(err, text)
         XCTAssertEqual(d["location"] as? String, "課程 › L0 AI 工具介紹")
         XCTAssertEqual(d["author"] as? String, "課程開發")
 
         // 行銷:課程只能讀,不能寫;行銷研究那一頁可寫
-        (_, text, err) = try await call(mcp, "doc_save", ["agent": "marketing", "section": "levels", "title": "x"])
+        (_, text, err) = try await role.call("marketing", "doc_save", ["section": "levels", "title": "x"])
         XCTAssertTrue(err)
         XCTAssertTrue(text.contains("沒有權限寫入"), text)
-        (_, text, err) = try await call(mcp, "doc_save", ["agent": "marketing", "tab": "/docs/research/marketing", "title": "社群貼文草稿"])
+        (_, text, err) = try await role.call("marketing", "doc_save", ["tab": "/docs/research/marketing", "title": "社群貼文草稿"])
         XCTAssertFalse(err, text)
-        (d, _, _) = try await call(mcp, "docs", ["agent": "marketing"])
+        (d, _, _) = try await role.call("marketing", "docs", [:])
         XCTAssertEqual(d["total"] as? Int, 2, "課程可讀、行銷研究可寫")
 
         // 訪客分析師看不到課程文件
-        (d, _, _) = try await call(mcp, "docs", ["agent": "visitor-analyst"])
+        (d, _, _) = try await role.call("visitor-analyst", "docs", [:])
         XCTAssertEqual(d["total"] as? Int, 0)
-        (_, text, err) = try await call(mcp, "docs", ["agent": "visitor-analyst", "id": "DOC-1"])
+        (_, text, err) = try await role.call("visitor-analyst", "docs", ["id": "DOC-1"])
         XCTAssertTrue(err, text)
 
         // 結構:只列有權限的位置
-        (d, _, _) = try await call(mcp, "cabinet", ["agent": "visitor-analyst"])
+        (d, _, _) = try await role.call("visitor-analyst", "cabinet", [:])
         XCTAssertEqual((d["sections"] as? [[String: Any]])?.compactMap { $0["section"] as? String }, ["overview", "members"])
 
         // 用 MCP 調整範圍:給訪客分析師讀課程
@@ -74,8 +82,9 @@ final class CabinetTests: XCTestCase {
 
     func testDocsPersistAcrossRestart() throws {
         let app = AppState()
+        app.startTestAgents()   // 伺服器管理員(本機使用者)只能代「存在的」角色署名,不存在的名字會被記成自己(core ISS-36)
         app.startCabinet()
-        let d = try! Cabinet.create(app, title: "規劃", body: "內文", section: "overview", tab: nil, tags: ["a"], by: "agent:product-manager")
+        let d = try! Cabinet.create(app, title: "規劃", body: "內文", section: "overview", tab: nil, tags: ["a"], by: "agent:course-dev")
         try! Cabinet.update(app, d.id) { $0.body += "\n補充" }
         try! Cabinet.create(app, title: "第二份", body: "", section: "levels", tab: "/studio/tools", tags: [], by: "tim")
 
@@ -84,14 +93,14 @@ final class CabinetTests: XCTestCase {
         XCTAssertEqual(app2.cabinetDocs.map(\.id), ["DOC-2", "DOC-1"])
         let r = try XCTUnwrap(Cabinet.doc(app2, "DOC-1"))
         XCTAssertEqual(r.body, "內文\n補充")
-        XCTAssertEqual(r.author, "agent:product-manager")
+        XCTAssertEqual(r.author, "agent:course-dev")
         XCTAssertEqual(Cabinet.doc(app2, "DOC-2")?.tab, "/studio/tools")
         try! Cabinet.delete(app2, "DOC-2")
         let app3 = AppState()
         app3.startCabinet()
         XCTAssertEqual(app3.cabinetDocs.map(\.id), ["DOC-1"])
-        // 下一份編號接著最大的
-        XCTAssertEqual(try! Cabinet.create(app3, title: "x", body: "", section: "todo", tab: nil, tags: [], by: "tim").id, "DOC-2")
+        // 號碼不重用(core):DOC-2 刪掉了,下一份是 DOC-3
+        XCTAssertEqual(try! Cabinet.create(app3, title: "x", body: "", section: "todo", tab: nil, tags: [], by: "tim").id, "DOC-3")
     }
 
     /// 專案(真的 core):新增專案、切過去讀到空白結構、在專案裡新增文件、搬回未分專案;非空的專案不能刪

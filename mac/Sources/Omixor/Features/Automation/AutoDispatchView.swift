@@ -137,7 +137,7 @@ struct AutoDispatchView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if let iss = t.issueId {
+            if let iss = t.issueKey(in: app.issues) {
                 Button(iss) { app.go(.development, focus: iss) }.buttonStyle(.link).font(.caption)
             }
             if t.priority <= .high { Pill(text: t.priority.label, color: t.priority.color) }

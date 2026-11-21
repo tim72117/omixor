@@ -40,9 +40,10 @@ final class IssueTests: XCTestCase {
         ])
         XCTAssertFalse(isError, text)
         var d = try XCTUnwrap(obj as? [String: Any])
-        XCTAssertEqual(d["id"] as? String, "ISS-1")
+        // core 的 MCP 輸出:id 是內部 id(UUIDv7),key 是顯示編號(ISS-34);App 的 Issue.id 用 key
+        XCTAssertEqual(d["key"] as? String, "ISS-1")
         XCTAssertEqual(d["labels"] as? [String], ["evoleap", "訪客"], "重複標籤只留一個")
-        XCTAssertEqual(d["createdBy"] as? String, "mcp", "core 的 MCP 回傳原始署名")
+        XCTAssertEqual(d["createdBy"] as? String, "tim", "署名是登入的人(core ISS-36:不再有 mcp 這個署名)")
         XCTAssertEqual(app.issues.first?.id, "ISS-1", "MCP 改了 server 上的資料,App 馬上重讀")
 
         (_, text, isError) = try await call(mcp, "issue_create", ["title": "第二筆", "priority": "urgent"])
@@ -58,12 +59,12 @@ final class IssueTests: XCTestCase {
         XCTAssertFalse(isError, text)
         d = try XCTUnwrap(obj as? [String: Any])
         XCTAssertEqual(d["labels"] as? [String], ["evoleap", "訪客", "播放率"])
-        XCTAssertEqual((d["comments"] as? [[String: Any]])?.first?["author"] as? String, "mcp")
+        XCTAssertEqual((d["comments"] as? [[String: Any]])?.first?["author"] as? String, "tim")
         XCTAssertTrue((d["body"] as? String ?? "").hasSuffix("## 建議\n縮短開場"))
 
         // 列表:預設只列未解決,緊急的排前面
         (obj, _, _) = try await call(mcp, "issues", [:])
-        XCTAssertEqual(((obj as? [String: Any])?["issues"] as? [[String: Any]])?.map { $0["id"] as? String }, ["ISS-2", "ISS-1"])
+        XCTAssertEqual(((obj as? [String: Any])?["issues"] as? [[String: Any]])?.map { $0["key"] as? String }, ["ISS-2", "ISS-1"])
         (obj, _, _) = try await call(mcp, "issues", ["query": "45%"])
         XCTAssertEqual((obj as? [String: Any])?["total"] as? Int, 1, "搜尋包含留言")
 
@@ -72,23 +73,28 @@ final class IssueTests: XCTestCase {
         (obj, _, _) = try await call(mcp, "issues", ["label": "訪客"])
         XCTAssertEqual((obj as? [String: Any])?["total"] as? Int, 1)
         (obj, _, _) = try await call(mcp, "issues", ["status": "closed"])
-        XCTAssertEqual(((obj as? [String: Any])?["issues"] as? [[String: Any]])?.first?["id"] as? String, "ISS-2")
+        XCTAssertEqual(((obj as? [String: Any])?["issues"] as? [[String: Any]])?.first?["key"] as? String, "ISS-2")
         XCTAssertNotNil(app.issues.first { $0.id == "ISS-2" }?.closedAt)
 
         (_, _, isError) = try await call(mcp, "issue_update", ["id": "ISS-99", "comment": "x"])
         XCTAssertTrue(isError)
 
-        // 以虛擬角色身分建立與留言:署名角色
+        // 以虛擬角色身分建立與留言:App 的 MCP(人類端點)不能用 agent 參數指定角色(core ISS-36),
+        // 要領任務拿角色憑證、連角色端點;署名是那個角色
         app.startTestAgents()
-        (obj, text, isError) = try await call(mcp, "issue_create", ["title": "UTM", "agent": "行銷"])
-        XCTAssertFalse(isError, text)
-        XCTAssertEqual((obj as? [String: Any])?["createdBy"] as? String, "行銷")
-        XCTAssertEqual(app.issues.first?.createdBy, "agent:marketing")
-        (obj, text, isError) = try await call(mcp, "issue_update", ["id": "ISS-1", "comment": "補數字", "agent": "visitor-analyst"])
-        XCTAssertFalse(isError, text)
-        XCTAssertEqual(((obj as? [String: Any])?["comments"] as? [[String: Any]])?.last?["author"] as? String, "訪客分析師")
+        (_, text, isError) = try await call(mcp, "issue_create", ["title": "UTM", "agent": "行銷"])
+        XCTAssertTrue(isError)
+        XCTAssertTrue(text.contains("不能指定角色身分"), text)
         (_, _, isError) = try await call(mcp, "issue_create", ["title": "x", "agent": "不存在"])
         XCTAssertTrue(isError)
+        let role = RoleMCP(app: app)
+        var (ro, rtext, rerr) = try await role.call("marketing", "issue_create", ["title": "UTM"])
+        XCTAssertFalse(rerr, rtext)
+        XCTAssertEqual(ro["createdBy"] as? String, "行銷")
+        XCTAssertEqual(app.issues.first?.createdBy, "agent:marketing")
+        (ro, rtext, rerr) = try await role.call("visitor-analyst", "issue_update", ["id": "ISS-1", "comment": "補數字"])
+        XCTAssertFalse(rerr, rtext)
+        XCTAssertEqual((ro["comments"] as? [[String: Any]])?.last?["author"] as? String, "訪客分析師")
 
         // 重開 app:從 server 讀回來
         let app2 = AppState()
@@ -96,7 +102,7 @@ final class IssueTests: XCTestCase {
         XCTAssertEqual(app2.issues.count, 3)
         let i1 = try XCTUnwrap(app2.issues.first { $0.id == "ISS-1" })
         XCTAssertEqual(i1.priority, .high)
-        XCTAssertEqual(i1.comments.map(\.author), ["mcp", "agent:visitor-analyst"])
+        XCTAssertEqual(i1.comments.map(\.author), ["tim", "agent:visitor-analyst"])
         XCTAssertEqual(i1.source, "網站訪客 7d")
         withExtendedLifetime(app) {}
     }

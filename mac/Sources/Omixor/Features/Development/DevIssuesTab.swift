@@ -49,7 +49,7 @@ struct DevIssuesTab: View {
             if Task.isCancelled { return }
             if l != result { result = l }
             loadError = nil
-            if model.selectedIssue == nil { model.selectedIssue = l.first?.id }
+            if model.selectedIssue == nil { model.selectedIssue = l.first?.stableId }
         } catch is CancellationError {
         } catch {
             if !Task.isCancelled { loadError = error.localizedDescription }
@@ -85,7 +85,7 @@ struct DevIssuesTab: View {
                                    message: app.issues.isEmpty ? "按 + 新增,或讓 AI 透過 MCP 的 issue_create 存進來。" : nil)
                 } else {
                     List(selection: $model.selectedIssue) {
-                        ForEach(list) { IssueRow(issue: $0).tag($0.id) }
+                        ForEach(list, id: \.stableId) { IssueRow(issue: $0).tag($0.stableId) }
                     }
                     .listStyle(.inset)
                 }
@@ -93,8 +93,8 @@ struct DevIssuesTab: View {
             .frame(width: 320)
             Divider()
             Group {
-                if let id = model.selectedIssue, let issue = app.issues.first(where: { $0.id == id }) {
-                    IssueDetail(issue: issue).id(issue.id)
+                if let id = model.selectedIssue, let issue = app.issues.first(where: { $0.matches(id) }) {
+                    IssueDetail(issue: issue).id(issue.stableId)
                 } else {
                     EmptyStateView(title: "選一個 Issue", icon: "exclamationmark.bubble",
                                    message: "Issue 存在 core(目前連線的伺服器;本機模式是這台 Mac 的本機服務),重開 app 也還在。AI 可以用 MCP 建立、留言與關閉。")
@@ -106,7 +106,7 @@ struct DevIssuesTab: View {
         .onChange(of: app.currentOrgId) { model.selectedIssue = nil; result = nil }
         .task(id: LoadKey(q: issueQuery, org: app.currentOrgId, issues: app.issues)) { await load() }
         .sheet(isPresented: $creating) {
-            NewIssueSheet { model.selectedIssue = $0.id; filter = .open }
+            NewIssueSheet { model.selectedIssue = $0.stableId; filter = .open }
         }
     }
 
@@ -253,7 +253,7 @@ private struct IssueDetail: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 Button { openChannel() } label: { Label("開對話頻道", systemImage: "bubble.left.and.bubble.right") }
-                    .help(app.channels.contains { $0.channel.issueId == issue.id } ? "打開綁這個 Issue 的對話頻道" : "建立綁這個 Issue 的對話頻道(成員含你與指派的角色)")
+                    .help(app.channels.contains { issue.matches($0.channel.issueId) } ? "打開綁這個 Issue 的對話頻道" : "建立綁這個 Issue 的對話頻道(成員含你與指派的角色)")
                 Button(issue.status == .open ? "關閉" : "重新打開") {
                     store.update(issue.id, by: app.me) { $0.status = issue.status == .open ? .closed : .open }
                 }

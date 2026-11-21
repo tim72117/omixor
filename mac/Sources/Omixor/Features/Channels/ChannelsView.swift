@@ -15,7 +15,7 @@ struct ChannelsView: View {
         guard !q.isEmpty else { return app.channels }
         return app.channels.filter {
             $0.name.lowercased().contains(q) || $0.channel.topic.lowercased().contains(q)
-                || $0.channel.issueId.lowercased().contains(q) || $0.id.lowercased().contains(q)
+                || app.issueKey($0.channel.issueId).lowercased().contains(q) || $0.id.lowercased().contains(q)
         }
     }
 
@@ -89,7 +89,7 @@ private struct ChannelRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(summary.name).lineLimit(1).fontWeight(summary.unread > 0 ? .semibold : .regular)
                 HStack(spacing: 6) {
-                    if summary.channel.hasIssue { Text(summary.channel.issueId).font(.caption.monospaced()) }
+                    if summary.channel.hasIssue { Text(app.issueKey(summary.channel.issueId)).font(.caption.monospaced()) }
                     Text("\(summary.channel.members.count) 位成員")
                     if let t = summary.lastMessageAt { Text(t, format: .relative(presentation: .named)) }
                 }
@@ -179,11 +179,11 @@ private struct ChannelDetail: View {
                     Text(channel.name).font(.title3.weight(.semibold)).lineLimit(1)
                     Text(channel.id).font(.caption.monospaced()).foregroundStyle(.secondary)
                     if channel.hasIssue {
-                        Button { app.go(.development, focus: channel.issueId) } label: {
-                            Pill(text: channel.issueId, color: .blue, icon: "exclamationmark.bubble")
+                        Button { app.go(.development, focus: app.issueKey(channel.issueId)) } label: {
+                            Pill(text: app.issueKey(channel.issueId), color: .blue, icon: "exclamationmark.bubble")
                         }
                         .buttonStyle(.plain)
-                        .help("打開 Issue \(channel.issueId)")
+                        .help("打開 Issue \(app.issueKey(channel.issueId))")
                     }
                 }
                 if !channel.topic.isEmpty {

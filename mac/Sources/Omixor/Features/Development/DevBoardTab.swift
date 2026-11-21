@@ -217,7 +217,7 @@ struct DevBoardTab: View {
 
             ScrollView(.vertical) {
                 LazyVStack(spacing: 8) {
-                    ForEach(items) { issue in
+                    ForEach(items, id: \.stableId) { issue in
                         IssueBoardCard(issue: issue, onStatus: { setStatus(issue, $0) }, onDragStart: { draggingId = issue.id })
                     }
                     if items.isEmpty {
@@ -398,7 +398,7 @@ private struct IssueBoardCard: View {
         .shadow(color: .black.opacity(hover ? 0.12 : 0.05), radius: hover ? 4 : 1, y: 1)
         .onHover { hover = $0 }
         .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onTapGesture { model.showIssue(issue.id) }
+        .onTapGesture { model.showIssue(issue.stableId) }
         .help("按一下在 Issue 分頁打開")
         .onDrag {
             onDragStart()
@@ -434,7 +434,7 @@ private struct IssueBoardCard: View {
     }
 
     @ViewBuilder private var menu: some View {
-        Button("打開詳細資料") { model.showIssue(issue.id) }
+        Button("打開詳細資料") { model.showIssue(issue.stableId) }
         Divider()
         if issue.status == .open {
             Button("關閉 Issue") { onStatus(.closed) }

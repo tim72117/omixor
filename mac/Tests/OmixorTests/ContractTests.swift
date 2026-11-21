@@ -61,9 +61,9 @@ final class ContractTests: XCTestCase {
         FakeContractServer.routes = [
             "GET /api/orgs": "org_list.json",
             "GET /api/orgs/acme/issues": "issue_list.json",
-            "GET /api/orgs/acme/issues/ISS-12": "issue.json",
+            "GET /api/orgs/acme/issues/APP-12": "issue.json",
             "POST /api/orgs/acme/issues": "issue.json",
-            "POST /api/orgs/acme/issues/ISS-12/comments": "issue.json",
+            "POST /api/orgs/acme/issues/APP-12/comments": "issue.json",
             "GET /api/orgs/acme/agents": "agent_list.json",
             "POST /api/orgs/acme/agents": "agent.json",
             "GET /api/orgs/acme/agent-tasks": "agent_task_list.json",
@@ -111,7 +111,9 @@ final class ContractTests: XCTestCase {
 
     func testIssues() throws {
         let list = try remote.list(org: org)
-        XCTAssertEqual(list.map(\.id), ["ISS-12", "ISS-3"])
+        // core 的 Issue:id 是內部 id(UUIDv7)、key 是顯示編號(ISS-34);App 的 Issue.id 用 key、uuid 存內部 id
+        XCTAssertEqual(list.map(\.id), ["APP-12", "ISS-3"])
+        XCTAssertEqual(list.map(\.uuid), ["019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8d", "0199f8a0-0000-7000-8000-000000000003"])
         let i = list[0]
         XCTAssertEqual(i.title, "登入頁在 Safari 白畫面")
         XCTAssertTrue(i.body.hasPrefix("## 重現步驟"))
@@ -141,9 +143,9 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(m.comments, [])
 
         let created = try remote.create(org: org, title: "x", body: "", priority: .high, labels: [], source: "", link: "", author: "tim")
-        XCTAssertEqual(created.id, "ISS-12")
+        XCTAssertEqual(created.id, "APP-12")
         XCTAssertEqual(created.comments.count, 2)
-        let commented = try remote.addComment(org: org, id: "ISS-12", text: "hi", author: "tim")
+        let commented = try remote.addComment(org: org, id: "APP-12", text: "hi", author: "tim")
         XCTAssertEqual(commented.comments.last?.author, "agent:eng")
     }
 
@@ -248,7 +250,7 @@ final class ContractTests: XCTestCase {
         let s = list[0]
         XCTAssertEqual(s.channel.name, "登入頁改版")
         XCTAssertEqual(s.channel.topic, "討論 Safari 白畫面")
-        XCTAssertEqual(s.channel.issueId, "ISS-12")
+        XCTAssertEqual(s.channel.issueId, "019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8d", "頻道綁的是 Issue 的內部 id")
         XCTAssertTrue(s.channel.hasIssue)
         XCTAssertEqual(s.channel.members, ["user:tim@example.com", "agent:eng"])
         XCTAssertEqual(s.channel.createdBy, "user:tim@example.com")

@@ -41,7 +41,14 @@ struct IssueComment: Codable, Hashable, Identifiable {
 }
 
 struct Issue: Codable, Hashable, Identifiable {
+    /// 顯示與定址用的編號(core 的 key:ISS-1、<專案代號>-<n>)。core 的 {id} 路由接受 key,所以 App 一律用它。
+    /// core 回應沒有 key 的(舊版 server)就是回應的 id
     var id: String                 // ISS-1
+    /// core 的內部 id(UUIDv7;ISS-34 起 Issue 的 id 是它,key 另外給)。舊版 server 沒有 key 時同 id。
+    /// 頻道的 issueId 等其他資料指向 Issue 時用的是它,比對請用 matches(_:)
+    var uuid = ""
+    /// core 給的流水號(key 的數字部分);0 = 沒給,由 id 算
+    var serial = 0
     var title: String
     var body = ""                  // Markdown
     var status: IssueStatus = .open
@@ -60,7 +67,38 @@ struct Issue: Codable, Hashable, Identifiable {
     /// 指派給的虛擬角色 id(nil 或空 = 未指派)。遠端模式時伺服器會自動替該角色排任務(core/service/agents.go 的 syncAssignee)
     var assignee: String?
 
-    var number: Int { Int(id.filter(\.isNumber)) ?? 0 }
+    var number: Int {
+        if serial > 0 { return serial }
+        let digits = id.split(separator: "-").last.map(String.init) ?? id
+        return Int(digits.filter(\.isNumber)) ?? 0
+    }
+    /// 這個參照(內部 id、目前的 key,不分大小寫)是不是指這筆 Issue
+    func matches(_ ref: String) -> Bool {
+        let r = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !r.isEmpty else { return false }
+        return r.caseInsensitiveCompare(id) == .orderedSame || (!uuid.isEmpty && r.caseInsensitiveCompare(uuid) == .orderedSame)
+    }
+    /// 不能當專案代號的字(同 core 的 model.ReservedProjectKeys,ISS 除外:ISS-<n> 本來就是 Issue key)
+    static let reservedKeyPrefixes: Set<String> = ["PRJ", "T", "DOC", "CH", "INC"]
+    /// 這個字串長得像 Issue key:ISS-<n>,或 <專案代號>-<n>(代號 2 到 10 個英數字、英文字母開頭、不是保留字,同 core 的 CleanProjectKey);
+    /// n 是正整數。不分大小寫。T-3(任務)、CH-2(頻道)、M-5(訊息)、DOC-1(文件)、網址都不算
+    static func looksLikeKey(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard let dash = t.lastIndex(of: "-") else { return false }
+        let prefix = t[..<dash], digits = t[t.index(after: dash)...]
+        guard let n = Int(digits), n > 0, digits.allSatisfy(\.isASCII) else { return false }
+        if prefix == "ISS" { return true }
+        guard (2...10).contains(prefix.count), let first = prefix.first, first.isASCII, first.isLetter,
+              prefix.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return false }
+        return !reservedKeyPrefixes.contains(String(prefix))
+    }
+    /// 穩定的識別(內部 id;舊版 server 沒給時用 key)。key 會隨換專案改變,畫面的選取與列表識別要用這個
+    var stableId: String { uuid.isEmpty ? id : uuid }
+    /// 是不是同一筆(兩邊都有內部 id 就比內部 id,key 改了也認得;否則比 key)
+    func isSame(as other: Issue) -> Bool {
+        if !uuid.isEmpty && !other.uuid.isEmpty { return uuid.caseInsensitiveCompare(other.uuid) == .orderedSame }
+        return id.caseInsensitiveCompare(other.id) == .orderedSame
+    }
     /// 指派的角色 id(空字串換成 nil)
     var assignedAgent: String? { assignee.flatMap { $0.isEmpty ? nil : $0 } }
     /// 所屬倉庫(空字串換成 nil)
@@ -80,11 +118,19 @@ extension IssueComment {
 }
 
 extension Issue {
+    private enum ServerKeys: String, CodingKey { case key, number }
+
     // 寬鬆解碼(LossyDecoding.swift):labels、comments 是 null(Go 的 nil slice)或缺 → [];
     // 不認得的 status → open、priority → normal(同 web 的 normIssue);只有 id 是必填(缺了丟錯,列表會略過這一筆)
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
+        let raw = try c.decode(String.self, forKey: .id)
+        // core 的回應:id = 內部 id、key = 顯示編號、number = 流水號(App 自己編碼的是 id/uuid/serial)
+        let x = try decoder.container(keyedBy: ServerKeys.self)
+        let key = x.lossyOptional(String.self, .key).flatMap { $0.isEmpty ? nil : $0 }
+        id = key ?? raw
+        uuid = c.lossyOptional(String.self, .uuid) ?? raw
+        serial = x.lossyOptional(Int.self, .number) ?? c.lossyOptional(Int.self, .serial) ?? 0
         title = c.lossy(.title, default: "")
         body = c.lossy(.body, default: "")
         status = c.lossyEnum(.status, default: .open)
@@ -240,7 +286,7 @@ final class IssueStore {
     /// 找一筆(先重新讀,MCP 拿到的是最新的)
     func issue(_ id: String) -> Issue? {
         refreshIfStale(0)
-        return app.issues.first { $0.id.caseInsensitiveCompare(id) == .orderedSame }
+        return app.issues.first { $0.matches(id) }
     }
 
     @discardableResult
@@ -252,7 +298,7 @@ final class IssueStore {
             let issue = try remote.create(org: app.currentOrgId, title: title, body: body, priority: priority,
                                           labels: Self.clean(labels), source: source, link: link, repo: repo, author: author, assignee: assignee)
             remoteError = nil
-            app.issues.removeAll { $0.id == issue.id }
+            app.issues.removeAll { $0.isSame(as: issue) }
             app.issues.insert(issue, at: 0)
             app.log(actor(author), "exclamationmark.bubble", "建立 \(issue.id)「\(title)」", .development)
             // 有指派:伺服器替角色排了任務,重新讀任務清單
@@ -271,7 +317,7 @@ final class IssueStore {
     @discardableResult
     func update(_ id: String, by author: String, _ change: (inout Issue) -> Void) -> Issue? {
         refreshIfStale(0)   // 用伺服器上最新的內容來改
-        guard let i = app.issues.firstIndex(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) else { return nil }
+        guard let i = app.issues.firstIndex(where: { $0.matches(id) }) else { return nil }
         let before = app.issues[i]
         var n = before
         change(&n)
@@ -285,7 +331,7 @@ final class IssueStore {
         do {
             let saved = try remote.update(org: app.currentOrgId, n, author: author, sendAssignee: assigneeChanged)
             remoteError = nil
-            if let k = app.issues.firstIndex(where: { $0.id == saved.id }) { app.issues[k] = saved }
+            if let k = app.issues.firstIndex(where: { $0.isSame(as: saved) }) { app.issues[k] = saved }
             if statusChanged {
                 app.log(actor(author), n.status == .closed ? "checkmark.circle" : "arrow.uturn.backward.circle",
                         "\(n.status == .closed ? "關閉" : "重新打開") \(n.id)「\(n.title)」", .development)
@@ -306,7 +352,7 @@ final class IssueStore {
         do {
             let saved = try remote.addComment(org: app.currentOrgId, id: id, text: t, author: author)
             remoteError = nil
-            if let k = app.issues.firstIndex(where: { $0.id == saved.id }) { app.issues[k] = saved } else { app.issues.insert(saved, at: 0) }
+            if let k = app.issues.firstIndex(where: { $0.isSame(as: saved) }) { app.issues[k] = saved } else { app.issues.insert(saved, at: 0) }
             return saved
         } catch {
             remoteFailed(error)
@@ -322,7 +368,7 @@ final class IssueStore {
             remoteFailed(error)
             return
         }
-        app.issues.removeAll { $0.id == id }
+        app.issues.removeAll { $0.matches(id) }
     }
 
     func actor(_ author: String) -> Actor {

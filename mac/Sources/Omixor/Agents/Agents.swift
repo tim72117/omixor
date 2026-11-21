@@ -222,8 +222,14 @@ struct AgentTask: Codable, Hashable, Identifiable {
     var claimedBy: String?
 
     var number: Int { Int(id.filter(\.isNumber)) ?? 0 }
-    /// 相關的 Issue id(links 裡第一個 ISS-n)
-    var issueId: String? { links.first { $0.uppercased().hasPrefix("ISS-") && Int($0.dropFirst(4)) != nil } }
+    /// 相關的 Issue key(links 裡第一個長得像 Issue key 的:ISS-<n> 或 <專案代號>-<n>,規則見 Issue.looksLikeKey)。
+    /// 只看格式;手上有 Issue 清單時用 issueKey(in:),內部 id 與舊 key 也認得,且回傳目前的 key
+    var issueId: String? { links.first(where: Issue.looksLikeKey) }
+    /// 相關的 Issue 的目前 key:links 裡第一個對得到清單中 Issue 的(內部 id 或 key);都對不到退回 issueId
+    func issueKey(in issues: [Issue]) -> String? {
+        for l in links { if let i = issues.first(where: { $0.matches(l) }) { return i.id } }
+        return issueId
+    }
 }
 
 extension AgentTask {

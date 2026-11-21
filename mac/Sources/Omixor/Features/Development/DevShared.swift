@@ -33,7 +33,8 @@ final class DevModel: ObservableObject {
     @Published var selectedPR: PullRequest.ID?
     @Published var prRepoFilter: String?          // nil = 全部
     @Published var highlightedItem: WorkItem.ID?
-    @Published var selectedIssue: Issue.ID?
+    /// 選中的 Issue:存 Issue.stableId(內部 id),換專案 key 改了也還選著;找 Issue 用 matches(_:)(也接受 key)
+    @Published var selectedIssue: String?
     /// Repositories 分頁選中的 repo(RepoEntry.id:GitHub 是 owner/name,GitLab 是 gitlab:<專案>)
     @Published var selectedRepo: String?
 
@@ -71,8 +72,8 @@ final class DevModel: ObservableObject {
         if let n = Int(trimmed), app.pullRequests.contains(where: { $0.id == n }) {
             prRepoFilter = nil
             showPR(n)
-        } else if let issue = app.issues.first(where: { $0.id.caseInsensitiveCompare(focus) == .orderedSame }) {
-            showIssue(issue.id)
+        } else if let issue = app.issues.first(where: { $0.matches(focus) }) {
+            showIssue(issue.stableId)
         } else if focus == "issues" {
             tab = .issues
         } else if focus == "repos" || focus == "github" {

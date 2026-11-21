@@ -81,6 +81,15 @@ final class MCPHandler {
                     return result(id: id, await app.mcpGateway.call(raw, params["arguments"] as? [String: Any] ?? [:], caller: .member))
                 }
             }
+            // 以角色身分派任務:core 的人類端點不接受 agent(ISS-36,回 400),角色端點也沒有 agent_task_create;
+            // 角色派工的路是依組織鏈委派(agent_task_delegate,App 自己的實作走 REST /agent-tasks/delegate),先告訴用戶端改用它
+            // 同 core 的 RejectAgentArg:有給 agent 且(不是字串——含 null、數字——或去掉空白後非空)就擋;沒給、空字串、空白放行
+            if Self.legacyToolName(raw) == "agent_task_create",
+               let who = (params["arguments"] as? [String: Any])?["agent"],
+               !((who as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false) {
+                app.mcp.lastTool = "agent_task_create"
+                return result(id: id, ["content": [["type": "text", "text": Self.agentTaskCreateAsAgentError]], "isError": true])
+            }
             if let proxied = await callOnServer(id: id, raw, params["arguments"] as? [String: Any] ?? [:]) { return proxied }
             let name = Self.legacyToolName(raw)
             // 核心工具一律由 core server 執行(App 沒有自己的實作):server 連不上,或連得上但工具清單沒有這個工具時回錯誤
@@ -120,6 +129,10 @@ final class MCPHandler {
     }
 
     // MARK: - 轉給 omixor server
+
+    /// agent_task_create 帶了 agent(以角色身分派任務)時的錯誤
+    static let agentTaskCreateAsAgentError = "agent_task_create 不能帶 agent 以角色身分派任務(派任務一律署名登入的人;要指定接任務的角色用 assign_to)。"
+        + "角色要把工作交給別的角色,請用 agent_task_delegate(agent = 委派的角色、to = 接任務的角色,組織鏈上要有 agent:<委派者> → agent:<接任務者>)"
 
     /// 連 server 時也留在 App 處理的工具:App 自己的組織清單(含本機與各伺服器)、版本
     static let keepLocal: Set<String> = ["orgs", "server"]
@@ -287,11 +300,11 @@ final class MCPHandler {
     GCP(gcp、gcp_logs、gcp_metrics)只讀:看 Cloud Run 狀態、錯誤日誌、請求量與延遲;omixor 不會部署、改流量或執行 Job。
     GitHub(github、github_runs、github_run、github_pull)只讀:看 PR、檢查與 Actions 失敗原因;omixor 不會開 PR、留言或重跑 workflow。
     Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織(orgs 看是哪一個);切換組織只能由人在 app 裡做。
-    omixor 有虛擬角色(agents)。使用者請你以某角色身分工作時:可先用 agent_context 取得該角色能讀取的資訊,再用 agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 agent_task_report 回報;需要人決定時回報 blocked。以角色身分開 Issue 或留言時,issue_create / issue_update 帶上 agent(角色 id),才會署名該角色。
-    文件櫃(cabinet、docs、doc_save)依目前組織的文件櫃結構(區塊與頁籤)分類;以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。組織底下可以分專案(projects、project_save),文件櫃工具帶 project(專案 id)讀寫該專案的文件櫃,省略 = 未分專案。
+    omixor 有虛擬角色(agents)。使用者請你以某角色身分工作時:可先用 agent_context 取得該角色能讀取的資訊,再用 agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 agent_task_report 回報;需要人決定時回報 blocked。要以角色身分寫 Issue、留言、文件或頻道訊息,必須改用 agent_task_claim 回傳的角色憑證連角色端點(/mcp/agent);這裡(一般 omixor 連線)的 issue_create、issue_update、文件櫃與頻道工具不能帶 agent 參數指定角色署名(會被拒絕),署名一律是你登入的帳號。
+    文件櫃(cabinet、docs、doc_save)依目前組織的文件櫃結構(區塊與頁籤)分類;角色只能讀寫它 docAccess 範圍內的文件(在角色端點上由憑證決定)。組織底下可以分專案(projects、project_save),文件櫃工具帶 project(專案 id)讀寫該專案的文件櫃,省略 = 未分專案。
     發現值得追蹤的問題(例如從 site_visitors 的數字看到異常)時,用 issue_create 存成 Issue;先用 issues 搜尋避免重複,已有就用 issue_update 加留言。
     旁白語音(shuttle 專案的 npm run voice)可以用 voice_submit 分派成批次:omixor 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。
-    訊息頻道(channels、channel_messages、channel_post、channel_create)把人與角色拉進同一個對話;@ 角色只通知、不排任務。以角色身分工作時,agent_context 的 mentions 列出提到它的未讀訊息,讀(channel_messages)與回覆(channel_post)都帶 agent。
+    訊息頻道(channels、channel_messages、channel_post、channel_create)把人與角色拉進同一個對話;@ 角色只通知、不排任務。以角色身分工作時,agent_context 的 mentions 列出提到它的未讀訊息;以角色身分讀(channel_messages)與回覆(channel_post)要在角色端點上做。
     Facebook 粉絲專頁(fb_pages、fb_posts、fb_insights、fb_drafts)只讀;fb_draft_save 只能新增或修改草稿(以角色身分寫時帶 agent),發佈與排程只能由人在 app 的 AI 自動化 › 粉絲專頁 按。
     """
 

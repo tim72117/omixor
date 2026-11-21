@@ -220,9 +220,11 @@ final class IssueRemoteTests: XCTestCase {
         ])
         XCTAssertFalse(isError, text)
         var d = try XCTUnwrap(obj as? [String: Any], text)
-        XCTAssertEqual(d["id"] as? String, "ISS-1", "編號由伺服器決定")
+        // core 的 MCP 輸出:id 是內部 id(UUIDv7),key 是顯示編號(ISS-34);App 的 Issue.id 用 key
+        XCTAssertEqual(d["key"] as? String, "ISS-1", "編號由伺服器決定")
+        XCTAssertEqual(app.issues.first?.uuid, d["id"] as? String)
         XCTAssertEqual(d["labels"] as? [String], ["evoleap", "訪客"])
-        XCTAssertEqual(d["createdBy"] as? String, "mcp")
+        XCTAssertEqual(d["createdBy"] as? String, "tim", "署名是登入的人(core ISS-36)")
         XCTAssertEqual(app.issues.first?.id, "ISS-1")
 
         (obj, text, isError) = try await call(mcp, "issue_update", ["id": "iss-1", "comment": "再看一次", "status": "closed", "add_labels": ["播放率"]])

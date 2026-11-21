@@ -400,16 +400,21 @@ final class IssueRemote: @unchecked Sendable {
     /// assignee 只在 sendAssignee 時送(空字串 = 取消指派):伺服器每收到一次 assignee 就會同步任務,
     /// 前一筆任務已完成時會重新排一筆,所以指派沒變就不能送
     func update(org: String, _ i: Issue, author: String, sendAssignee: Bool = false) throws -> Issue {
-        let enc = try Self.encoder().encode(i)
+        try decodeIssue(try send("POST", url(org, [i.id]), try json(Self.updatePayload(i, author: author, sendAssignee: sendAssignee))))
+    }
+
+    /// update 送出的內容:整份 Issue 編碼後拿掉伺服器管的欄位(id、uuid、serial、時間、建立者、留言;assignee 只在有變時送)
+    static func updatePayload(_ i: Issue, author: String, sendAssignee: Bool) throws -> [String: Any] {
+        let enc = try encoder().encode(i)
         guard var d = try JSONSerialization.jsonObject(with: enc) as? [String: Any] else {
             throw IssueRemoteError(message: "Issue 編碼失敗")
         }
-        for k in ["id", "createdAt", "createdBy", "updatedAt", "closedAt", "assignee", "comments"] { d.removeValue(forKey: k) }
+        for k in ["id", "uuid", "serial", "createdAt", "createdBy", "updatedAt", "closedAt", "assignee", "comments"] { d.removeValue(forKey: k) }
         if sendAssignee { d["assignee"] = i.assignee ?? "" }
         // repo 一律送(空字串 = 清除標記);沒變時伺服器存回同一個值
         d["repo"] = i.repo ?? ""
         d["author"] = author
-        return try decodeIssue(try send("POST", url(org, [i.id]), try json(d)))
+        return d
     }
 
     /// 新增一則留言(POST …/issues/<id>/comments):伺服器只附加這一則,同時多人留言不會互相蓋掉;回傳新增後的 Issue。

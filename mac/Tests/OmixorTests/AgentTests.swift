@@ -34,6 +34,25 @@ final class AgentTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("agents.json").path), "沒有角色就不寫檔")
     }
 
+    /// App 的 agent_task_create 攔截(指向 agent_task_delegate)只在 agent 是非空白字串時(同 core 的 TrimSpace);
+    /// 空白字串放行;null、非字串交給 core 判斷(core 的 RejectAgentArg 會以「不能指定角色身分」拒絕)
+    func testAgentTaskCreateRejectsAgentLikeCore() async throws {
+        let app = AppState()
+        app.startTestAgents()
+        let mcp = MCPHandler(app: app)
+        var (d, err) = try await call(mcp, "agent_task_create", ["agent": " \n\t", "assign_to": "marketing", "title": "x"])
+        XCTAssertFalse(err, "空白的 agent 當沒給:\(d)")
+        // 同 core 的 RejectAgentArg:null、數字這類非字串的 agent 也擋
+        for who: Any in [NSNull(), 3] {
+            (d, err) = try await call(mcp, "agent_task_create", ["agent": who, "assign_to": "marketing", "title": "x"])
+            XCTAssertTrue(err, "agent=\(who) 要擋:\(d)")
+            XCTAssertTrue((d["text"] as? String ?? "").contains("agent_task_delegate"), "agent=\(who) 由 App 攔截:\(d)")
+        }
+        (d, err) = try await call(mcp, "agent_task_create", ["agent": " course-dev ", "assign_to": "marketing", "title": "x"])
+        XCTAssertTrue(err)
+        XCTAssertTrue((d["text"] as? String ?? "").contains("agent_task_delegate"), "\(d)")
+    }
+
     func testAssignClaimReportFlow() async throws {
         let app = AppState()
         let store = app.startTestAgents()
@@ -47,13 +66,21 @@ final class AgentTests: XCTestCase {
         // 舊的寫法(agent 當成接任務的角色)要被擋下,不能誤派
         (_, err) = try await call(mcp, "agent_task_create", ["agent": "product-manager", "title": "x"])
         XCTAssertTrue(err)
-        (_, err) = try await call(mcp, "agent_task_create", ["agent": "course-dev", "assign_to": "course-dev", "title": "x"])
-        XCTAssertTrue(err, "不能派給自己")
+        // 以角色身分派任務:agent_task_create 不能帶 agent(core ISS-36 人類端點拒絕 agent;角色端點也沒有 agent_task_create),
+        // 改走依組織鏈委派(agent_task_delegate,App 走 REST /agent-tasks/delegate)
         (d, err) = try await call(mcp, "agent_task_create", ["agent": "course-dev", "assign_to": "marketing", "title": "寫貼文"])
-        XCTAssertFalse(err)
+        XCTAssertTrue(err)
+        XCTAssertTrue((d["text"] as? String ?? "").contains("agent_task_delegate"), "\(d)")
+        (d, err) = try await call(mcp, "agent_task_delegate", ["agent": "course-dev", "to": "marketing", "title": "寫貼文"])
+        XCTAssertTrue(err, "組織鏈上沒有 course-dev → marketing 不能委派:\(d)")
+        try store.saveChain([ChainEdge(from: "agent:course-dev", to: "agent:marketing", label: "")])
+        (_, err) = try await call(mcp, "agent_task_delegate", ["agent": "course-dev", "to": "course-dev", "title": "x"])
+        XCTAssertTrue(err, "不能派給自己")
+        (d, err) = try await call(mcp, "agent_task_delegate", ["agent": "course-dev", "to": "marketing", "title": "寫貼文"])
+        XCTAssertFalse(err, "\(d)")
         XCTAssertEqual(d["agentName"] as? String, "行銷")
         XCTAssertEqual(d["createdBy"] as? String, "課程開發")
-        store.cancel(d["id"] as! String)
+        store.cancel(try XCTUnwrap(d["id"] as? String))
 
         (d, err) = try await call(mcp, "agent_task_claim", ["agent": "visitor-analyst"])
         XCTAssertFalse(err)
