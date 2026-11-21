@@ -3,6 +3,7 @@ package core
 import (
 	"strings"
 
+	"omixor-core/httperr"
 	"omixor-core/tools/flowchart"
 	"omixor-core/tools/wireframe"
 )
@@ -30,13 +31,13 @@ func renderDiagram(kind string, spec any) map[string]any {
 	case "wireframe":
 		r, err := wireframe.Render(spec)
 		if err != nil {
-			return map[string]any{"error": err.Error()}
+			return map[string]any{"error": httperr.Report("圖表渲染", err).Msg}
 		}
 		svg, w, h, warns = r.SVG, r.Width, r.Height, r.Warnings
 	case "flowchart", "mermaid":
 		r, err := flowchart.Render(spec)
 		if err != nil {
-			return map[string]any{"error": err.Error()}
+			return map[string]any{"error": httperr.Report("圖表渲染", err).Msg}
 		}
 		svg, w, h, warns = r.SVG, r.Width, r.Height, r.Warnings
 	default:

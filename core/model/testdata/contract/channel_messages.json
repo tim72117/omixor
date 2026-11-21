@@ -6,6 +6,13 @@
       "author": "agent:eng",
       "text": "收到",
       "mentions": [],
+      "authorActor": {
+        "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+        "kind": "agent",
+        "handle": "eng",
+        "name": "工程師",
+        "status": "active"
+      },
       "at": "2026-11-03T07:00:00Z"
     },
     {
@@ -15,6 +22,23 @@
       "text": "@工程師 可以看一下 **ISS-12** 嗎?",
       "mentions": [
         "agent:eng"
+      ],
+      "authorActor": {
+        "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+        "kind": "user",
+        "handle": "tim@example.com",
+        "name": "Tim",
+        "email": "tim@example.com",
+        "status": "active"
+      },
+      "mentionActors": [
+        {
+          "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+          "kind": "agent",
+          "handle": "eng",
+          "name": "工程師",
+          "status": "active"
+        }
       ],
       "at": "2026-11-03T08:00:00Z"
     }

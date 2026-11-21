@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"omixor-core/config"
 	"os"
 	"path/filepath"
 	"sync"
@@ -122,7 +123,7 @@ func validDir(d string) bool {
 
 // ResolveDir 依 OMIXOR_OFFICE_DIR 或預設位置找 office3d 資料夾
 func ResolveDir() (string, error) {
-	if d := os.Getenv("OMIXOR_OFFICE_DIR"); d != "" {
+	if d := config.Current().Str(config.OfficeDir); d != "" {
 		abs, err := filepath.Abs(d)
 		if err == nil && validDir(abs) {
 			return abs, nil

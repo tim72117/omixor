@@ -11,6 +11,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	coremcp "omixor-core/mcp"
 	"omixor-core/model"
@@ -40,11 +41,26 @@ type callCtx struct {
 	locked bool
 }
 
+var initInstructionsReplacer = strings.NewReplacer(
+	"以角色身分開 Issue 或留言時,issue_create / issue_update 帶上 agent(角色 id),才會署名該角色。",
+	"issue_create / issue_update 一律署名你自己,不能指定角色身分;要以角色身分工作,用 agent_task_claim 領任務拿角色憑證,連角色端點 /mcp/agent(身分由憑證決定)。",
+	"以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。",
+	"署名是你,不能指定角色身分(依角色 docAccess 讀寫只有角色端點)。",
+	"以角色身分工作時,agent_context 的 mentions 列出提到它的未讀訊息,讀(channel_messages)與回覆(channel_post)都帶 agent。",
+	"角色端點的 agent_context 的 mentions 列出提到該角色的未讀訊息;這個端點的 channel_messages、channel_post 一律以你自己的身分。",
+	"(以角色身分寫時帶 agent)",
+	"(署名你自己)",
+)
+
 // initializeWithVersion initialize 規格(與 Swift 共用,不改檔)的 serverInfo.version 換成實際版本
 func initializeWithVersion(b []byte) []byte {
 	var m map[string]any
 	if json.Unmarshal(b, &m) != nil {
 		return b
+	}
+	// 說明文字(Swift 匯出、不手改)裡「帶 agent 署名」的句子換掉:這個端點不能指定角色身分,署名一律是你(見 identity.go)
+	if ins, ok := m["instructions"].(string); ok {
+		m["instructions"] = initInstructionsReplacer.Replace(ins)
 	}
 	info, _ := m["serverInfo"].(map[string]any)
 	if info == nil {
@@ -59,7 +75,7 @@ func initializeWithVersion(b []byte) []byte {
 }
 
 // webExtraCoreTools 管理端點開放的核心工具(model.CoreTools 的 Admin)以外,web 的 /mcp 也開放的核心工具。
-// 規格一樣取自核心。agent_task_delegate:web 的 /mcp 一直都有(核心實作,帶 agent 代角色委派;同 Swift App 的 /mcp 也有這個工具)
+// 規格一樣取自核心。agent_task_delegate:規格保留(核心實作要有規格才能登記),但本機 /mcp 不列、呼叫一律 400(委派者只能由角色憑證決定,見 identity.go)
 var webExtraCoreTools = map[string]bool{"agent_task_delegate": true}
 
 // isCoreToolName 是不是核心的工具名稱(登記表 model.CoreTools,或核心規格裡有的)。web 自己的工具不能用這些名稱
@@ -119,7 +135,8 @@ func webSpec() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(append(own, coreToolDefs()...))
+	// 身分假冒型的 agent 參數(以角色身分署名、依角色 docAccess 讀寫)本機 /mcp 不開放:規格不列,呼叫帶了回 400(見 identity.go)
+	return json.Marshal(coremcp.WithoutIdentityAgent(append(own, coreToolDefs()...)))
 }
 
 var srv = mustServer()
@@ -187,7 +204,13 @@ func (h *Handler) Handle(data []byte) []byte {
 	})
 }
 
+// HasTool 有這個工具嗎(沒註冊的名稱;給畫面的 /api/tool 回 404 用)
+func HasTool(name string) bool { return srv.Has(name) }
+
 // Run 執行工具(MCP 與畫面共用)。panic 會轉成錯誤,不會讓伺服器掛掉。
 func Run(a *core.App, name string, args map[string]any, actor core.Actor) (any, error) {
+	if err := rejectIdentity(name, args); err != nil {
+		return nil, err
+	}
 	return srv.Run(name, args, &callCtx{App: a, Actor: actor})
 }

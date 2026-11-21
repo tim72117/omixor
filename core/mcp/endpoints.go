@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"omixor-core/backend"
+	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -214,8 +215,8 @@ type AdminEndpointConfig struct {
 const adminInstructions = "這是 omixor 的 MCP 端點,操作目前組織的 Issue、虛擬角色與任務,權限同你登入的 omixor 帳號。" +
 	"虛擬角色:agents 看角色,agent_task_claim 領任務(回傳一組綁定該任務的角色憑證,用它連角色端點以該角色身分工作)," +
 	"agent_task_report 回報。issue_create / issue_update 的 assignee 指派 Issue 給角色,會自動替它排任務。" +
-	"文件櫃:cabinet 看結構、docs 查文件、doc_save 新增或修改(以角色身分工作時帶 agent,只能讀寫該角色 docAccess 範圍內的文件)。" +
-	"專案:文件櫃可以分專案(Issue、頻道、角色等仍屬於組織);projects 列專案、project_save 新增或修改專案,cabinet、docs、doc_save、cabinet_layout_save 帶 project(專案 id)操作那個專案,不帶是未分專案;doc_save 修改時給 project 就是把文件搬到那個專案。" +
+	"文件櫃:cabinet 看結構、docs 查文件、doc_save 新增或修改(署名是你;不能指定角色身分,要以角色身分工作請 agent_task_claim 領任務拿憑證、連角色端點 /mcp/agent)。" +
+	"專案:文件櫃與 Issue 可以分專案(頻道、角色等仍屬於組織;專案裡的 Issue 編號是 <專案代號>-<n>,組織層級的是 ISS-<n>,顯示時用 key);projects 列專案、project_save 新增或修改專案,cabinet、docs、doc_save、cabinet_layout_save 帶 project(專案 id)操作那個專案,不帶是未分專案;doc_save 修改時給 project 就是把文件搬到那個專案。" +
 	"訊息頻道:channels 列我的頻道(含未讀數)、channel_create 建立、channel_messages 讀(讀了算已讀)、channel_post 發訊息;@ 角色只通知、不排任務。"
 
 // AdminEndpoint 管理用 MCP 的 http.Handler(雲端掛在 /mcp/org/{org},用 omixor token 認證)
@@ -242,14 +243,19 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 		bk, org, err := cfg.Resolve(r)
 		if err != nil {
 			if c := service.Code(err); c == 403 || c == 404 || c == 429 {
-				http.Error(w, err.Error(), c)
+				http.Error(w, httperr.Report("mcp 端點解析身分", err).Msg, c)
 				return
 			}
 			unauthorized(w, "omixor")
 			return
 		}
 		sess := &Session{B: bk, OrgID: org, Endpoint: cfg.AgentEndpoint}
-		hooks := Hooks{Ctx: sess, Allow: func(name string) bool { return allow[name] }}
+			hooks := Hooks{Ctx: sess,
+				// 人類端點不列 HumanHiddenTools(agent_task_delegate)
+				Allow: func(name string) bool { return allow[name] && !HumanHiddenTools[name] },
+				// 人類端點不能指定角色身分(署名、文件權限):規格不列 agent 參數,帶 agent 回 400,不執行
+				Defs:  WithoutIdentityAgent,
+				Guard: RejectIdentityAgent}
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})
 }

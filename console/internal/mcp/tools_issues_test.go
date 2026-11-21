@@ -65,7 +65,7 @@ func iaErr(t *testing.T, a *core.App, name string, args map[string]any, want str
 func TestIssueToolsAuthors(t *testing.T) {
 	a := iaApp(t)
 	i := iaRun(t, a, core.MCPActor, "issue_create", map[string]any{"title": "a", "labels": []any{"x", "X"}})
-	if i["createdBy"] != "MCP 用戶端" || len(i["labels"].([]any)) != 1 {
+	if i["createdBy"] != core.LocalIdentity || len(i["labels"].([]any)) != 1 {
 		t.Fatal(i)
 	}
 	// 畫面呼叫:署名目前使用者
@@ -73,11 +73,12 @@ func TestIssueToolsAuthors(t *testing.T) {
 	a.Mu.Lock()
 	by := a.Issue("ISS-2").CreatedBy
 	a.Mu.Unlock()
-	if by != "tim" {
+	if by != core.LocalIdentity {
 		t.Fatalf("畫面建立的 Issue 要署名使用者:%s", by)
 	}
-	i = iaRun(t, a, core.MCPActor, "issue_update", map[string]any{"id": "ISS-1", "comment": "c", "agent": "triager", "status": "closed"})
-	if i["status"] != "closed" || i["comments"].([]any)[0].(map[string]any)["author"] != "Issue 整理員" {
+	// 留言署名也是呼叫者;agent 參數不能用(見 identity_test.go)
+	i = iaRun(t, a, core.MCPActor, "issue_update", map[string]any{"id": "ISS-1", "comment": "c", "status": "closed"})
+	if i["status"] != "closed" || i["comments"].([]any)[0].(map[string]any)["author"] != core.LocalIdentity {
 		t.Fatal(i)
 	}
 	iaErr(t, a, "issue_update", map[string]any{"id": "ISS-9"}, "找不到 Issue ISS-9")

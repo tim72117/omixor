@@ -8,7 +8,9 @@ WEB=${2:?要給畫面連接埠}
 cd "$(dirname "$0")/.."
 DIR=${3:-$(mktemp -d /tmp/omixor-conf-go-$PORT.XXXX)}
 BIN=/tmp/omixor-web-conf-$PORT
+# console 的 MCP 連接埠一律要 Bearer 權杖:沒設 OMIXOR_CONSOLE_MCP_TOKEN 時 console 第一次啟動會自己產生,存在資料夾的 mcp_token
 go build -o $BIN ./cmd/omixor-web
 OMIXOR_TEMPLATES=1 OMIXOR_NO_BROWSER=1 OMIXOR_CONSOLE_DATA_DIR="$DIR" OMIXOR_MCP_PORT=$PORT OMIXOR_WEB_PORT=$WEB $BIN >/tmp/omixor-web-conf-$PORT.log 2>&1 &
 for i in $(seq 1 75); do curl -s -o /dev/null -X POST -d '{}' http://127.0.0.1:$PORT/mcp && break; sleep 0.2; done
 echo "Go 版 MCP:http://127.0.0.1:$PORT/mcp  畫面:http://127.0.0.1:$WEB  資料夾:$DIR  紀錄:/tmp/omixor-web-conf-$PORT.log"
+echo "權杖:$DIR/mcp_token(compare.py 加 --go-data-dir $DIR 會自己讀;自己設了 OMIXOR_CONSOLE_MCP_TOKEN 就用那一把)"

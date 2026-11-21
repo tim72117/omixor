@@ -23,8 +23,8 @@ func cabOrgName(a *core.App) string {
 func (b appBackend) GetCabinet(org string) (*model.Cabinet, error) {
 	return b.a.CabinetOps().GetCabinet(org)
 }
-func (b appBackend) SaveCabinetLayout(org string, l []model.CabinetSection) ([]model.CabinetSection, error) {
-	return b.a.CabinetOps().SaveLayout(org, l)
+func (b appBackend) SaveCabinetLayout(org string, l []model.CabinetSection, expected *int64) ([]model.CabinetSection, error) {
+	return b.a.CabinetOps().SaveLayout(org, l, expected)
 }
 func (b appBackend) ImportCabinet(org string, in service.CabinetImport) (*service.CabinetImportResult, error) {
 	return b.a.CabinetOps().Import(org, in)
@@ -48,8 +48,8 @@ func (b appBackend) EditDoc(org, id string, in service.DocEdit) (*service.DocEdi
 func (b appBackend) GetProjectCabinet(org, project string) (*model.Cabinet, error) {
 	return b.a.CabinetOps().GetProjectCabinet(org, project)
 }
-func (b appBackend) SaveProjectCabinetLayout(org, project string, l []model.CabinetSection) ([]model.CabinetSection, error) {
-	return b.a.CabinetOps().SaveProjectLayout(org, project, l)
+func (b appBackend) SaveProjectCabinetLayout(org, project string, l []model.CabinetSection, expected *int64) ([]model.CabinetSection, error) {
+	return b.a.CabinetOps().SaveProjectLayout(org, project, l, expected)
 }
 
 // 專案(MCP 工具 projects、project_save 在核心;交給 App.CabinetOps)

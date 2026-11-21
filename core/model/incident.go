@@ -38,18 +38,20 @@ var ActorKinds = []string{"person", "ai", "system"}
 // MCPActorID 透過 MCP 做的變更,執行者記為 ai/mcp(畫面顯示「MCP 用戶端」)
 const MCPActorID = "mcp"
 
-// Actor 執行者(JSON 同 app:{"kind": "person", "id": "tim"}、{"kind": "system"})
-type Actor struct {
+// IncidentActor 事件時間軸執行者的相容輸出(JSON 同 app:{"kind": "person", "id": "tim"}、{"kind": "system"})。
+// 原名 Actor,與新的 actor(ActorRef,user/agent/system)同名不同語意,所以改名(DOC-13 §8.1 #7);JSON 不變。
+// 存放的是 actor id(IncidentEvent.ActorID);這個物件只在服務層出口由 actor 還原(使用者 = person/<email>、角色 = ai/<handle>、系統 = system)。
+type IncidentActor struct {
 	Kind string `json:"kind"`
 	ID   string `json:"id,omitempty"`
 }
 
-func PersonActor(id string) Actor { return Actor{Kind: "person", ID: id} }
-func AIActor(id string) Actor     { return Actor{Kind: "ai", ID: id} }
-func SystemActor() Actor          { return Actor{Kind: "system"} }
+func PersonActor(id string) IncidentActor { return IncidentActor{Kind: "person", ID: id} }
+func AIActor(id string) IncidentActor     { return IncidentActor{Kind: "ai", ID: id} }
+func SystemActor() IncidentActor          { return IncidentActor{Kind: "system"} }
 
 // Valid 種類要認得;person、ai 要有 id
-func (a Actor) Valid() bool {
+func (a IncidentActor) Valid() bool {
 	switch a.Kind {
 	case "system":
 		return true
@@ -61,29 +63,37 @@ func (a Actor) Valid() bool {
 
 // IncidentEvent 時間軸的一筆
 type IncidentEvent struct {
-	ID    string `json:"id"` // UUID
-	Date  Time   `json:"date"`
-	Actor Actor  `json:"actor"`
-	Kind  string `json:"kind"`
-	Text  string `json:"text"`
+	ID   string `json:"id"` // UUID
+	Date Time   `json:"date"`
+	// Actor 相容輸出:服務層出口由 ActorID 還原(store 回傳時是零值)。匯入舊資料(ImportIncidents)與舊 jsonb 展開時是輸入
+	Actor IncidentActor `json:"actor"`
+	// ActorRef 執行者的 actor 物件(ISS-36 C-3;服務層出口由 ActorID 補;匯入的舊資料或查不到省略。名稱不叫 actor 是因為那個鍵已是相容的 {kind, id})
+	ActorRef *ActorView `json:"actorRef,omitempty"`
+	// ActorID 時間軸執行者的 actor id(store 讀寫這個欄位;沒有 = ""),不輸出 JSON
+	ActorID string `json:"-"`
+	Kind    string `json:"kind"`
+	Text    string `json:"text"`
 }
 
 type Incident struct {
-	ID         string          `json:"id"` // INC-2041
-	Title      string          `json:"title"`
-	Sev        int             `json:"sev"` // 1…4,1 最嚴重
-	Status     string          `json:"status"`
-	Services   []string        `json:"services"`
-	Commander  string          `json:"commander"` // 指揮官(人員 id 或 email)
-	StartedAt  Time            `json:"startedAt"`
-	ResolvedAt *Time           `json:"resolvedAt,omitempty"`
-	Impact     string          `json:"impact"`
-	Timeline   []IncidentEvent `json:"timeline"`
-	AISummary  *string         `json:"aiSummary,omitempty"`
-	FollowUps  []string        `json:"followUps"` // 後續工作(工作項目或 Issue 的 id)
+	ID        string   `json:"id"` // INC-2041
+	Title     string   `json:"title"`
+	Sev       int      `json:"sev"` // 1…4,1 最嚴重
+	Status    string   `json:"status"`
+	Services  []string `json:"services"`
+	Commander string   `json:"commander"` // store/服務層內部是 actor id;對外輸出是相容字串(email 或 agent:<handle>)
+	// CommanderActor、CreatedByActor 指揮官與宣告者的 actor 物件(ISS-36 C-3;服務層出口補,沒有或查不到省略)
+	CommanderActor *ActorView      `json:"commanderActor,omitempty"`
+	CreatedByActor *ActorView      `json:"createdByActor,omitempty"`
+	StartedAt      Time            `json:"startedAt"`
+	ResolvedAt     *Time           `json:"resolvedAt,omitempty"`
+	Impact         string          `json:"impact"`
+	Timeline       []IncidentEvent `json:"timeline"`
+	AISummary      *string         `json:"aiSummary,omitempty"`
+	FollowUps      []string        `json:"followUps"` // 後續工作(工作項目或 Issue 的 id)
 	// AlertIDs 關聯的告警 id(告警在 app/web 端;核心只記 id)
 	AlertIDs []string `json:"alertIds,omitempty"`
-	// CreatedBy 宣告者的署名(email、人員 id 或 mcp;匯入的舊資料可能沒有)
+	// CreatedBy 宣告者:store/服務層內部是 actor id;對外輸出是相容字串(email、agent:<handle>、系統舊名稱;匯入的舊資料可能沒有)
 	CreatedBy string `json:"createdBy,omitempty"`
 }
 

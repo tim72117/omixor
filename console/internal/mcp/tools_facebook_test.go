@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	coremcp "omixor-core/mcp"
 	"omixor-web/internal/core"
 )
 
@@ -184,31 +185,31 @@ func TestMCPFBReadTools(t *testing.T) {
 	}
 }
 
-func TestMCPFBDraftSaveSignsAgentAndCannotPublish(t *testing.T) {
+func TestMCPFBDraftSaveSignsCallerAndCannotPublish(t *testing.T) {
 	a, f := fbTestApp(t)
 	if err := core.FBAddToken(a, core.FBFakePageToken, core.Person("tim")); err != nil {
 		t.Fatal(err)
 	}
 	d := extOK(t, a, "fb_draft_save", map[string]any{"message": "週末限定", "link": "https://evoleap.io",
-		"proposed_time": "2026-11-20T20:00:00+08:00", "agent": "marketing"})
+		"proposed_time": "2026-11-20T20:00:00+08:00"})
 	id := d["id"].(string)
-	if id != "FD-1" || d["author"] != "agent:marketing" || d["authorName"] != "行銷" || d["status"] != "draft" ||
+	if id != "FD-1" || d["author"] != "mcp" || d["authorName"] != "MCP 用戶端" || d["status"] != "draft" ||
 		d["pageId"] != core.FBFakePage1 || d["pageName"] != "evoleap" || d["proposedTime"] != "2026-11-20T12:00:00Z" || d["note"] == nil {
 		t.Fatalf("%v", d)
 	}
 	a.Mu.Lock()
 	act := a.C["activity"][0]
 	a.Mu.Unlock()
-	if core.ActorFrom(act["actor"]) != core.AI("marketing") || act["text"] != "新增 Facebook 草稿 FD-1「週末限定」" || act["section"] != "automation" {
+	if core.ActorFrom(act["actor"]) != core.MCPActor || act["text"] != "新增 Facebook 草稿 FD-1「週末限定」" || act["section"] != "automation" {
 		t.Fatalf("%v", act)
 	}
 
 	// 修改
 	u := extOK(t, a, "fb_draft_save", map[string]any{"id": "fd-1", "message": "週末限定!"})
-	if u["message"] != "週末限定!" || u["author"] != "agent:marketing" {
+	if u["message"] != "週末限定!" || u["author"] != "mcp" {
 		t.Fatalf("修改不換撰寫者:%v", u)
 	}
-	// 沒帶 agent 署名 MCP 用戶端
+	// 署名一律是呼叫者(MCP 用戶端)
 	m := extOK(t, a, "fb_draft_save", map[string]any{"message": "另一篇"})
 	if m["author"] != "mcp" || m["authorName"] != "MCP 用戶端" || m["id"] != "FD-2" {
 		t.Fatalf("%v", m)
@@ -219,7 +220,7 @@ func TestMCPFBDraftSaveSignsAgentAndCannotPublish(t *testing.T) {
 		args map[string]any
 		want string
 	}{
-		{map[string]any{"message": "x", "agent": "nobody"}, "找不到角色 nobody"},
+		{map[string]any{"message": "x", "agent": "nobody"}, coremcp.IdentityAgentError},
 		{map[string]any{}, "草稿至少要有 message、link 或 image_url"},
 		{map[string]any{"message": "   "}, "草稿至少要有 message、link 或 image_url"},
 		{map[string]any{"message": "x", "link": "javascript:alert(1)"}, "link 必須是 http 或 https 網址"},

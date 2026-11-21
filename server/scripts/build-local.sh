@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # 交叉編譯本機守護服務 omixor-local(server/cmd/omixor-local)到 server/dist/:
 #
-#   omixor-local-windows-amd64.exe、omixor-local-windows-arm64.exe、
+#   omixor-local-windows-amd64.exe、
 #   omixor-local-darwin-arm64、omixor-local-darwin-amd64、omixor-local-linux-amd64
 #
 # 用法:server/scripts/build-local.sh            (版本預設 dev;VERSION=1.2.0 server/scripts/build-local.sh 指定)
 #       TARGETS="windows/amd64 linux/amd64" server/scripts/build-local.sh   只編其中幾個
+#
+# windows/arm64 不編:內建的 PostgreSQL 沒有該平台的二進位檔(ARM 的 Windows 請用 windows/amd64 版模擬執行,
+# 或設 OMIXOR_DATABASE_URL 連外部 PostgreSQL);明確指定 TARGETS 含 windows/arm64 時會略過並提示。
 #
 # 所有功能都編進去;開放哪些功能由伺服器管理員在「系統」頁決定(存在資料夾的 JSON,見 core/model/features.go)。
 # 以前的 OMIXOR_EDITION 已經拿掉(給了也沒有作用)。
@@ -22,10 +25,14 @@ VERSION="${VERSION:-dev}"
 COMMIT="${COMMIT:-$(git rev-parse --short=12 HEAD 2>/dev/null || echo dev)}"
 BUILD_TIME="${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 LDFLAGS="-s -w -X omixor-core/version.Version=${VERSION} -X omixor-core/version.Commit=${COMMIT} -X omixor-core/version.BuildTime=${BUILD_TIME}"
-TARGETS="${TARGETS:-windows/amd64 windows/arm64 darwin/arm64 darwin/amd64 linux/amd64}"
+TARGETS="${TARGETS:-windows/amd64 darwin/arm64 darwin/amd64 linux/amd64}"
 
 for t in $TARGETS; do
   os="${t%/*}"; arch="${t#*/}"
+  if [ "$os/$arch" = "windows/arm64" ]; then
+    echo "略過 windows/arm64:內建 PostgreSQL 沒有該平台的二進位檔(請用 windows/amd64 版,或設 OMIXOR_DATABASE_URL 連外部 PostgreSQL)"
+    continue
+  fi
   name="omixor-local-${os}-${arch}"
   [ "$os" = windows ] && name="${name}.exe"
   echo "編譯 $OUT/$name"

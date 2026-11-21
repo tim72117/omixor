@@ -7,7 +7,7 @@ import (
 	"omixor-core/model"
 )
 
-// 組織的系統設定:讀寫(深拷貝)、File 存檔重開讀得回來、刪組織一併刪除(一致性測試的一項,見 conformance_test.go)
+// 組織的系統設定:讀寫(深拷貝)、刪組織一併刪除(一致性測試的一項,見 conformance_test.go)
 func suiteSystemSettings(t *testing.T, impl storeImpl) {
 	f := impl.open(t)
 	at := mt("2026-11-13T01:02:03Z")
@@ -17,7 +17,7 @@ func suiteSystemSettings(t *testing.T, impl storeImpl) {
 	if _, err := f.GetSystemSettings("o"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("沒存過回 ErrNotFound", err)
 	}
-	s := model.OrgSystemSettings{Features: map[string]bool{"development.board": true, "channels": false}, UpdatedAt: &at, UpdatedBy: "boss@x"}
+	s := model.OrgSystemSettings{Features: map[string]bool{"development.board": true, "channels": false}, UpdatedAt: &at, UpdatedBy: emailActor(t, f, "boss@x")}
 	if err := f.SaveSystemSettings("o", s); err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func suiteSystemSettings(t *testing.T, impl storeImpl) {
 	x.Features["zzz"] = true // 拿回去改不影響存著的
 	f2 := impl.reopen(t, f)
 	g, err := f2.GetSystemSettings("o")
-	if err != nil || !g.Saved || len(g.Features) != 2 || !g.Features["development.board"] || g.Features["channels"] || g.UpdatedBy != "boss@x" || !g.UpdatedAt.Equal(at.Time) {
+	if err != nil || !g.Saved || len(g.Features) != 2 || !g.Features["development.board"] || g.Features["channels"] || g.UpdatedBy != emailActor(t, f2, "boss@x") || !g.UpdatedAt.Equal(at.Time) {
 		t.Fatalf("重開讀回:%+v %v", g, err)
 	}
 	// nil 的開關讀回是 {};整份取代
@@ -47,7 +47,7 @@ func suiteSystemSettings(t *testing.T, impl storeImpl) {
 	}
 }
 
-// 系統層的功能設定(PG 是 omixor_server_features 表):讀寫(深拷貝)、File 存檔重開讀得回來、刪組織不影響
+// 系統層的功能設定(PG 是 omixor_server_features 表):讀寫(深拷貝)、刪組織不影響
 // (一致性測試的一項,見 conformance_test.go)
 func suiteServerFeatures(t *testing.T, impl storeImpl) {
 	f := impl.open(t)
@@ -55,7 +55,7 @@ func suiteServerFeatures(t *testing.T, impl storeImpl) {
 		t.Fatal("沒存過回 ErrNotFound", err)
 	}
 	at := mt("2026-11-13T01:02:03Z")
-	s := model.ServerFeatures{Features: map[string]bool{"familyAssistant": true, "channels": false}, UpdatedAt: &at, UpdatedBy: "root@x"}
+	s := model.ServerFeatures{Features: map[string]bool{"familyAssistant": true, "channels": false}, UpdatedAt: &at, UpdatedBy: emailActor(t, f, "root@x")}
 	if err := f.SaveServerFeatures(s); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func suiteServerFeatures(t *testing.T, impl storeImpl) {
 	_ = f.DeleteOrg("o")
 	f2 := impl.reopen(t, f)
 	g, err := f2.GetServerFeatures()
-	if err != nil || !g.Saved || len(g.Features) != 2 || !g.Features["familyAssistant"] || g.Features["channels"] || g.UpdatedBy != "root@x" || !g.UpdatedAt.Equal(at.Time) {
+	if err != nil || !g.Saved || len(g.Features) != 2 || !g.Features["familyAssistant"] || g.Features["channels"] || g.UpdatedBy != emailActor(t, f2, "root@x") || !g.UpdatedAt.Equal(at.Time) {
 		t.Fatalf("重開讀回:%+v %v", g, err)
 	}
 	// 整份取代(只有一份)

@@ -13,8 +13,10 @@ const ProjectPrefix = "PRJ-"
 
 // Project 組織底下的專案
 type Project struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Key 專案代號(例如 APP),專案裡 Issue 的 key 是 <代號>-<n>;空字串 = 還沒設定(不能建 Issue)。規則見 CleanProjectKey
+	Key         string `json:"key"`
 	Description string `json:"description"`
 	CreatedAt   Time   `json:"createdAt"`
 	UpdatedAt   Time   `json:"updatedAt"`
@@ -25,18 +27,11 @@ func (p Project) Number() int { return ProjectNumber(p.ID) }
 
 // ProjectNumber PRJ-3 → 3(不分大小寫;格式不對回 0)
 func ProjectNumber(id string) int {
-	rest, ok := strings.CutPrefix(strings.ToUpper(strings.TrimSpace(id)), ProjectPrefix)
-	if !ok || rest == "" || len(rest) > 9 {
+	id = strings.TrimSpace(id)
+	if len(id) > len(ProjectPrefix)+9 { // 數字最多 9 位
 		return 0
 	}
-	n := 0
-	for _, r := range rest {
-		if r < '0' || r > '9' {
-			return 0
-		}
-		n = n*10 + int(r-'0')
-	}
-	return n
+	return idNumber(id, ProjectPrefix)
 }
 
 // IsProjectID 是不是 PRJ-<n> 的格式(不分大小寫)

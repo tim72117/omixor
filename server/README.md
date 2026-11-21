@@ -27,11 +27,11 @@ docker build -f server/Dockerfile -t omixor-server .   # 在 repo 根目錄
 - 預設 `go build ./cmd/omixor-server` 編進全部模組(和以前一樣);`go build -tags omixor_minimal ./cmd/omixor-server` 只有核心。
 - `GET /api/modules` 列出這台編進來的模組。
 
-環境變數見 `server.go` 開頭(`OMIXOR_DATABASE_URL`、`OMIXOR_ADMIN_BOOTSTRAP_EMAIL`、`OMIXOR_TOKEN_DAYS`、`EVOLEAP_URL`…)。
+環境變數集中定義在 `../core/config/vars.go`,完整列表(名稱、舊名稱、型別、預設、必填、機密)見 [`../docs/configuration.md`](../docs/configuration.md),`omixor-server -h` 也會列出;啟動時一次驗證,有問題用中文一次列完。
 
 **LDAP / Active Directory 登入(自建伺服器用)**:啟動時設 `OMIXOR_LDAP_URL` 就啟用 `POST /api/auth/ldap`
 (`{username, password, device}` → 同 `/api/auth/evoleap` 的 token);沒設就不啟用(回 404)。設了但不完整,伺服器**啟動失敗**並說明缺什麼,不會等到有人登入才發現。
-變數的完整說明在 `../core/ldapauth/ldapauth.go` 開頭;`OMIXOR_LDAP_ADMINS`、`OMIXOR_LDAP_EMAIL_DOMAIN` 在 `ldap.go`。
+LDAP 變數的完整說明在 [`../docs/configuration.md`](../docs/configuration.md)(「LDAP 登入」一節);連線與檢查邏輯在 `../core/ldapauth/ldapauth.go`、`ldap.go`。
 
 - 流程:用服務帳號(`OMIXOR_LDAP_BIND_DN`)搜尋使用者,再用找到的 DN 和使用者輸入的密碼 bind。帳號不存在、被篩選掉(例如停用)、密碼錯,一律回同一句 401。
 - 誰能進:通過 LDAP 的人**第一次登入自動建成一般使用者**(不屬於任何組織,要組織管理員用 email 加進去)。
@@ -62,8 +62,18 @@ docker build -f server/Dockerfile -t omixor-server .   # 在 repo 根目錄
 
 ## 本機守護服務 omixor-local
 
-`cmd/omixor-local`(`local.go`、`local_run.go`、`standalone.go`):只聽 127.0.0.1 的 omixor,資料存在資料夾的 JSON。
+`cmd/omixor-local`(`local.go`、`local_run.go`、`standalone.go`):只聽 127.0.0.1 的 omixor,資料存在 PostgreSQL。
 
+- **資料庫**:預設由守護服務自己啟動一個內建的 PostgreSQL 17(`embeddedpg.go`,用 `github.com/fergusstrange/embedded-postgres`):
+  資料在 `<資料夾>/pgdata`、密碼在 `<資料夾>/pgpassword`、每次啟動解壓的程式在 `<資料夾>/pgruntime`(約 100 MB,可以刪,下次啟動會重建),
+  只聽 127.0.0.1 的隨機埠,結束時乾淨關閉(上次沒關乾淨的孤兒 postgres 下次啟動會先被關掉)。
+  **第一次啟動要連網下載 PostgreSQL 二進位檔**(約 10–60 MB,存在 `~/.embedded-postgres-go`,之後離線也能啟動),初始化加啟動約十幾秒。
+  PostgreSQL 不能以 root / 系統管理員身分執行。windows/arm64 沒有現成的 PostgreSQL 二進位檔,請改用 windows/amd64 版本(ARM 上可模擬執行)或設 `OMIXOR_DATABASE_URL`。
+  下載的二進位檔會用程式內寫死的 sha256 比對(`embeddedpg_pin.go`;快取檔每次啟動也比對,不符就重抓),升級 PostgreSQL 版本時要一起更新那張表。
+  資料目錄保護:`pgdata` 有資料但 `PG_VERSION` 不見、讀不到或主版本和內建的不符時,**拒絕啟動**並說明處理方式(函式庫原本會直接清掉資料目錄重建);
+  升 PostgreSQL 大版本需要自己先匯出/搬資料。
+  設了 `OMIXOR_DATABASE_URL` 就直接連那個資料庫、不啟動內建的。
+  以前的檔案版 store(`<資料夾>/store.json`)已經移除,**不會遷移,舊的 store.json 不會匯入**(程式不會刪它;啟動時若有 store.json 而且還沒有 pgdata 會印警告,不需要時請自行刪除)。
 - **App 模式**:macOS App 本機模式在背景啟動(環境變數給 `OMIXOR_LOCAL_TOKEN`,每次換一把,隨機埠)。
 - **獨立模式**:沒給 `OMIXOR_LOCAL_TOKEN` 或加 `-standalone`,可以直接執行(Windows 雙擊或命令列)。
   資料夾預設 `<使用者設定資料夾>/omixor/core`(Windows `%AppData%\omixor\core`,macOS `~/Library/Application Support/omixor/core`),
@@ -72,5 +82,5 @@ docker build -f server/Dockerfile -t omixor-server .   # 在 repo 根目錄
 
 ```
 OMIXOR_SERVER=http://127.0.0.1:8770 OMIXOR_CREDENTIALS=<資料夾>/credentials.json omixor orgs   # CLI 連獨立模式
-server/scripts/build-local.sh   # 交叉編譯 windows/amd64、windows/arm64、darwin/arm64、darwin/amd64、linux/amd64 到 server/dist/
+server/scripts/build-local.sh   # 交叉編譯 windows/amd64(windows/arm64 會略過,見上)、darwin/arm64、darwin/amd64、linux/amd64 到 server/dist/
 ```

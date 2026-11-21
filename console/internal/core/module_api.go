@@ -41,7 +41,16 @@ func ConnGen(a *App) int { return a.conns().Gen }
 var ErrNoDB = errNoDB
 
 // AgentBackend 目前的核心(遠端模式是 omixor server,本機模式是同一個程式裡的核心;本機沒有資料庫回 ErrNoDB)
-func AgentBackend() (backend.Backend, error) { return agentBackend() }
+//
+// 回傳的是沒有署名轉換的原始核心(authorBackend 只換署名;選用模組用型別判斷 *backend.Local / *backend.Remote 取得自己的介面,包起來會認不出來)。
+// 模組的輸入沒有署名欄位;要署名的操作走 AgentOps
+func AgentBackend() (backend.Backend, error) {
+	be, err := agentBackend()
+	if err != nil {
+		return nil, err
+	}
+	return rawBackend(be), nil
+}
 
 // AgentUserErr 核心的錯誤 → 畫面看得懂的
 func AgentUserErr(err error) error { return agentUserErr(err) }

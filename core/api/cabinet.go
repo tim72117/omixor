@@ -17,15 +17,20 @@ func (a *API) cabinetRoutes(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("POST "+cb+"/layout", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		var in struct {
-			Project string                 `json:"project"`
-			Layout  []model.CabinetSection `json:"layout"`
+			Project         string                 `json:"project"`
+			Layout          []model.CabinetSection `json:"layout"`
+			ExpectedVersion *int64                 `json:"expectedVersion"` // 樂觀鎖;不帶 = 無鎖覆蓋(舊客戶端)
 		}
 		if err := read(r, &in); err != nil {
 			bad(w, err)
 			return
 		}
-		l, err := a.Svc.SaveCabinetLayout(p, r.PathValue("org"), queryOr(r, "project", in.Project), in.Layout)
-		reply(w, l, err)
+		l, ver, err := a.Svc.SaveCabinetLayoutIf(p, r.PathValue("org"), queryOr(r, "project", in.Project), in.Layout, in.ExpectedVersion)
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"result": l, "layoutVersion": ver})
 	}))
 	mux.HandleFunc("POST "+cb+"/import", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		var in service.CabinetImport

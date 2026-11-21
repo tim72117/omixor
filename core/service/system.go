@@ -45,6 +45,8 @@ type SystemSettingsView struct {
 	Saved     bool           `json:"saved"`
 	UpdatedAt *model.Time    `json:"updatedAt,omitempty"`
 	UpdatedBy string         `json:"updatedBy,omitempty"`
+	// UpdatedByActor 最後修改者的 actor 物件(ISS-36 C-3)
+	UpdatedByActor *model.ActorView `json:"updatedByActor,omitempty"`
 	// Edition 過時(保留給舊用戶端,不再有編譯版本):系統層開放了任何原本只有開發版的功能時是 dev,否則 stable
 	Edition string `json:"edition"`
 	// ServerFeatures 每個登記的功能在系統層開放不開放(key → 開放;分頁還要所屬頁面開放)
@@ -190,7 +192,7 @@ func (s *Service) GetSystemSettings(p *model.Principal, org string) (*SystemSett
 	if err != nil {
 		return nil, err
 	}
-	return systemView(srv, x, s.canEditOrg(p, org)), nil
+	return s.systemViewOut(srv, x, s.canEditOrg(p, org)), nil
 }
 
 // SaveSystemSettings 修改功能開關(組織管理員)
@@ -238,12 +240,12 @@ func (s *Service) SaveSystemSettings(p *model.Principal, org string, in SystemSe
 		changed[k] = in.Features[k]
 	}
 	now := s.mt()
-	x.Saved, x.UpdatedAt, x.UpdatedBy = true, &now, whoName(p)
+	x.Saved, x.UpdatedAt, x.UpdatedBy = true, &now, s.whoActor(p)
 	if err := s.Store.SaveSystemSettings(org, x); err != nil {
 		return nil, err
 	}
 	s.Audit(p, "system.features.save", org, map[string]any{"features": changed, "reset": in.Reset})
-	return systemView(srv, x, true), nil
+	return s.systemViewOut(srv, x, true), nil
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -276,6 +278,8 @@ type ServerFeaturesView struct {
 	Saved     bool                 `json:"saved"`
 	UpdatedAt *model.Time          `json:"updatedAt,omitempty"`
 	UpdatedBy string               `json:"updatedBy,omitempty"`
+	// UpdatedByActor 最後修改者的 actor 物件(ISS-36 C-3)
+	UpdatedByActor *model.ActorView `json:"updatedByActor,omitempty"`
 	// CanEdit 目前的使用者可以改(伺服器管理員)
 	CanEdit bool `json:"canEdit"`
 }
@@ -301,7 +305,7 @@ func (s *Service) GetServerFeatures(p *model.Principal) (*ServerFeaturesView, er
 	if err != nil {
 		return nil, err
 	}
-	return serverFeaturesView(x, canEditServer(p)), nil
+	return s.serverFeaturesViewOut(x, canEditServer(p)), nil
 }
 
 // SaveServerFeatures 修改系統層的功能開關(伺服器管理員);輸入同組織層(features 有變的、reset 回到預設)
@@ -349,12 +353,26 @@ func (s *Service) SaveServerFeatures(p *model.Principal, in SystemSettingsInput)
 		changed[k] = in.Features[k]
 	}
 	now := s.mt()
-	x.Saved, x.UpdatedAt, x.UpdatedBy = true, &now, whoName(p)
+	x.Saved, x.UpdatedAt, x.UpdatedBy = true, &now, s.whoActor(p)
 	if err := s.Store.SaveServerFeatures(x); err != nil {
 		return nil, err
 	}
 	s.Audit(p, "system.server.features.save", "", map[string]any{"features": changed, "reset": in.Reset})
-	return serverFeaturesView(x, true), nil
+	return s.serverFeaturesViewOut(x, true), nil
+}
+
+// systemViewOut 同 systemView,updatedBy(存的是 actor id)轉成相容字串
+func (s *Service) systemViewOut(srv model.ServerFeatures, x model.OrgSystemSettings, canEdit bool) *SystemSettingsView {
+	v := systemView(srv, x, canEdit)
+	v.UpdatedBy, v.UpdatedByActor = s.WhoPresent(v.UpdatedBy)
+	return v
+}
+
+// serverFeaturesViewOut 同 serverFeaturesView,updatedBy 轉成相容字串
+func (s *Service) serverFeaturesViewOut(x model.ServerFeatures, canEdit bool) *ServerFeaturesView {
+	v := serverFeaturesView(x, canEdit)
+	v.UpdatedBy, v.UpdatedByActor = s.WhoPresent(v.UpdatedBy)
+	return v
 }
 
 // DefaultSystemView 兩層都還沒設定過時的組織層畫面(用戶端讀不到核心時的保守預設;不能改)

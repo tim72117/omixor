@@ -43,7 +43,7 @@ func TestProjectRoutes(t *testing.T) {
 	if _, err := rb.GetProjectCabinet("lab", "PRJ-9"); backend.Code(err) != 404 {
 		t.Fatal(err)
 	}
-	if _, err := rboss.SaveProjectCabinetLayout("lab", p.ID, []model.CabinetSection{{ID: "spec", Label: "規格"}}); err != nil {
+	if _, err := rboss.SaveProjectCabinetLayout("lab", p.ID, []model.CabinetSection{{ID: "spec", Label: "規格"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	plain, err := rb.CreateDoc("lab", service.DocInput{Title: "未分", Section: "docs"})

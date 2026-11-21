@@ -27,6 +27,13 @@
   "docs": [
     {
       "author": "agent:pm",
+      "authorActor": {
+        "id": "agt_019a3f2c-0000-7000-8000-000000000003",
+        "kind": "agent",
+        "handle": "pm",
+        "name": "產品經理",
+        "status": "suspended"
+      },
       "body": "# AI 工具\n\n- Claude\n- Codex",
       "createdAt": "2026-10-10T00:00:00Z",
       "id": "DOC-4",
@@ -41,6 +48,14 @@
     },
     {
       "author": "tim@example.com",
+      "authorActor": {
+        "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+        "kind": "user",
+        "handle": "tim@example.com",
+        "name": "Tim",
+        "email": "tim@example.com",
+        "status": "active"
+      },
       "body": "",
       "createdAt": "2026-10-01T00:00:00Z",
       "id": "DOC-1",
@@ -50,5 +65,6 @@
       "updatedAt": "2026-10-01T00:00:00Z"
     }
   ],
-  "layoutSaved": true
+  "layoutSaved": true,
+  "layoutVersion": 3
 }

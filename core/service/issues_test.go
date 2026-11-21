@@ -10,6 +10,7 @@ import (
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // countStore 記下 Issue 寫入走哪一條路(AddIssueComment 或 UpdateIssue 帶整份留言)
@@ -40,6 +41,7 @@ func issueEnv(t *testing.T, st store.Store) (*service.Service, *model.Principal,
 		_ = st.SaveUser(model.User{ID: u.id, Email: u.email, Role: "member", CreatedAt: now})
 		_ = st.SaveMember(model.Member{Org: "o1", UserID: u.id, Email: u.email, Role: u.role, AddedAt: now})
 	}
+	_ = st.SaveUser(model.User{ID: "u0", Email: "root@x", Role: "admin", CreatedAt: now}) // 伺服器管理員要有使用者列(署名用它的 actor)
 	root := &model.Principal{User: model.User{ID: "u0", Email: "root@x", Role: "admin"}}
 	boss := &model.Principal{User: model.User{ID: "u1", Email: "boss@x", Role: "member"}}
 	alice := &model.Principal{User: model.User{ID: "u2", Email: "alice@x", Role: "member"}}
@@ -51,11 +53,7 @@ func issueEnv(t *testing.T, st store.Store) (*service.Service, *model.Principal,
 }
 
 func issueStores(t *testing.T) map[string]store.Store {
-	f, err := store.OpenFile(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return map[string]store.Store{"mem": store.NewMem(), "file": f}
+	return map[string]store.Store{"pg": storetest.New(t)}
 }
 
 // 同時 N 個人留言、同時有人改標題與附加內文:留言一則都不少,附加的內文也都在
@@ -122,16 +120,16 @@ func TestIssueConcurrentCommentsAndEdits(t *testing.T) {
 
 // 作者:一般成員一律是自己;伺服器管理員可以指定(沒給是 mcp);角色身分是 agent:<id>
 func TestAddIssueCommentAuthorAndChecks(t *testing.T) {
-	svc, root, _, alice, _ := issueEnv(t, store.NewMem())
+	svc, root, _, alice, _ := issueEnv(t, storetest.New(t))
 	iss, _ := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t"})
 	u, err := svc.AddIssueComment(alice, "o1", iss.ID, service.CommentInput{Text: " 看到了 ", Author: "冒名"})
 	if err != nil || len(u.Comments) != 1 || u.Comments[0].Author != "alice@x" || u.Comments[0].Text != "看到了" || u.Comments[0].ID == "" {
 		t.Fatalf("%+v %v", u, err)
 	}
-	if u, _ = svc.AddIssueComment(root, "o1", iss.ID, service.CommentInput{Text: "x", Author: "agent:ceo"}); u.Comments[1].Author != "agent:ceo" {
+	if u, _ = svc.AddIssueComment(root, "o1", iss.ID, service.CommentInput{Text: "x", Author: "agent:dev"}); u.Comments[1].Author != "agent:dev" {
 		t.Fatal(u.Comments[1])
 	}
-	if u, _ = svc.AddIssueComment(root, "o1", iss.ID, service.CommentInput{Text: "y"}); u.Comments[2].Author != "mcp" {
+	if u, _ = svc.AddIssueComment(root, "o1", iss.ID, service.CommentInput{Text: "y"}); u.Comments[2].Author != "root@x" {
 		t.Fatal(u.Comments[2])
 	}
 	if _, err := svc.AddIssueComment(alice, "o1", iss.ID, service.CommentInput{Text: "  "}); code(err) != 400 {
@@ -148,7 +146,7 @@ func TestAddIssueCommentAuthorAndChecks(t *testing.T) {
 
 // IssuePatch.Comments:一般成員只能新增(不能改、沒送的不會被刪),伺服器管理員整份取代
 func TestIssuePatchCommentsRules(t *testing.T) {
-	svc, root, _, alice, bob := issueEnv(t, store.NewMem())
+	svc, root, _, alice, bob := issueEnv(t, storetest.New(t))
 	iss, _ := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t"})
 	a, _ := svc.AddIssueComment(alice, "o1", iss.ID, service.CommentInput{Text: "alice 的留言"})
 
@@ -178,7 +176,7 @@ func TestIssuePatchCommentsRules(t *testing.T) {
 
 // 執行者留言走 AddIssueComment(不整份寫回),署名是角色
 func TestWorkerCommentUsesAddIssueComment(t *testing.T) {
-	cs := &countStore{Store: store.NewMem()}
+	cs := &countStore{Store: storetest.New(t)}
 	svc, _, boss, alice, _ := issueEnv(t, cs)
 	iss, _ := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t"})
 	tk, err := svc.AssignTask(boss, "o1", service.TaskInput{AgentID: "dev", Title: "做", Links: []string{iss.ID}})
@@ -204,9 +202,9 @@ func TestWorkerCommentUsesAddIssueComment(t *testing.T) {
 	}
 }
 
-// 一般修改(沒送 comments)不會整份寫回留言;刪角色時取消指派也不會
+// 一般修改(沒送 comments)不會整份寫回留言;刪角色時改指派也不會
 func TestUpdateIssueLeavesCommentsAlone(t *testing.T) {
-	cs := &countStore{Store: store.NewMem()}
+	cs := &countStore{Store: storetest.New(t)}
 	svc, _, boss, alice, _ := issueEnv(t, cs)
 	iss, _ := svc.CreateIssue(alice, "o1", service.IssueInput{Title: "t", Assignee: "dev"})
 	_, _ = svc.AddIssueComment(alice, "o1", iss.ID, service.CommentInput{Text: "留言"})
@@ -214,11 +212,18 @@ func TestUpdateIssueLeavesCommentsAlone(t *testing.T) {
 	if u, err := svc.UpdateIssue(alice, "o1", strings.ToLower(iss.ID), service.IssuePatch{Title: &title}); err != nil || u.Title != title || len(u.Comments) != 1 {
 		t.Fatalf("%+v %v", u, err)
 	}
-	if err := svc.DeleteAgent(boss, "o1", "dev"); err != nil {
+	// 名下有任務(指派 Issue 自動排的):要先轉移;Issue 的指派跟著改成目標角色
+	if err := svc.DeleteAgent(boss, "o1", "dev"); service.Code(err) != 409 {
+		t.Fatal("名下有任務不能直接刪", err)
+	}
+	if _, err := svc.SaveAgent(boss, "o1", model.Agent{ID: "ops", Name: "維運", Active: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteAgentTo(boss, "o1", "dev", "ops"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := svc.GetIssue(alice, "o1", iss.ID)
-	if got.Assignee != "" || len(got.Comments) != 1 {
+	if got.Assignee != "ops" || len(got.Comments) != 1 {
 		t.Fatalf("%+v", got)
 	}
 	if cs.fullWrites.Load() != 0 {
@@ -230,13 +235,15 @@ func TestUpdateIssueLeavesCommentsAlone(t *testing.T) {
 	}
 }
 
-// ImportIssuesWith Merge:可以重跑;沒有 id、重複 id 略過;已經有的略過或整筆取代;新的排在既有的後面
+// ImportIssuesWith Merge:可以重跑;id 重複略過;舊格式 id(ISS-n)當 key、發新的 UUID;沒有 id 的照樣新增;
+// 已經有的(id、key、舊 id 對得到)略過或整筆取代;新的排在既有的後面
 func TestImportIssuesMerge(t *testing.T) {
 	for name, st := range issueStores(t) {
 		t.Run(name, func(t *testing.T) {
 			svc, root, boss, alice, _ := issueEnv(t, st)
-			if _, err := svc.CreateIssue(boss, "o1", service.IssueInput{Title: "既有的"}); err != nil {
-				t.Fatal(err)
+			first, err := svc.CreateIssue(boss, "o1", service.IssueInput{Title: "既有的"})
+			if err != nil || first.Key != "ISS-1" {
+				t.Fatal(first, err)
 			}
 			list := []model.Issue{
 				{ID: "ISS-9", Title: "九", Labels: []string{" a ", "A", ""}, Comments: []model.Comment{{Author: "tim", Text: "嗨"}}},
@@ -251,25 +258,31 @@ func TestImportIssuesMerge(t *testing.T) {
 				t.Fatal("不是 Merge 時已經有 Issue 要 409", err)
 			}
 			r, err := svc.ImportIssuesWith(boss, "o1", list, service.IssueImportOptions{Merge: true})
-			if err != nil || r.Inserted != 1 || r.Updated != 0 || r.Skipped != 3 {
+			if err != nil || r.Inserted != 2 || r.Updated != 0 || r.Skipped != 2 {
 				t.Fatal(r, err)
 			}
 			got, _ := svc.ListIssues(root, "o1")
-			if len(got) != 2 || got[0].ID != "ISS-1" || got[0].Title != "既有的" || got[1].ID != "ISS-9" {
+			if len(got) != 3 || got[0].Key != "ISS-1" || got[0].ID != first.ID || got[0].Title != "既有的" ||
+				got[1].Key != "ISS-9" || got[2].Key != "ISS-10" || got[2].Title != "沒有 id" {
 				t.Fatalf("順序與略過:%+v", got)
+			}
+			for _, i := range got {
+				if !model.IsUUID(i.ID) {
+					t.Fatal("內部 id 要是 UUID", i.ID)
+				}
 			}
 			n := got[1]
 			if n.Status != "open" || n.Priority != "normal" || len(n.Labels) != 1 || n.Labels[0] != "a" || n.CreatedAt.IsZero() ||
 				len(n.Comments) != 1 || n.Comments[0].ID == "" || n.Comments[0].At.IsZero() {
 				t.Fatalf("預設值:%+v", n)
 			}
-			// 重跑不重複;Overwrite 整筆取代
+			// 重跑不重複(有 id 的對得到);Overwrite 整筆取代;沒有 id 也沒有 key 的每次都新增
 			r, err = svc.ImportIssuesWith(boss, "o1", list, service.IssueImportOptions{Merge: true, Overwrite: true})
-			if err != nil || r.Inserted != 0 || r.Updated != 2 || r.Skipped != 2 {
+			if err != nil || r.Inserted != 1 || r.Updated != 2 || r.Skipped != 1 {
 				t.Fatal(r, err)
 			}
 			got, _ = svc.ListIssues(root, "o1")
-			if len(got) != 2 || got[0].Title != "蓋過既有的" || got[1].Title != "九" {
+			if len(got) != 4 || got[0].Title != "蓋過既有的" || got[0].ID != first.ID || got[1].Title != "九" || got[1].Key != "ISS-9" {
 				t.Fatalf("覆蓋:%+v", got)
 			}
 		})

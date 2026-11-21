@@ -1,17 +1,23 @@
 package api_test
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"omixor-core/api"
 	"omixor-core/client"
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
+	"omixor-core/storetest/testdb"
 )
 
 // 假的 evoleap /api/me
@@ -37,12 +43,12 @@ func fakeEvoleap(t *testing.T) *httptest.Server {
 type env struct {
 	t   *testing.T
 	srv *httptest.Server
-	st  *store.Mem
+	st  *store.PG
 	svc *service.Service
 }
 
 func newEnv(t *testing.T) *env {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st, Evoleap: fakeEvoleap(t).URL, Bootstrap: "boss@example.com", TTL: 90 * 24 * time.Hour, LoginPerIP: 1000, LoginTotal: 1000}
 	srv := httptest.NewServer(api.New(svc).Handler())
 	t.Cleanup(srv.Close)
@@ -107,13 +113,16 @@ func TestOrgsMembersIssues(t *testing.T) {
 		t.Fatal("只有伺服器管理員能建組織", err)
 	}
 
+	if _, err := boss.SaveAgent("lab", model.Agent{ID: "ceo", Name: "執行長", Active: true}); err != nil {
+		t.Fatal(err)
+	}
 	// Issue:成員可以讀寫;作者一律是自己;伺服器管理員可以指定作者
 	i, err := bob.CreateIssue("lab", service.IssueInput{Title: "首頁壞了", Labels: []string{" a ", "A", "b"}, Author: "agent:ceo"})
-	if err != nil || i.ID != "ISS-1" || i.CreatedBy != "bob@example.com" || strings.Join(i.Labels, ",") != "a,b" || i.Priority != "normal" {
+	if err != nil || i.Key != "ISS-1" || i.CreatedBy != "bob@example.com" || strings.Join(i.Labels, ",") != "a,b" || i.Priority != "normal" {
 		t.Fatalf("%+v %v", i, err)
 	}
 	j, _ := boss.CreateIssue("lab", service.IssueInput{Title: "第二筆", Author: "agent:ceo", Priority: "high"})
-	if j.ID != "ISS-2" || j.CreatedBy != "agent:ceo" {
+	if j.Key != "ISS-2" || j.CreatedBy != "agent:ceo" {
 		t.Fatalf("%+v", j)
 	}
 	if _, err := bob.CreateIssue("lab", service.IssueInput{Title: "  "}); status(err) != 400 {
@@ -135,7 +144,7 @@ func TestOrgsMembersIssues(t *testing.T) {
 	if u2.Comments[0].Author != "bob@example.com" {
 		t.Fatal(u2.Comments[0])
 	}
-	if list, _ := bob.ListIssues("lab"); len(list) != 2 || list[0].ID != "ISS-2" {
+	if list, _ := bob.ListIssues("lab"); len(list) != 2 || list[0].Key != "ISS-2" {
 		t.Fatalf("新的在前:%+v", list)
 	}
 	// 沒有改到東西不更新時間
@@ -190,7 +199,7 @@ func TestOrgsMembersIssues(t *testing.T) {
 		t.Fatal(r, err)
 	}
 	got, _ := boss.ListIssues("lab2")
-	if got[0].ID != "ISS-1" || got[0].CreatedBy != "bob@example.com" || !got[0].CreatedAt.Equal(exp[0].CreatedAt.Time) {
+	if got[0].Key != "ISS-1" || got[0].ID != exp[0].ID || got[0].CreatedBy != "bob@example.com" || !got[0].CreatedAt.Equal(exp[0].CreatedAt.Time) {
 		t.Fatalf("匯入要保留 id、作者與時間:%+v", got[0])
 	}
 	if _, err := alice.ExportIssues("lab2"); status(err) != 403 {
@@ -253,19 +262,71 @@ func TestTokensLogoutAndRateLimit(t *testing.T) {
 	}
 }
 
+// PG 有外鍵:Issue 不可能沒有組織,所以「補建組織」永遠沒事可做
 func TestEnsureOrgsForIssues(t *testing.T) {
 	e := newEnv(t)
-	_, _ = e.st.ImportIssues("default", []model.Issue{{ID: "ISS-1", Title: "舊的", Status: "open", Priority: "normal"}})
+	if _, err := e.st.ImportIssues("default", []model.Issue{{ID: "ISS-1", Title: "舊的", Status: "open", Priority: "normal"}}); err == nil {
+		t.Fatal("沒有組織不能匯入 Issue")
+	}
 	if err := e.svc.EnsureOrgsForIssues(); err != nil {
 		t.Fatal(err)
 	}
-	o, err := e.st.GetOrg("default")
-	if err != nil || o.Name != "evoleap" {
-		t.Fatal(o, err)
+	if _, err := e.st.GetOrg("default"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("不該憑空建出組織:", err)
 	}
-	boss := e.login("evo-boss")
-	if l, _ := boss.ListIssues("default"); len(l) != 1 {
-		t.Fatal(l)
+}
+
+// 舊資料:Issue 還在、組織卻不在(外鍵還沒加上的老資料庫)。EnsureOrgsForIssues 要替有 Issue 的組織補建;default 的名稱是 evoleap。
+// 要拆外鍵(DDL),所以用 testdb.Blank 的全新資料庫,不用會被回收的範本
+func TestEnsureOrgsForIssuesRebuildsMissingOrg(t *testing.T) {
+	url := testdb.Blank(t)
+	st, err := store.NewPG(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.WaitFKValidate()
+	t.Cleanup(st.Close)
+	if err := st.CreateOrg(model.Org{ID: "default", Name: "舊名", CreatedAt: model.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateOrg(model.Org{ID: "lab", Name: "實驗室", CreatedAt: model.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, org := range []string{"default", "lab"} {
+		if _, err := st.ImportIssues(org, []model.Issue{{ID: "ISS-1", Title: "舊的", Status: "open", Priority: "normal", CreatedBy: "sys_omixor"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(ctx)
+	if _, err := c.Exec(ctx, `alter table ops_issues drop constraint fk_ops_issues_org`); err != nil {
+		t.Fatal(err)
+	}
+	// 只刪 default 組織(lab 還在)
+	if _, err := c.Exec(ctx, `delete from omixor_orgs where id = 'default'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetOrg("default"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("前置:default 應該已不在:%v", err)
+	}
+	svc := &service.Service{Store: st}
+	if err := svc.EnsureOrgsForIssues(); err != nil {
+		t.Fatal(err)
+	}
+	o, err := st.GetOrg("default")
+	if err != nil || o.Name != "evoleap" {
+		t.Fatalf("default 要補建成 evoleap:%+v %v", o, err)
+	}
+	if l, err := st.GetOrg("lab"); err != nil || l.Name != "實驗室" {
+		t.Fatalf("已存在的組織不能被動:%+v %v", l, err)
+	}
+	// 冪等
+	if err := svc.EnsureOrgsForIssues(); err != nil {
+		t.Fatal(err)
 	}
 }
 

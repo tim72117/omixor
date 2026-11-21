@@ -43,7 +43,8 @@ func serverState(v *service.ServerFeaturesView, key string) service.ServerFeatur
 
 // 系統層:任何登入者讀(角色憑證不行)、只有伺服器管理員改(組織管理員、成員不行);預設照 Edition;必要的不能關;reset
 func TestServerFeatures(t *testing.T) {
-	svc, _, boss, alice, _ := chainEnv(t)
+	svc, st, boss, alice, _ := chainEnv(t)
+	_ = st.SaveUser(model.User{ID: "root", Email: "root@x", Role: "admin", CreatedAt: model.Now()}) // 署名要對得到 actor
 	v, err := svc.GetServerFeatures(alice)
 	if err != nil || v.Saved || v.CanEdit || len(v.Features) != len(model.Features) {
 		t.Fatalf("沒存過全部預設、列全部功能:%+v %v", v, err)

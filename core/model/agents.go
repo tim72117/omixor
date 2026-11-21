@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -61,6 +60,9 @@ type Agent struct {
 	Role         string            `json:"role"`
 	Routines     []AgentRoutine    `json:"routines"`
 	Symbol       string            `json:"symbol"`
+	// ActorID 這個角色在 omixor_actors 的 actor id(agt_<uuidv7>;ISS-36 B-2c)。由 store 在 SaveAgent 時建立與維護,寫入時帶什麼都忽略;
+	// 讀出時還沒有 actor 的角色(id 格式不合 handle 規則的舊資料)是空字串
+	ActorID string `json:"actorId,omitempty"`
 }
 
 var weekdayNames = []string{"日", "一", "二", "三", "四", "五", "六"}
@@ -165,47 +167,39 @@ func (g Agent) Clone() Agent {
 
 type AgentTaskNote struct {
 	At     Time   `json:"at"`
-	Author string `json:"author"`
-	ID     string `json:"id"`
-	Text   string `json:"text"`
+	Author string `json:"author"` // store 與服務內部是 actor id;服務層出口(present)換成相容字串
+	// AuthorActor 作者的 actor 物件(ISS-36 C-3;服務層出口補)
+	AuthorActor *ActorView `json:"authorActor,omitempty"`
+	ID          string     `json:"id"`
+	Text        string     `json:"text"`
 }
 
 // AgentTask 角色的任務(id 是 T-<n>,一個組織內流水號)
 type AgentTask struct {
-	AgentID      string          `json:"agentId"`
-	ClaimedAt    *Time           `json:"claimedAt,omitempty"` // 最近一次領取(租約開始)的時間
-	ClaimedBy    string          `json:"claimedBy,omitempty"` // 領取者(email 或名稱,只供畫面顯示)
-	CompletedAt  *Time           `json:"completedAt,omitempty"`
-	CreatedAt    Time            `json:"createdAt"`
-	CreatedBy    string          `json:"createdBy"`
-	ID           string          `json:"id"`
-	Instructions string          `json:"instructions"`
-	Links        []string        `json:"links"`
-	LockedUntil  *Time           `json:"lockedUntil,omitempty"` // 領取租約的到期時間(進行中才有);鎖定期間不能被別人領取
-	Notes        []AgentTaskNote `json:"notes"`
-	Priority     string          `json:"priority"`
-	Result       string          `json:"result"`
-	RoutineID    *string         `json:"routineId,omitempty"`
-	Status       string          `json:"status"`
-	Title        string          `json:"title"`
-	UpdatedAt    Time            `json:"updatedAt"`
+	AgentID   string `json:"agentId"`
+	ClaimedAt *Time  `json:"claimedAt,omitempty"` // 最近一次領取(租約開始)的時間
+	ClaimedBy string `json:"claimedBy,omitempty"` // 領取者(store 內是 actor id;服務層出口是相容字串:email 或 agent:<handle>)
+	// ClaimedByActor、CreatedByActor 同名字串欄位旁邊的 actor 物件(ISS-36 C-3;服務層出口補)
+	ClaimedByActor *ActorView      `json:"claimedByActor,omitempty"`
+	CreatedByActor *ActorView      `json:"createdByActor,omitempty"`
+	CompletedAt    *Time           `json:"completedAt,omitempty"`
+	CreatedAt      Time            `json:"createdAt"`
+	CreatedBy      string          `json:"createdBy"` // 同上(actor id → 相容字串)
+	ID             string          `json:"id"`
+	Instructions   string          `json:"instructions"`
+	Links          []string        `json:"links"`
+	LockedUntil    *Time           `json:"lockedUntil,omitempty"` // 領取租約的到期時間(進行中才有);鎖定期間不能被別人領取
+	Notes          []AgentTaskNote `json:"notes"`
+	Priority       string          `json:"priority"`
+	Result         string          `json:"result"`
+	RoutineID      *string         `json:"routineId,omitempty"`
+	Status         string          `json:"status"`
+	Title          string          `json:"title"`
+	UpdatedAt      Time            `json:"updatedAt"`
 }
 
 // Number T-12 → 12(格式不對是 0)
-func (t AgentTask) Number() int {
-	rest, ok := strings.CutPrefix(strings.ToUpper(t.ID), "T-")
-	if !ok || rest == "" {
-		return 0
-	}
-	n := 0
-	for _, r := range rest {
-		if r < '0' || r > '9' {
-			return 0
-		}
-		n = n*10 + int(r-'0')
-	}
-	return n
-}
+func (t AgentTask) Number() int { return idNumber(t.ID, "T-") }
 
 // Clone 深拷貝
 func (t AgentTask) Clone() AgentTask {

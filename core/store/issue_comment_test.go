@@ -1,48 +1,13 @@
 package store
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
-	"time"
-
-	"github.com/jackc/pgx/v5"
 
 	"omixor-core/model"
 )
-
-// testPG 用 url 連 PostgreSQL,建一個暫時的 schema 給這個測試用,測完刪掉(一致性測試的 pg 實作用;見 conformance_test.go)
-func testPG(t *testing.T, url string) Store {
-	t.Helper()
-	ctx := context.Background()
-	schema := fmt.Sprintf("core_t_%d", time.Now().UnixNano())
-	c, err := pgx.Connect(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.Exec(ctx, "create schema "+schema); err != nil {
-		t.Fatal(err)
-	}
-	c.Close(ctx)
-	sep := "?"
-	if strings.Contains(url, "?") {
-		sep = "&"
-	}
-	p, err := NewPG(url + sep + "search_path=" + schema)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		p.Close()
-		if c, err := pgx.Connect(ctx, url); err == nil {
-			_, _ = c.Exec(ctx, "drop schema "+schema+" cascade")
-			c.Close(ctx)
-		}
-	})
-	return p
-}
 
 func newTestIssue(t *testing.T, s Store, org string) model.Issue {
 	t.Helper()
@@ -50,7 +15,7 @@ func newTestIssue(t *testing.T, s Store, org string) model.Issue {
 		t.Fatal(err)
 	}
 	at := mt("2026-01-02T03:04:05Z")
-	i, err := s.CreateIssue(org, model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "a@x",
+	i, err := s.CreateIssue(org, model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "sys_omixor",
 		CreatedAt: at, UpdatedAt: at, Labels: []string{}, Comments: []model.Comment{}})
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +34,7 @@ func suiteAddIssueCommentConcurrent(t *testing.T, impl storeImpl) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := s.AddIssueComment("o", iss.ID, model.Comment{ID: fmt.Sprintf("c%d", k), Author: "a@x",
+			_, err := s.AddIssueComment("o", iss.ID, model.Comment{ID: fmt.Sprintf("c%d", k), Author: "sys_omixor",
 				Text: fmt.Sprintf("第 %d 則", k), At: mt("2026-02-01T00:00:00Z")})
 			errs <- err
 		}()
@@ -109,7 +74,7 @@ func suiteIssueIDCaseInsensitive(t *testing.T, impl storeImpl) {
 	s := impl.open(t)
 	iss := newTestIssue(t, s, "o")
 	lower := strings.ToLower(iss.ID)
-	a, err := s.AddIssueComment("o", lower, model.Comment{ID: "c1", Author: "a@x", Text: "hi", At: mt("2026-02-01T00:00:00Z")})
+	a, err := s.AddIssueComment("o", lower, model.Comment{ID: "c1", Author: "sys_omixor", Text: "hi", At: mt("2026-02-01T00:00:00Z")})
 	if err != nil || a.ID != iss.ID || len(a.Comments) != 1 || a.Comments[0].Text != "hi" {
 		t.Fatal("AddIssueComment", a, err)
 	}
@@ -142,25 +107,5 @@ func suiteIssueIDCaseInsensitive(t *testing.T, impl storeImpl) {
 	}
 	if err := s.DeleteIssue("o", lower); err != ErrNotFound {
 		t.Fatal("再刪一次應該 ErrNotFound", err)
-	}
-}
-
-// File:附加的留言有存到磁碟
-func TestFileAddIssueCommentPersists(t *testing.T) {
-	dir := t.TempDir()
-	f, err := OpenFile(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	iss := newTestIssue(t, f, "o")
-	if _, err := f.AddIssueComment("o", iss.ID, model.Comment{ID: "c1", Author: "a@x", Text: "hi", At: model.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	g, err := OpenFile(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if i, err := g.GetIssue("o", iss.ID); err != nil || len(i.Comments) != 1 || i.Comments[0].Text != "hi" {
-		t.Fatal("重開後留言不見", i, err)
 	}
 }

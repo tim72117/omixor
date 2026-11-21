@@ -8,6 +8,21 @@
     "db"
   ],
   "commander": "tim@example.com",
+  "commanderActor": {
+    "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+    "kind": "user",
+    "handle": "tim@example.com",
+    "name": "Tim",
+    "email": "tim@example.com",
+    "status": "active"
+  },
+  "createdByActor": {
+    "id": "sys_legacy_mcp",
+    "kind": "system",
+    "handle": "legacy_mcp",
+    "name": "mcp",
+    "status": "active"
+  },
   "startedAt": "2026-11-05T03:00:00Z",
   "resolvedAt": "2026-11-05T04:30:00Z",
   "impact": "約 20% 請求逾時",
@@ -17,6 +32,13 @@
       "date": "2026-11-05T03:00:00Z",
       "actor": {
         "kind": "system"
+      },
+      "actorRef": {
+        "id": "sys_omixor",
+        "kind": "system",
+        "handle": "omixor",
+        "name": "omixor 系統",
+        "status": "active"
       },
       "kind": "alert",
       "text": "p95 延遲 \u003e 2s"
@@ -28,6 +50,14 @@
         "kind": "person",
         "id": "tim@example.com"
       },
+      "actorRef": {
+        "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+        "kind": "user",
+        "handle": "tim@example.com",
+        "name": "Tim",
+        "email": "tim@example.com",
+        "status": "active"
+      },
       "kind": "status",
       "text": "狀態改為「已找到原因」"
     },
@@ -37,6 +67,13 @@
       "actor": {
         "kind": "ai",
         "id": "mcp"
+      },
+      "actorRef": {
+        "id": "sys_legacy_mcp",
+        "kind": "system",
+        "handle": "legacy_mcp",
+        "name": "mcp",
+        "status": "active"
       },
       "kind": "aiFinding",
       "text": "連線池用滿"

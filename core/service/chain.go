@@ -40,93 +40,6 @@ type DelegateInput struct {
 	TaskID string `json:"taskId,omitempty"`
 }
 
-// chainNodes 組織目前存在的節點:角色(id → 角色)與成員(email 小寫 → 成員)
-type chainNodes struct {
-	agents  map[string]model.Agent
-	members map[string]model.Member
-}
-
-func (s *Service) loadChainNodes(org string) (*chainNodes, error) {
-	agents, err := s.Store.ListAgents(org)
-	if err != nil {
-		return nil, err
-	}
-	members, err := s.Store.ListMembers(org)
-	if err != nil {
-		return nil, err
-	}
-	n := &chainNodes{agents: map[string]model.Agent{}, members: map[string]model.Member{}}
-	for _, g := range agents {
-		n.agents[g.ID] = g
-	}
-	for _, m := range members {
-		if e := strings.ToLower(strings.TrimSpace(m.Email)); e != "" {
-			n.members[e] = m
-		}
-	}
-	return n, nil
-}
-
-func (n *chainNodes) exists(node string) bool {
-	if id, ok := strings.CutPrefix(node, model.AgentPrefix); ok {
-		_, has := n.agents[id]
-		return has
-	}
-	if e, ok := strings.CutPrefix(node, model.UserPrefix); ok {
-		_, has := n.members[e]
-		return has
-	}
-	return false
-}
-
-// name 節點的顯示名稱(角色名稱、成員 email)
-func (n *chainNodes) name(node string) string {
-	if id, ok := strings.CutPrefix(node, model.AgentPrefix); ok {
-		if g, has := n.agents[id]; has {
-			return g.Name
-		}
-		return id
-	}
-	if e, ok := strings.CutPrefix(node, model.UserPrefix); ok {
-		return e
-	}
-	return node
-}
-
-// resolve 把輸入的節點換成存起來的寫法:agent:<id 或名稱>(不分大小寫)→ agent:<角色 id>;user:<email> → user:<email 小寫>
-func (n *chainNodes) resolve(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if rest, ok := cutPrefixFold(raw, model.AgentPrefix); ok {
-		rest = strings.TrimSpace(rest)
-		for id := range n.agents {
-			if strings.EqualFold(id, rest) {
-				return model.AgentNode(id), nil
-			}
-		}
-		for id, g := range n.agents {
-			if g.Name == rest {
-				return model.AgentNode(id), nil
-			}
-		}
-		return "", fail(400, "組織鏈的節點 %s:找不到角色 %s", raw, rest)
-	}
-	if rest, ok := cutPrefixFold(raw, model.UserPrefix); ok {
-		e := strings.ToLower(strings.TrimSpace(rest))
-		if _, has := n.members[e]; !has {
-			return "", fail(400, "組織鏈的節點 %s:%s 不是組織成員", raw, e)
-		}
-		return model.UserNode(e), nil
-	}
-	return "", fail(400, "組織鏈的節點要寫成 agent:<角色 id> 或 user:<email>,不是 %q", raw)
-}
-
-func cutPrefixFold(s, prefix string) (string, bool) {
-	if len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix) {
-		return s[len(prefix):], true
-	}
-	return s, false
-}
-
 // liveChain 存著的組織鏈,拿掉指向已不存在節點的邊;沒存過是空的
 func (s *Service) liveChain(org string) (model.OrgChain, *chainNodes, error) {
 	n, err := s.loadChainNodes(org)
@@ -146,7 +59,7 @@ func (s *Service) liveChain(org string) (model.OrgChain, *chainNodes, error) {
 			out.Edges = append(out.Edges, e)
 		}
 	}
-	return out, n, nil
+	return out, n, nil // 邊的端點是 actor id;對外輸出用 presentChain 換成節點寫法
 }
 
 // GetChain 讀組織鏈(組織成員,含角色身分)
@@ -154,11 +67,11 @@ func (s *Service) GetChain(p *model.Principal, org string) (*model.OrgChain, err
 	if err := s.viewer(p, org); err != nil {
 		return nil, err
 	}
-	c, _, err := s.liveChain(org)
+	c, n, err := s.liveChain(org)
 	if err != nil {
 		return nil, err
 	}
-	return &c, nil
+	return s.presentChain(c, n)
 }
 
 // SaveChain 整份取代組織鏈(組織管理員)。節點會換成存起來的寫法(角色 id、email 小寫),label 去頭尾空白
@@ -178,11 +91,11 @@ func (s *Service) SaveChain(p *model.Principal, org string, edges []model.ChainE
 	out := []model.ChainEdge{}
 	seen := map[string]bool{}
 	for i, e := range edges {
-		from, err := n.resolve(e.From)
+		from, err := s.resolveNode(p, org, e.From, n, "", modeChain)
 		if err != nil {
 			return nil, err
 		}
-		to, err := n.resolve(e.To)
+		to, err := s.resolveNode(p, org, e.To, n, "", modeChain)
 		if err != nil {
 			return nil, err
 		}
@@ -213,14 +126,22 @@ func (s *Service) SaveChain(p *model.Principal, org string, edges []model.ChainE
 		return nil, err
 	}
 	s.Audit(p, "chain.save", org, map[string]any{"edges": len(out)})
-	return &c, nil
+	return s.presentChain(c, n)
 }
 
-// pruneChainNode 把和這個節點有關的邊從存檔拿掉(刪角色、移除成員時;失敗不影響原本的操作,讀取時也會過濾)
+// pruneChainNode 把和這個節點(actor id)有關的邊從存檔拿掉(刪角色、移除成員時;失敗不影響原本的操作,讀取時也會過濾)
 func (s *Service) pruneChainNode(org, node string) {
-	c, err := s.Store.GetOrgChain(org)
+	_ = s.pruneChainNodeOn(s.Store, org, node)
+}
+
+// pruneChainNodeOn 同 pruneChainNode,但在指定的 store(例如 Atomic 的 tx)上做,並回傳錯誤(沒存過組織鏈不是錯誤)
+func (s *Service) pruneChainNodeOn(st store.Store, org, node string) error {
+	c, err := st.GetOrgChain(org)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
 	if err != nil {
-		return
+		return err
 	}
 	kept := []model.ChainEdge{}
 	for _, e := range c.Edges {
@@ -229,17 +150,17 @@ func (s *Service) pruneChainNode(org, node string) {
 		}
 	}
 	if len(kept) == len(c.Edges) {
-		return
+		return nil
 	}
 	now := s.mt()
-	_ = s.Store.SaveOrgChain(org, model.OrgChain{Edges: kept, UpdatedAt: &now})
+	return st.SaveOrgChain(org, model.OrgChain{Edges: kept, UpdatedAt: &now})
 }
 
 // downstreamText 「可以派給:A(目標)、B(任務)」;沒有回空字串
 func downstreamText(c model.OrgChain, n *chainNodes, node string) string {
 	parts := []string{}
 	for _, e := range c.Downstream(node) {
-		if strings.HasPrefix(e.To, model.AgentPrefix) {
+		if n.isAgent(e.To) {
 			parts = append(parts, fmt.Sprintf("%s(%s)", n.name(e.To), e.LabelOrDefault()))
 		}
 	}
@@ -251,7 +172,42 @@ func chainDenied(c model.OrgChain, n *chainNodes, from, target string) error {
 	if can := downstreamText(c, n, from); can != "" {
 		return fail(403, "組織鏈上沒有 %s → %s 的邊,不能派工給 %s;依組織鏈可以派給:%s", n.name(from), n.name(target), n.name(target), can)
 	}
-	return fail(403, "組織鏈上沒有 %s 可以派工的角色(要組織管理員在組織鏈加上 %s → agent:<角色 id> 的邊)", n.name(from), from)
+	return fail(403, "組織鏈上沒有 %s 可以派工的角色(要組織管理員在組織鏈加上 %s → agent:<角色 id> 的邊)", n.name(from), n.node(from))
+}
+
+// checkIssueAssign 把 Issue 指派給角色時的組織鏈檢查(Issue 的 assignee 會自動替該角色排任務,等於派工,所以不能繞過組織鏈):
+//   - 組織還沒設定組織鏈(沒有任何邊):不檢查,維持原本誰都能指派的行為。
+//   - 有設定組織鏈:組織管理員不受限(和 AssignTask 一樣);一般成員要有 user:<自己> → agent:<目標> 的邊;
+//     角色身分(角色憑證)要有 agent:<自己> → agent:<目標> 的邊。沒有邊回 403,訊息說明可以指派給誰。
+//
+// assignee 是已經解析過的角色 actor id(resolveIssueAssignee 的結果)
+func (s *Service) checkIssueAssign(p *model.Principal, org, assignee string) error {
+	if strings.TrimSpace(assignee) == "" {
+		return nil
+	}
+	c, n, err := s.liveChain(org)
+	if err != nil {
+		return err
+	}
+	if len(c.Edges) == 0 {
+		return nil
+	}
+	if p.Agent == nil {
+		if role, err := s.orgRole(p, org); err != nil {
+			return err
+		} else if role == "admin" {
+			return nil
+		}
+	}
+	self, err := s.SelfActor(p) // 組織鏈的端點是 actor id:from = 呼叫者本人、to = 被指派角色的 actor id
+	if err != nil {
+		return err
+	}
+	from, to := self.ID, assignee
+	if _, ok := c.Edge(from, to); !ok {
+		return chainDenied(c, n, from, to)
+	}
+	return nil
 }
 
 // memberAssign 一般成員派工:鏈上要有 user:<自己> → agent:<目標>(呼叫端已確認不是組織管理員)。回傳要寫進任務說明的 label
@@ -260,10 +216,13 @@ func (s *Service) memberAssign(p *model.Principal, org string, g *model.Agent) (
 	if err != nil {
 		return "", err
 	}
-	me := model.UserNode(p.User.Email)
-	e, ok := c.Edge(me, model.AgentNode(g.ID))
-	if !ok || strings.TrimSpace(p.User.Email) == "" {
-		return "", chainDenied(c, n, me, model.AgentNode(g.ID))
+	me, err := s.selfActorID(org, p)
+	if err != nil {
+		return "", err
+	}
+	e, ok := c.Edge(me, n.agentActor(g.ID))
+	if !ok {
+		return "", chainDenied(c, n, me, n.agentActor(g.ID))
 	}
 	return e.Label, nil
 }
@@ -309,9 +268,10 @@ func (s *Service) DelegateTask(p *model.Principal, org string, in DelegateInput)
 	if err != nil {
 		return nil, err
 	}
-	e, ok := c.Edge(model.AgentNode(from), model.AgentNode(target.ID))
+	fromActor, toActor := n.agentActor(from), n.agentActor(target.ID)
+	e, ok := c.Edge(fromActor, toActor)
 	if !ok {
-		return nil, chainDenied(c, n, model.AgentNode(from), model.AgentNode(target.ID))
+		return nil, chainDenied(c, n, fromActor, toActor)
 	}
 	links := []string{}
 	if srcID != "" {
@@ -320,16 +280,16 @@ func (s *Service) DelegateTask(p *model.Principal, org string, in DelegateInput)
 			return nil, err
 		}
 		if src.AgentID != from {
-			return nil, fail(400, "來源任務 %s 不是 %s 的任務", src.ID, n.name(model.AgentNode(from)))
+			return nil, fail(400, "來源任務 %s 不是 %s 的任務", src.ID, n.name(fromActor))
 		}
 		links = append(append(links, src.ID), src.Links...)
 	}
-	t, err := s.insertTask(org, target, title, model.LabeledInstructions(e.Label, in.Instructions), in.Priority, model.AgentNode(from), links)
+	t, err := s.insertTask(org, target, title, model.LabeledInstructions(e.Label, in.Instructions), in.Priority, fromActor, links)
 	if err != nil {
 		return nil, err
 	}
 	s.Audit(p, "agent.task.delegate", org, map[string]any{"task": t.ID, "from": from, "agent": target.ID, "source": srcID})
-	return t, nil
+	return s.presentTask(t)
 }
 
 // WorkerDelegateInput 執行者委派:領取驗證碼 + 委派內容
@@ -358,29 +318,28 @@ func (s *Service) chainReport(p *model.Principal, org string, t *model.AgentTask
 	if t.Status != "done" && t.Status != "blocked" {
 		return
 	}
-	creator := model.NodeOfAuthor(t.CreatedBy)
-	if creator == "" {
+	creator := t.CreatedBy // 建立者的 actor id;人或角色才是鏈上節點(routine、chain、omixor 等系統 actor 不是)
+	if !strings.HasPrefix(creator, "usr_") && !strings.HasPrefix(creator, "agt_") {
 		return // routine、chain(檢視回報任務)、mcp 等不是鏈上節點:不回報,也就不會連鎖
 	}
 	c, n, err := s.liveChain(org)
 	if err != nil {
-		s.Audit(p, "chain.report.error", org, map[string]any{"task": t.ID, "error": err.Error()})
+		s.Audit(p, "chain.report.error", org, map[string]any{"task": t.ID, "error": auditErrText(err)})
 		return
 	}
-	if _, ok := c.Edge(creator, model.AgentNode(t.AgentID)); !ok {
+	if _, ok := c.Edge(creator, n.agentActor(t.AgentID)); !ok {
 		return
 	}
-	who := n.name(model.AgentNode(t.AgentID))
+	who := n.name(n.agentActor(t.AgentID))
 	text := ""
-	if id, ok := strings.CutPrefix(creator, model.AgentPrefix); ok {
-		g := n.agents[id]
+	if g, ok := n.byActor[creator]; ok { // 建立者是角色
 		all, err := s.Store.ListAgentTasks(org)
 		if err != nil {
-			s.Audit(p, "chain.report.error", org, map[string]any{"task": t.ID, "error": err.Error()})
+			s.Audit(p, "chain.report.error", org, map[string]any{"task": t.ID, "error": auditErrText(err)})
 			return
 		}
 		for _, x := range all { // 同一筆原任務已有未結束的檢視任務:不重複排
-			if x.AgentID == g.ID && x.CreatedBy == model.ChainAuthor && model.TaskIsOpen(x.Status) && len(x.Links) > 0 && strings.EqualFold(x.Links[0], t.ID) {
+			if x.AgentID == g.ID && x.CreatedBy == model.SystemActorChain && model.TaskIsOpen(x.Status) && len(x.Links) > 0 && strings.EqualFold(x.Links[0], t.ID) {
 				text = fmt.Sprintf("%s%s(已有未結束的檢視任務 %s)", model.ChainReportPrefix, g.Name, x.ID)
 				break
 			}
@@ -406,28 +365,28 @@ func (s *Service) chainReport(p *model.Principal, org string, t *model.AgentTask
 			}
 			fmt.Fprintf(&b, "\n\n用 agent_tasks(id: %s)看完整內容與備註;檢視後決定是否結案、補充說明或再委派,再回報這筆任務。", t.ID)
 			links := append([]string{t.ID}, t.Links...)
-			nt, err := s.insertTask(org, &g, "檢視回報:"+t.Title, b.String(), t.Priority, model.ChainAuthor, links)
+			nt, err := s.insertTask(org, &g, "檢視回報:"+t.Title, b.String(), t.Priority, model.SystemActorChain, links)
 			if err != nil {
-				s.Audit(p, "chain.report.error", org, map[string]any{"task": t.ID, "error": err.Error()})
+				s.Audit(p, "chain.report.error", org, map[string]any{"task": t.ID, "error": auditErrText(err)})
 				return
 			}
 			text = fmt.Sprintf("%s%s(%s)", model.ChainReportPrefix, g.Name, nt.ID)
 			s.Audit(p, "chain.report", org, map[string]any{"task": t.ID, "to": creator, "review": nt.ID})
 		}
 	} else {
-		text = model.ChainReportPrefix + strings.TrimPrefix(creator, model.UserPrefix)
+		text = model.ChainReportPrefix + n.name(creator)
 		s.Audit(p, "chain.report", org, map[string]any{"task": t.ID, "to": creator})
 	}
-	t.Notes = append(t.Notes, model.AgentTaskNote{ID: uuid(), Author: model.ChainAuthor, Text: text, At: s.mt()})
+	t.Notes = append(t.Notes, model.AgentTaskNote{ID: uuid(), Author: model.SystemActorChain, Text: text, At: s.mt()})
 	if err := s.Store.UpdateAgentTask(org, *t); err != nil {
-		s.Audit(p, "chain.report.error", org, map[string]any{"task": t.ID, "error": err.Error()})
+		s.Audit(p, "chain.report.error", org, map[string]any{"task": t.ID, "error": auditErrText(err)})
 	}
 }
 
 // reportedTo 任務有沒有「已回報給…」的備註(組織鏈回報過)
 func reportedTo(t model.AgentTask) bool {
 	for _, n := range t.Notes {
-		if n.Author == model.ChainAuthor && strings.HasPrefix(n.Text, model.ChainReportPrefix) {
+		if n.Author == model.SystemActorChain && strings.HasPrefix(n.Text, model.ChainReportPrefix) {
 			return true
 		}
 	}

@@ -43,9 +43,16 @@ type IssueQuery struct {
 	Repo string `json:"repo,omitempty"`
 	// Assignee 指派給這個角色 id 的(不分大小寫);IssueFilterNone = 沒指派的;"" = 全部
 	Assignee string `json:"assignee,omitempty"`
+	// Project 所屬專案:"" = 全部;IssueProjectNone("-",也接受 IssueFilterNone)= 只看組織層級的;PRJ-<n> = 只看那個專案(不分大小寫)
+	Project string `json:"project,omitempty"`
 	// Sort 排序方式,見 IssueSorts;"" = 不排序
 	Sort string `json:"sort,omitempty"`
+	// Deleted true = 列垃圾桶(已刪除的 Issue,組織管理員);false = 一般列表(不含已刪除的)。URL 參數 deleted=1
+	Deleted bool `json:"deleted,omitempty"`
 }
+
+// IssueProjectNone 篩選 Project 時代表「組織層級(不屬於任何專案)」的值
+const IssueProjectNone = "-"
 
 // Validate 檢查 Status、Priority、Sort 是不是認得的值;不對回傳錯誤訊息(空字串 = 沒問題)
 func (q IssueQuery) Validate() string {
@@ -62,7 +69,7 @@ func (q IssueQuery) Validate() string {
 }
 
 // issueQueryKeys URL query 參數名稱(同 JSON 欄位名稱)
-var issueQueryKeys = []string{"q", "status", "priority", "label", "repo", "assignee", "sort"}
+var issueQueryKeys = []string{"q", "status", "priority", "label", "repo", "assignee", "project", "sort"}
 
 func (q *IssueQuery) field(k string) *string {
 	switch k {
@@ -78,17 +85,23 @@ func (q *IssueQuery) field(k string) *string {
 		return &q.Repo
 	case "assignee":
 		return &q.Assignee
+	case "project":
+		return &q.Project
 	case "sort":
 		return &q.Sort
 	}
 	return nil
 }
 
-// ParseIssueQuery 從 URL query 讀(GET …/issues?q=&status=&priority=&label=&repo=&assignee=&sort=)
+// ParseIssueQuery 從 URL query 讀(GET …/issues?q=&status=&priority=&label=&repo=&assignee=&project=&sort=&deleted=1)
 func ParseIssueQuery(v url.Values) IssueQuery {
 	var q IssueQuery
 	for _, k := range issueQueryKeys {
 		*q.field(k) = v.Get(k)
+	}
+	switch strings.ToLower(strings.TrimSpace(v.Get("deleted"))) {
+	case "1", "true", "yes":
+		q.Deleted = true
 	}
 	return q
 }
@@ -100,6 +113,9 @@ func (q IssueQuery) Values() url.Values {
 		if s := *q.field(k); s != "" {
 			v.Set(k, s)
 		}
+	}
+	if q.Deleted {
+		v.Set("deleted", "1")
 	}
 	return v
 }
@@ -113,7 +129,7 @@ func IssueMatchesSearch(i Issue, words []string) bool {
 		return true
 	}
 	fields := make([]string, 0, 3+len(i.Labels)+len(i.Comments))
-	fields = append(fields, strings.ToLower(i.ID), strings.ToLower(i.Title), strings.ToLower(i.Body))
+	fields = append(fields, strings.ToLower(i.Key), strings.ToLower(i.ID), strings.ToLower(i.Title), strings.ToLower(i.Body))
 	for _, l := range i.Labels {
 		fields = append(fields, strings.ToLower(l))
 	}
@@ -155,6 +171,13 @@ func issueMatches(i Issue, q IssueQuery, words []string) bool {
 	} else if a != "" && !strings.EqualFold(strings.TrimSpace(i.Assignee), a) {
 		return false
 	}
+	if pr := strings.TrimSpace(q.Project); pr == IssueProjectNone || pr == IssueFilterNone {
+		if i.Project != "" {
+			return false
+		}
+	} else if pr != "" && !strings.EqualFold(i.Project, pr) {
+		return false
+	}
 	return IssueMatchesSearch(i, words)
 }
 
@@ -183,8 +206,11 @@ func IssuePriorityRank(p string) int {
 	return slices.Index(IssuePriorities, "normal")
 }
 
-// issueIDLess 編號小的在前(ISS-2 < ISS-10);沒有編號的排在有編號的後面,彼此依字串
+// issueIDLess 先依 key 的前綴(ISS、APP…),同前綴編號小的在前(ISS-2 < ISS-10);沒有編號的排在有編號的後面,彼此依字串
 func issueIDLess(a, b Issue) bool {
+	if pa, pb := IssueKeyPrefixOf(a.Display()), IssueKeyPrefixOf(b.Display()); pa != pb && pa != "" && pb != "" {
+		return pa < pb
+	}
 	na, nb := a.Number(), b.Number()
 	if (na == 0) != (nb == 0) {
 		return na != 0

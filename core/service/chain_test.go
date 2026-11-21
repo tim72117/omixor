@@ -7,12 +7,13 @@ import (
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 組織鏈測試用:組織 o1,管理員 boss、成員 alice、bob;角色 cto(研發長)、pm(產品經理)、designer(設計師)
-func chainEnv(t *testing.T) (*service.Service, *store.Mem, *model.Principal, *model.Principal, *model.Principal) {
+func chainEnv(t *testing.T) (*service.Service, *store.PG, *model.Principal, *model.Principal, *model.Principal) {
 	t.Helper()
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.CreateOrg(model.Org{ID: "o1", Name: "組織一", CreatedAt: now})
@@ -62,7 +63,7 @@ func TestChainValidate(t *testing.T) {
 		"不是組織成員": edges("user:stranger@x>agent:cto"),
 		"重複了":    edges("agent:cto>agent:pm", "agent:CTO>agent:pm>任務"),
 		"循環":     edges("agent:cto>agent:pm", "agent:pm>agent:designer", "agent:designer>agent:cto"),
-		"要寫成":    edges("cto>agent:pm"),
+		"要寫成":    edges("zzz>agent:pm"),
 	}
 	for want, e := range bad {
 		if _, err := svc.SaveChain(boss, "o1", e); code(err) != 400 || !strings.Contains(err.Error(), want) {
@@ -103,7 +104,7 @@ func TestChainMemberAssign(t *testing.T) {
 	}
 	// 成員:鏈上有邊才可以,label 寫進說明
 	tk, err := svc.AssignTask(alice, "o1", service.TaskInput{AgentID: "cto", Title: "Q4 目標", Instructions: "營收翻倍"})
-	if err != nil || tk.CreatedBy != "Alice@X" || tk.Instructions != "【目標】\n\n營收翻倍" {
+	if err != nil || tk.CreatedBy != "alice@x" || tk.Instructions != "【目標】\n\n營收翻倍" {
 		t.Fatalf("%+v %v", tk, err)
 	}
 	if _, err := svc.AssignTask(alice, "o1", service.TaskInput{AgentID: "pm", Title: "x"}); code(err) != 403 || !strings.Contains(err.Error(), "可以派給:研發長(目標)") {
@@ -178,7 +179,7 @@ func TestChainDelegateAndReport(t *testing.T) {
 	all, _ := st.ListAgentTasks("o1")
 	var review *model.AgentTask
 	for i := range all {
-		if all[i].CreatedBy == model.ChainAuthor {
+		if all[i].CreatedBy == model.SystemActorChain { // store 存 actor id
 			review = &all[i]
 		}
 	}
@@ -218,7 +219,7 @@ func TestChainDelegateAndReport(t *testing.T) {
 		t.Fatal("真人不建任務")
 	}
 	got, _ := st.GetAgentTask("o1", ta.ID)
-	if n := got.Notes[len(got.Notes)-1]; n.Author != "chain" || n.Text != "已回報給 alice@x" {
+	if n := got.Notes[len(got.Notes)-1]; n.Author != model.SystemActorChain || n.Text != "已回報給 alice@x" {
 		t.Fatalf("%+v", got.Notes)
 	}
 	mine, err := svc.ListAgentTasks(alice, "o1", service.TaskFilter{ReportTo: "me"})

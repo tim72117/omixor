@@ -42,13 +42,20 @@ type Backend interface {
 	UpdateIssue(org, id string, p service.IssuePatch) (*model.Issue, error)
 	// AddIssueComment 新增一則留言(只附加這一則,不會蓋掉同時進來的留言);author 只有伺服器管理員的有效
 	AddIssueComment(org, id, text, author string) (*model.Issue, error)
+	// DeleteIssue 丟進垃圾桶(軟刪除);RestoreIssue 拿回來、PurgeIssue 永久刪除(組織管理員)。垃圾桶列表用 QueryIssues 帶 Deleted
 	DeleteIssue(org, id string) error
+	RestoreIssue(org, id string) (*model.Issue, error)
+	PurgeIssue(org, id string) error
 
 	// 虛擬角色與任務(權限同 service/agents.go:管理角色與派任務要組織管理員)。實作在 agents.go
 	ListAgents(org string) ([]model.Agent, error)
 	GetAgent(org, id string) (*model.Agent, error) // id 或名稱
 	SaveAgent(org string, in model.Agent) (*model.Agent, error)
 	DeleteAgent(org, id string) error
+	// DeleteAgentTo 刪角色並先把名下任務轉給 transferTo(同一個交易);名下有任務而 transferTo 空 = 409(Error.Data 有各狀態的任務數)
+	DeleteAgentTo(org, id, transferTo string) error
+	// TransferAgentTasks 不刪角色的單獨轉移(組織管理員;scope all 全部 | open 只轉待領取與需要協助,空 = open)
+	TransferAgentTasks(org string, in service.AgentTransferInput) (*service.AgentTransferResult, error)
 	ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error)
 	GetAgentTask(org, id string) (*model.AgentTask, error)
 	AssignTask(org string, in service.TaskInput) (*model.AgentTask, error)
@@ -81,12 +88,12 @@ type Backend interface {
 	// 文件櫃(權限同 service/cabinet.go:成員讀寫文件、組織管理員改結構、角色身分依 docAccess)。實作在 cabinet.go
 	// GetCabinet 結構與文件(新的在前);組織沒存過結構時是空白結構(LayoutSaved = false)
 	GetCabinet(org string) (*model.Cabinet, error)
-	SaveCabinetLayout(org string, layout []model.CabinetSection) ([]model.CabinetSection, error)
+	SaveCabinetLayout(org string, layout []model.CabinetSection, expectedVersion *int64) ([]model.CabinetSection, error)
 	// ImportCabinet 第一次搬資料用(組織管理員)
 	ImportCabinet(org string, in service.CabinetImport) (*service.CabinetImportResult, error)
 	// GetProjectCabinet、SaveProjectCabinetLayout 指定專案(空 = 未分專案,同 GetCabinet、SaveCabinetLayout;不存在的專案 404)
 	GetProjectCabinet(org, project string) (*model.Cabinet, error)
-	SaveProjectCabinetLayout(org, project string, layout []model.CabinetSection) ([]model.CabinetSection, error)
+	SaveProjectCabinetLayout(org, project string, layout []model.CabinetSection, expectedVersion *int64) ([]model.CabinetSection, error)
 	GetDoc(org, id string) (*model.CabinetDoc, error) // 不分大小寫
 	// CreateDoc in.Project 是放進的專案(空 = 未分專案);UpdateDoc p.Project 有給就是搬到那個專案
 	CreateDoc(org string, in service.DocInput) (*model.CabinetDoc, error)
@@ -187,7 +194,11 @@ func (Unsupported) UpdateIssue(string, string, service.IssuePatch) (*model.Issue
 func (Unsupported) AddIssueComment(string, string, string, string) (*model.Issue, error) {
 	return nil, errUnsupported
 }
-func (Unsupported) DeleteIssue(string, string) error              { return errUnsupported }
+func (Unsupported) DeleteIssue(string, string) error { return errUnsupported }
+func (Unsupported) RestoreIssue(string, string) (*model.Issue, error) {
+	return nil, errUnsupported
+}
+func (Unsupported) PurgeIssue(string, string) error               { return errUnsupported }
 func (Unsupported) SaveAttachment(string, []byte) (string, error) { return "", errUnsupported }
 func (Unsupported) GetAttachment(string, string) ([]byte, string, error) {
 	return nil, "", errUnsupported

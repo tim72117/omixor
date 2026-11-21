@@ -11,16 +11,11 @@ make build      # 先 npm run build 建畫面,再把它包進 Go 執行檔
 
 環境變數以前叫 `OPS_*`(例如 `OPS_DATA_DIR`、`OPS_DATABASE_URL`),舊名稱仍然讀得到(新名稱沒設時才讀,啟動時 log 提醒改名),新的設定請用下表的名稱。
 
-| 環境變數 | 預設 | 說明 |
-|---|---|---|
-| `OMIXOR_MCP_PORT` | 3765 | MCP 連接埠(和 Swift 版相同;兩個同時開時給其中一個換埠) |
-| `OMIXOR_WEB_PORT` | 5191 | 畫面與 API 的連接埠 |
-| `OMIXOR_CONSOLE_DATA_DIR`(舊 `OPS_DATA_DIR`) | `~/Library/Application Support/omixor-console` | 資料夾。以前的預設是 `…/OpsWeb`:沒設環境變數、新資料夾不存在時,啟動會把舊資料夾改名成新的(改名失敗就繼續用舊的)。檔案格式和 Swift 版相同,可以指到 macOS App 的 `~/Library/Application Support/Ops` 共用資料,但兩個 app 不要同時開著改同一份。不叫 `OMIXOR_DATA_DIR` 是因為那個名稱是 omixor-local(核心守護服務)的資料夾 |
-| `OMIXOR_NO_BROWSER` | | 設了就不自動開瀏覽器 |
-| `OMIXOR_NO_TIMERS` | | 設了就不開計時器(測試用) |
-| `OMIXOR_DATABASE_URL` | | PostgreSQL 連線網址;設了就存資料庫 |
-| `OMIXOR_SECRET_KEY` | | 用資料庫時必填:base64 的 32 bytes,加密 token 與密碼 |
-| `OMIXOR_MCP_ADDR` | 127.0.0.1 | MCP 聽的位址(Docker 裡設 0.0.0.0,連接埠只發布到主機的 127.0.0.1) |
+所有環境變數(名稱、舊名稱、型別、預設、說明、是否機密)集中定義在 [`core/config`](../core/config/vars.go),完整列表見 [docs/configuration.md](../docs/configuration.md),`omixor-web -h` 也會列出。常用的:`OMIXOR_WEB_PORT`、`OMIXOR_MCP_PORT`、`OMIXOR_CONSOLE_DATA_DIR`、`OMIXOR_DATABASE_URL` + `OMIXOR_SECRET_KEY`(存資料庫)、`OMIXOR_NO_BROWSER`、`OMIXOR_MCP_ADDR`。
+
+`OMIXOR_CONSOLE_DATA_DIR` 的預設是 `~/Library/Application Support/omixor-console`。以前的預設是 `…/OpsWeb`:沒設環境變數、新資料夾不存在時,啟動會把舊資料夾改名成新的(改名失敗就繼續用舊的)。檔案格式和 Swift 版相同,可以指到 macOS App 的 `~/Library/Application Support/Ops` 共用資料,但兩個 app 不要同時開著改同一份。不叫 `OMIXOR_DATA_DIR` 是因為那個名稱是 omixor-local(核心守護服務)的資料夾。
+
+啟動時環境變數會一次驗證(型別、範圍、互斥),有問題用中文一次列完再結束;機密(`OMIXOR_SECRET_KEY`、各種 token、密碼、資料庫網址裡的密碼)不會出現在日誌或錯誤訊息。
 
 ## PostgreSQL 與 Docker
 
@@ -66,14 +61,7 @@ docker compose up -d --build
 - 設定錯了進不去:用 `OMIXOR_AUTH=off` 啟動回到本機模式。
 - **MCP 不受影響**:和 Swift 版一樣只聽 127.0.0.1、不用登入(規格要一模一樣),所以 MCP 用戶端要在同一台電腦上。
 
-| 環境變數 | 說明 |
-|---|---|
-| `OMIXOR_WEB_ADDR` | 畫面聽的位址,例如 `0.0.0.0:5191`;不是本機位址時必須先啟用 LDAP |
-| `OMIXOR_WEB_HOSTS` | 允許的主機名稱(逗號分隔),反向代理的網域要列在這裡 |
-| `OMIXOR_AUTH=off` | 暫時關掉登入 |
-| `OMIXOR_LDAP_BIND_PASSWORD` | 服務帳號密碼改從環境變數讀(不想用鑰匙圈時) |
-| `OMIXOR_API_TOKEN` | `/api/issues/` 可以用的 Bearer token(給 macOS App 的「Issue 伺服器」) |
-| `OMIXOR_SERVER` / `OMIXOR_SERVER_TOKEN` | 遠端模式的 omixor server 網址與固定 token(舊名稱 `OPS_ISSUE_SERVER` / `OPS_ISSUE_SERVER_TOKEN`) |
+對外開放相關的變數(`OMIXOR_WEB_ADDR`、`OMIXOR_WEB_HOSTS`、`OMIXOR_AUTH=off`、`OMIXOR_LDAP_BIND_PASSWORD`、`OMIXOR_API_TOKEN`、`OMIXOR_SERVER` / `OMIXOR_SERVER_TOKEN`)的說明見 [docs/configuration.md](../docs/configuration.md)。
 
 鑰匙圈服務名稱是 `com.tim72117.omixor-console.connection`(以前是 `com.tim72117.ops-web.connection`:新名稱讀不到時讀舊的,讀到就寫一份到新名稱)。
 本機模式的身分是 `omixor-console`(以前是 `ops-web`):連本機 PostgreSQL 時,啟動會把核心資料裡的 `ops-web`(任務領取者、頻道成員、建立者…)改成新身分,可以重跑,失敗不影響啟動。
@@ -81,6 +69,29 @@ docker compose up -d --build
 開發畫面:`./bin/omixor-web` 開著,另外 `cd ui && npm run dev`(http://127.0.0.1:5173,`/api` 轉給 5191)。
 
 只支援 stdio 的 MCP 用戶端用 `bin/omixor-mcp`(同 Swift 版的 omixor-mcp,`OMIXOR_MCP_URL` / `OMIXOR_MCP_PORT` 指定位址)。
+
+## MCP 驗證(權杖)
+
+console 的 MCP 連接埠(預設 `127.0.0.1:3765`)**一律要驗證**:`/mcp`、`/mcp/worker` 與其餘所有路徑都要帶 `Authorization: Bearer <權杖>`,
+沒帶或不符回 401(`WWW-Authenticate: Bearer realm="omixor"`),同一來源失敗太多次回 429;沒有「本機免驗證」的例外。`/mcp/agent` 不受影響(照舊驗角色憑證)。
+
+- **權杖是什麼**:`omxm_` 加 32 位元組隨機。console 第一次啟動時產生,之後沿用(不寫進 log)。`OMIXOR_CONSOLE_MCP_TOKEN`(至少 32 字元、不能含空白或換行)有設就以它為準(Docker、自動化用,設了之後畫面不能換新);有設但無效時 console 與 omixor-mcp 會拒絕啟動並說明,不會悄悄改用別把。
+- **存在哪**:有資料庫時存在加密的機密表(`ops_secrets`,用 `OMIXOR_SECRET_KEY` 加密),並鏡射一份到 console 資料夾的 `mcp_token`(權限 0600,給同一台機器上的 `omixor-mcp` 讀);沒有資料庫時只存 `mcp_token`。
+- **怎麼取得**:管理員呼叫 action `mcp_token_reveal`(完整權杖,動態牆會記「查看了 MCP 權杖」);`mcp_access` view 只回遮罩的 `tokenHint`(`omxm_…` 加最後 4 碼)、`tokenSet`、範例指令。也可以直接讀 console 資料夾的 `mcp_token`(本機單人模式)。
+  `mcp_token_rotate` 換新權杖,舊的立刻失效(環境變數指定的不能換)。啟用 LDAP 時這兩個 action 只有 web 管理員能用;沒啟用登入的本機單人模式,web 使用者就是本機管理員。
+- **Claude Code(或其他支援 HTTP 的用戶端)**:
+
+  ```bash
+  claude mcp add --transport http omixor http://127.0.0.1:3765/mcp --header "Authorization: Bearer <TOKEN>"
+  ```
+
+  其他用戶端的 JSON 設定同理:`{"type":"http","url":"http://127.0.0.1:3765/mcp","headers":{"Authorization":"Bearer <TOKEN>"}}`。這份設定含權杖,不要提交到 git。
+  已經連過的人:原本的設定要補上 `--header`(`claude mcp remove omixor` 後重新 add),否則會收到 401。
+- **omixor-mcp**(stdio 轉接、`--channel`、`--init-worker`)自己帶權杖,來源優先序:`OMIXOR_CONSOLE_MCP_TOKEN` 環境變數 → console 資料夾的 `mcp_token`;兩處都讀不到會報錯並說明怎麼取得,不會無驗證硬連。
+  `--init-worker` 產生的 `.mcp.json` 含權杖(權限 0600),資料夾在 git repo 裡時會自動加進該資料夾的 `.gitignore`,請不要提交。
+- **Docker**:`.env` 設 `OMIXOR_CONSOLE_MCP_TOKEN=omxm_…`(`openssl rand -hex 24` 產生後加前綴),compose 會傳進容器;不設的話用畫面的 MCP 設定查看,或 `docker compose exec omixor-web cat <資料夾>/mcp_token`。
+- 目前是**一把共享權杖**:持有者都是同一個身分(本機管理員),寫入的署名仍是 `MCP 用戶端`。每人各一把、署名成本機使用者隨 ISS-36。
+- conformance:`conformance/run_go.sh` 啟動的 Go 版有自己的權杖(存在它的資料夾),`compare.py` 加 `--go-data-dir <資料夾>` 或設 `OMIXOR_CONSOLE_MCP_TOKEN` 帶上。
 
 ## 任務執行者(Claude Code 自動領任務)
 
@@ -104,9 +115,7 @@ repo 最外層的 `office3d/`(three.js 檢視器)由 console 的畫面連接埠�
 **後端下命令、瀏覽器(檢視器)負責尋路與走路**,抵達後回報後端。程式在 `internal/office/`(Hub、命令解析、靜態檔)、
 `internal/web/office.go`(HTTP)、`internal/mcp/tools_office.go`(MCP)。
 
-| 環境變數 | 預設 | 說明 |
-|---|---|---|
-| `OMIXOR_OFFICE_DIR` | 依序找 `<執行檔>/../../office3d`、`<執行檔>/../office3d`、`<執行檔>/office3d`、`<工作目錄>/office3d`、`<工作目錄>/../office3d` | 有 `places.json` 才算找到。找不到只記 log:`/office/` 回 404、`/api/office/command` 回 503,console 照常啟動 |
+`OMIXOR_OFFICE_DIR`(設定表見 [docs/configuration.md](../docs/configuration.md))指定 office3d 資料夾,沒設時依序找 `<執行檔>/../../office3d`、`<執行檔>/../office3d`、`<執行檔>/office3d`、`<工作目錄>/office3d`、`<工作目錄>/../office3d`;有 `places.json` 才算找到。找不到只記 log:`/office/` 回 404、`/api/office/command` 回 503,console 照常啟動。
 
 - 靜態檔每次從磁碟讀(不嵌進執行檔),只開放白名單:`office.glb`、`characters.glb`、`navgrid.json`、`places.json`、`viewer/index.html`、`viewer/js/<名稱>.js`;其他(.blend、.py、renders…)一律 404。用 `os.Root` 讀,`..` 與指到外面的符號連結都出不去。`/office/` 轉到 `/office/viewer/`。
 - `/api/office/…` 和其他 `/api` 一樣經過本機 Host / Origin 檢查、POST 要 `Content-Type: application/json`、啟用 LDAP 時要登入。
@@ -139,6 +148,7 @@ repo 最外層的 `office3d/`(three.js 檢視器)由 console 的畫面連接埠�
   (`python3 spec/dump_spec.py`,會濾掉核心工具)。Swift 版改了自己的工具就重新匯出;web 自己的工具不能和核心工具同名(`internal/mcp/spec_test.go` 擋)。
 - 範本(文件櫃結構、示範資料、文件轉換器)在 repo 最外層的 `../templates/`,預設不載入;要用就設 `OMIXOR_TEMPLATES=1`(或指定資料夾),執行時才從磁碟讀,不編進執行檔。示範資料載入時時間平移到現在。細節見 `../templates/README.md`。
 - 傳輸同 Swift 版:只聽 127.0.0.1、POST /mcp、通知回 202、GET/DELETE 回 405、帶非本機 Origin 回 403、不接受 chunked、body 上限 4 MB、Connection: close。
+  (Go 版比 Swift 版多一道驗證:要 Bearer 權杖,見上面「MCP 驗證」;Swift 版沒有。)
 - `conformance/`:同一串呼叫送給兩個版本比對回應(見 `docs/PORTING.md`)。
 
 ## 程式結構

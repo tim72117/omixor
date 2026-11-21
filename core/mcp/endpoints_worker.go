@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"omixor-core/backend"
+	"omixor-core/httperr"
 	"omixor-core/service"
 )
 
@@ -49,7 +50,7 @@ func WorkerEndpoint(cfg WorkerEndpointConfig) http.Handler {
 		bk, org, err := cfg.Resolve(r)
 		if err != nil {
 			if c := service.Code(err); c == 403 || c == 404 || c == 429 {
-				http.Error(w, err.Error(), c)
+				http.Error(w, httperr.Report("mcp 端點解析身分", err).Msg, c)
 				return
 			}
 			unauthorized(w, "omixor")

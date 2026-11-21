@@ -126,6 +126,8 @@ func registerIncidentQuery(s *Server) {
 			m := map[string]any{"id": i.ID, "title": i.Title, "sev": i.Sev, "status": i.Status, "services": i.Services,
 				"commander": i.Commander, "startedAt": iso(i.StartedAt.Time), "impact": i.Impact, "followUps": i.FollowUps,
 				"timelineCount": len(i.Timeline)}
+			putActor(m, "commanderActor", i.CommanderActor)
+			putActor(m, "createdByActor", i.CreatedByActor)
 			if i.ResolvedAt != nil {
 				m["resolvedAt"] = iso(i.ResolvedAt.Time)
 			}

@@ -268,7 +268,7 @@ func FBSend(method, rawURL, token string, body []byte, contentType string) (map[
 	}
 	r, err := connSend(nil, method, rawURL, headers, body)
 	if err != nil {
-		return nil, fbErr("連不上 Facebook:" + err.Error())
+		return nil, fbErr("連不上 Facebook:" + netReason(err))
 	}
 	return fbCheck(r)
 }

@@ -7,11 +7,12 @@ import (
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
-func templateEnv(t *testing.T) (*service.Service, *store.Mem, *model.Principal, *model.Principal) {
+func templateEnv(t *testing.T) (*service.Service, *store.PG, *model.Principal, *model.Principal) {
 	t.Helper()
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.CreateOrg(model.Org{ID: "home", Name: "測試家庭", CreatedAt: now})

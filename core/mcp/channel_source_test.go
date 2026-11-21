@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -104,5 +105,42 @@ func TestMCPTasksTruncated(t *testing.T) {
 	l, err := (&mcp.MCPTasks{URL: srv.URL}).ListAgentTasks("", service.TaskFilter{Status: "queued"})
 	if err != nil || len(l) != 3 {
 		t.Fatalf("要拿到全部 3 筆:%+v %v(呼叫 %v)", l, err, calls)
+	}
+}
+
+// TokenFunc 每次請求前取權杖(優先於 Token),換新權杖後不用重開;讀不到(錯誤或空字串)就不送請求,下一輪恢復後照常送
+func TestMCPTasksTokenFunc(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Get("Authorization"))
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1,
+			"result": map[string]any{"content": []any{map[string]any{"type": "text", "text": `{"current":"lab"}`}}}})
+	}))
+	defer srv.Close()
+	tok := "first"
+	var tokErr error
+	m := &mcp.MCPTasks{URL: srv.URL, Token: "ignored", TokenFunc: func() (string, error) { return tok, tokErr }}
+	if _, err := m.CurrentOrg(); err != nil {
+		t.Fatal(err)
+	}
+	tok = "second"
+	_, _ = m.CurrentOrg()
+	tok = ""
+	if _, err := m.CurrentOrg(); err == nil {
+		t.Fatal("空權杖要回錯誤")
+	}
+	tok, tokErr = "third", errors.New("檔案讀不到")
+	if _, err := m.CurrentOrg(); err == nil {
+		t.Fatal("讀權杖出錯要回錯誤")
+	}
+	if len(got) != 2 {
+		t.Fatalf("讀不到權杖時不能送請求(含沒帶 Authorization 的):%q", got)
+	}
+	tok, tokErr = "third", nil
+	if _, err := m.CurrentOrg(); err != nil {
+		t.Fatalf("下一輪恢復要照常送:%v", err)
+	}
+	if len(got) != 3 || got[0] != "Bearer first" || got[1] != "Bearer second" || got[2] != "Bearer third" {
+		t.Fatalf("Authorization 標頭:%q", got)
 	}
 }

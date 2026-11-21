@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"omixor-core/env"
+	"omixor-core/config"
 )
 
 // 資料夾:OMIXOR_CONSOLE_DATA_DIR(舊名稱 OPS_DATA_DIR 仍相容),沒設就是 ~/Library/Application Support/omixor-console。
@@ -31,7 +31,7 @@ var (
 
 // DataRoot 回傳資料夾(不存在就建立)
 func DataRoot() string {
-	dir := env.Get("OMIXOR_CONSOLE_DATA_DIR", "OPS_DATA_DIR")
+	dir := config.Current().Str(config.ConsoleDataDir)
 	if dir == "" {
 		dir = defaultDataRoot()
 	}

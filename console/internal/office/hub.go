@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"omixor-core/model"
 )
 
 // 命令狀態(每個角色各有一個,命令的 status 是整理過的)
@@ -552,22 +554,12 @@ func (h *Hub) refreshLocked(c *Command, now time.Time) {
 		c.Status = StatusArrived
 	}
 	if len(errs) > 0 {
-		c.Error = strings.Join(uniq(errs), ";")
+		c.Error = strings.Join(model.DedupExact(errs), ";")
 	}
 	c.UpdatedAt = ts(now)
 	if terminal(c.Status) && c.FinishedAt == "" && c.Status != StatusNoViewer {
 		c.FinishedAt = ts(now)
 	}
-}
-
-func uniq(list []string) []string {
-	out := []string{}
-	for _, s := range list {
-		if !contains(out, s) {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func mustJSON(v any) []byte {

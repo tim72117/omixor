@@ -119,7 +119,7 @@ func ReadAttachment(a *App, id string) ([]byte, string, error) {
 }
 
 func attachmentWrite(orgDir, id string, data []byte) error {
-	if pgPool == nil {
+	if pgPool() == nil {
 		return writeFileAtomic(filepath.Join(orgDir, "attachments", id), data)
 	}
 	k, ok := attachmentKey(orgDir, id)
@@ -128,12 +128,12 @@ func attachmentWrite(orgDir, id string, data []byte) error {
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgPool.Exec(ctx, `insert into ops_files (path, data) values ($1, $2) on conflict (path) do nothing`, k, data)
+	_, err := pgExec(ctx, `insert into ops_files (path, data) values ($1, $2) on conflict (path) do nothing`, k, data)
 	return err
 }
 
 func attachmentRead(orgDir, id string) ([]byte, error) {
-	if pgPool == nil {
+	if pgPool() == nil {
 		return os.ReadFile(filepath.Join(orgDir, "attachments", id))
 	}
 	k, ok := attachmentKey(orgDir, id)
@@ -143,7 +143,7 @@ func attachmentRead(orgDir, id string) ([]byte, error) {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var b []byte
-	err := pgPool.QueryRow(ctx, `select data from ops_files where path = $1`, k).Scan(&b)
+	err := pgQueryRow(ctx, `select data from ops_files where path = $1`, k).Scan(&b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fs.ErrNotExist
 	}
@@ -151,7 +151,7 @@ func attachmentRead(orgDir, id string) ([]byte, error) {
 }
 
 func attachmentExists(orgDir, id string) bool {
-	if pgPool == nil {
+	if pgPool() == nil {
 		_, err := os.Stat(filepath.Join(orgDir, "attachments", id))
 		return err == nil
 	}
@@ -162,6 +162,6 @@ func attachmentExists(orgDir, id string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var n int
-	_ = pgPool.QueryRow(ctx, `select count(*) from ops_files where path = $1`, k).Scan(&n)
+	_ = pgQueryRow(ctx, `select count(*) from ops_files where path = $1`, k).Scan(&n)
 	return n > 0
 }

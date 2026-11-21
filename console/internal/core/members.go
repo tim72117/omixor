@@ -7,7 +7,7 @@ import (
 )
 
 // 組織成員:接核心的成員功能(角色 admin、member)。
-// 本機模式以 localPrincipal(伺服器管理員)呼叫核心的 service;遠端模式用 remoteClient 呼叫 omixor server,
+// 本機模式以 本機使用者(l.P,伺服器管理員)呼叫核心的 service;遠端模式用 remoteClient 呼叫 omixor server,
 // 權限由伺服器判斷,錯誤訊息原樣傳給畫面。
 
 // MembersView 成員視圖
@@ -54,7 +54,7 @@ func (a *App) membersView() MembersView {
 		return v
 	}
 	ensureLocalOrg(l, org)
-	list, err := l.Svc.ListMembers(localPrincipal, org)
+	list, err := l.Svc.ListMembers(l.P, org)
 	if err != nil {
 		v.Error = err.Error()
 		return v
@@ -99,7 +99,7 @@ func init() {
 				return nil, errNoDB
 			}
 			ensureLocalOrg(l, org)
-			m, err = l.Svc.SaveMember(localPrincipal, org, email, role)
+			m, err = l.Svc.SaveMember(l.P, org, email, role)
 		}
 		if err != nil {
 			return nil, err
@@ -123,7 +123,7 @@ func init() {
 				return nil, errNoDB
 			}
 			ensureLocalOrg(l, org)
-			err = l.Svc.RemoveMember(localPrincipal, org, email)
+			err = l.Svc.RemoveMember(l.P, org, email)
 		}
 		if err != nil {
 			return nil, err

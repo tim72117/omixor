@@ -9,7 +9,12 @@ import {
   type Agent, type AgentTask, type CabinetDoc, type CabinetSection, type Channel, type ChannelMessage, type ChannelPage,
   type Incident, type OrgChain, type Project,
 } from "../src/components/models.ts";
-import type { Issue } from "../src/sections/development/DevIssuesTab";
+import {
+  conflictCurrent, draftChanges, draftDiff, draftOf, findIssue, isIssueRef, isVersionConflict, issueKey, issueRefLabel, mergeLatest,
+  projectHasIssues, projectKeyProblem, cleanProjectKey, type Issue,
+} from "../src/sections/development/issueModel.ts";
+import { ApiError, unwrapPost } from "../src/api.ts";
+import type { ActorView } from "../src/types.ts";
 
 const dir = new URL("../../../core/model/testdata/contract/", import.meta.url);
 const load = <T,>(name: string): T => JSON.parse(readFileSync(new URL(name, dir), "utf8")) as T;
@@ -26,8 +31,12 @@ function has(obj: object, keys: string[], what: string) {
 
 test("Issue(開發 › Issue)", () => {
   const list = arr<Issue>(load("issue_list.json"));
-  assert.deepEqual(list.map((i) => i.id), ["ISS-12", "ISS-3"]);
+  assert.deepEqual(list.map(issueKey), ["APP-12", "ISS-3"]); // 顯示用 key;id 是內部 UUIDv7
   const i = load<Issue>("issue.json");
+  has(i, ["key", "project", "number", "version"], "issue");
+  assert.equal(issueKey(i), "APP-12");
+  assert.equal(i.project, "PRJ-1");
+  assert.equal(typeof i.version, "number");
   has(i, ["id", "title", "body", "status", "priority", "labels", "source", "link", "createdBy", "createdAt", "updatedAt", "comments", "repo", "assignee", "closedAt"], "issue");
   assert.equal(i.status, "closed");
   assert.equal(PRIORITY_LABEL[i.priority], "高");
@@ -141,7 +150,7 @@ test("文件櫃", () => {
 
 test("專案與專案的文件櫃", () => {
   const p = load<Project>("project.json");
-  has(p, ["id", "name", "description", "createdAt", "updatedAt"], "project");
+  has(p, ["id", "name", "key", "description", "createdAt", "updatedAt"], "project");
   assert.ok(/^PRJ-\d+$/.test(p.id), `project.id 應該是 PRJ-<n>:${p.id}`);
   isTime(p.createdAt, "project.createdAt");
   isTime(p.updatedAt, "project.updatedAt");
@@ -164,6 +173,59 @@ test("組織鏈", () => {
   const ch = load<OrgChain>("org_chain.json");
   assert.deepEqual(ch.edges.map((e) => [e.from, e.to, e.label]), [["user:tim@example.com", "agent:pm", "目標"], ["agent:pm", "agent:eng", ""]]);
   isTime(ch.updatedAt, "chain.updatedAt");
+});
+
+test("actor 物件(ISS-36 C-3):和相容字串並存,id 前綴對得上種類", () => {
+  const PREFIX = { user: "usr_", agent: "agt_", system: "sys_" } as const;
+  const check = (a: ActorView | undefined, what: string) => {
+    assert.ok(a, `${what} 應該有 actor 物件`);
+    has(a!, ["id", "kind", "handle", "name", "status"], what);
+    assert.ok(a!.id.startsWith(PREFIX[a!.kind]), `${what}:id ${a!.id} 對不上種類 ${a!.kind}`);
+  };
+  const i = load<Issue>("issue.json");
+  check(i.createdByActor, "issue.createdByActor");
+  check(i.assigneeActor, "issue.assigneeActor");
+  check(i.deletedByActor, "issue.deletedByActor");
+  assert.equal(i.createdBy, "tim@example.com"); // 相容字串照舊
+  assert.equal(i.createdByActor!.email, "tim@example.com");
+  assert.equal(i.assignee, "eng");
+  assert.equal(i.assigneeActor!.handle, "eng"); // 角色 handle = 角色 id
+  assert.equal(i.assigneeActor!.email, undefined); // 只有使用者有 email
+  assert.equal(i.deletedByActor!.status, "disabled");
+  for (const c of i.comments) check(c.authorActor, "comment.authorActor");
+  const t = load<AgentTask>("agent_task.json");
+  check(t.createdByActor, "task.createdByActor");
+  check(t.claimedByActor, "task.claimedByActor");
+  for (const n of t.notes) check(n.authorActor, "task.notes[].authorActor");
+  const ch = load<Channel>("channel.json");
+  assert.equal(ch.memberActors!.length, ch.members.length); // 順序同 members
+  ch.memberActors!.forEach((a) => check(a, "channel.memberActors[]"));
+  check(ch.createdByActor, "channel.createdByActor");
+  const m = load<ChannelMessage>("channel_message.json");
+  check(m.authorActor, "message.authorActor");
+  assert.equal(m.mentionActors!.length, m.mentions.length);
+  const inc = load<Incident>("incident.json");
+  check(inc.commanderActor, "incident.commanderActor");
+  check(inc.createdByActor, "incident.createdByActor");
+  for (const e of inc.timeline) check(e.actorRef, "incident.timeline[].actorRef");
+  const chain = load<OrgChain>("org_chain.json");
+  for (const e of chain.edges) { check(e.fromActor, "edge.fromActor"); check(e.toActor, "edge.toActor"); }
+  const doc = load<CabinetDoc>("cabinet_doc.json");
+  check(doc.authorActor, "doc.authorActor");
+  // GET /actors:使用者有 email、狀態值在列舉內
+  const list = load<ActorView[]>("actor_list.json");
+  assert.deepEqual(list.map((a) => a.kind), ["user", "user", "agent", "agent", "system"]);
+  for (const a of list) {
+    check(a, "actor_list[]");
+    assert.ok(["active", "disabled", "suspended", "retired"].includes(a.status));
+    assert.equal(a.kind === "user", !!a.email);
+  }
+  // 稽核與成員
+  const audit = load<{ actorRef?: ActorView; userId: string; email: string }[]>("audit_list.json");
+  check(audit[0].actorRef, "audit[0].actorRef");
+  assert.equal(audit[1].actorRef, undefined); // 沒有操作者(login.denied)沒有物件
+  const members = load<{ email: string; actorRef?: ActorView }[]>("member_list.json");
+  check(members[0].actorRef, "member.actorRef");
 });
 
 test("看板拖放:欄的 dropStatus 和 Issue 現在的 status 不同才能放", () => {
@@ -203,4 +265,129 @@ test("agentAccess 依專案算權限(同 core 的 Agent.AccessIn)", () => {
   // 別的專案、新建的專案:什麼都沒有
   for (const s of ["overview", "docs", "levels", "spec"]) assert.equal(agentAccess(g, s, null, "PRJ-2"), undefined);
   assert.equal(agentAccess({ ...a, docAccess: undefined as unknown as Agent["docAccess"] }, "overview", null, "PRJ-1"), undefined);
+});
+
+// ---- Issue 顯示與編輯的純邏輯(issueModel.ts)
+
+const mk = (o: Partial<Issue> & { id: string }): Issue => ({
+  title: "t", body: "", status: "open", priority: "normal", labels: [], source: "", link: "", createdBy: "u", createdAt: "", updatedAt: "", comments: [], ...o,
+});
+
+test("顯示編號:key 優先,沒有退回 id", () => {
+  assert.equal(issueKey(mk({ id: "019a-uuid", key: "APP-12" })), "APP-12");
+  assert.equal(issueKey(mk({ id: "ISS-3" })), "ISS-3");
+  const l = [mk({ id: "019a-uuid", key: "APP-12" }), mk({ id: "ISS-3" })];
+  assert.equal(findIssue(l, "app-12")?.id, "019a-uuid");
+  assert.equal(findIssue(l, "019A-UUID")?.id, "019a-uuid");
+  assert.equal(findIssue(l, "nope"), undefined);
+  assert.equal(issueRefLabel("019a-uuid", l), "APP-12");
+  assert.equal(issueRefLabel("ISS-99", l), "ISS-99");
+});
+
+test("任務連結是不是 Issue 參照:只認 ISS-n、已知專案代號、UUID", () => {
+  assert.ok(isIssueRef("ISS-3"));
+  assert.ok(isIssueRef("iss-3"));
+  assert.ok(isIssueRef("019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8d"));
+  assert.ok(isIssueRef("APP-12", [], ["APP"]), "已知專案代號");
+  assert.ok(isIssueRef("app-12", [], ["APP"]), "不分大小寫");
+  assert.ok(!isIssueRef("APP-12"), "不認得的代號不算(可能是外部連結)");
+  assert.ok(!isIssueRef("JIRA-12", [], ["APP"]), "Jira 這類外部編號不算");
+  assert.ok(!isIssueRef("JIRA-12", [mk({ id: "x", key: "WEB-3" })]));
+  assert.ok(isIssueRef("WEB-9", [mk({ id: "x", key: "WEB-3" })]), "清單裡有同代號的 Issue");
+  assert.ok(!isIssueRef("PRJ-1", [], ["PRJ"]));
+  assert.ok(!isIssueRef("T-5"));
+  assert.ok(!isIssueRef("https://example.com/x"));
+  assert.ok(isIssueRef("web-3", [mk({ id: "x", key: "WEB-3" })]));
+});
+
+test("版本衝突:看 data 而不是訊息文字", () => {
+  const cur = mk({ id: "x", version: 5, title: "別人的" });
+  assert.ok(isVersionConflict({ status: 200, data: { current: cur, currentVersion: 5 } }));
+  assert.ok(isVersionConflict({ status: 409 }));
+  assert.ok(isVersionConflict({ data: { currentVersion: 2 } }));
+  assert.ok(!isVersionConflict(new Error("這張 Issue 已被別人更新")), "只有訊息文字不算");
+  assert.ok(!isVersionConflict({ status: 200, data: { code: "x" } }));
+  assert.ok(!isVersionConflict(undefined));
+  assert.equal(conflictCurrent({ data: { current: cur } })?.title, "別人的");
+  assert.equal(conflictCurrent({ data: { currentVersion: 5 } }), undefined);
+});
+
+test("編輯草稿:只送有改的欄位;重新載入後列出和最新內容不同的欄位", () => {
+  const base = mk({ id: "x", version: 3, title: "舊標題", body: "內文", labels: ["bug"], repo: "a/b", project: "PRJ-1" });
+  const d = { ...draftOf(base), title: "我改的標題", labels: "bug, 前端", project: "" };
+  assert.deepEqual(draftChanges(d, base), { title: "我改的標題", labels: ["bug", "前端"], project: "" });
+  assert.deepEqual(draftChanges(draftOf(base), base), {});
+  // 別人把內文與標題都改了:我的標題(也改了)與他的不同、內文我沒動但他動了 → 兩個欄位都列出,不靜默蓋掉
+  const latest = mk({ id: "x", version: 4, title: "別人的標題", body: "別人改的內文", labels: ["bug", "前端"], repo: "a/b", project: "PRJ-1" });
+  const diff = draftDiff(d, latest);
+  assert.deepEqual(diff.map((x) => x.field).sort(), ["body", "project", "title"]);
+  assert.equal(diff.find((x) => x.field === "title")?.theirs, "別人的標題");
+  assert.deepEqual(draftDiff(draftOf(latest), latest), []);
+});
+
+test("三方合併:沒改的欄位採用最新值,只有雙方都改而且不同的才算衝突", () => {
+  const origin = mk({ id: "x", version: 3, title: "舊標題", body: "舊內文", labels: ["bug"], repo: "a/b", project: "PRJ-1" });
+  // 我只改了標題;別人改了內文與標籤(我沒動)
+  const mine = { ...draftOf(origin), title: "我的標題" };
+  const latest = mk({ id: "x", version: 4, title: "舊標題", body: "別人的內文", labels: ["bug", "前端"], repo: "a/b", project: "PRJ-1" });
+  const r = mergeLatest(origin, mine, latest);
+  assert.deepEqual(r.conflicts, [], "我沒改的欄位不是衝突");
+  assert.equal(r.draft.title, "我的標題", "我改的保留");
+  assert.equal(r.draft.body, "別人的內文", "我沒改的自動採用最新");
+  assert.equal(r.draft.labels, "bug, 前端");
+  assert.deepEqual([...r.adopted].sort(), ["body", "labels"]);
+  // 合併後以最新內容當基準:只送我改的標題
+  assert.deepEqual(draftChanges(r.draft, latest), { title: "我的標題" });
+
+  // 兩邊都改標題而且不同 → 衝突,保留我的;兩邊改成一樣的不算
+  const both = { ...draftOf(origin), title: "我的標題", body: "同一個新內文" };
+  const l2 = mk({ id: "x", version: 5, title: "別人的標題", body: "同一個新內文", labels: ["bug"], repo: "a/b", project: "PRJ-1" });
+  const r2 = mergeLatest(origin, both, l2);
+  assert.deepEqual(r2.conflicts.map((c) => [c.field, c.mine, c.theirs]), [["title", "我的標題", "別人的標題"]]);
+  assert.equal(r2.draft.title, "我的標題");
+  assert.deepEqual(r2.adopted, []);
+
+  // 別人沒改任何我關心的欄位(只是狀態、優先度、指派動了,版本變了):草稿原樣、沒有衝突、沒有採用
+  const quick = mk({ id: "x", version: 6, title: "舊標題", body: "舊內文", labels: ["bug"], repo: "a/b", project: "PRJ-1", priority: "urgent" });
+  const r3 = mergeLatest(origin, mine, quick);
+  assert.deepEqual(r3.draft, mine);
+  assert.deepEqual(r3.conflicts, []);
+  assert.deepEqual(r3.adopted, []);
+
+  // 空白差異不算改動(標題、標籤去頭尾空白)
+  const spaced = { ...draftOf(origin), title: " 舊標題 ", labels: "bug,  " };
+  const r4 = mergeLatest(origin, spaced, latest);
+  assert.deepEqual(r4.conflicts, []);
+  assert.deepEqual(r4.adopted.sort(), ["body", "labels"], "沒改的欄位(空白不算)採用最新");
+});
+
+test("POST 回應:2xx 但不是 {result} 給看得懂的錯誤,不是 TypeError", () => {
+  assert.equal(unwrapPost({ ok: true, status: 200 }, { result: 5 }), 5);
+  assert.equal(unwrapPost({ ok: true, status: 200 }, { result: null }), null, "result 是 null 是合法的結果");
+  for (const body of [null, undefined, "<html>bad gateway</html>", [], {}, 3]) {
+    let err: unknown;
+    try { unwrapPost({ ok: true, status: 200 }, body); } catch (e) { err = e; }
+    assert.ok(err instanceof ApiError, `body=${JSON.stringify(body)} 要丟 ApiError`);
+    assert.ok(/格式不對/.test((err as ApiError).message));
+  }
+  let e2: unknown;
+  try { unwrapPost({ ok: false, status: 409 }, { error: "衝突", currentVersion: 3 }); } catch (e) { e2 = e; }
+  assert.ok(e2 instanceof ApiError && e2.status === 409 && e2.data?.currentVersion === 3);
+  let e3: unknown;
+  try { unwrapPost({ ok: false, status: 502 }, null); } catch (e) { e3 = e; }
+  assert.ok(e3 instanceof ApiError && /502/.test(e3.message));
+});
+
+test("專案代號驗證", () => {
+  assert.equal(projectKeyProblem(""), "");
+  assert.equal(projectKeyProblem("app"), "");
+  assert.equal(cleanProjectKey(" app "), "APP");
+  assert.equal(projectKeyProblem("AB12"), "");
+  assert.ok(/第一個字/.test(projectKeyProblem("1AB")));
+  assert.ok(/2 到 10/.test(projectKeyProblem("A")));
+  assert.ok(/2 到 10/.test(projectKeyProblem("ABCDEFGHIJK")));
+  assert.ok(/英文字母與數字/.test(projectKeyProblem("A_B")));
+  for (const k of ["ISS", "prj", "T", "DOC", "CH", "INC"]) assert.ok(projectKeyProblem(k) !== "", k);
+  assert.ok(projectHasIssues("PRJ-1", [mk({ id: "a", project: "PRJ-1" })]));
+  assert.ok(!projectHasIssues("PRJ-2", [mk({ id: "a", project: "PRJ-1" })]));
 });

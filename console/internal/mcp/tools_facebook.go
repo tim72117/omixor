@@ -19,7 +19,7 @@ func fbFail(err error) ToolError {
 	if te, ok := err.(ToolError); ok {
 		return te
 	}
-	return ToolError{Message: err.Error()}
+	return ToolErr(err).(ToolError) // FBError 是 httperr.Public(Graph API 的說明刻意給人看),其他內部錯誤換成通用訊息
 }
 
 func fbAvailable(pages []core.FBPage) string {

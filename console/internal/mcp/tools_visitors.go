@@ -26,7 +26,9 @@ func init() {
 		}
 		d, err := core.SiteVisitorsFetch(c.App, optArg(c, "connection"), r)
 		if err != nil {
-			return nil, ToolError{Message: "讀不到訪客統計:" + err.Error() + "(請在 omixor 登入對應的連線)"}
+			te := PrefixErr("讀不到訪客統計:", err).(ToolError)
+			te.Message += "(請在 omixor 登入對應的連線)"
+			return nil, te
 		}
 		f := d.Funnel()
 		out, _ := core.Object(d).(map[string]any)

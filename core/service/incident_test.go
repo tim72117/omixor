@@ -25,15 +25,15 @@ func TestIncidentDeclareAndUpdate(t *testing.T) {
 	}
 	inc, err := svc.DeclareIncident(alice, "o1", service.IncidentInput{Title: " 付款延遲 ", Sev: 2, Services: []string{"payments", " payments", ""},
 		Impact: "開通延遲", AlertIDs: []string{"ALT-1"}, AlertTitles: map[string]string{"ALT-1": "p95 過高"},
-		Actor: &model.Actor{Kind: "ai", ID: "冒名"}, Author: "mcp"})
+		Actor: &model.IncidentActor{Kind: "ai", ID: "冒名"}, Author: "mcp"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if inc.ID != "INC-2001" || inc.Title != "付款延遲" || inc.Status != "investigating" || strings.Join(inc.Services, ",") != "payments" ||
-		inc.Commander != "Alice@X" || inc.CreatedBy != "Alice@X" || len(inc.Timeline) != 2 {
+		inc.Commander != "alice@x" || inc.CreatedBy != "alice@x" || len(inc.Timeline) != 2 {
 		t.Fatalf("%+v", inc)
 	}
-	if e := inc.Timeline[0]; e.Kind != "status" || e.Text != "宣告 SEV2 事件,指揮官:Alice@X" || e.Actor != model.PersonActor("Alice@X") {
+	if e := inc.Timeline[0]; e.Kind != "status" || e.Text != "宣告 SEV2 事件,指揮官:alice@x" || e.Actor != model.PersonActor("alice@x") {
 		t.Fatalf("一般成員的執行者一律是自己:%+v", e)
 	}
 	if e := inc.Timeline[1]; e.Kind != "alert" || e.Text != "關聯告警「p95 過高」" {
@@ -49,7 +49,7 @@ func TestIncidentDeclareAndUpdate(t *testing.T) {
 		t.Fatalf("%+v", u)
 	}
 	u, err = svc.UpdateIncident(boss, "o1", "INC-2001", service.IncidentPatch{Status: sp("monitoring"), Note: sp("又出現了"), AISummary: sp(""),
-		AddFollowUps: []string{"OPS-1", "OPS-1"}, Events: []service.IncidentEventInput{{Kind: "deploy", Text: "回滾 v3.3.6", Actor: &model.Actor{Kind: "system"}}}})
+		AddFollowUps: []string{"OPS-1", "OPS-1"}, Events: []service.IncidentEventInput{{Kind: "deploy", Text: "回滾 v3.3.6", Actor: &model.IncidentActor{Kind: "system"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,18 +87,18 @@ func TestIncidentServerAdminActor(t *testing.T) {
 	svc, st, _, _, _ := chainEnv(t)
 	_ = st.SaveUser(model.User{ID: "root", Email: "omixor-console", Role: "admin"})
 	root := &model.Principal{User: model.User{ID: "root", Email: "omixor-console", Role: "admin"}}
-	inc, err := svc.DeclareIncident(root, "o1", service.IncidentInput{Title: "x", Sev: 1, Author: "tim", Commander: "tim", CommanderName: "蔡庭宇"})
-	if err != nil || inc.Timeline[0].Actor != model.PersonActor("tim") || inc.Timeline[0].Text != "宣告 SEV1 事件,指揮官:蔡庭宇" {
+	inc, err := svc.DeclareIncident(root, "o1", service.IncidentInput{Title: "x", Sev: 1, Author: "agent:cto", Commander: "boss@x", CommanderName: "蔡庭宇"})
+	if err != nil || inc.Timeline[0].Actor != model.AIActor("cto") || inc.Commander != "boss@x" || inc.Timeline[0].Text != "宣告 SEV1 事件,指揮官:蔡庭宇" {
 		t.Fatalf("%+v %v", inc, err)
 	}
 	inc, _ = svc.DeclareIncident(root, "o1", service.IncidentInput{Title: "y", Sev: 2})
-	if inc.Timeline[0].Actor != model.AIActor("mcp") || inc.CreatedBy != "mcp" {
-		t.Fatalf("沒指定是 ai/mcp:%+v", inc)
+	if inc.Timeline[0].Actor != model.PersonActor("omixor-console") || inc.CreatedBy != "omixor-console" || inc.Commander != "omixor-console" {
+		t.Fatalf("沒指定是呼叫者本人(舊的 ai/mcp 預設沒有了):%+v", inc)
 	}
 	at := model.Time{Time: inc.StartedAt.Add(-3600e9)}
-	inc, _ = svc.DeclareIncident(root, "o1", service.IncidentInput{Title: "z", Sev: 3, StartedAt: &at, Actor: &model.Actor{Kind: "person", ID: "tim"},
-		Timeline: []service.IncidentEventInput{{Kind: "alert", Text: "告警觸發", Date: &at, Actor: &model.Actor{Kind: "system"}}, {Kind: "status", Text: "從告警建立"}}})
-	if len(inc.Timeline) != 2 || !inc.StartedAt.Equal(at.Time) || inc.Timeline[1].Actor != model.PersonActor("tim") || !inc.Timeline[0].Date.Equal(at.Time) {
+	inc, _ = svc.DeclareIncident(root, "o1", service.IncidentInput{Title: "z", Sev: 3, StartedAt: &at, Actor: &model.IncidentActor{Kind: "ai", ID: "cto"},
+		Timeline: []service.IncidentEventInput{{Kind: "alert", Text: "告警觸發", Date: &at, Actor: &model.IncidentActor{Kind: "system"}}, {Kind: "status", Text: "從告警建立"}}})
+	if len(inc.Timeline) != 2 || !inc.StartedAt.Equal(at.Time) || inc.Timeline[1].Actor != model.AIActor("cto") || !inc.Timeline[0].Date.Equal(at.Time) {
 		t.Fatalf("%+v", inc)
 	}
 }

@@ -53,6 +53,9 @@ func (s *Service) LoginWithLDAP(username, password, device, ip string) (*LoginRe
 	s.ldapCleared(username)
 	key := LDAPIDPrefix + id.ID
 	email := strings.ToLower(strings.TrimSpace(id.Email))
+	if validUserEmail(email) != nil { // 沒有 @ 或是保留的本機身分:當作沒有 mail(退回帳號@網域,仍沒有就不能建立)
+		email = ""
+	}
 	if email == "" && s.LDAPEmailDomain != "" {
 		email = id.ID + "@" + strings.TrimPrefix(strings.ToLower(s.LDAPEmailDomain), "@")
 	}
@@ -106,7 +109,7 @@ func (s *Service) LoginWithLDAP(username, password, device, ip string) (*LoginRe
 		u.Name = id.Name
 	}
 	u.LastLoginAt = &now
-	if err := s.Store.SaveUser(*u); err != nil {
+	if err := s.saveUser(u); err != nil {
 		return nil, err
 	}
 	return s.issueToken(u, device, now, "ldap")

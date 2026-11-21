@@ -9,13 +9,13 @@ import (
 	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 組織鏈工具:管理端點 chain / chain_save、角色端點 agent_task_delegate 與 agent_context 的上下游、
 // 執行者端點 dispatch_delegate 與 dispatch_claim 的 nextSteps
 func TestChainTools(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})

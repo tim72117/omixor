@@ -75,7 +75,7 @@ func fbUserErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	return UserError{err.Error()}
+	return facing(err)
 }
 
 // fbParseISO 畫面送來的時間(ISO 8601)

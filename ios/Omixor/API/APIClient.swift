@@ -156,7 +156,7 @@ struct APIClient: Sendable {
     func issue(org: String, id: String) async throws -> Issue { try await get(orgPath(org, "issues", id)) }
 
     /// 留言:POST …/issues/<id>/comments,伺服器只附加這一則(不會蓋掉別人同時留的言),回傳新增後的 Issue。
-    /// author 只有伺服器管理員的有效,一般成員伺服器一律記成登入的人
+    /// author 一般成員一律記成登入的人;伺服器管理員只能代角色或系統署名,給別的使用者或找不到的名字也是記成登入的人
     func addComment(org: String, issue id: String, text: String, author: String) async throws -> Issue {
         try await post(orgPath(org, "issues", id, "comments"), ["text": text, "author": author])
     }

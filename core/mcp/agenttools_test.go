@@ -11,7 +11,7 @@ import (
 	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 角色端點 tools/list 回傳的工具名稱
@@ -42,7 +42,7 @@ func listTools(t *testing.T, h http.Handler, auth string) []string {
 // 角色端點只列角色目前用得到的工具:文件權限、組織鏈下游、頻道成員決定;改了設定下一個請求就生效。
 // agent_context 的 tools 列出能用與不能用(含原因);API 的 AgentTools 同一份。
 func TestAgentToolsFollowRoleSettings(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})

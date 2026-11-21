@@ -14,7 +14,8 @@ import (
 
 	"omixor-core/backend"
 	"omixor-core/client"
-	"omixor-core/env"
+	"omixor-core/config"
+	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
@@ -26,7 +27,7 @@ import (
 //	      token:OMIXOR_SERVER_TOKEN 固定的;沒設時用 omixor 自己的 token(鑰匙圈的 omixor-issues),
 //	      沒有或被拒絕(401)就拿 evoleap 連線的 token 去 /api/auth/evoleap 換一個再重送(issueRemoteClient)
 //	本機模式:backend.Local,核心的 service 跑在同一個程式裡,連本機的 PostgreSQL(OMIXOR_DATABASE_URL);
-//	      沒有資料庫就不能用(回 errNoDB),不再退回存檔案。測試改用記憶體的核心(UseMemoryCores)
+//	      沒有資料庫就不能用(回 errNoDB),不再退回存檔案。測試改用 testcores.go 的 UseTestStores(連測試用 PostgreSQL)
 //
 // 讀:組織載入時讀、每次修改前重讀;遠端模式每 5 秒在背景同步一次。
 // 寫:每個動作各自送給核心,用回傳的內容。本機模式以「omixor-web」(伺服器管理員)身分呼叫核心。
@@ -43,10 +44,10 @@ var errNoDB = errors.New("本機模式要連 PostgreSQL:設環境變數 OMIXOR_D
 // 本機模式是同一個程式裡的核心(service + PostgreSQL)。本機沒有資料庫回 errNoDB
 func coreBackend(scope string) (backend.Backend, error) {
 	if url := IssueRemoteURL(); url != "" {
-		return &backend.Remote{Client: func() *client.Client { return issueRemoteClient(url, scope) }, OrgID: serverOrgID}, nil
+		return authorBackend{&backend.Remote{Client: func() *client.Client { return issueRemoteClient(url, scope) }, OrgID: serverOrgID}}, nil
 	}
 	if l := localCore(); l != nil {
-		return l, nil
+		return authorBackend{l}, nil
 	}
 	return nil, errNoDB
 }
@@ -56,51 +57,97 @@ var (
 	localCoreVal *backend.Local
 	localCoreKey any // 建立核心時的資料庫連線池,換了就重建
 
-	// newTestCore 沒有資料庫時改用的核心(測試用;UseMemoryCores 設定)。nil = 沒有資料庫就不能用
+	// newTestCore 沒有資料庫時改用的核心(測試用;UseTestStores 設定)。nil = 沒有資料庫就不能用
 	newTestCore func() *backend.Local
 )
 
-// omixor-web 以伺服器管理員身分呼叫核心(畫面與 MCP 的權限由 omixor-web 自己管)
-var localPrincipal = &model.Principal{User: model.User{ID: LocalIdentity, Email: LocalIdentity, Role: "admin"}}
-
 const (
-	// LocalIdentity 本機模式的身分(寫進任務的 claimedBy、頻道成員 user:<身分>、建立者等)
+	// LocalIdentity 本機使用者的 handle(固定,不可設定;ISS-36 D4):console 本機模式的操作者就是這位使用者(伺服器管理員),
+	// 寫進任務領取者、頻道成員、建立者、留言與稽核的「誰」都是它的 actor
 	LocalIdentity = "omixor-console"
-	// legacyLocalIdentity 產品早期叫 Ops 時的本機身分;本機資料庫裡的舊值在啟動時改成 LocalIdentity(見 migrateLocalIdentity)
+	// localUserKey 本機使用者那一列的固定 evoleap_id(辨識「本機建立的那一列」;一般登入的 evoleap id 沒有這個前綴、LDAP 是 ldap:)
+	localUserKey = "local:" + LocalIdentity
+	// legacyLocalIdentity 產品早期叫 Ops 時的本機身分(舊資料裡的字串;遷移時對到本機使用者)
 	legacyLocalIdentity = "ops-web"
+	// legacyLocalPerson 範例資料的人員 id(App.Me;舊資料的建立者、留言作者常是它)
+	legacyLocalPerson = "tim"
 )
 
-// migrateLocalIdentity 把本機核心資料庫裡的舊身分 ops-web 改成 omixor-console。
-// 只在本機模式、連自己的 PostgreSQL 建核心時跑(遠端模式不會走到這裡,不碰雲端);
-// 冪等(沒有舊值就什麼都不改),失敗只記 log,不影響啟動。
-func migrateLocalIdentity(st *store.PG) {
-	n, err := st.RenameIdentity(legacyLocalIdentity, LocalIdentity)
+// LocalAliases 舊資料裡會對到本機使用者的字串(遷移與寬鬆解析器用;mcp 由遷移規則內建)
+func LocalAliases() []string { return []string{legacyLocalIdentity, legacyLocalPerson, MCPAuthor} }
+
+// ConfigureLocalIdentity 在建 store(NewPG、NewPGFromPool)之前告訴遷移本機使用者是誰:
+// 舊資料裡的 mcp、ops-web、omixor-console、tim 都對到這位使用者的 actor,不會留下孤兒。冪等;要在遷移開始前呼叫
+func ConfigureLocalIdentity() { store.SetMigrationLocalUser(LocalIdentity, LocalAliases()...) }
+
+// ensureLocalPrincipal 確保本機使用者存在、是伺服器管理員、有 actor,回傳呼叫核心時用的 Principal(Actor、Via = ViaLocal)。
+// 與 service.saveUser 同樣語意:Store.SaveUser 在同一個交易建立使用者並建立或接回 actor
+// (遷移對到本機別名時建的「未註冊使用者」actor 會被接回,舊資料的署名因此全都是這位使用者);之後重讀取回 actor_id。冪等
+func ensureLocalPrincipal(st *store.PG) (*model.Principal, error) {
+	// 只採用「本機建立的那一列」:以固定的 evoleap_id(localUserKey)辨識。舊版沒有這個標記的列,只有在 email 剛好是本機 handle、
+	// 而且沒有綁任何外部身分(evoleap_id 空)時才接手並補上標記;email 是 omixor-console 卻綁了別的身分(例如 LDAP 的 mail 被填成這個字串、
+	// 與雲端共用資料庫)的列不採用、也不升級,直接報錯,免得外部登入的人被升成管理員
+	u, err := st.UserByEvoleapID(localUserKey)
+	if errors.Is(err, store.ErrNotFound) {
+		u, err = st.UserByEmail(LocalIdentity)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			u, err = &model.User{ID: service.RandID("u_", 9), EvoleapID: localUserKey, Email: LocalIdentity, Name: LocalIdentity, Role: "admin", CreatedAt: model.Now()}, nil
+			if err = st.SaveUser(*u); err == nil {
+				u, err = st.UserByEvoleapID(localUserKey)
+			}
+		case err == nil && u.EvoleapID == "":
+			u.EvoleapID, u.Role, u.Disabled = localUserKey, "admin", false
+			if err = st.SaveUser(*u); err == nil {
+				u, err = st.UserByEvoleapID(localUserKey)
+			}
+		case err == nil:
+			return nil, fmt.Errorf("使用者 %s 已經被另一個登入身分佔用(%s),不能當本機使用者", LocalIdentity, u.ID)
+		}
+	}
 	if err != nil {
-		log.Printf("本機身分 %s 改成 %s 失敗(下次啟動再試):%v", legacyLocalIdentity, LocalIdentity, err)
-		return
+		return nil, err
 	}
-	if n > 0 {
-		log.Printf("本機身分 %s 已改成 %s(%d 筆資料)", legacyLocalIdentity, LocalIdentity, n)
+	if u.Role != "admin" || u.Disabled || u.ActorID == "" {
+		u.Role, u.Disabled = "admin", false
+		if err := st.SaveUser(*u); err != nil {
+			return nil, err
+		}
+		if u, err = st.UserByEvoleapID(localUserKey); err != nil {
+			return nil, err
+		}
 	}
+	p := &model.Principal{User: *u, Via: model.ViaLocal}
+	ref, err := (&service.Service{Store: st}).SelfActor(p)
+	if err != nil {
+		return nil, fmt.Errorf("本機使用者 %s 的 actor 不可用:%w", LocalIdentity, err)
+	}
+	p.Actor = ref
+	return p, nil
 }
 
 // localCore 本機模式的核心:連 PostgreSQL(OMIXOR_DATABASE_URL);沒有資料庫時用 newTestCore(測試)。都沒有回傳 nil
 func localCore() *backend.Local {
 	localCoreMu.Lock()
 	defer localCoreMu.Unlock()
-	if pgPool != nil {
-		if localCoreVal == nil || localCoreKey != any(pgPool) {
-			st, err := store.NewPGFromPool(pgPool)
+	if pool := pgPool(); pool != nil {
+		if localCoreVal == nil || localCoreKey != any(pool) {
+			ConfigureLocalIdentity() // 要在 NewPGFromPool(啟動遷移)之前
+			st, err := store.NewPGFromPool(pool)
 			if err != nil {
 				log.Printf("核心建表失敗:%v", err)
 				return nil
 			}
-			migrateLocalIdentity(st)
+			p, err := ensureLocalPrincipal(st)
+			if err != nil {
+				log.Printf("本機使用者建立失敗:%v", err)
+				return nil
+			}
 			svc := &service.Service{Store: st}
 			if err := svc.EnsureOrgsForIssues(); err != nil {
 				log.Printf("補建組織失敗:%v", err)
 			}
-			localCoreVal, localCoreKey = &backend.Local{Svc: svc, P: localPrincipal, EnsureOrg: true}, any(pgPool)
+			localCoreVal, localCoreKey = &backend.Local{Svc: svc, P: p, EnsureOrg: true}, any(pool)
 		}
 		return localCoreVal
 	}
@@ -108,21 +155,6 @@ func localCore() *backend.Local {
 		return newTestCore()
 	}
 	return nil
-}
-
-// UseMemoryCores 沒有資料庫時改用記憶體的核心(每個資料夾 DataRoot 一份)。只給測試用(各測試套件的 TestMain 呼叫);
-// 正式程式不呼叫,本機模式沒有資料庫就回 errNoDB
-func UseMemoryCores() {
-	cores := map[string]*backend.Local{}
-	localCoreMu.Lock()
-	defer localCoreMu.Unlock()
-	newTestCore = func() *backend.Local { // 在 localCoreMu 裡呼叫
-		k := DataRoot()
-		if cores[k] == nil {
-			cores[k] = &backend.Local{Svc: &service.Service{Store: store.NewMem()}, P: localPrincipal, EnsureOrg: true}
-		}
-		return cores[k]
-	}
 }
 
 // ensureLocalOrg 組織還沒建就補建(omixor-web 的組織是自己管的;同 backend.Local 的 EnsureOrg)
@@ -138,7 +170,7 @@ var issueRemoteExchangeMu sync.Mutex
 
 // issueRemoteToken 固定的 token,或這台伺服器存著的 omixor token(沒有就回 "")
 func issueRemoteToken(base string) string {
-	if t := env.Get("OMIXOR_SERVER_TOKEN", "OPS_ISSUE_SERVER_TOKEN"); t != "" {
+	if t := config.Current().Str(config.ServerToken); t != "" {
 		return t
 	}
 	if t := remoteToken(base); t != nil {
@@ -152,7 +184,7 @@ func issueRemoteClient(base, scope string) *client.Client {
 	c := client.New(base)
 	c.HTTP.Timeout = 8 * time.Second
 	c.Token = func() string { return issueRemoteToken(base) }
-	if env.Get("OMIXOR_SERVER_TOKEN", "OPS_ISSUE_SERVER_TOKEN") == "" {
+	if config.Current().Str(config.ServerToken) == "" {
 		c.Refresh = func(stale string) (string, error) { return issueRemoteExchange(base, scope, stale) }
 	}
 	return c
@@ -200,14 +232,20 @@ func issueSave(scope, org string, updates, creates []model.Issue) error {
 	if err != nil {
 		return err
 	}
-	if l, ok := b.(*backend.Local); ok {
+	if l, ok := rawBackend(b).(*backend.Local); ok {
 		ensureLocalOrg(l, org)
 		for _, i := range updates {
+			if err := legacyIssueActors(l, org, &i); err != nil {
+				return err
+			}
 			if err := l.Svc.Store.UpdateIssue(org, i); err != nil {
 				return err
 			}
 		}
 		for _, i := range creates {
+			if err := legacyIssueActors(l, org, &i); err != nil {
+				return err
+			}
 			if _, err := l.Svc.Store.CreateIssue(org, i); err != nil {
 				return err
 			}
@@ -230,6 +268,45 @@ func issueSave(scope, org string, updates, creates []model.Issue) error {
 	return nil
 }
 
+// legacyIssueActors 直接寫 Store 之前,把 Issue 裡的「誰」從相容字串(Jira 的人名、核心輸出的 email、agent:<id>、舊的 mcp/tim…)
+// 換成 actor id(Store 的欄位是 actor id,有外鍵):用寬鬆解析器 Store.ResolveLegacy(本機別名對到本機使用者;對不上的建「未註冊使用者」或 sys_legacy_*)
+func legacyIssueActors(l *backend.Local, org string, i *model.Issue) error {
+	st := l.Svc.Store
+	conv := func(raw string) (string, error) {
+		if strings.TrimSpace(raw) == "" {
+			return "", nil
+		}
+		return st.ResolveLegacy(org, raw)
+	}
+	var err error
+	if i.CreatedBy, err = conv(i.CreatedBy); err != nil {
+		return err
+	}
+	if i.CreatedBy == "" { // 欄位不可為 NULL:沒署名的當本機使用者
+		i.CreatedBy = l.P.Actor.ID
+	}
+	if i.DeletedBy, err = conv(i.DeletedBy); err != nil {
+		return err
+	}
+	if i.Assignee != "" && !model.ValidActorID(i.Assignee) {
+		if i.Assignee, err = conv(AgentPrefix + i.Assignee); err != nil {
+			return err
+		}
+	}
+	cs := make([]model.Comment, len(i.Comments))
+	for k, c := range i.Comments {
+		if c.Author, err = conv(c.Author); err != nil {
+			return err
+		}
+		if c.Author == "" {
+			c.Author = l.P.Actor.ID
+		}
+		cs[k] = c
+	}
+	i.Comments = cs
+	return nil
+}
+
 func (a *App) issueRemoteSave(org string, updates, creates []model.Issue) error {
 	return issueSave(a.conns().Scope, org, updates, creates)
 }
@@ -237,7 +314,7 @@ func (a *App) issueRemoteSave(org string, updates, creates []model.Issue) error 
 // ---- 匯入 issues.json(omixor-web import / import-issues):交給本機核心的 service.ImportIssuesWith ----
 
 // ImportIssues 把一份 Issue 清單匯入本機核心的 org(可以重跑):id 已經有的,overwrite=false 時略過(保留核心裡的版本),
-// overwrite=true 時用清單的內容整筆取代;新匯入的依清單順序排在既有的後面(清單第一筆最新)。沒有 id 或 id 重複的略過
+// overwrite=true 時用清單的內容整筆取代;新匯入的依清單順序排在既有的後面(清單第一筆最新)。id 重複的略過;沒有 id 的照樣新增(id、key 由核心發,key 有給的保留)
 func ImportIssues(org string, list []model.Issue, overwrite bool) (service.IssueImportResult, error) {
 	res := service.IssueImportResult{Org: org}
 	if !ValidOrgID(org) {
@@ -248,14 +325,14 @@ func ImportIssues(org string, list []model.Issue, overwrite bool) (service.Issue
 		return res, errors.New("沒有連資料庫")
 	}
 	ensureLocalOrg(l, org)
-	r, err := l.Svc.ImportIssuesWith(localPrincipal, org, list, service.IssueImportOptions{Merge: true, Overwrite: overwrite})
+	r, err := l.Svc.ImportIssuesWith(l.P, org, list, service.IssueImportOptions{Merge: true, Overwrite: overwrite})
 	if err != nil {
 		return res, err
 	}
 	return *r, nil
 }
 
-// decodeIssueFile 讀 issues.json 的內容;沒寫 createdBy 的當作 MCP 建的(同舊的 issues.json 讀法)
+// decodeIssueFile 讀 issues.json 的內容;沒寫 createdBy 的當作本機使用者建的(舊的 issues.json 是 MCP 建的,本機的 mcp 署名就是本機使用者)
 func decodeIssueFile(b []byte) ([]model.Issue, error) {
 	var list []model.Issue
 	if err := json.Unmarshal(b, &list); err != nil {
@@ -267,7 +344,7 @@ func decodeIssueFile(b []byte) ([]model.Issue, error) {
 	_ = json.Unmarshal(b, &raw)
 	for k := range list {
 		if k < len(raw) && raw[k].CreatedBy == nil {
-			list[k].CreatedBy = MCPAuthor
+			list[k].CreatedBy = LocalIdentity
 		}
 	}
 	return list, nil
@@ -348,12 +425,50 @@ func normIssues(l []model.Issue) []model.Issue {
 // IssueRemoteError 最近一次核心的錯誤(成功後清掉;拿著 Mu 呼叫)
 func (a *App) IssueRemoteError() string { return a.issueSt().remoteErr }
 
+// IssueRemoteErr 同 IssueRemoteError,但回傳原本的錯誤(沒有錯誤是 nil):409 版本衝突的 Data(current、currentVersion)
+// 還在,呼叫者(MCP、web)可以原樣帶給用戶端。拿著 Mu 呼叫
+func (a *App) IssueRemoteErr() error {
+	s := a.issueSt()
+	if s.remoteErr == "" {
+		return nil
+	}
+	if s.lastErr != nil {
+		return s.lastErr
+	}
+	return errors.New(s.remoteErr)
+}
+
 func (a *App) issueRemoteFailed(err error) {
 	s := a.issueSt()
 	if s.remoteErr != err.Error() {
 		log.Printf("Issue 伺服器:%v", err)
 	}
-	s.remoteErr = err.Error()
+	s.remoteErr, s.lastErr = err.Error(), err
+}
+
+// issueRemoteOK 核心操作成功:清掉上一次的錯誤(原錯誤也清,不讓 A 失敗的 409 殘留到 B 成功之後)
+func (a *App) issueRemoteOK(s *issueState) { s.remoteErr, s.lastErr = "", nil }
+
+// issueConnErr 給畫面「連線錯誤」用的文字:只有連不上、伺服器錯誤、登入問題;
+// 使用者操作的錯誤(版本衝突 409、專案沒代號 400、找不到 404…)不算連線錯誤。拿著 Mu 呼叫
+func (a *App) issueConnErr() string {
+	s := a.issueSt()
+	if s.remoteErr == "" || isUserIssueErr(s.lastErr) {
+		return ""
+	}
+	return s.remoteErr
+}
+
+// isUserIssueErr 使用者操作造成的錯誤(狀態碼 400、404、409、422):不是連線或伺服器的問題
+func isUserIssueErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch httperr.Classify(err).Status {
+	case 400, 404, 409, 422:
+		return true
+	}
+	return false
 }
 
 // issueBackend 目前組織用的核心(scope 是目前組織的連線設定)
@@ -373,7 +488,8 @@ func (a *App) issueRemoteLoad(s *issueState) {
 		}
 		return
 	}
-	s.Issues, s.remoteErr, s.fetched = normIssues(list), "", time.Now()
+	s.Issues, s.fetched = normIssues(list), time.Now()
+	a.issueRemoteOK(s)
 	s.gen++
 }
 
@@ -385,13 +501,12 @@ func (a *App) RefreshIssuesIfStale(maxAge time.Duration) {
 	}
 }
 
-func (a *App) issueRemoteCreate(title, body, priority string, labels []string, source, link, author, assignee, repo string) (model.Issue, error) {
+func (a *App) issueRemoteCreate(in service.IssueInput) (model.Issue, error) {
 	b, err := a.issueBackend()
 	if err != nil {
 		return model.Issue{}, err
 	}
-	i, err := b.CreateIssue(a.issueSt().Org, service.IssueInput{Title: title, Body: body, Priority: priority,
-		Labels: labels, Source: source, Link: link, Author: author, Assignee: assignee, Repo: repo})
+	i, err := b.CreateIssue(a.issueSt().Org, in)
 	if err != nil {
 		return model.Issue{}, err
 	}
@@ -402,13 +517,20 @@ func (a *App) issueRemoteCreate(title, body, priority string, labels []string, s
 // appendBody 交給核心在 Issue 的鎖裡以最新內文附加。
 // 留言:只是在最後新增的,一則一則走核心的只附加路徑(AddIssueComment;id 與時間由核心給);改了或刪了已有的留言,
 // 或呼叫者要求整份取代(replaceComments,/api/issues 給了 comments)才整份送(omixor-web 對核心是伺服器管理員,整份取代)。
-func (a *App) issueRemoteUpdate(n, before model.Issue, author, appendBody string, replaceComments bool) (model.Issue, error) {
+//
+// version > 0:呼叫者讀到的版本(UI 的編輯畫面、API 的 If-Match/version、MCP 的 version),以它做樂觀鎖;
+// 0 = 呼叫者沒給,不帶 version(規格:沒帶 version 照舊直接套用,核心不檢查)
+func (a *App) issueRemoteUpdate(n, before model.Issue, author, appendBody string, replaceComments bool, version int) (model.Issue, error) {
 	b, err := a.issueBackend()
 	if err != nil {
 		return model.Issue{}, err
 	}
 	org := a.issueSt().Org
 	patch, changed := issuePatchFor(n, before, author)
+	if version > 0 {
+		v := version
+		patch.Version = &v
+	}
 	if appendBody != "" {
 		patch.AppendBody, changed = &appendBody, true
 	}
@@ -462,6 +584,7 @@ func issuePatchFor(n, before model.Issue, author string) (p service.IssuePatch, 
 	str(&p.Link, n.Link, before.Link)
 	str(&p.Assignee, n.Assignee, before.Assignee) // 指派變了才送(核心會取消舊角色未領取的任務、替新角色排任務)
 	str(&p.Repo, n.Repo, before.Repo)             // 所屬倉庫變了才送("" = 清除;格式由核心檢查)
+	str(&p.Project, n.Project, before.Project)    // 搬專案(核心發新的 key,舊的留在別名表)
 	if !slices.Equal(n.Labels, before.Labels) {
 		l := append([]string{}, n.Labels...)
 		p.Labels, changed = &l, true
@@ -514,7 +637,8 @@ func (a *App) issueRemoteSync(org, scope string, gen int) {
 	}
 	ops := normIssues(list)
 	changed := string(Marshal(s.Issues)) != string(Marshal(ops))
-	s.Issues, s.fetched, s.remoteErr = ops, time.Now(), ""
+	s.Issues, s.fetched = ops, time.Now()
+	a.issueRemoteOK(s)
 	s.gen++
 	if changed {
 		a.changedIssues()
@@ -524,7 +648,7 @@ func (a *App) issueRemoteSync(org, scope string, gen int) {
 // 遠端模式:每 5 秒在背景重讀一次(網路請求在鎖外),別處(app、其他 omixor-web)的修改才看得到
 func init() {
 	OnStart(func(a *App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		go func() {

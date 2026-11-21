@@ -1,5 +1,5 @@
 // Swift 模型經 MCPJSON 編出來的 JSON 型別(監控、事件、AI 自動化、文件櫃、設定用)。欄位名稱看 mac/Sources/Omixor/Core/Models.swift 等。
-import type { Actor } from "../types";
+import type { Actor, ActorView } from "../types";
 
 export type Severity = "critical" | "warning" | "info";
 export const SEVERITIES: Severity[] = ["critical", "warning", "info"];
@@ -38,10 +38,12 @@ export const INC_STATUS_LABEL: Record<IncidentStatus, string> = { investigating:
 export const INC_STATUS_COLOR: Record<IncidentStatus, string> = { investigating: "red", identified: "orange", monitoring: "blue", resolved: "green" };
 export const INC_STATUS_ICON: Record<IncidentStatus, string> = { investigating: "magnifyingglass", identified: "scope", monitoring: "eye", resolved: "checkmark.circle.fill" };
 export type IncidentEventKind = "status" | "note" | "action" | "alert" | "deploy" | "aiFinding";
-export type IncidentEvent = { id: string; date: string; actor: Actor; kind: IncidentEventKind; text: string };
+export type IncidentEvent = { id: string; date: string; actor: Actor; actorRef?: ActorView; kind: IncidentEventKind; text: string };
 export type Incident = {
   id: string; title: string; sev: number; status: IncidentStatus; services: string[]; commander: string; startedAt: string;
   resolvedAt?: string | null; impact: string; timeline: IncidentEvent[]; aiSummary?: string | null; followUps: string[];
+  /** 指揮官、宣告者的 actor 物件(ISS-36 C-3) */
+  commanderActor?: ActorView; createdByActor?: ActorView;
 };
 export type OnCallShift = { id: string; person: string; role: string; start: string; end: string };
 export type WorkStatus = "backlog" | "todo" | "inProgress" | "review" | "done";
@@ -110,7 +112,9 @@ export type AgentTask = {
   routineId?: string | null; createdAt: string; updatedAt: string; result: string; links: string[];
   /** 領取租約:進行中才有;鎖定期間別人不能領取,逾時會被排程自動退回待領取 */
   lockedUntil?: string | null; claimedBy?: string;
-  notes: { id: string; author: string; text: string; at: string }[];
+  /** 建立者、領取者的 actor 物件(ISS-36 C-3) */
+  createdByActor?: ActorView; claimedByActor?: ActorView;
+  notes: { id: string; author: string; authorActor?: ActorView; text: string; at: string }[];
 };
 /** 進行中任務的鎖定提示(非進行中、沒有租約回 null) */
 export function leaseLabel(t: AgentTask): string | null {
@@ -139,7 +143,7 @@ export type AgentRunnerView = {
 };
 
 /** 組織鏈的一條邊:from 可以派工作給 to(label 空白 = 任務),to 做完回報給 from。節點是 "agent:<角色 id>" 或 "user:<email 小寫>" */
-export type ChainEdge = { from: string; to: string; label: string };
+export type ChainEdge = { from: string; to: string; label: string; fromActor?: ActorView; toActor?: ActorView };
 export type OrgChain = { edges: ChainEdge[]; updatedAt?: string };
 /** 組織鏈視圖(org_chain):鏈、組織成員(user 節點的候選)、能不能修改 */
 export type OrgChainView = {
@@ -151,9 +155,15 @@ export type OrgChainView = {
 export type Channel = {
   id: string; name: string; topic: string; issueId: string; members: string[]; createdBy: string;
   createdAt: string; updatedAt: string; unread: number; lastMessageAt: string | null;
+  /** 成員(順序同 members)、建立者的 actor 物件(ISS-36 C-3) */
+  memberActors?: ActorView[]; createdByActor?: ActorView;
 };
 /** 頻道訊息:id 是 M-<n>(每個頻道各自編號),mentions 是被 @ 的成員節點 */
-export type ChannelMessage = { id: string; channelId: string; author: string; text: string; mentions: string[]; at: string };
+export type ChannelMessage = {
+  id: string; channelId: string; author: string; text: string; mentions: string[]; at: string;
+  /** 作者、被提及者(順序同 mentions)的 actor 物件(ISS-36 C-3) */
+  authorActor?: ActorView; mentionActors?: ActorView[];
+};
 export type ChannelPage = { messages: ChannelMessage[]; hasMore: boolean };
 /** 對話視圖(channels):我的頻道、我的節點、組織成員與角色 */
 export type ChannelsView = {
@@ -182,10 +192,11 @@ export function agentAccess(a: Agent, section: string, tab?: string | null, proj
 export type CabinetTab = { path: string; label: string; code?: string | null; group?: string | null };
 export type CabinetSection = { id: string; label: string; path?: string; tabs: CabinetTab[] };
 /** project:所屬專案 id(省略 = 未分專案,就是原本的組織文件櫃) */
-export type CabinetDoc = { id: string; title: string; body: string; section: string; tab?: string | null; tags: string[]; author: string; createdAt: string; updatedAt: string; project?: string };
-export type CabinetView = { layout: CabinetSection[]; docs: CabinetDoc[] };
+export type CabinetDoc = { id: string; title: string; body: string; section: string; tab?: string | null; tags: string[]; author: string; authorActor?: ActorView; createdAt: string; updatedAt: string; project?: string };
+/** layoutVersion:結構的版本號(沒存過是 0,每存一次 +1);存結構時帶 expectedVersion 做樂觀鎖 */
+export type CabinetView = { layout: CabinetSection[]; docs: CabinetDoc[]; layoutVersion: number };
 /** 組織底下的專案(core 的 model.Project;PRJ-<n>);目前只有文件櫃分專案,權限沿用組織成員 */
-export type Project = { id: string; name: string; description: string; createdAt: string; updatedAt: string };
+export type Project = { id: string; name: string; key?: string; description: string; createdAt: string; updatedAt: string };
 /** cabinet_query 的回傳:某個專案(空字串 = 未分專案)的結構與文件,加上組織的專案清單 */
 export type CabinetQuery = CabinetView & { project: string; layoutSaved: boolean; projects: Project[]; projectsError?: string; error?: string };
 export const tabTitle = (t: CabinetTab) => (t.code ? `${t.code} ${t.label}` : t.label);

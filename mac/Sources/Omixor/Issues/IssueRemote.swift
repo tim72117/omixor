@@ -413,7 +413,7 @@ final class IssueRemote: @unchecked Sendable {
     }
 
     /// 新增一則留言(POST …/issues/<id>/comments):伺服器只附加這一則,同時多人留言不會互相蓋掉;回傳新增後的 Issue。
-    /// author 只有伺服器管理員的有效(其他人伺服器一律記成登入的人)
+    /// author 一般成員與角色憑證一律記成登入的人(給了別人靜默忽略);伺服器管理員只能代角色或系統署名,給使用者或找不到的名字也是記成登入的人
     func addComment(org: String, id: String, text: String, author: String) throws -> Issue {
         try decodeIssue(try send("POST", url(org, [id, "comments"]), try json(["text": text, "author": author])))
     }

@@ -8,12 +8,12 @@ import (
 	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 事件工具(管理端點):宣告、更新、查;錯誤訊息同 Swift 版;角色端點沒有事件工具
 func TestIncidentTools(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "amy@x", Role: "member", CreatedAt: now})

@@ -8,13 +8,30 @@
 //	POST /api/auth/pair                        已登入的使用者產生手機配對碼 → {code, expiresAt}(一次性、5 分鐘;見 service/pair.go)
 //	POST /api/auth/pair/claim                  {code, device} → 同 /api/auth/evoleap(不用登入,跟登入共用頻率限制;失敗一律 401 同一句話)
 //
+// 「誰」欄位的輸出(ISS-36 C-3):凡是回傳「誰」的欄位,舊的相容字串照舊,旁邊並存 actor 物件 model.ActorView
+// {id, kind(user|agent|system), handle, name, email?(使用者), status};查不到的 actor(舊資料)整個欄位省略,name、handle 是「現在」的值:
+//
+//	Issue        createdBy→createdByActor、assignee→assigneeActor、deletedBy→deletedByActor;留言 author→authorActor
+//	文件         author→authorActor
+//	任務         createdBy→createdByActor、claimedBy→claimedByActor;備註 author→authorActor
+//	頻道         createdBy→createdByActor、members→memberActors(順序同 members);訊息 author→authorActor、mentions→mentionActors(順序同);已讀 member→memberActor;inbox node→nodeActor、mentions[].author→authorActor
+//	組織鏈       邊 from→fromActor、to→toActor
+//	事件         commander→commanderActor、createdBy→createdByActor;時間軸 actor({kind,id} 相容)→actorRef
+//	稽核         userId/email 旁邊 actorRef;成員 userId/email 旁邊 actorRef
+//	系統設定、功能開關、MCP 設定、整合(GitHub/GitLab) updatedBy→updatedByActor
+//
+// 輸入端不變(接受 actor id、handle、@handle、email、agent:<handle>、user:<x>);讀出再寫回只看相容字串。
+//
 //	GET  /api/orgs                             我能用的組織(伺服器管理員是全部;myRole 是我的角色)
 //	POST /api/orgs                             {id, name, symbol?, color?, note?} 建立組織(伺服器管理員)
 //	PUT  /api/orgs/{org}                       {name, symbol?, color?, note?} 修改組織(伺服器管理員)
 //	GET  /api/orgs/{org}/members               成員
+//	GET  /api/orgs/{org}/actors?kind=&q=&status=   組織看得到的 actor [{id, kind(user|agent|system), handle, name, email?(使用者), status(active|disabled|suspended|retired)}](成員、伺服器管理員;q = handle 或名稱前綴;status 空 = 不含退役,all = 全部)
 //	POST /api/orgs/{org}/members               {email, role} 加入或改角色(組織管理員)
 //	POST /api/orgs/{org}/members/remove        {email}
-//	GET  /api/orgs/{org}/issues?q=&status=&priority=&label=&repo=&assignee=&sort=
+//	Issue 的 {id}:內部 id(UUIDv7)、目前或舊的 key(ISS-<n>、<專案代號>-<n>,不分大小寫)都可以;回應帶 key、project、version
+//	GET  /api/orgs/{org}/issues?q=&status=&priority=&label=&repo=&assignee=&project=&sort=&deleted=1
+//	                                           project:"" 全部、"-" 只看組織層級、PRJ-<n> 那個專案;deleted=1 列垃圾桶(組織管理員)
 //	                                           Issue 列表;不帶參數 = 全部(新的在前)。規則只在 core(model/issue_query.go):
 //	                                           q 搜尋標題、內文、留言、編號、標籤(空白分隔的每個字都要有,不分大小寫);status open|closed|all;
 //	                                           label 不分大小寫完全相同;repo 不分大小寫,github:/gitlab: 前綴一邊沒寫就忽略;
@@ -23,21 +40,26 @@
 //	                                           看板 {columns:[{key,title,dropStatus,issues}], labels, total, matched}:
 //	                                           待處理(open、沒指派)、進行中(open、有指派)、已完成(closed),每欄依優先度 → 最近更新 → 編號;
 //	                                           dropStatus 是拖進該欄要套的 status(和 Issue 現在的相同就不用改)
-//	POST /api/orgs/{org}/issues                {title, body, priority, labels, source, link, repo?, author} 建立
+//	POST /api/orgs/{org}/issues                {title, body, priority, labels, source, link, repo?, project?, author} 建立
 //	GET  /api/orgs/{org}/issues/{id}
 //	POST /api/orgs/{org}/attachments           {data: base64} 上傳圖片(PNG、JPEG、GIF、WebP,10 MB)→ {id}
 //	GET  /api/orgs/{org}/attachments/{id}      → {type, data: base64}
-//	POST /api/orgs/{org}/issues/{id}           {title?, body?, appendBody?, status?, priority?, labels?, source?, link?, repo?, assignee?, comments?, author?} 修改
+//	POST /api/orgs/{org}/issues/{id}           {title?, body?, appendBody?, status?, priority?, labels?, source?, link?, repo?, assignee?, project?, version?, comments?, author?} 修改
 //	                                           (comments:伺服器管理員整份取代;其他人只能新增、不能改或刪已有的,見 service.IssuePatch;留言請改用 …/comments)
+//	                                           project = 搬專案(發新 key,舊 key 留在別名表);version 或 If-Match 標頭 = 樂觀鎖,版本不符 409 {error, current, currentVersion}
 //	POST /api/orgs/{org}/issues/{id}/comments  {text, author?} 新增一則留言(成員、角色;只附加這一則,回傳新增後的 Issue;author 只有伺服器管理員的有效)
-//	POST /api/orgs/{org}/issues/{id}/delete
-//	GET  /api/orgs/{org}/issues/export         整份(組織管理員)
+//	POST /api/orgs/{org}/issues/{id}/restore   從垃圾桶拿回來(組織管理員)
+//	POST /api/orgs/{org}/issues/{id}/purge     永久刪除(組織管理員)
+//	POST /api/orgs/{org}/issues/{id}/delete    丟進垃圾桶(軟刪除;組織成員)
+//	GET  /api/orgs/{org}/issues/export         整份(組織管理員;?deleted=1 連垃圾桶裡的一起,帶 deletedAt)
 //	POST /api/orgs/{org}/issues/import         {issues} 第一次搬資料用(組織管理員;已經有 Issue 就拒絕)
 //
 //	GET  /api/orgs/{org}/agents                虛擬角色(成員;角色憑證只看到自己)
 //	POST /api/orgs/{org}/agents                {id?, name, role, instructions, active, symbol, color, docAccess, routines} 新增或修改(組織管理員;沒給 active 視為 true)
 //	GET  /api/orgs/{org}/agents/{id}
-//	POST /api/orgs/{org}/agents/{id}/delete    刪除(未結束的任務一併取消、憑證作廢)
+//	POST /api/orgs/{org}/agents/{id}/delete    {transferTo?} 刪除(組織管理員)。名下有任務(任何狀態)時 409 {error, code: agentHasTasks, agent, taskCounts(各狀態筆數), total}:
+//	                                           要帶 transferTo(目標角色)才會在同一個交易裡轉移任務(進行中的退回待領取、憑證作廢)、Issue 指派改給目標、組織鏈與頻道成員拿掉、再刪角色;不能轉給自己或停用的角色
+//	POST /api/orgs/{org}/agent-tasks/transfer  {from, to, scope?} 不刪角色的單獨轉移(組織管理員;scope = all 全部 | open 只轉待領取與需要協助,空 = open)→ {from, to, scope, byStatus, total, released}
 //	GET  /api/orgs/{org}/agent-tasks?agent=&status=   任務(status:open、all 或單一狀態;預設 all)
 //	POST /api/orgs/{org}/agent-tasks           {agentId, title, instructions, priority, links} 派任務(組織管理員)
 //	GET  /api/orgs/{org}/agent-tasks/{id}
@@ -67,7 +89,8 @@
 //	POST /api/orgs/{org}/projects/{id}/delete  刪除(組織管理員;專案裡還有文件 409;連同專案的文件櫃結構)
 //	  只有文件櫃分專案;下面文件櫃的端點都可以帶 ?project=<專案 id>(或 body 的 project),沒給 = 未分專案(和以前一樣);不存在的專案 404
 //	GET  /api/orgs/{org}/cabinet?project=      文件櫃:{project?, layout, docs, layoutSaved}(成員;角色憑證只看到 docAccess 能讀的文件)
-//	POST /api/orgs/{org}/cabinet/layout        {project?, layout} 改結構(組織管理員;被拿掉的區塊、頁籤裡不能還有這個專案的文件)
+//	POST /api/orgs/{org}/cabinet/layout        {project?, layout} 改結構(組織管理員;被拿掉的區塊、頁籤裡不能還有這個專案的文件)。
+//	                                           expectedVersion?(GET cabinet 的 layoutVersion)= 樂觀鎖:版本不符 409 {error, currentVersion};不帶 = 無鎖覆蓋(舊客戶端)。回應多帶 layoutVersion(新版本)
 //	POST /api/orgs/{org}/cabinet/import        {layout?, docs?} 第一次搬資料用(組織管理員;已經有文件就拒絕,已經有結構就略過結構;結構存成未分專案的)
 //	GET  /api/orgs/{org}/docs?project=         專案的文件(新的在前;角色憑證只看到能讀的)
 //	POST /api/orgs/{org}/docs                  {project?, title, body, section, tab?, tags, author?} 新增 → DOC-<n>(組織內唯一;依範本檢查必填欄位)
@@ -144,6 +167,7 @@ import (
 	"strconv"
 	"strings"
 
+	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -158,12 +182,57 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// opWriter 讓 reply 知道是哪個請求(log 才對得上);Handler 外面包一層
+type opWriter struct {
+	http.ResponseWriter
+	r *http.Request
+}
+
+func (o *opWriter) Unwrap() http.ResponseWriter { return o.ResponseWriter }
+
+func (o *opWriter) Flush() {
+	if f, ok := o.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// opName 這次請求的操作名稱(路由樣式;沒有就用路徑)
+func opName(w http.ResponseWriter) string {
+	if o, ok := w.(*opWriter); ok {
+		if o.r.Pattern != "" {
+			return o.r.Pattern
+		}
+		return o.r.Method + " " + o.r.URL.Path
+	}
+	return "api"
+}
+
+func withOp(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(&opWriter{ResponseWriter: w, r: r}, r)
+	})
+}
+
+// reply 錯誤的狀態碼、訊息、data 一律走 httperr(資料庫錯誤等內部細節換成通用訊息,原文連同操作名稱進 log)
 func reply(w http.ResponseWriter, v any, err error) {
 	if err != nil {
-		writeJSON(w, service.Code(err), map[string]any{"error": err.Error()})
+		in := httperr.Report(opName(w), err)
+		writeJSON(w, in.StatusOr(500), in.Body())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"result": v})
+}
+
+// ifMatchVersion If-Match 標頭的版本號(例如 3 或 "3");沒有或不是數字回 false
+func ifMatchVersion(r *http.Request) (int, bool) {
+	h := strings.Trim(strings.TrimSpace(r.Header.Get("If-Match")), `"`)
+	h = strings.TrimPrefix(h, "W/")
+	h = strings.Trim(h, `"`)
+	if h == "" {
+		return 0, false
+	}
+	v, err := strconv.Atoi(h)
+	return v, err == nil
 }
 
 func read(r *http.Request, v any) error {
@@ -177,6 +246,7 @@ func read(r *http.Request, v any) error {
 	return json.Unmarshal(b, v)
 }
 
+// bad 請求內容不是合法的 JSON 等(只有解析器的訊息,沒有內部細節;掃描測試的白名單)
 func bad(w http.ResponseWriter, err error) {
 	writeJSON(w, 400, map[string]any{"error": "格式錯誤:" + err.Error()})
 }
@@ -292,6 +362,11 @@ func (a *API) Handler() http.Handler {
 		l, err := a.Svc.ListMembers(p, r.PathValue("org"))
 		reply(w, l, err)
 	}))
+	mux.HandleFunc("GET /api/orgs/{org}/actors", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		q := r.URL.Query()
+		l, err := a.Svc.ListOrgActors(p, r.PathValue("org"), service.ActorListFilter{Kind: q.Get("kind"), Q: q.Get("q"), Status: q.Get("status")})
+		reply(w, l, err)
+	}))
 	mux.HandleFunc("POST /api/orgs/{org}/members", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		var in struct{ Email, Role string }
 		if err := read(r, &in); err != nil {
@@ -339,6 +414,11 @@ func (a *API) Handler() http.Handler {
 				bad(w, err)
 				return
 			}
+			if in.Version == nil { // body 的 version 優先;沒有時看 If-Match 標頭(值是 version,可以帶引號)
+				if v, ok := ifMatchVersion(r); ok {
+					in.Version = &v
+				}
+			}
 			i, err := a.Svc.UpdateIssue(p, r.PathValue("org"), r.PathValue("id"), in)
 			reply(w, i, err)
 		}))
@@ -353,6 +433,13 @@ func (a *API) Handler() http.Handler {
 		}))
 		mux.HandleFunc("POST "+base+"/{id}/delete", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 			reply(w, true, a.Svc.DeleteIssue(p, r.PathValue("org"), r.PathValue("id")))
+		}))
+		mux.HandleFunc("POST "+base+"/{id}/restore", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+			i, err := a.Svc.RestoreIssue(p, r.PathValue("org"), r.PathValue("id"))
+			reply(w, i, err)
+		}))
+		mux.HandleFunc("POST "+base+"/{id}/purge", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+			reply(w, true, a.Svc.PurgeIssue(p, r.PathValue("org"), r.PathValue("id")))
 		}))
 	}
 	mux.HandleFunc("POST /api/orgs/{org}/attachments", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
@@ -381,7 +468,8 @@ func (a *API) Handler() http.Handler {
 	}))
 	for _, base := range []string{"/api/orgs/{org}/issues", "/api/admin/issues/{org}"} {
 		mux.HandleFunc("GET "+base+"/export", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
-			l, err := a.Svc.ExportIssues(p, r.PathValue("org"))
+			d := strings.ToLower(r.URL.Query().Get("deleted"))
+			l, err := a.Svc.ExportIssuesWith(p, r.PathValue("org"), d == "1" || d == "true")
 			reply(w, l, err)
 		}))
 		mux.HandleFunc("POST "+base+"/import", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
@@ -439,5 +527,5 @@ func (a *API) Handler() http.Handler {
 		l, err := a.Svc.ListAudit(p, n)
 		reply(w, l, err)
 	}))
-	return mux
+	return withOp(mux)
 }

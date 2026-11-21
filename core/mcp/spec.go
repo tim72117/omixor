@@ -58,36 +58,39 @@ func CoreToolDefs() []any {
 		coreDef("issue_create",
 			"把發現的問題或待辦存成 Issue。內文用 Markdown,寫清楚現象、依據(數字、網址、時間範圍)與建議。建立前可先用 issues 搜尋,避免重複。給 assignee(角色 id)會自動替該角色排一筆任務。", false,
 			obj(map[string]any{
-				"agent":    pStr("以虛擬角色身分工作時填角色 id 或名稱,Issue 會署名該角色"),
 				"assignee": pStr("指派給的虛擬角色 id;會自動替它排任務(角色必須存在)"),
 				"body":     pStr("內文(Markdown)"),
 				"labels":   pStrs("標籤,例如 [\"evoleap\", \"訪客\"]"),
 				"link":     pStr("相關網址"),
 				"priority": pEnum("優先度,預設 normal", prio...),
+				"project":  pStr("放進的專案 id(例如 PRJ-1;專案要先設定代號,編號會是 <代號>-<n>);不給 = 組織層級(ISS-<n>)"),
 				"repo":     pStr("所屬程式碼倉庫,例如 owner/name(GitHub)或 group/sub/project(GitLab),可加 github:、gitlab: 前綴;只能用英數與 - _ . / :"),
 				"source":   pStr("從哪裡發現的,例如「網站訪客 7d」"),
 				"title":    pStr("標題,一句話說明問題"),
 			}, "title")),
 		coreDef("issue_update",
-			"更新 Issue:改標題、內文、優先度、標籤、所屬倉庫、指派,加留言,或關閉/重新打開。只給要改的欄位。", false,
+			"更新 Issue:改標題、內文、優先度、標籤、所屬倉庫、指派、所屬專案(搬移),加留言,或關閉/重新打開。只給要改的欄位。id 用 key 或內部 id 都可以;回傳的 key 是顯示用編號。", false,
 			obj(map[string]any{
 				"add_labels":  pStrs("加上的標籤"),
-				"agent":       pStr("以虛擬角色身分工作時填角色 id 或名稱,留言與變更會署名該角色"),
 				"append_body": pStr("接在內文後面的文字"),
 				"assignee":    pStr("改指派給的角色 id(空字串 = 取消指派);會自動替新角色排任務、取消舊角色還沒領取的任務"),
 				"body":        pStr("取代內文(Markdown)"),
 				"comment":     pStr("加一則留言"),
-				"id":          pStr("Issue id,例如 ISS-3"),
+				"id":          pStr("Issue 編號:key(例如 ISS-3、APP-12,舊的 key 也可以)或內部 id"),
 				"labels":      pStrs("取代全部標籤"),
 				"priority":    pEnum("優先度", prio...),
+				"project":     pStr("搬到這個專案(專案 id,例如 PRJ-1;空字串 = 搬回組織層級)。會發新的 key,舊的 key 仍然查得到"),
+				"version":     pInt("Issue 目前的 version(issues 回傳的);有給就檢查版本,別人已經改過時回錯誤(不會蓋掉),不給 = 不檢查"),
 				"repo":        pStr("改所屬程式碼倉庫(owner/name 或 group/sub/project,可加 github:、gitlab: 前綴;空字串 = 清除標記)"),
 				"status":      pEnum("open 重新打開,closed 關閉", "open", "closed"),
 				"title":       pStr("新標題"),
 			}, "id")),
 		coreDef("issues",
-			"給 id 回傳完整內容(含留言);不給 id 則列出符合條件的 Issue(預設只列未解決,依優先度與時間排序)。", true,
+			"給 id 回傳完整內容(含留言);不給 id 則列出符合條件的 Issue(預設只列未解決,依優先度與時間排序)。"+
+				"顯示與引用 Issue 請用 key(ISS-<n>,專案裡是 <專案代號>-<n>);id 是內部 id,兩種(含舊的 key)都能當參數。已刪除(垃圾桶)的不會列出。", true,
 			obj(map[string]any{
-				"id":     pStr("Issue id"),
+				"id":      pStr("Issue 編號:key(例如 ISS-3、APP-12)或內部 id"),
+				"project": pStr("只列這個專案的(專案 id,例如 PRJ-1);\"-\" = 只列組織層級的;不給 = 全部"),
 				"label":  pStr("只列有這個標籤的"),
 				"limit":  pInt("最多幾筆,預設 30"),
 				"query":  pStr("搜尋標題、內文、留言、編號與標籤(不分大小寫;以空白分隔的每個字都要出現)"),
@@ -95,7 +98,7 @@ func CoreToolDefs() []any {
 				"status": pEnum("open、closed 或 all,預設 open", "open", "closed", "all"),
 			})),
 		coreDef("agents",
-			"列出組織的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。以角色身分工作前先讀它的 instructions。", true,
+			"列出組織的虛擬角色:id、名稱、職責、角色設定(instructions)、例行任務,以及各狀態的任務數。要以某角色身分工作,先讀它的 instructions,再用 agent_task_claim 領任務拿角色憑證、連角色端點。", true,
 			obj(map[string]any{"id": pStr("只看這個角色")})),
 		coreDef("agent_context",
 			"用角色 id 或名稱,一次取得這個角色工作時能讀取的資訊:角色設定、未完成的任務、文件櫃中能存取的區塊與頁籤(read / write),能讀的文件清單,以及頻道裡提到它的未讀訊息與它所在頻道的未讀數(mentions)。include_bodies 為 true 時附上文件全文(最多 20 份,其餘只列清單)。文件權限依角色的 docAccess。", true,
@@ -144,35 +147,42 @@ func CoreToolDefs() []any {
 		coreDef("agent_task_create",
 			"建立一筆任務指派給虛擬角色,等它被領取(組織管理員)。assign_to 是接任務的角色。", false,
 			obj(map[string]any{
-				"agent":        pStr("(忽略)署名一律是呼叫者"),
 				"assign_to":    pStr("接這個任務的角色 id 或名稱"),
 				"instructions": pStr("任務說明(Markdown)"),
 				"priority":     pEnum("優先度,預設 normal", prio...),
 				"title":        pStr("標題"),
 			}, "assign_to", "title")),
+		coreDef("agent_task_transfer",
+			"把一個角色名下的任務轉給另一個角色,不刪角色(組織管理員)。要刪有任務的角色,先用這個轉移(或在刪除時指定轉給誰)。"+
+				"scope=open(預設)只轉待領取與需要協助;scope=all 全部都轉:進行中(已被領走)的先退回待領取、鎖與憑證作廢,已完成與已取消的也一起轉。每筆任務會加一則「由 <舊角色> 轉移」備註。目標角色不能是自己、不存在或已停用。", false,
+			obj(map[string]any{
+				"from":  pStr("來源角色 id 或名稱"),
+				"scope": pEnum("範圍,預設 open", "open", "all"),
+				"to":    pStr("目標角色 id 或名稱"),
+			}, "from", "to")),
 		coreDef("projects",
-			"列出組織的專案(id、名稱、描述、文件數)。專案目前只用來分文件櫃:每個專案有自己的文件櫃結構與文件;不屬於任何專案的是「未分專案」。"+
+			"列出組織的專案(id、名稱、代號 key、描述、文件數)。專案用來分文件櫃與 Issue:每個專案有自己的文件櫃結構與文件;有代號的專案可以放 Issue(issue_create、issue_update 帶 project);不屬於任何專案的是「未分專案」/組織層級。"+
 				"文件櫃工具(cabinet、docs、doc_save、cabinet_layout_save)帶 project 參數操作那個專案,不帶就是未分專案。", true,
 			obj(map[string]any{})),
 		coreDef("project_save",
-			"新增專案(不給 id;name 必填)或修改專案的名稱、描述(給 id)(組織管理員)。名稱在組織內不能重複;新專案的 id 是 PRJ-<n>,文件櫃結構是空白的(用 cabinet_layout_save 帶 project 建區塊)。", false,
+			"新增專案(不給 id;name 必填)或修改專案的名稱、代號、描述(給 id)(組織管理員)。名稱在組織內不能重複;新專案的 id 是 PRJ-<n>,文件櫃結構是空白的(用 cabinet_layout_save 帶 project 建區塊)。"+
+				"代號(key,例如 APP)設定後才能在專案裡建 Issue,編號是 <代號>-<n>;專案裡已經有 Issue 就不能再改代號。", false,
 			obj(map[string]any{
 				"id":          pStr("要修改的專案 id,例如 PRJ-1;新增時不給"),
+				"key":         pStr("專案代號:2 到 10 個大寫英數字、英文字母開頭,組織內不重複;ISS、PRJ、T、DOC、CH、INC 是保留字"),
 				"name":        pStr("專案名稱(新增時必填)"),
 				"description": pStr("專案描述"),
 			})),
 		coreDef("cabinet",
-			"列出文件櫃的區塊與頁籤,以及各處有幾份文件。給 project 看那個專案的文件櫃(省略 = 未分專案)。給 agent 時只列該角色能存取的位置並標出權限(read / write)。", true,
+			"列出文件櫃的區塊與頁籤,以及各處有幾份文件。給 project 看那個專案的文件櫃(省略 = 未分專案)。", true,
 			obj(map[string]any{
-				"agent":   pStr("以角色身分查看時填角色 id 或名稱"),
 				"project": pStr(projectParam),
 			})),
 		coreDef("docs",
-			"給 id 讀一份文件(文件 id 在組織內唯一,不用帶 project;回傳的 project 是所屬專案);否則依專案、區塊、頁籤、關鍵字列出文件(最多 50 筆;只列 project 那個專案的,省略 = 未分專案)。給 agent 時只看得到該角色有權限的文件。"+
+			"給 id 讀一份文件(文件 id 在組織內唯一,不用帶 project;回傳的 project 是所屬專案);否則依專案、區塊、頁籤、關鍵字列出文件(最多 50 筆;只列 project 那個專案的,省略 = 未分專案)。"+
 				"讀長文件時建議分段讀,省上下文:先 outline 看大綱(各段的 id、標題、行號範圍、字數),再用 part 讀一段、from/to 讀幾行,或 grep 找關鍵字;"+
 				"回傳的 version 在局部修改(doc_save 的 edits、replace_part、append_to_part)時帶回來。只給 id 時回全文,但超過 6000 字的文件只回大綱與開頭(要全文帶 full)。", true,
 			obj(map[string]any{
-				"agent":   pStr("以角色身分查看時填角色 id 或名稱"),
 				"project": pStr(projectParam + ";列文件時只列這個專案的,section、tab 依它的結構解析(給 id 時不用)"),
 				"id":      pStr("文件 id,例如 DOC-3"),
 				"query":   pStr("標題、內文或標籤包含這段文字"),
@@ -187,12 +197,11 @@ func CoreToolDefs() []any {
 				"full":    pBool("給 id 時一定回全文(長文件也是)"),
 			})),
 		coreDef("doc_save",
-			"新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在對應的區塊與頁籤。以角色身分工作時一定要帶 agent:只能寫到該角色「可讀寫」的位置(角色端點一律是憑證的角色)。"+
+			"新增文件(不給 id)或修改文件(給 id)。內容是純文字/Markdown,放在對應的區塊與頁籤。署名是呼叫者(角色端點是憑證的角色,只能寫到角色「可讀寫」的位置)。"+
 				"專案:新增時 project 是放進的專案(省略 = 未分專案),section、tab 依那個專案的結構解析;修改時給 project 就是把文件搬到那個專案(空字串 = 搬回未分專案;沒給 section 時沿用原本的區塊與頁籤,目標專案要有),不給就不搬。"+
 				"內文開頭可以有欄位(--- 之間一行一個 key: value),kind 是文件類型:有對應範本(kind: template、for: <類型> 的文件,內含 ```html 版面與 ```css 樣式)時,畫面依範本顯示,存檔前也會檢查範本的 required 欄位。"+
 				"修改長文件時建議局部修改(edits、replace_part、append_to_part 三種擇一,不必送全文),回傳只有改到的那幾行與新版本。", false,
 			obj(map[string]any{
-				"agent":       pStr("以角色身分工作時填角色 id 或名稱"),
 				"append_body": pStr("接在內文後面的文字"),
 				"body":        pStr("取代內文(Markdown)"),
 				"edits": map[string]any{"type": "array", "description": "局部修改:字串取代,依序套用;old 在全文必須剛好出現一次(或設 all),任何一個失敗就都不改",
@@ -210,13 +219,15 @@ func CoreToolDefs() []any {
 			})),
 		coreDef("cabinet_layout_save",
 			"新增、改名、移除文件櫃的區塊與頁籤(組織管理員)。給 project 改那個專案的結構(每個專案各自一份;省略 = 未分專案)。依序套用 add_sections → add_tabs → update → remove,全部成功才存(一次存檔)。"+
-				"新區塊不給 id 時自動編 s<n>;新頁籤不給 path 時自動編 /<區塊 id>/<n>。被移除的區塊、頁籤裡不能還有文件(先用 doc_save 搬走)。回傳新的結構與這次新增的 id。", false,
+				"新區塊不給 id 時自動編 s<n>;新頁籤不給 path 時自動編 /<區塊 id>/<n>。被移除的區塊、頁籤裡不能還有文件(先用 doc_save 搬走)。回傳新的結構、這次新增的 id 與新的 layoutVersion。"+
+				"樂觀鎖:cabinet 回傳 layoutVersion;存檔帶 expectedVersion(用 cabinet 讀到的那個)時,結構在這之間被別人改過(版本不符)就拒絕並回目前版本,請重新 cabinet 再重做;不帶時以這次呼叫開頭讀到的版本為準。", false,
 			obj(map[string]any{
-				"project":      pStr(projectParam),
-				"add_sections": pObjs("新增區塊:[{label, id?}];接在最後"),
-				"add_tabs":     pObjs("新增頁籤:[{section, label, code?, group?, path?}];section 是區塊 id 或名稱(可以是這次新增的)"),
-				"update":       pObjs("改名:[{section 或 tab, label?, code?, group?}];section 給區塊 id 或名稱,tab 給頁籤網址、名稱或代號(可再帶 section 限定區塊);code、group 給空字串是清掉"),
-				"remove":       pStrs("移除的區塊(id 或名稱)或頁籤(網址、名稱或代號);區塊會連同它的頁籤一起移除"),
+				"project":         pStr(projectParam),
+				"expectedVersion": pInt("選填:你讀到結構時 cabinet 回傳的 layoutVersion;版本不符(結構已被別人更新)就拒絕,不覆蓋"),
+				"add_sections":    pObjs("新增區塊:[{label, id?}];接在最後"),
+				"add_tabs":        pObjs("新增頁籤:[{section, label, code?, group?, path?}];section 是區塊 id 或名稱(可以是這次新增的)"),
+				"update":          pObjs("改名:[{section 或 tab, label?, code?, group?}];section 給區塊 id 或名稱,tab 給頁籤網址、名稱或代號(可再帶 section 限定區塊);code、group 給空字串是清掉"),
+				"remove":          pStrs("移除的區塊(id 或名稱)或頁籤(網址、名稱或代號);區塊會連同它的頁籤一起移除"),
 			})),
 	}
 	defs = append(defs, ChainToolDefs()...)

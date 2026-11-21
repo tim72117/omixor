@@ -11,7 +11,7 @@ import type {
   Agent, AgentRoutine, AgentTask, CabinetDoc, CabinetSection, CabinetTab, Channel, ChannelMessage, ChannelPage, ChainEdge,
   Incident, IncidentEvent, OrgChain, Organization, Project,
 } from "../src/components/models";
-import type { Actor } from "../src/types";
+import type { Actor, ActorView } from "../src/types";
 
 import issue from "../../../core/model/testdata/contract/issue.json";
 import issueList from "../../../core/model/testdata/contract/issue_list.json";
@@ -32,6 +32,7 @@ import project from "../../../core/model/testdata/contract/project.json";
 import projectList from "../../../core/model/testdata/contract/project_list.json";
 import orgChain from "../../../core/model/testdata/contract/org_chain.json";
 import org from "../../../core/model/testdata/contract/org.json";
+import actorList from "../../../core/model/testdata/contract/actor_list.json";
 
 /** 字串、數字的字面型別放寬(JSON 匯入的型別只有 string/number/boolean) */
 type Widen<T> = T extends string ? string
@@ -55,7 +56,7 @@ type NoMissing<K extends never> = K;
 // ---- Issue(開發 › Issue 的 Issue)
 conforms<Issue>()(issue);
 issueList.forEach((i) => conforms<Issue>()(i));
-type _issue = [NoExtra<Extra<typeof issue, Issue>>, NoMissing<Missing<typeof issue, Issue>>];
+type _issue = [NoExtra<Extra<typeof issue, Issue>>, NoMissing<Missing<typeof issue, Issue, "deletedAt">>]  // 刪除欄位只有在垃圾桶裡的 Issue 才有;
 type _issueComment = [NoExtra<Extra<typeof issue.comments, IssueComment>>, NoMissing<Missing<typeof issue.comments, IssueComment>>];
 
 // ---- 虛擬角色與任務
@@ -87,7 +88,7 @@ type _incidentEvent = [NoExtra<Extra<typeof incident.timeline, IncidentEvent>>, 
 type _actor = [NoExtra<Extra<(typeof incident.timeline)[number]["actor"], Actor>>];
 
 // ---- 文件櫃(CabinetView 是 core 的 Cabinet;layoutSaved 前端沒用)
-type CabinetViewLike = { layout: CabinetSection[]; docs: CabinetDoc[] };
+type CabinetViewLike = { layout: CabinetSection[]; docs: CabinetDoc[]; layoutVersion: number };
 conforms<CabinetViewLike>()(cabinet);
 type _cabinet = [NoExtra<Extra<typeof cabinet, CabinetViewLike, "layoutSaved">>, NoMissing<Missing<typeof cabinet, CabinetViewLike>>];
 type _section = [NoExtra<Extra<typeof cabinet.layout, CabinetSection>>, NoMissing<Missing<typeof cabinet.layout, CabinetSection>>];
@@ -114,5 +115,9 @@ type _edge = [NoExtra<Extra<typeof orgChain.edges, ChainEdge>>, NoMissing<Missin
 // ---- 組織(畫面的 Organization 由 web 後端的 orgs view 給;core 的 myRole 前端另外判斷)
 conforms<Organization>()(org);
 type _org = [NoExtra<Extra<typeof org, Organization, "myRole">>, NoMissing<Missing<typeof org, Organization>>];
+
+// ---- actor 物件(ISS-36 C-3;GET /actors 一筆,也是各資料 xxxActor 欄位的型別);email 只有使用者有
+actorList.forEach((a) => conforms<ActorView>()(a));
+type _actorView = [NoExtra<Extra<typeof actorList, ActorView>>, NoMissing<Missing<typeof actorList, ActorView>>];
 
 export {};

@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"strings"
 	"testing"
 
 	"omixor-core/backend"
@@ -39,13 +40,13 @@ func TestCabinetRoutes(t *testing.T) {
 	}
 	// 成員不能改結構(403);管理員可以
 	layout := []model.CabinetSection{{ID: "docs", Label: "文件", Tabs: []model.CabinetTab{{Path: "/a", Label: "A"}}}}
-	if _, err := rb.SaveCabinetLayout("lab", layout); backend.Code(err) != 403 {
+	if _, err := rb.SaveCabinetLayout("lab", layout, nil); backend.Code(err) != 403 {
 		t.Fatal(err)
 	}
-	if _, err := boss.SaveCabinetLayout("lab", []model.CabinetSection{{ID: "x", Label: "X"}}); status(err) != 400 {
+	if _, err := boss.SaveCabinetLayout("lab", []model.CabinetSection{{ID: "x", Label: "X"}}, nil); status(err) != 400 {
 		t.Fatal("拿掉有文件的區塊要 400", err)
 	}
-	if l, err := boss.SaveCabinetLayout("lab", layout); err != nil || len(l) != 1 || l[0].Tabs[0].Path != "/a" {
+	if l, err := boss.SaveCabinetLayout("lab", layout, nil); err != nil || len(l) != 1 || l[0].Tabs[0].Path != "/a" {
 		t.Fatal(l, err)
 	}
 	if _, err := rb.CreateDoc("lab", service.DocInput{Title: "x", Section: "docs", Body: "---\nkind: template\n---\n"}); backend.Code(err) != 400 {
@@ -64,5 +65,60 @@ func TestCabinetRoutes(t *testing.T) {
 	c, _ = rb.GetCabinet("lab")
 	if !c.LayoutSaved || len(c.Docs) != 1 || c.Docs[0].ID != "DOC-5" {
 		t.Fatalf("%+v", c)
+	}
+}
+
+// 結構的樂觀鎖:GET cabinet 帶 layoutVersion;存檔帶 expectedVersion,版本不符 409;不帶(舊客戶端)無鎖覆蓋
+func TestCabinetLayoutVersionRoutes(t *testing.T) {
+	e := newEnv(t)
+	boss := e.login("evo-boss")
+	if _, err := boss.CreateOrg("lab", "實驗室"); err != nil {
+		t.Fatal(err)
+	}
+	ver := func() int64 {
+		c, err := boss.GetCabinet("lab")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.LayoutVersion
+	}
+	i := func(n int64) *int64 { return &n }
+	mk := func(id string) []model.CabinetSection {
+		return []model.CabinetSection{{ID: id, Label: id, Tabs: []model.CabinetTab{}}}
+	}
+	if v := ver(); v != 0 {
+		t.Fatal("沒存過的版本是 0", v)
+	}
+	if _, err := boss.SaveCabinetLayout("lab", mk("a"), i(0)); err != nil || ver() != 1 {
+		t.Fatal("第一次存檔帶 0", err)
+	}
+	// 另一個人(拿到同樣的 1)先存了;我的 1 已經過期:409,訊息帶目前版本,內容不變
+	if _, err := boss.SaveCabinetLayout("lab", mk("b"), i(1)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := boss.SaveCabinetLayout("lab", mk("mine"), i(1))
+	if status(err) != 409 || !strings.Contains(err.Error(), "結構已被別人更新") || !strings.Contains(err.Error(), "目前版本 2") {
+		t.Fatalf("要 409 與重新載入的訊息:%v", err)
+	}
+	if c, _ := boss.GetCabinet("lab"); c.LayoutVersion != 2 || c.Layout[0].ID != "b" {
+		t.Fatalf("衝突後內容不變 %+v", c)
+	}
+	// 舊客戶端不帶版本:允許(無鎖覆蓋),版本照樣 +1
+	if _, err := boss.SaveCabinetLayout("lab", mk("legacy"), nil); err != nil || ver() != 3 {
+		t.Fatal("不帶 expectedVersion 要能存", err)
+	}
+	// 專案各自一個版本
+	p, err := boss.CreateProject("lab", service.ProjectInput{Name: "官網"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := boss.SaveProjectCabinetLayout("lab", p.ID, mk("spec"), i(0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := boss.SaveProjectCabinetLayout("lab", p.ID, mk("spec2"), i(0)); status(err) != 409 {
+		t.Fatal("專案的舊版本要被擋", err)
+	}
+	if ver() != 3 {
+		t.Fatal("專案的存檔不影響未分專案的版本")
 	}
 }

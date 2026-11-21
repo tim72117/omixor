@@ -2,14 +2,18 @@ package web
 
 import (
 	"crypto/subtle"
+	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
-	"omixor-core/env"
+	"omixor-core/config"
 	"omixor-core/model"
+	"omixor-core/service"
 
 	"omixor-web/internal/core"
 )
@@ -29,7 +33,7 @@ import (
 
 // apiToken 有設 OMIXOR_API_TOKEN 且請求帶了相同的 Bearer token
 func apiToken(r *http.Request) bool {
-	want := env.Get("OMIXOR_API_TOKEN", "OPS_API_TOKEN")
+	want := config.Current().Str(config.APIToken)
 	if len(want) < 16 {
 		return false
 	}
@@ -47,6 +51,30 @@ func issueAPIAuthor(r *http.Request, app *core.App, body map[string]any) string 
 	app.Mu.Lock()
 	defer app.Mu.Unlock()
 	return app.Me
+}
+
+// issueVersionOf 呼叫者讀到的 Issue 版本:body 的 version,或標準的 If-Match(可帶引號、W/ 前綴)。
+// 0 = 沒給(null、0、"*"、沒有標頭都算沒給,不檢查);負數、不是整數回錯誤(400)。body 的 version 有給正整數時優先
+func issueVersionOf(in map[string]any, ifMatch string) (int, error) {
+	if v, ok := in["version"]; ok && v != nil {
+		f, isNum := v.(float64)
+		if !isNum || f != math.Trunc(f) || f < 0 || f > math.MaxInt32 {
+			return 0, errors.New("version 要是 Issue 的版本號(非負整數)")
+		}
+		if f > 0 {
+			return int(f), nil
+		}
+	}
+	m := strings.TrimSpace(ifMatch)
+	m = strings.Trim(strings.TrimPrefix(m, "W/"), `"`)
+	if m == "" || m == "*" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(m)
+	if err != nil || n < 0 {
+		return 0, errors.New("If-Match 要是 Issue 的版本號(非負整數)")
+	}
+	return n, nil
 }
 
 func registerIssueAPI(mux *http.ServeMux, app *core.App) {
@@ -92,7 +120,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		}
 		in, err := readArgs(r)
 		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		title := strings.TrimSpace(str(in, "title"))
@@ -109,10 +137,19 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		author := issueAPIAuthor(r, app, in)
 		app.Mu.Lock()
 		var issue model.Issue
+		var failure error
 		app.WithOrgIssues(o, func() {
-			issue = app.CreateIssueFor(str(in, "title"), str(in, "body"), priority, labels, str(in, "source"), str(in, "link"), author, "", str(in, "repo"))
+			issue = app.CreateIssueIn(service.IssueInput{Title: str(in, "title"), Body: str(in, "body"), Priority: priority, Labels: labels,
+				Source: str(in, "source"), Link: str(in, "link"), Author: author, Repo: str(in, "repo"), Project: str(in, "project")})
+			if issue.ID == "" { // 核心沒存(專案不存在、專案沒有代號、伺服器連不上…):帶原因回去,不要回一份沒有 id 的草稿當成功
+				failure = app.IssueRemoteErr()
+			}
 		})
 		app.Mu.Unlock()
+		if failure != nil {
+			writeFail(w, r, failure)
+			return
+		}
 		writeJSON(w, 200, map[string]any{"result": issue})
 	})
 
@@ -123,7 +160,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		}
 		in, err := readArgs(r)
 		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		if p, ok := in["priority"]; ok && !slices.Contains(model.IssuePriorities, fmt.Sprint(p)) {
@@ -136,7 +173,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		}
 		var patch model.Issue
 		if err := core.ReadInto(in, &patch); err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		// 給的留言沒有 id 或時間時補上(同以前的寬鬆讀法:id 是新的 UUID、時間是現在)
@@ -154,12 +191,24 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		}
 		author := issueAPIAuthor(r, app, in)
 		id := r.PathValue("id")
+		// 樂觀鎖:body 的 version,或標準的 If-Match 標頭(可以帶引號);有給而且和核心目前的版本不同,核心回 409(Data 有目前內容與版本)
+		version, err := issueVersionOf(in, r.Header.Get("If-Match"))
+		if err != nil {
+			badRequest(w, err)
+			return
+		}
 		app.Mu.Lock()
 		var updated *model.Issue
+		var failure error
 		app.WithOrgIssues(o, func() {
-			update := app.UpdateIssue
-			if _, ok := in["comments"]; ok { // 給了整份留言:照 API 的約定整份取代(保留給的 id 與時間)
-				update = app.UpdateIssueReplacingComments
+			// version = 0:呼叫者沒給,不檢查(照舊直接套用);> 0:和核心目前的版本不同就 409
+			update := func(id, author string, change func(*model.Issue)) *model.Issue {
+				return app.UpdateIssueAtVersion(id, author, "", version, change)
+			}
+			if _, ok := in["comments"]; ok { // 給了整份留言:照 API 的約定整份取代(保留給的 id 與時間);版本照樣檢查
+				update = func(id, author string, change func(*model.Issue)) *model.Issue {
+					return app.UpdateIssueReplacingCommentsAtVersion(id, author, version, change)
+				}
 			}
 			updated = update(id, author, func(i *model.Issue) {
 				if _, ok := in["title"]; ok {
@@ -186,13 +235,23 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 				if _, ok := in["repo"]; ok {
 					i.Repo = strings.TrimSpace(patch.Repo)
 				}
+				if _, ok := in["project"]; ok { // 搬專案("" = 搬回組織層級);核心發新的 key,舊的留在別名表
+					i.Project = strings.TrimSpace(patch.Project)
+				}
 				if _, ok := in["comments"]; ok {
 					i.Comments = patch.Comments
 				}
 			})
+			if updated == nil {
+				failure = app.IssueRemoteErr()
+			}
 		})
 		app.Mu.Unlock()
 		if updated == nil {
+			if failure != nil { // 409 版本衝突(Data:current、currentVersion)、400 專案沒有代號… 原樣帶回去
+				writeFail(w, r, failure)
+				return
+			}
 			writeJSON(w, 404, map[string]any{"error": "找不到 Issue " + id})
 			return
 		}
@@ -205,9 +264,19 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 			return
 		}
 		id := r.PathValue("id")
+		in, _ := readArgs(r) // 可以沒有 body;有的話 author 用來署名動態牆
+		if in == nil {
+			in = map[string]any{}
+		}
+		author := issueAPIAuthor(r, app, in)
 		app.Mu.Lock()
-		app.WithOrgIssues(o, func() { app.DeleteIssue(id) })
+		var failure error
+		app.WithOrgIssues(o, func() { _, failure = app.TrashIssueAs(core.AuthorActor(author), id) })
 		app.Mu.Unlock()
+		if failure != nil { // 找不到 404、沒權限 403、連線錯誤… 照核心的狀態碼,不吞錯
+			writeFail(w, r, failure)
+			return
+		}
 		writeJSON(w, 200, map[string]any{"result": true})
 	})
 }

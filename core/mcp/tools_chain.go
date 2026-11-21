@@ -25,15 +25,14 @@ func ChainToolDefs() []any {
 				"remove": pObjs("拿掉的邊:[{from, to}]"),
 			})),
 		coreDef("agent_task_delegate",
-			"以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 agent_context 的 chain.downstream。", false,
+			"(只有角色端點:委派者由憑證決定)以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 agent_context 的 chain.downstream。", false,
 			obj(map[string]any{
-				"agent":        pStr("你自己正在扮演的角色 id 或名稱(委派者)"),
 				"to":           pStr("接任務的角色 id 或名稱(要是鏈上的下游)"),
 				"title":        pStr("標題"),
 				"instructions": pStr("任務說明(Markdown)"),
 				"priority":     pEnum("優先度,預設 normal", prio...),
 				"task":         pStr("委派它的來源任務 id(選填;不給就用你的角色進行中的任務)"),
-			}, "agent", "to", "title")),
+			}, "to", "title")),
 	}
 }
 
@@ -48,8 +47,11 @@ func nodeName(e AgentEnv, node string) string {
 func chainJSON(e AgentEnv, c model.OrgChain) map[string]any {
 	edges := []any{}
 	for _, x := range c.Edges {
-		edges = append(edges, map[string]any{"from": x.From, "to": x.To, "label": x.Label,
-			"fromName": nodeName(e, x.From), "toName": nodeName(e, x.To)})
+		edge := map[string]any{"from": x.From, "to": x.To, "label": x.Label,
+			"fromName": nodeName(e, x.From), "toName": nodeName(e, x.To)}
+		putActor(edge, "fromActor", x.FromActor)
+		putActor(edge, "toActor", x.ToActor)
+		edges = append(edges, edge)
 	}
 	out := map[string]any{"edges": edges}
 	if c.UpdatedAt != nil {
@@ -66,7 +68,13 @@ func chainLinks(e AgentEnv, agentID string) map[string]any {
 	}
 	node := model.AgentNode(agentID)
 	row := func(n string, x model.ChainEdge) map[string]any {
-		return map[string]any{"node": n, "name": nodeName(e, n), "label": x.LabelOrDefault()}
+		r := map[string]any{"node": n, "name": nodeName(e, n), "label": x.LabelOrDefault()}
+		if n == x.From { // 上游端點是 from、下游是 to
+			putActor(r, "actor", x.FromActor)
+		} else {
+			putActor(r, "actor", x.ToActor)
+		}
+		return r
 	}
 	up, down := []any{}, []any{}
 	for _, x := range c.Upstream(node) {
@@ -171,6 +179,9 @@ func RegisterChainTools(s *Server) {
 
 	s.Register("agent_task_delegate", func(c *Call) (any, error) {
 		e := agentEnv(c)
+		if e.Role() == nil { // 委派者只能由角色憑證決定
+			return nil, ToolError{Message: IdentityAgentError, Status: 400}
+		}
 		from, err := c.Args.Require("agent")
 		if err != nil {
 			return nil, err
@@ -190,19 +201,6 @@ func RegisterChainTools(s *Server) {
 		}
 		bk, org := e.Backend(), e.Org()
 		in := service.DelegateInput{From: from, To: to, Title: title, Instructions: instructions, Priority: priority, TaskID: c.Args.Str("task")}
-		if in.TaskID == "" && e.Role() == nil { // 沒有憑證綁定的任務:用委派者進行中、最近更新的那筆當來源
-			if g, err := bk.GetAgent(org, from); err == nil {
-				if l, err := bk.ListAgentTasks(org, service.TaskFilter{AgentID: g.ID, Status: "inProgress"}); err == nil && len(l) > 0 {
-					best := l[0]
-					for _, t := range l {
-						if t.UpdatedAt.After(best.UpdatedAt.Time) {
-							best = t
-						}
-					}
-					in.TaskID = best.ID
-				}
-			}
-		}
 		t, err := bk.DelegateTask(org, in)
 		if err != nil {
 			return nil, terr(err)

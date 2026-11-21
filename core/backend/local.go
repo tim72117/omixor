@@ -93,6 +93,16 @@ func (l *Local) DeleteIssue(org, id string) error {
 	return l.Svc.DeleteIssue(l.P, org, id)
 }
 
+func (l *Local) RestoreIssue(org, id string) (*model.Issue, error) {
+	l.ensureOrg(org)
+	return l.Svc.RestoreIssue(l.P, org, id)
+}
+
+func (l *Local) PurgeIssue(org, id string) error {
+	l.ensureOrg(org)
+	return l.Svc.PurgeIssue(l.P, org, id)
+}
+
 func (l *Local) SaveAttachment(org string, data []byte) (string, error) {
 	l.ensureOrg(org)
 	return l.Svc.SaveAttachment(l.P, org, data)

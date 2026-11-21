@@ -36,20 +36,12 @@ func userToolErr(err error) error {
 	return err
 }
 
-// issueAuthor Issue 的署名:有給 agent 就是該角色,否則是呼叫者
+// issueAuthor 署名:一律是呼叫者(人 = 使用者 actor;MCP 用戶端 = MCPActor)。不能指定角色身分(見 identity.go)
 func issueAuthor(c *Call) (string, error) {
-	return issueAuthorOf(c.App, c.Actor, c.Args.Str("agent"))
-}
-
-func issueAuthorOf(a *core.App, actor core.Actor, name string) (string, error) {
-	if name == "" {
-		return core.ActorAuthor(actor), nil
+	if err := rejectIdentity("", c.Args.Raw); err != nil {
+		return "", err
 	}
-	g := a.FindAgent(name)
-	if g == nil {
-		return "", Errorf("找不到角色 %s", name)
-	}
-	return core.AgentPrefix + g.ID, nil
+	return core.ActorAuthor(c.Actor), nil
 }
 
 // ---- coremcp.Env / coremcp.AgentEnv ----
@@ -74,9 +66,13 @@ func (x *callCtx) Org() (org string) {
 	return
 }
 func (x *callCtx) Author(agent string) (author string, err error) {
-	x.withMu(func() { author, err = issueAuthorOf(x.App, x.Actor, agent) })
+	if strings.TrimSpace(agent) != "" { // 核心工具傳進來的 agent:本機不允許(Run 與 Guard 已先擋,這裡是最後一道)
+		return "", ToolError{Message: coremcp.IdentityAgentError, Status: 400}
+	}
+	x.withMu(func() { author = core.ActorAuthor(x.Actor) })
 	return
 }
+
 func (x *callCtx) AuthorName(author string) (name string) {
 	x.withMu(func() { name = x.App.IssueAuthorName(author) })
 	return
@@ -140,8 +136,11 @@ func (b appBackend) GetIssue(_, id string) (*model.Issue, error) {
 }
 
 func (b appBackend) CreateIssue(_ string, in service.IssueInput) (*model.Issue, error) {
-	issue := b.a.CreateIssueFor(in.Title, in.Body, in.Priority, in.Labels, in.Source, in.Link, in.Author, in.Assignee, in.Repo)
-	if issue.ID == "" { // Issue 伺服器連不上
+	issue := b.a.CreateIssueIn(in) // in.Project:放進的專案(空 = 組織層級);專案不存在或沒有代號時核心回錯,原因在 IssueRemoteErr
+	if issue.ID == "" {            // Issue 伺服器連不上,或核心拒絕(專案不存在、沒有代號…)
+		if e := b.a.IssueRemoteErr(); e != nil {
+			return nil, e // 原型別帶回去(*service.Error 的狀態碼與 Data)
+		}
 		return nil, errors.New(b.a.IssueRemoteError())
 	}
 	c := copyIssue(issue)
@@ -154,8 +153,16 @@ func (b appBackend) UpdateIssue(_, id string, p service.IssuePatch) (*model.Issu
 	if p.AppendBody != nil {
 		appendBody = *p.AppendBody
 	}
-	// 只改 patch 有給的欄位;UpdateIssueAppend 只把有變的欄位送給核心,append_body 交給核心在 Issue 的鎖裡附加
-	updated := a.UpdateIssueAppend(id, p.Author, appendBody, func(i *model.Issue) {
+	// 只改 patch 有給的欄位;UpdateIssueAtVersion 只把有變的欄位送給核心,append_body 交給核心在 Issue 的鎖裡附加;
+	// p.Version 有給就用它做樂觀鎖(核心版本不同回 409,不會蓋掉別人先做的修改)
+	version := 0
+	if p.Version != nil {
+		version = *p.Version
+	}
+	updated := a.UpdateIssueAtVersion(id, p.Author, appendBody, version, func(i *model.Issue) {
+		if p.Project != nil {
+			i.Project = strings.TrimSpace(*p.Project) // 搬專案(核心發新的 key,舊的留在別名表)
+		}
 		if p.Title != nil {
 			i.Title = *p.Title
 		}
@@ -188,8 +195,8 @@ func (b appBackend) UpdateIssue(_, id string, p service.IssuePatch) (*model.Issu
 		}
 	}
 	if updated == nil {
-		if e := a.IssueRemoteError(); e != "" {
-			return nil, errors.New(e)
+		if e := a.IssueRemoteErr(); e != nil {
+			return nil, e // 原型別帶回去:409 版本衝突的 Data(current、currentVersion)才出得去
 		}
 		return nil, &service.Error{Code: 404, Msg: "找不到 Issue " + id}
 	}
@@ -243,6 +250,12 @@ func (b appBackend) SaveAgent(org string, in model.Agent) (*model.Agent, error) 
 	return b.a.AgentOps().SaveAgent(org, in)
 }
 func (b appBackend) DeleteAgent(org, id string) error { return b.a.AgentOps().DeleteAgent(org, id) }
+func (b appBackend) DeleteAgentTo(org, id, transferTo string) error {
+	return b.a.AgentOps().DeleteAgentTo(org, id, transferTo)
+}
+func (b appBackend) TransferAgentTasks(org string, in service.AgentTransferInput) (*service.AgentTransferResult, error) {
+	return b.a.AgentOps().TransferAgentTasks(org, in)
+}
 func (b appBackend) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {
 	return b.a.AgentOps().ListAgentTasks(org, f)
 }

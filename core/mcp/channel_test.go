@@ -9,12 +9,12 @@ import (
 	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 訊息頻道工具:管理端點建立、發、讀(讀了算已讀);角色端點的 agent_context mentions、只能碰自己的頻道、不能建
 func TestChannelTools(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})

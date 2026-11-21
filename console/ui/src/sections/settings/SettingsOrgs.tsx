@@ -73,7 +73,7 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
       </Section>
       {creating && <NewOrgSheet onClose={() => setCreating(false)} />}
       {editing && <EditOrgSheet original={editing} onClose={() => setEditing(undefined)} />}
-      {editingLayout && <CabinetLayoutEditor layout={layout} docs={Array.isArray(cab?.docs) ? cab!.docs : []} onClose={() => setEditingLayout(false)} />}
+      {editingLayout && <CabinetLayoutEditor layout={layout} layoutVersion={cab?.layoutVersion ?? 0} docs={Array.isArray(cab?.docs) ? cab!.docs : []} onClose={() => setEditingLayout(false)} />}
       <Modal open={!!deleting} onClose={() => setDeleting(undefined)} width={440} title={`刪除組織「${deleting?.name ?? ""}」?`}>
         <span className="muted">這個組織的 Issue、角色、任務、文件與連線設定會一起移到垃圾桶,鑰匙圈裡的登入會刪除。</span>
         <div className="row gap8" style={{ justifyContent: "flex-end" }}>

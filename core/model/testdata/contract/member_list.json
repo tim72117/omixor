@@ -1,0 +1,18 @@
+[
+  {
+    "org": "acme",
+    "userId": "u_tim",
+    "email": "tim@example.com",
+    "name": "Tim",
+    "role": "admin",
+    "addedAt": "2026-09-01T00:00:00Z",
+    "actorRef": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    }
+  }
+]

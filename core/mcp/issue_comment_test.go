@@ -13,6 +13,7 @@ import (
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // countingStore 記下留言走哪一條路
@@ -41,7 +42,7 @@ func (noCommentBackend) AddIssueComment(string, string, string, string) (*model.
 }
 
 func issueToolsEnv(t *testing.T) (*countingStore, *service.Service, *model.Principal) {
-	cs := &countingStore{Store: store.NewMem()}
+	cs := &countingStore{Store: storetest.New(t)}
 	svc := &service.Service{Store: cs}
 	now := model.Now()
 	_ = cs.SaveUser(model.User{ID: "u1", Email: "amy@x", Role: "member", CreatedAt: now})

@@ -11,7 +11,7 @@ import (
 	"omixor-core/model"
 )
 
-// 需要 PostgreSQL(OMIXOR_TEST_DATABASE_URL,見 store_pg_test.go 的 withDB);沒設就略過。
+// 需要 PostgreSQL(走 storetest,見 store_pg_test.go 的 withDB)。
 
 func pgCount(t *testing.T, url, q string, args ...any) int {
 	t.Helper()
@@ -36,6 +36,11 @@ func TestPGIssuesTable(t *testing.T) {
 	org := a.CurrentOrgID()
 	i1 := a.CreateIssue("第一筆", "內文", "high", []string{"a", "b"}, "src", "https://x", "mcp")
 	i2 := a.CreateIssue("第二筆", "", "", nil, "", "", "tim")
+	if b, err := coreBackend(""); err != nil { // 角色署名要先有這個角色
+		t.Fatal(err)
+	} else if _, err := b.SaveAgent(org, model.Agent{ID: "pm", Name: "PM", Active: true}); err != nil {
+		t.Fatal(err)
+	}
 	a.CommentIssue(i1.ID, "留言一", "agent:pm")
 	a.CommentIssue(i1.ID, "留言二", "tim")
 	a.UpdateIssue(i2.ID, "tim", func(i *model.Issue) { i.Status = "closed" })
@@ -44,7 +49,7 @@ func TestPGIssuesTable(t *testing.T) {
 	want := string(Marshal(a.Issues()))
 	a.Mu.Unlock()
 
-	if n := pgCount(t, url, `select count(*) from ops_issues where org = $1`, org); n != 2 {
+	if n := pgCount(t, url, `select count(*) from ops_issues where org = $1 and deleted_at is null`, org); n != 2 {
 		t.Fatalf("ops_issues 應該 2 列:%d", n)
 	}
 	if n := pgCount(t, url, `select count(*) from ops_issue_comments where org = $1 and issue_id = $2`, org, i1.ID); n != 2 {
@@ -77,7 +82,7 @@ func TestPGIssuesTable(t *testing.T) {
 	}
 }
 
-func TestPGIssueImportRerunAndMigration(t *testing.T) {
+func TestPGIssueImportRerunAndLegacyDocIgnored(t *testing.T) {
 	url := withDB(t)
 	src := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(src, "orgs", "default"), 0o755)
@@ -113,10 +118,10 @@ func TestPGIssueImportRerunAndMigration(t *testing.T) {
 	a.Mu.Lock()
 	list := a.Issues()
 	a.Mu.Unlock()
-	if len(list) != 2 || list[0].ID != "ISS-3" || list[1].ID != "ISS-1" {
+	if len(list) != 2 || list[0].Key != "ISS-3" || list[1].Key != "ISS-1" {
 		t.Fatalf("順序照檔案:%v", list)
 	}
-	if c := list[0].Comments; len(c) != 1 || c[0].ID != "c1" || c[0].Author != "tim" || ISO(c[0].At.Time) != "2026-11-10T00:00:05Z" {
+	if c := list[0].Comments; len(c) != 1 || c[0].ID != "c1" || c[0].Author != LocalIdentity || ISO(c[0].At.Time) != "2026-11-10T00:00:05Z" {
 		t.Fatalf("留言:%v", c)
 	}
 	if list[0].ClosedAt == nil || list[0].Labels[0] != "x" || list[0].Priority != "urgent" {
@@ -125,22 +130,23 @@ func TestPGIssueImportRerunAndMigration(t *testing.T) {
 	// 新建立的排最前面,編號接著
 	a.Mu.Lock()
 	n := a.CreateIssue("新的", "", "", nil, "", "", "mcp")
-	first := a.Issues()[0].ID
+	first := a.Issues()[0].Key
 	a.Mu.Unlock()
-	if n.ID != "ISS-4" || first != "ISS-4" {
+	if n.Key != "ISS-4" || first != "ISS-4" {
 		t.Fatal(n.ID, first)
 	}
 
-	// ops_documents 裡舊的 issues.json:表裡沒有這個組織時搬進來,舊文件改名保留
+	// 以前 ops_documents 裡的 orgs/<組織>/issues.json 會在第一次讀時搬進 Issue 表並改名 .migrated;
+	// 那段搬移已在 e0a5b0b(Issue 規則統一到 core)移除。現行行為:Issue 只來自核心的表,舊文件不會被讀、也不會被改名。
 	_ = (pgBackend{}).Write("orgs/old/issues.json", []byte(`[{"id":"ISS-7","title":"舊的","createdBy":"mcp"}]`))
 	a.Mu.Lock()
 	var got []model.Issue
 	a.WithOrgIssues("old", func() { got = a.Issues() })
 	a.Mu.Unlock()
-	if len(got) != 1 || got[0].ID != "ISS-7" {
-		t.Fatalf("沒搬:%v", got)
+	if len(got) != 0 {
+		t.Fatalf("舊的 issues.json 不該再被搬進 Issue 表:%v", got)
 	}
-	if (pgBackend{}).Exists("orgs/old/issues.json") || !(pgBackend{}).Exists("orgs/old/issues.json.migrated") {
-		t.Fatal("舊文件要改名保留")
+	if !(pgBackend{}).Exists("orgs/old/issues.json") || (pgBackend{}).Exists("orgs/old/issues.json.migrated") {
+		t.Fatal("舊文件不該被改名")
 	}
 }

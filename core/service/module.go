@@ -23,8 +23,11 @@ func (s *Service) NowTime() model.Time { return s.mt() }
 // Fail 帶 HTTP 狀態碼的錯誤(*Error)
 func Fail(code int, format string, a ...any) error { return fail(code, format, a...) }
 
-// WhoName 署名:email 優先,否則名稱
+// WhoName 署名:呼叫者的 actor id(存進 updatedBy;輸出時用 WhoLegacy 轉成 email 或名稱)
 func WhoName(p *model.Principal) string { return whoName(p) }
+
+// WhoActor 署名用的 actor id(Principal.Actor;沒填由使用者列、角色補;補不到回空)。模組存 updatedBy 用,讀回輸出用 WhoLegacy 轉成 email 或名稱
+func (s *Service) WhoActor(p *model.Principal) string { return s.whoActor(p) }
 
 // ModuleLock 模組自己的「讀了再改」鎖(一個 Service 實例、一個模組 id 一把;只保護同一個程式、同一個實例,同 locks.go)。
 // 是最內層的鎖:拿著時不要再呼叫會拿 Service 其他鎖的方法

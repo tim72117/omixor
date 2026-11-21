@@ -17,7 +17,11 @@ func (Unsupported) GetAgent(string, string) (*model.Agent, error) { return nil, 
 func (Unsupported) SaveAgent(string, model.Agent) (*model.Agent, error) {
 	return nil, errUnsupported
 }
-func (Unsupported) DeleteAgent(string, string) error { return errUnsupported }
+func (Unsupported) DeleteAgent(string, string) error           { return errUnsupported }
+func (Unsupported) DeleteAgentTo(string, string, string) error { return errUnsupported }
+func (Unsupported) TransferAgentTasks(string, service.AgentTransferInput) (*service.AgentTransferResult, error) {
+	return nil, errUnsupported
+}
 func (Unsupported) ListAgentTasks(string, service.TaskFilter) ([]model.AgentTask, error) {
 	return nil, errUnsupported
 }
@@ -67,9 +71,16 @@ func (l *Local) SaveAgent(org string, in model.Agent) (*model.Agent, error) {
 	return l.Svc.SaveAgent(l.P, org, in)
 }
 
-func (l *Local) DeleteAgent(org, id string) error {
+func (l *Local) DeleteAgent(org, id string) error { return l.DeleteAgentTo(org, id, "") }
+
+func (l *Local) DeleteAgentTo(org, id, transferTo string) error {
 	l.ensureOrg(org)
-	return l.Svc.DeleteAgent(l.P, org, id)
+	return l.Svc.DeleteAgentTo(l.P, org, id, transferTo)
+}
+
+func (l *Local) TransferAgentTasks(org string, in service.AgentTransferInput) (*service.AgentTransferResult, error) {
+	l.ensureOrg(org)
+	return l.Svc.TransferAgentTasks(l.P, org, in)
 }
 
 func (l *Local) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {
@@ -159,6 +170,18 @@ func (r *Remote) SaveAgent(org string, in model.Agent) (*model.Agent, error) {
 
 func (r *Remote) DeleteAgent(org, id string) error {
 	return wrap(r.Client().DeleteAgent(r.org(org), id))
+}
+
+func (r *Remote) DeleteAgentTo(org, id, transferTo string) error {
+	return wrap(r.Client().DeleteAgentTo(r.org(org), id, transferTo))
+}
+
+func (r *Remote) TransferAgentTasks(org string, in service.AgentTransferInput) (*service.AgentTransferResult, error) {
+	res, err := r.Client().TransferAgentTasks(r.org(org), in)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return res, nil
 }
 
 func (r *Remote) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {

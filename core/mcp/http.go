@@ -4,7 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	oxenv "omixor-core/env"
+	"omixor-core/config"
 	"strconv"
 	"strings"
 )
@@ -23,7 +23,7 @@ const (
 
 // ConfiguredPort:環境變數 OMIXOR_MCP_PORT,否則 3765
 func ConfiguredPort() int {
-	if p, err := strconv.Atoi(oxenv.Get("OMIXOR_MCP_PORT", "OPS_MCP_PORT")); err == nil && p > 0 && p < 65536 {
+	if p, err := strconv.Atoi(config.Current().Str(config.MCPPort)); err == nil && p > 0 && p < 65536 {
 		return p
 	}
 	return DefaultPort

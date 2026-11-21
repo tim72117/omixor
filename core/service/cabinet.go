@@ -2,8 +2,8 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"omixor-core/model"
 	"omixor-core/store"
@@ -16,7 +16,7 @@ import (
 // 修改文件給 Project 就是搬到別的專案(目標專案的結構要有對應的區塊與頁籤)。專案參數空白 = 未分專案,不存在的專案 404。
 //
 // 權限:
-//   - 組織成員:讀全部文件與結構、新增、修改、搬移、刪除文件;作者一律是自己(伺服器管理員可以指定署名)
+//   - 組織成員:讀全部文件與結構、新增、修改、搬移、刪除文件;作者一律是自己(伺服器管理員可以指定角色或系統署名,不能代別的使用者)
 //   - 組織管理員:另外可以改結構(區塊與頁籤)、第一次搬資料的匯入
 //   - 角色身分(角色憑證):只看得到 docAccess 能讀的文件,只能在 docAccess 可寫的位置新增、修改、搬移
 //     (沒有前綴的 key 只適用未分專案,專案用 "<專案 id>:<位置>",見 model.Agent.AccessIn);
@@ -33,7 +33,7 @@ type DocInput struct {
 	Section string   `json:"section"`
 	Tab     *string  `json:"tab,omitempty"`
 	Tags    []string `json:"tags"`
-	// Author 伺服器管理員(omixor-web 本機模式)可以指定署名;其他人一律是自己(角色憑證是角色)
+	// Author 伺服器管理員(omixor-web 本機模式)可以指定角色或系統署名;其他人一律是自己(角色憑證是角色)
 	Author string `json:"author,omitempty"`
 }
 
@@ -81,14 +81,20 @@ func tabStr(t *string) string {
 
 // layoutOf 專案(空 = 未分專案)的結構;沒存過是空白結構(saved = false)
 func (s *Service) layoutOf(org, project string) (model.Layout, bool, error) {
-	l, err := s.Store.GetCabinetLayout(org, project)
+	l, saved, _, err := s.layoutVersionOf(org, project)
+	return l, saved, err
+}
+
+// layoutVersionOf 同 layoutOf,多回傳結構的版本號(沒存過是 0)
+func (s *Service) layoutVersionOf(org, project string) (model.Layout, bool, int64, error) {
+	l, v, err := s.Store.GetCabinetLayout(org, project)
 	if errors.Is(err, store.ErrNotFound) {
-		return model.BlankCabinetLayout(), false, nil
+		return model.BlankCabinetLayout(), false, 0, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
-	return l, true, nil
+	return l, true, v, nil
 }
 
 // docViewer 呼叫者可以用這個組織的文件櫃嗎;角色身分回傳它的角色(用來依 docAccess 過濾)
@@ -146,7 +152,7 @@ func (s *Service) GetCabinet(p *model.Principal, org, project string) (*model.Ca
 	if err != nil {
 		return nil, err
 	}
-	l, saved, err := s.layoutOf(org, project)
+	l, saved, ver, err := s.layoutVersionOf(org, project)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +170,10 @@ func (s *Service) GetCabinet(p *model.Principal, org, project string) (*model.Ca
 		}
 		docs = kept
 	}
-	return &model.Cabinet{Project: project, Layout: l, Docs: docs, LayoutSaved: saved}, nil
+	if docs, err = s.presentDocs(docs); err != nil {
+		return nil, err
+	}
+	return &model.Cabinet{Project: project, Layout: l, Docs: docs, LayoutSaved: saved, LayoutVersion: ver}, nil
 }
 
 // GetDoc 依 id 取文件(不分大小寫)
@@ -181,7 +190,7 @@ func (s *Service) GetDoc(p *model.Principal, org, id string) (*model.CabinetDoc,
 		l, _, _ := s.layoutOf(org, d.Project)
 		return nil, fail(403, "%s沒有權限讀「%s」的文件", g.Name, s.docPlace(org, d.Project, l, d.Section, d.TabPath()))
 	}
-	return d, nil
+	return s.presentDoc(d)
 }
 
 // docPlace 錯誤訊息用的位置:未分專案是「區塊 › 頁籤」,專案的前面加「專案名稱 › 」
@@ -214,13 +223,6 @@ func (s *Service) checkPlace(org, project string, l model.Layout, g *model.Agent
 	return nil
 }
 
-func docAuthor(p *model.Principal, given string) string {
-	if p.Agent != nil {
-		return model.AgentPrefix + p.Agent.AgentID
-	}
-	return author(p, given)
-}
-
 // CreateDoc 新增文件(id 是 DOC-<最大號+1>)
 func (s *Service) CreateDoc(p *model.Principal, org string, in DocInput) (*model.CabinetDoc, error) {
 	g, err := s.docViewer(p, org)
@@ -231,6 +233,10 @@ func (s *Service) CreateDoc(p *model.Principal, org string, in DocInput) (*model
 		return nil, fail(400, "要給 title")
 	}
 	in.Section, in.Tab = strings.TrimSpace(in.Section), emptyTab(in.Tab)
+	by, err := s.ResolveAuthor(p, org, in.Author, AuthorIgnore) // 角色憑證是角色、成員是自己、管理員只能代角色與系統
+	if err != nil {
+		return nil, err
+	}
 	s.cabinetMu.Lock()
 	defer s.cabinetMu.Unlock()
 	project, err := s.projectID(org, in.Project)
@@ -253,7 +259,7 @@ func (s *Service) CreateDoc(p *model.Principal, org string, in DocInput) (*model
 	}
 	now := s.mt()
 	d := model.CabinetDoc{Project: project, Title: in.Title, Body: in.Body, Section: in.Section, Tab: in.Tab, Tags: model.CleanLabels(in.Tags),
-		Author: docAuthor(p, in.Author), CreatedAt: now, UpdatedAt: now}
+		Author: by.ID, CreatedAt: now, UpdatedAt: now}
 	saved, err := s.Store.CreateDoc(org, d)
 	if err != nil {
 		return nil, err
@@ -263,7 +269,7 @@ func (s *Service) CreateDoc(p *model.Principal, org string, in DocInput) (*model
 		detail["project"] = project
 	}
 	s.Audit(p, "doc.create", org, detail)
-	return &saved, nil
+	return s.presentDoc(&saved)
 }
 
 // UpdateDoc 修改或搬移文件;內容沒變不更新時間
@@ -281,7 +287,11 @@ func (s *Service) UpdateDoc(p *model.Principal, org, id string, in DocPatch) (*m
 	if err != nil {
 		return nil, err
 	}
-	return s.updateDocLocked(p, g, org, id, cur, in)
+	d, err := s.updateDocLocked(p, g, org, id, cur, in)
+	if err != nil {
+		return nil, err
+	}
+	return s.presentDoc(d)
 }
 
 // updateDocLocked UpdateDoc 的本體(呼叫時要拿著 cabinetMu;g 是角色身分的角色,人是 nil)
@@ -399,12 +409,22 @@ func (s *Service) DeleteDoc(p *model.Principal, org, id string) error {
 }
 
 // SaveCabinetLayout 改專案(空 = 未分專案)的結構(組織管理員):先檢查(被拿掉的區塊、頁籤裡不能還有這個專案的文件)。專案不存在 404
+//
+// 這個版本不鎖(無條件覆蓋,版本號照樣 +1),給內部(範本套用等)與沒有版本號的舊呼叫端;要樂觀鎖用 SaveCabinetLayoutIf
 func (s *Service) SaveCabinetLayout(p *model.Principal, org, project string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
+	l, _, err := s.SaveCabinetLayoutIf(p, org, project, layout, nil)
+	return l, err
+}
+
+// SaveCabinetLayoutIf 同 SaveCabinetLayout,多一個樂觀鎖:expected 非 nil 時,結構目前的版本(GetCabinet 的 LayoutVersion;沒存過是 0)
+// 必須等於它才存,否則 409(訊息「結構已被別人更新,請重新載入」,Data.currentVersion 是目前版本)。
+// nil = 不鎖(舊客戶端:允許,但審計紀錄標 unlocked,方便追查覆蓋)。回傳存好的結構與新版本號
+func (s *Service) SaveCabinetLayoutIf(p *model.Principal, org, project string, layout []model.CabinetSection, expected *int64) ([]model.CabinetSection, int64, error) {
 	if err := s.needOrgAdmin(p, org); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if layout == nil {
-		return nil, fail(400, "要給 layout")
+		return nil, 0, fail(400, "要給 layout")
 	}
 	for i := range layout {
 		if layout[i].Tabs == nil {
@@ -413,264 +433,34 @@ func (s *Service) SaveCabinetLayout(p *model.Principal, org, project string, lay
 	}
 	s.cabinetMu.Lock()
 	defer s.cabinetMu.Unlock()
+	// 限制:下面「被移除區塊裡不能有文件」的檢查在版本鎖之外;cabinetMu 只擋同一實例,跨實例時可能與文件新增競態
 	project, err := s.projectID(org, project)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	docs, err := s.Store.ListDocs(org)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if e := model.ValidateCabinetLayout(layout, docsIn(docs, project)); e != "" {
-		return nil, fail(400, "%s", e)
+		return nil, 0, fail(400, "%s", e)
 	}
-	if err := s.Store.SaveCabinetLayout(org, project, layout); err != nil {
-		return nil, err
+	ver, err := s.Store.SaveCabinetLayout(org, project, layout, expected)
+	var vc *store.VersionConflictError
+	if errors.As(err, &vc) {
+		return nil, 0, &Error{Code: 409, Msg: fmt.Sprintf("結構已被別人更新,請重新載入(目前版本 %d,你的是 %d)", vc.Current, *expected),
+			Data: map[string]any{"currentVersion": vc.Current}}
 	}
-	detail := map[string]any{"sections": len(layout)}
+	if err != nil {
+		return nil, 0, err
+	}
+	detail := map[string]any{"sections": len(layout), "version": ver}
+	if expected == nil {
+		detail["unlocked"] = true // 沒帶 expectedVersion(舊客戶端):無鎖覆蓋
+	}
 	if project != "" {
 		detail["project"] = project
 	}
 	s.Audit(p, "cabinet.layout", org, detail)
-	return layout, nil
-}
-
-// ImportCabinet 第一次搬資料用(組織管理員):結構只在組織還沒存過時寫入;文件保留 id、作者與時間,
-// 組織已經有文件就整個拒絕(409)
-func (s *Service) ImportCabinet(p *model.Principal, org string, in CabinetImport) (*CabinetImportResult, error) {
-	if err := s.needOrgAdmin(p, org); err != nil {
-		return nil, err
-	}
-	if in.Layout == nil && len(in.Docs) == 0 {
-		return nil, fail(400, "沒有要匯入的結構或文件")
-	}
-	seen := map[string]bool{}
-	docs := []model.CabinetDoc{}
-	for _, d := range in.Docs {
-		if d.Number() == 0 || strings.TrimSpace(d.Title) == "" || d.Section == "" {
-			return nil, fail(400, "每一份文件都要有 id(DOC-<n>)、title 與 section")
-		}
-		if seen[strings.ToUpper(d.ID)] {
-			return nil, fail(400, "id 重複:%s", d.ID)
-		}
-		seen[strings.ToUpper(d.ID)] = true
-		d.Tab = emptyTab(d.Tab)
-		if d.Project != "" {
-			pid, err := s.projectID(org, d.Project)
-			if err != nil {
-				return nil, err
-			}
-			d.Project = pid
-		}
-		if d.Tags == nil {
-			d.Tags = []string{}
-		}
-		if d.CreatedAt.IsZero() {
-			d.CreatedAt = s.mt()
-		}
-		if d.UpdatedAt.IsZero() {
-			d.UpdatedAt = d.CreatedAt
-		}
-		docs = append(docs, d)
-	}
-	if in.Layout != nil {
-		for i := range in.Layout {
-			if in.Layout[i].Tabs == nil {
-				in.Layout[i].Tabs = []model.CabinetTab{}
-			}
-		}
-		if e := model.ValidateCabinetLayout(in.Layout, nil); e != "" {
-			return nil, fail(400, "%s", e)
-		}
-	}
-	s.cabinetMu.Lock()
-	defer s.cabinetMu.Unlock()
-	res := &CabinetImportResult{Org: org}
-	if len(docs) > 0 {
-		cur, err := s.Store.ListDocs(org)
-		if err != nil {
-			return nil, err
-		}
-		if len(cur) > 0 {
-			return nil, fail(409, "%s 的文件櫃已經有 %d 份文件;匯入只在第一次搬資料時用", org, len(cur))
-		}
-	}
-	// 先匯入文件再存結構:文件被拒(409)時什麼都沒寫,之後可以整個重來
-	if len(docs) > 0 {
-		n, err := s.Store.ImportDocs(org, docs)
-		if err != nil {
-			return nil, fail(409, "%v", err)
-		}
-		res.Docs = n
-	}
-	if in.Layout != nil {
-		if _, saved, err := s.layoutOf(org, ""); err != nil {
-			return nil, err
-		} else if saved {
-			res.LayoutSkipped = true
-		} else {
-			if err := s.Store.SaveCabinetLayout(org, "", in.Layout); err != nil {
-				return nil, err
-			}
-			res.LayoutSaved = true
-		}
-	}
-	s.Audit(p, "cabinet.import", org, map[string]any{"docs": res.Docs, "layout": res.LayoutSaved})
-	return res, nil
-}
-
-// ================= 分段讀寫(見 model/docsections.go) =================
-
-// DocRead 分段讀:Outline 只回大綱;Section 回那一段(id 或標題);From/To 回行號範圍;Grep 回命中的行(前後 Context 行)。
-// 都沒給就回大綱加開頭(不回全文;要全文用 GetDoc)
-type DocRead struct {
-	Outline bool   `json:"outline,omitempty"`
-	Section string `json:"section,omitempty"`
-	From    int    `json:"from,omitempty"`
-	To      int    `json:"to,omitempty"`
-	Grep    string `json:"grep,omitempty"`
-	Context int    `json:"context,omitempty"`
-}
-
-// DocView 分段讀的結果
-type DocView struct {
-	ID      string             `json:"id"`
-	Title   string             `json:"title"`
-	Section string             `json:"section"`
-	Tab     *string            `json:"tab,omitempty"`
-	Version string             `json:"version"` // 內文的版本;局部修改時帶回來(baseVersion)
-	Lines   int                `json:"lines"`   // 全文行數
-	Chars   int                `json:"chars"`   // 全文字數
-	Outline []model.DocSection `json:"outline,omitempty"`
-	From    int                `json:"from,omitempty"`
-	To      int                `json:"to,omitempty"`
-	Text    *string            `json:"text,omitempty"`
-	Matches []model.DocMatch   `json:"matches,omitempty"`
-	Partial bool               `json:"partial"` // true = 只回了一部分
-}
-
-// 沒指定讀哪裡時附上的開頭行數
-const docPreviewLines = 20
-
-// ReadDoc 分段讀文件(權限同 GetDoc)
-func (s *Service) ReadDoc(p *model.Principal, org, id string, in DocRead) (*DocView, error) {
-	d, err := s.GetDoc(p, org, id)
-	if err != nil {
-		return nil, err
-	}
-	v := &DocView{ID: d.ID, Title: d.Title, Section: d.Section, Tab: d.Tab, Version: model.DocVersion(d.Body),
-		Lines: model.DocLineCount(d.Body), Chars: utf8.RuneCountInString(d.Body), Partial: true}
-	text := func(t string, a, b int) { v.Text, v.From, v.To = &t, a, b }
-	switch {
-	case in.Section != "":
-		sec, err := model.FindDocSection(d.Body, in.Section)
-		if err != nil {
-			return nil, fail(404, "%v", err)
-		}
-		t, a, b := model.DocLines(d.Body, sec.Start, sec.End)
-		text(t, a, b)
-	case in.From > 0 || in.To > 0:
-		t, a, b := model.DocLines(d.Body, in.From, in.To)
-		text(t, a, b)
-	case strings.TrimSpace(in.Grep) != "":
-		c := in.Context
-		if c <= 0 {
-			c = 2
-		}
-		v.Matches = model.DocGrep(d.Body, in.Grep, min(c, 20), 30)
-	case in.Outline:
-		v.Outline = model.DocOutline(d.Body)
-	default:
-		v.Outline = model.DocOutline(d.Body)
-		t, a, b := model.DocLines(d.Body, 1, docPreviewLines)
-		text(t, a, b)
-		v.Partial = b < v.Lines
-	}
-	if v.Text != nil && v.From == 1 && v.To >= v.Lines {
-		v.Partial = false
-	}
-	return v, nil
-}
-
-// DocEdit 局部修改(三種擇一):Edits 字串取代;ReplaceSection 整段替換;AppendToSection 接在段尾(Content 自帶標題就是插入新段落)。
-// BaseVersion 是讀到的版本(選填):版本不符時,字串取代在最新的內文上再套一次(找得到而且唯一才算),整段替換與段尾附加回 409
-type DocEdit struct {
-	BaseVersion     string           `json:"baseVersion,omitempty"`
-	Edits           []model.TextEdit `json:"edits,omitempty"`
-	ReplaceSection  string           `json:"replaceSection,omitempty"`
-	AppendToSection string           `json:"appendToSection,omitempty"`
-	Content         string           `json:"content,omitempty"`
-}
-
-// DocEditResult 局部修改的結果:只回改到的那幾行與新版本(不回全文)
-type DocEditResult struct {
-	ID        string `json:"id"`
-	Version   string `json:"version"`
-	Lines     int    `json:"lines"`
-	From      int    `json:"from"` // 改到的範圍(新內文的行號);沒改到是 0
-	To        int    `json:"to"`
-	Text      string `json:"text"`              // 改到的那幾行(前後各多一行)
-	Rebased   bool   `json:"rebased,omitempty"` // 版本不符,在最新內文上套用
-	Unchanged bool   `json:"unchanged,omitempty"`
-}
-
-// EditDoc 局部修改文件(權限、範本檢查同 UpdateDoc)
-func (s *Service) EditDoc(p *model.Principal, org, id string, in DocEdit) (*DocEditResult, error) {
-	g, err := s.docViewer(p, org)
-	if err != nil {
-		return nil, err
-	}
-	ops := 0
-	for _, b := range []bool{len(in.Edits) > 0, in.ReplaceSection != "", in.AppendToSection != ""} {
-		if b {
-			ops++
-		}
-	}
-	if ops != 1 {
-		return nil, fail(400, "要給剛好一種修改:edits、replaceSection 或 appendToSection")
-	}
-	s.cabinetMu.Lock()
-	defer s.cabinetMu.Unlock()
-	cur, err := s.findDoc(org, id)
-	if err != nil {
-		return nil, err
-	}
-	ver := model.DocVersion(cur.Body)
-	rebased := false
-	if in.BaseVersion != "" && in.BaseVersion != ver {
-		if len(in.Edits) == 0 {
-			return nil, fail(409, "%s 已經被改過(目前版本 %s,你讀到的是 %s):請重讀大綱與那一段再改", cur.ID, ver, in.BaseVersion)
-		}
-		rebased = true
-	}
-	var body string
-	switch {
-	case len(in.Edits) > 0:
-		body, err = model.ApplyTextEdits(cur.Body, in.Edits)
-	case in.ReplaceSection != "":
-		body, err = model.ReplaceDocSection(cur.Body, in.ReplaceSection, in.Content)
-	default:
-		body, err = model.AppendToDocSection(cur.Body, in.AppendToSection, in.Content)
-	}
-	if err != nil {
-		code := 400
-		if rebased {
-			code = 409 // 在最新內文上套不上去:多半是別人改到同一處
-		}
-		return nil, fail(code, "%v", err)
-	}
-	res := &DocEditResult{ID: cur.ID, Rebased: rebased}
-	if body == cur.Body {
-		res.Version, res.Lines, res.Unchanged = ver, model.DocLineCount(body), true
-		return res, nil
-	}
-	if _, err := s.updateDocLocked(p, g, org, cur.ID, cur, DocPatch{Body: &body}); err != nil {
-		return nil, err
-	}
-	res.Version, res.Lines = model.DocVersion(body), model.DocLineCount(body)
-	res.From, res.To = model.ChangedLines(cur.Body, body)
-	if res.From > 0 {
-		res.Text, _, _ = model.DocLines(body, res.From-1, max(res.To, res.From)+1)
-	}
-	return res, nil
+	return layout, ver, nil
 }

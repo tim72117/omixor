@@ -9,14 +9,18 @@ import (
 	"testing"
 
 	"omixor-web/internal/core"
+	"omixor-web/internal/core/coretest"
+
+	"omixor-core/storetest"
 )
 
 // 測試的共同設定(原本在 internal/core 的 conn_test.go 與 templates_main_test.go)
 
 func TestMain(m *testing.M) {
 	_ = os.Setenv("OMIXOR_TEMPLATES", "1")
-	core.UseMemoryCores() // 沒有資料庫時用記憶體的核心
-	os.Exit(m.Run())
+	coretest.SkipIfNoPG()
+	core.UseTestStores(coretest.NewStores().Get) // 沒有資料庫時用 PostgreSQL 的測試核心(每個 DataRoot 一份)
+	storetest.Main(m)
 }
 
 // connTestApp 新的 App(資料在暫存資料夾、不開計時器、鑰匙圈在記憶體;瀏覽器不會真的打開)

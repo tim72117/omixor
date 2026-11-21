@@ -1,4 +1,4 @@
-// Package store 是核心的存放介面。正式用 PostgreSQL(pg.go),測試用記憶體(mem.go)。
+// Package store 是核心的存放介面。正式用 PostgreSQL(pg.go),測試也用 PostgreSQL(core/storetest)。
 // 這一層只存取資料,不判斷權限(權限在 service)。
 package store
 
@@ -10,6 +10,15 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+
+// ErrVersionConflict 樂觀鎖的版本不符(實際回傳 *VersionConflictError,帶目前版本)
+var ErrVersionConflict = errors.New("version conflict")
+
+// VersionConflictError 存檔時帶的版本和目前的不一樣
+type VersionConflictError struct{ Current int64 }
+
+func (e *VersionConflictError) Error() string   { return "version conflict" }
+func (e *VersionConflictError) Is(t error) bool { return t == ErrVersionConflict }
 
 // ErrLocked 領取任務時,任務已被別人鎖住(進行中且 lockedUntil 還沒到)
 var ErrLocked = errors.New("locked")
@@ -28,7 +37,17 @@ type Store interface {
 	UserByID(id string) (*model.User, error)
 	UserByEvoleapID(id string) (*model.User, error)
 	UserByEmail(email string) (*model.User, error)
+	// SaveUser 新增或更新使用者(以 u.ID 為鍵),同一個交易內取得或建立這位使用者的 actor(u.ActorID 空 = 自動:先看已存的 actor_id,
+	// 再依 email 小寫接回既有的「未註冊使用者」actor,都沒有才建 usr_ actor),並把 actor 的 name、handle 同步成目前的值(ISS-36 B-2b)。
+	// u.ActorID 有給必須是存在的使用者 actor,否則回 ErrBadRef。停用(Disabled)不影響 actor
 	SaveUser(u model.User) error
+	// UserByActorID 依使用者 actor id 找使用者;不是使用者 actor(角色、系統、未註冊使用者)或不存在回 ErrNotFound
+	UserByActorID(actorID string) (*model.User, error)
+	// EnsureUserActor 取得或補建既有使用者的 actor(使用者列還沒有 actor_id 時);已經有就直接回傳;使用者不存在回 ErrNotFound
+	EnsureUserActor(userID string) (*model.ActorRecord, error)
+	// EnsureUserActorByEmail 依 email 取得使用者 actor,沒有就建「未註冊使用者」actor(handle = email 小寫,沒有 omixor_users 列);
+	// 之後那個 email 的使用者 SaveUser 時接回同一個。email 不能當 handle 回一般錯誤
+	EnsureUserActorByEmail(email, name string) (*model.ActorRecord, error)
 	CreateToken(t model.Token) error
 	TokenByHash(h []byte, now time.Time) (*model.Token, *model.User, error) // 沒撤銷、沒過期的
 	TouchToken(id string, at time.Time) error
@@ -36,6 +55,38 @@ type Store interface {
 	ListTokens(now time.Time) ([]model.Token, error)
 	AddAudit(e model.AuditEntry) error
 	ListAudit(limit int) ([]model.AuditEntry, error)
+
+	// actor:使用者、角色、系統內建署名的共同身分(omixor_actors;ISS-36,規格見雲端 DOC-13;方法在 pg_actor.go)。
+	// 啟動遷移固定寫入系統 actor(model.SystemActors)。這一批的 actor 與使用者、角色、成員、token 還沒有連動(後續工作包接)。
+	// id 比對精確;handle 先規範化(model.CleanActorHandle)。唯一性:使用者 handle 全伺服器唯一(不分大小寫)、角色現役 (org, handle) 唯一、
+	// 系統名稱唯一;衝突回 ErrDuplicateKey,owner 不存在回 ErrBadRef,系統 actor 不能改回 ErrSystemActor
+	// CreateActor 新增(id 空 = 依種類產生,system 的 id 要自己給),回傳存好的
+	CreateActor(a model.ActorRecord) (model.ActorRecord, error)
+	ActorByID(id string) (*model.ActorRecord, error) // 含退役的;沒有回 ErrNotFound
+	// ActorsByIDs 批次取:id → actor,不存在的不在結果裡
+	ActorsByIDs(ids []string) (map[string]model.ActorRecord, error)
+	// ActorByHandle 找現役的:user 用 email(org 給 ""),agent 用 (org, 角色 id)(退役的不算),system 用名稱(org 給 "");找不到回 ErrNotFound
+	ActorByHandle(kind model.ActorKind, org, handle string) (*model.ActorRecord, error)
+	ListActors(f ActorFilter) ([]model.ActorRecord, error) // 依建立時間;預設只列現役
+	// SetActorDisabled 停用(退役)或啟用;停用時 disabled_at = at(已停用的不變);角色重新啟用遇到同名現役角色回 ErrDuplicateKey
+	SetActorDisabled(id string, disabled bool, at time.Time) error
+	// UpdateActorProfile 改顯示名稱、頭像(nil = 不改);UpdateActorHandle 改 handle(使用者換 email、角色改名)
+	UpdateActorProfile(id string, name, avatar *string) error
+	UpdateActorHandle(id, handle string) error
+	// SetActorOwner 設定(空字串 = 清除)角色 actor 的負責人(使用者 actor id);只有角色有 owner
+	SetActorOwner(id, owner string) error
+	// SaveAgentOwned 同 SaveAgent,新增角色時指定 owner(使用者 actor id;空 = 組織預設);已存在的角色不改 owner。
+	// SaveAgent / SaveAgentOwned / DeleteAgent / ImportAgents 都會在同一個交易裡建立、同步、退役角色的 actor(ISS-36 B-2c,見 pg_actor_agents.go);
+	// 刪角色 = actor 退役(列保留),同 id 重建是新的 actor;Agent.ActorID 讀出時帶 actor id
+	SaveAgentOwned(org string, a model.Agent, owner string) error
+	// BackfillAgentOwners 為還沒有 owner 的角色 actor 補預設 owner(組織第一位管理員成員 → 最早的伺服器管理員),回傳補了幾個
+	BackfillAgentOwners() (int, error)
+
+	// ResolveLegacy 寬鬆解析器:把一個舊的「誰」字串(email、user:<email>、agent:<id>、mcp、任意字串…)對到 actor id,缺的 actor 與別名會建立;
+	// 空字串回 ""(NULL)。冪等:同一個字串永遠同一個 actor(過渡橋與匯入用,見 pg_actor_legacy.go、ACTOR_CONTRACT.md)
+	ResolveLegacy(org, raw string) (string, error)
+	// UserInfoByActorIDs 使用者 actor id → 使用者列的 id 與 email(沒有使用者列的不在結果裡);service/present.go 輸出相容字串用
+	UserInfoByActorIDs(ids []string) (map[string]UserInfo, error)
 
 	// 組織與成員
 	ListOrgs() ([]model.Org, error)
@@ -51,18 +102,37 @@ type Store interface {
 	RemoveMember(org, userID string) error
 	OrgsOfUser(userID string) ([]model.Org, error) // MyRole 是成員角色
 
-	// Issue(一個組織一份清單,新的在前)
+	// Issue(一個組織一份清單,新的在前)。收 Issue 編號的方法都接受內部 id(UUID)、目前或舊的 key(不分大小寫,見 pg_issue.go)。
+	// 垃圾桶裡的(軟刪除)ListIssues、GetIssue 與寫入都當作不存在(ErrNotFound)
 	ListIssues(org string) ([]model.Issue, error)
+	// ListDeletedIssues 垃圾桶裡的(新的在前);ListIssuesWithDeleted 全部(匯出用)
+	ListDeletedIssues(org string) ([]model.Issue, error)
+	ListIssuesWithDeleted(org string) ([]model.Issue, error)
+	// CountProjectIssues 專案裡的 Issue 張數(含垃圾桶)
+	CountProjectIssues(org, project string) (int, error)
+	// ProjectKeyAliasTaken 別名表裡有沒有以 <prefix>- 開頭的別名(不分大小寫);有就回其中一個,沒有回空字串。
+	// 建立專案、設定代號前檢查:別名(搬走的 Issue 的舊 key、舊格式 id)不能被新專案的號碼覆蓋
+	ProjectKeyAliasTaken(org, prefix string) (string, error)
 	GetIssue(org, id string) (*model.Issue, error)
-	// CreateIssue 指定新的 id(ISS-<最大號碼+1>)並放在最前面,回傳存好的
+	// ResolveIssueID 編號 → 內部 id(含垃圾桶裡的;找不到 ErrNotFound)
+	ResolveIssueID(org, ref string) (string, error)
+	// CreateIssue 發新的 id(UUIDv7)與 key(i.Project 空 = ISS-<n>,否則 <專案代號>-<n>;專案不存在 ErrBadRef、
+	// 沒有代號 ErrProjectNoKey),放在最前面,回傳存好的(version 1)
 	CreateIssue(org string, i model.Issue) (model.Issue, error)
-	// UpdateIssue 整筆取代(位置不變;id 不分大小寫)。i.Comments 是 nil 時留言不動(一般修改都這樣用,
+	// UpdateIssue 整筆取代本體(位置、key、project 不變;version +1)。i.Version > 0 時只有目前版本等於它才改,
+	// 否則回 *VersionConflictError(Current 是目前版本);0 = 不檢查。i.Comments 是 nil 時留言不動(一般修改都這樣用,
 	// 才不會蓋掉同時新增的留言);不是 nil 時留言整份取代(匯入、維運用)
 	UpdateIssue(org string, i model.Issue) error
+	// MoveIssue 搬到 project(空 = 組織層級):在目的範圍發新的 key(舊的留在別名表;搬回組織層級也發新的 ISS-<n>),version +1。
+	// 已經在那裡就不改。expected > 0 時版本不符回 *VersionConflictError。回傳搬好的與原本的 key
+	MoveIssue(org, id, project string, expected int, at model.Time) (*model.Issue, string, error)
+	// TrashIssue 丟進垃圾桶(軟刪除;version +1),RestoreIssue 從垃圾桶拿回來;狀態不對(已刪 / 沒刪)回 ErrNotFound
+	TrashIssue(org, id, by string, at model.Time) (*model.Issue, error)
+	RestoreIssue(org, id string, at model.Time) (*model.Issue, error)
 	// AddIssueComment 只附加一則留言(放最後)並把 Issue 的 updatedAt 設成 c.At,回傳附加後的 Issue;
 	// id 不分大小寫,Issue 不存在回 ErrNotFound。不會動到其他留言,同時多則留言也不會互相蓋掉
 	AddIssueComment(org, issueID string, c model.Comment) (*model.Issue, error)
-	// DeleteIssue id 不分大小寫
+	// DeleteIssue 永久刪除(含垃圾桶裡的;留言、別名一起刪,頻道的 issue_id 清成 NULL)。一般的刪除用 TrashIssue
 	DeleteIssue(org, id string) error
 	// ImportIssues 第一次搬資料用:保留 id、作者與時間;list 是新的在前
 	ImportIssues(org string, list []model.Issue) (int, error)
@@ -106,16 +176,19 @@ type Store interface {
 	GetProject(org, id string) (*model.Project, error)
 	// CreateProject 指定新的 id(PRJ-<最大號碼+1>),回傳存好的
 	CreateProject(org string, p model.Project) (model.Project, error)
-	// UpdateProject 改名稱、描述與 updatedAt(id、createdAt 不變;不存在回 ErrNotFound)
+	// UpdateProject 改名稱、代號、描述與 updatedAt(id、createdAt 不變;不存在回 ErrNotFound;代號變了但專案已經有 Issue 回 ErrInUse;
+	// 代號重複回 ErrDuplicateKey)
 	UpdateProject(org string, p model.Project) error
 	// DeleteProject 刪專案與它的文件櫃結構(不存在回 ErrNotFound)。文件不動:專案裡還有沒有文件由 service 先檢查
 	DeleteProject(org, id string) error
 
 	// 文件櫃(依組織分;DeleteOrg 一併刪除)。id 比對精確,不分大小寫的查找在 service。
 	// 結構以 (org, project) 為鍵,project 空字串 = 未分專案(原本的組織文件櫃)。
-	// GetCabinetLayout 這個專案存過的結構;沒存過回 ErrNotFound
-	GetCabinetLayout(org, project string) ([]model.CabinetSection, error)
-	SaveCabinetLayout(org, project string, layout []model.CabinetSection) error
+	// GetCabinetLayout 這個專案存過的結構與版本號(樂觀鎖用;每存一次 +1);沒存過回 ErrNotFound(版本視為 0)
+	GetCabinetLayout(org, project string) ([]model.CabinetSection, int64, error)
+	// SaveCabinetLayout 整份取代結構,回傳新版本號。expected 非 nil 時只有目前版本等於它才存(沒存過的版本是 0),
+	// 否則回 *VersionConflictError(errors.Is(err, ErrVersionConflict));nil = 不鎖(無條件覆蓋,版本照樣 +1)
+	SaveCabinetLayout(org, project string, layout []model.CabinetSection, expected *int64) (int64, error)
 	// 文件存在組織底下(DOC-<n> 在組織內唯一),CabinetDoc.Project 是所屬專案;ListDocs 回全部專案的(過濾在 service)
 	ListDocs(org string) ([]model.CabinetDoc, error) // 新的在前
 	GetDoc(org, id string) (*model.CabinetDoc, error)
@@ -180,4 +253,10 @@ type Store interface {
 	// Get 沒存過回 ErrNotFound;Save 整份取代(Saved 不用存,讀回時一律是 true)。方法在 *_system.go
 	GetServerFeatures() (*model.ServerFeatures, error)
 	SaveServerFeatures(s model.ServerFeatures) error
+
+	// 原子區塊:fn 用 tx 做的寫入全有或全無(PG 是一個資料庫交易;可以巢狀)。fn 裡只能用 tx
+	Atomic(fn func(tx Store) error) error
+	// TransferAgentTasks 把一個角色名下的任務轉給另一個角色(同一個原子區塊;規則見 transfer.go)。
+	// 刪角色前要先轉移:omixor_agent_tasks.agent_id 對角色是 restrict,名下還有任務(任何狀態)時 DeleteAgent 回 ErrInUse
+	TransferAgentTasks(org string, o AgentTransfer) (AgentTransferResult, error)
 }

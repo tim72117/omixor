@@ -14,9 +14,11 @@ import (
 //
 //	看、宣告、更新:組織成員(伺服器管理員是全部組織);角色憑證也可以(執行者記為 ai/<角色 id>)
 //	匯入:組織管理員,組織還沒有事件時才可以(第一次搬資料用)
-//	執行者(時間軸的 actor):一般成員一律是自己(person/<email>);伺服器管理員(app、omixor-web 內建核心)可以用
-//	  actor 或 author 指定(author 的寫法同 Issue:agent:<id> → ai/<id>、mcp → ai/mcp、user:<email> → person/<email>),
-//	  都沒給是 ai/mcp。時間軸項目的 actor:一般成員只能是自己或 system
+//	執行者(時間軸的 actor):內部存 actor id(incident_actor.go)。一般成員與角色憑證一律是自己;伺服器管理員可以用
+//	  actor 或 author 指定,但必須解析成現存的角色或系統(D9:不能代別的使用者署名,找不到 400),都沒給是自己
+//	  (舊的 ai/mcp 預設沒有了;mcp 與空白都當沒給)。時間軸項目的 actor:一般成員只能是自己或 system。
+//	  對外輸出仍是舊的 {kind, id}(使用者 = person/<email>、角色 = ai/<handle>、系統 = system),見 presentIncident
+//	commander:人員或角色(actor id、handle、email…,嚴格解析,找不到 400),沒給是呼叫者本人
 //	宣告:title 必填(最多 200 字)、sev 1–4;沒給 commander 是呼叫者;沒給 timeline 時自動加「宣告 SEVn 事件,指揮官:…」
 //	  與每個關聯告警一筆「關聯告警 …」;編號 INC-<n>(一個組織一起編號,從 INC-2001 開始)
 //	更新(同 app 的 updateIncident / addIncidentNote / incident_update):
@@ -31,7 +33,7 @@ type IncidentEventInput struct {
 	// Date 沒給是現在
 	Date *model.Time `json:"date,omitempty"`
 	// Actor 沒給是呼叫者;一般成員只能給自己或 system
-	Actor *model.Actor `json:"actor,omitempty"`
+	Actor *model.IncidentActor `json:"actor,omitempty"`
 }
 
 // IncidentInput 宣告事件
@@ -51,7 +53,7 @@ type IncidentInput struct {
 	AlertTitles map[string]string `json:"alertTitles,omitempty"`
 	// Timeline 給了就用它當初始時間軸(不自動產生)
 	Timeline []IncidentEventInput `json:"timeline,omitempty"`
-	Actor    *model.Actor         `json:"actor,omitempty"`
+	Actor    *model.IncidentActor `json:"actor,omitempty"`
 	Author   string               `json:"author,omitempty"`
 }
 
@@ -69,7 +71,7 @@ type IncidentPatch struct {
 	Events       []IncidentEventInput `json:"events,omitempty"`
 	AddFollowUps []string             `json:"addFollowUps,omitempty"`
 	AddAlertIDs  []string             `json:"addAlertIds,omitempty"`
-	Actor        *model.Actor         `json:"actor,omitempty"`
+	Actor        *model.IncidentActor `json:"actor,omitempty"`
 	Author       string               `json:"author,omitempty"`
 }
 
@@ -86,7 +88,7 @@ type IncidentImport struct {
 
 // ActorFromAuthor Issue 署名的寫法換成執行者:agent:<id> → ai/<id>;mcp 或空 → ai/mcp;user:<email> → person/<email>;
 // system → system;其他當人員 id
-func ActorFromAuthor(author string) model.Actor {
+func ActorFromAuthor(author string) model.IncidentActor {
 	a := strings.TrimSpace(author)
 	switch {
 	case a == "" || a == model.MCPActorID:
@@ -101,38 +103,10 @@ func ActorFromAuthor(author string) model.Actor {
 	return model.PersonActor(a)
 }
 
-// incidentActor 這次操作的執行者(規則見檔頭)
-func incidentActor(p *model.Principal, given *model.Actor, author string) model.Actor {
-	if p.Agent != nil {
-		return model.AIActor(p.Agent.AgentID)
-	}
-	if !p.ServerAdmin() {
-		return model.PersonActor(p.User.Email)
-	}
-	if given != nil && given.Valid() {
-		return *given
-	}
-	return ActorFromAuthor(author)
-}
-
-// actorAuthor 執行者換回署名(createdBy 用)
-func actorAuthor(a model.Actor) string {
-	switch a.Kind {
-	case "person":
-		return a.ID
-	case "ai":
-		if a.ID == model.MCPActorID {
-			return model.MCPActorID
-		}
-		return "agent:" + a.ID
-	}
-	return a.Kind
-}
-
 func tooLong(s string, n int) bool { return utf8.RuneCountInString(s) > n }
 
-// eventFrom 時間軸項目:檢查種類與長度,決定執行者與時間
-func (s *Service) eventFrom(p *model.Principal, caller model.Actor, in IncidentEventInput) (model.IncidentEvent, error) {
+// eventFrom 時間軸項目:檢查種類與長度,決定執行者(actor id)與時間
+func (s *Service) eventFrom(p *model.Principal, org, caller string, in IncidentEventInput) (model.IncidentEvent, error) {
 	if !model.OneOf(in.Kind, model.IncidentEventKinds) {
 		return model.IncidentEvent{}, fail(400, "時間軸的 kind 必須是 %s 之一", strings.Join(model.IncidentEventKinds, "、"))
 	}
@@ -148,19 +122,25 @@ func (s *Service) eventFrom(p *model.Principal, caller model.Actor, in IncidentE
 		if !in.Actor.Valid() {
 			return model.IncidentEvent{}, fail(400, "actor 的 kind 必須是 person、ai 或 system(person、ai 要有 id)")
 		}
-		if (p.ServerAdmin() && p.Agent == nil) || in.Actor.Kind == "system" || *in.Actor == caller {
-			who = *in.Actor
+		if in.Actor.Kind == "system" { // 任何成員的時間軸項目都可以是系統事件
+			who = model.SystemActorOmixor
+		} else {
+			id, err := s.incidentActor(p, org, in.Actor, "")
+			if err != nil {
+				return model.IncidentEvent{}, err
+			}
+			who = id
 		}
 	}
 	at := s.mt()
 	if in.Date != nil && !in.Date.IsZero() {
 		at = model.Time{Time: in.Date.UTC().Truncate(1e9)}
 	}
-	return model.IncidentEvent{ID: uuid(), Date: at, Actor: who, Kind: in.Kind, Text: text}, nil
+	return model.IncidentEvent{ID: uuid(), Date: at, ActorID: who, Kind: in.Kind, Text: text}, nil
 }
 
-func (s *Service) newEvent(who model.Actor, kind, text string) model.IncidentEvent {
-	return model.IncidentEvent{ID: uuid(), Date: s.mt(), Actor: who, Kind: kind, Text: text}
+func (s *Service) newEvent(who, kind, text string) model.IncidentEvent {
+	return model.IncidentEvent{ID: uuid(), Date: s.mt(), ActorID: who, Kind: kind, Text: text}
 }
 
 func checkSev(sev int) error {
@@ -170,7 +150,7 @@ func checkSev(sev int) error {
 	return nil
 }
 
-// findIncident 依 id 找(不分大小寫);不存在 404
+// findIncident 依 id 找(不分大小寫);不存在 404。回傳 store 的原樣(commander、created_by、時間軸 actor 都是 actor id);對外要用 presentIncident
 func (s *Service) findIncident(org, id string) (*model.Incident, error) {
 	id = strings.TrimSpace(id)
 	i, err := s.Store.GetIncident(org, id)
@@ -187,14 +167,22 @@ func (s *Service) ListIncidents(p *model.Principal, org string) ([]model.Inciden
 	if err := s.viewer(p, org); err != nil {
 		return nil, err
 	}
-	return s.Store.ListIncidents(org)
+	list, err := s.Store.ListIncidents(org)
+	if err != nil {
+		return nil, err
+	}
+	return s.presentIncidents(list)
 }
 
 func (s *Service) GetIncident(p *model.Principal, org, id string) (*model.Incident, error) {
 	if err := s.viewer(p, org); err != nil {
 		return nil, err
 	}
-	return s.findIncident(org, id)
+	i, err := s.findIncident(org, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.presentIncident(i)
 }
 
 // DeclareIncident 宣告事件
@@ -216,14 +204,13 @@ func (s *Service) DeclareIncident(p *model.Principal, org string, in IncidentInp
 	if tooLong(impact, model.MaxIncidentText) || tooLong(in.AISummary, model.MaxIncidentText) {
 		return nil, fail(400, "影響與 AI 摘要最多 %d 字", model.MaxIncidentText)
 	}
-	who := incidentActor(p, in.Actor, in.Author)
-	commander := strings.TrimSpace(in.Commander)
-	if commander == "" {
-		if who.Kind == "person" {
-			commander = who.ID
-		} else {
-			commander = p.User.Email
-		}
+	who, err := s.incidentActor(p, org, in.Actor, in.Author)
+	if err != nil {
+		return nil, err
+	}
+	commander, err := s.commanderID(p, org, in.Commander)
+	if err != nil {
+		return nil, err
 	}
 	started := s.mt()
 	if in.StartedAt != nil && !in.StartedAt.IsZero() {
@@ -231,7 +218,7 @@ func (s *Service) DeclareIncident(p *model.Principal, org string, in IncidentInp
 	}
 	inc := model.Incident{Title: title, Sev: in.Sev, Status: "investigating", Services: model.CleanList(in.Services),
 		Commander: commander, StartedAt: started, Impact: impact, Timeline: []model.IncidentEvent{},
-		FollowUps: []string{}, CreatedBy: actorAuthor(who)}
+		FollowUps: []string{}, CreatedBy: who}
 	if alerts := model.CleanList(in.AlertIDs); len(alerts) > 0 {
 		inc.AlertIDs = alerts
 	}
@@ -240,7 +227,7 @@ func (s *Service) DeclareIncident(p *model.Principal, org string, in IncidentInp
 	}
 	if len(in.Timeline) > 0 {
 		for _, e := range in.Timeline {
-			ev, err := s.eventFrom(p, who, e)
+			ev, err := s.eventFrom(p, org, who, e)
 			if err != nil {
 				return nil, err
 			}
@@ -249,7 +236,10 @@ func (s *Service) DeclareIncident(p *model.Principal, org string, in IncidentInp
 	} else {
 		name := strings.TrimSpace(in.CommanderName)
 		if name == "" {
-			name = commander
+			name = strings.TrimSpace(in.Commander)
+		}
+		if name == "" {
+			name = s.presentWho(commander)
 		}
 		inc.Timeline = append(inc.Timeline, s.newEvent(who, "status", fmt.Sprintf("宣告 SEV%d 事件,指揮官:%s", in.Sev, name)))
 		for _, a := range inc.AlertIDs {
@@ -265,7 +255,7 @@ func (s *Service) DeclareIncident(p *model.Principal, org string, in IncidentInp
 		return nil, err
 	}
 	s.Audit(p, "incident.declare", org, map[string]any{"id": saved.ID, "sev": saved.Sev})
-	return &saved, nil
+	return s.presentIncident(&saved)
 }
 
 // UpdateIncident 更新事件(規則見檔頭)
@@ -295,10 +285,13 @@ func (s *Service) UpdateIncident(p *model.Principal, org, id string, in Incident
 			return nil, fail(400, "內容最多 %d 字", model.MaxIncidentText)
 		}
 	}
-	who := incidentActor(p, in.Actor, in.Author)
+	who, err := s.incidentActor(p, org, in.Actor, in.Author)
+	if err != nil {
+		return nil, err
+	}
 	events := []model.IncidentEvent{}
 	for _, e := range in.Events {
-		ev, err := s.eventFrom(p, who, e)
+		ev, err := s.eventFrom(p, org, who, e)
 		if err != nil {
 			return nil, err
 		}
@@ -361,7 +354,11 @@ func (s *Service) UpdateIncident(p *model.Principal, org, id string, in Incident
 	}
 	if in.Commander != nil {
 		if c := strings.TrimSpace(*in.Commander); c != "" {
-			n.Commander = c
+			id, err := s.commanderID(p, org, c)
+			if err != nil {
+				return nil, err
+			}
+			n.Commander = id
 		}
 	}
 	if len(in.AddFollowUps) > 0 {
@@ -374,7 +371,7 @@ func (s *Service) UpdateIncident(p *model.Principal, org, id string, in Incident
 		return nil, err
 	}
 	s.Audit(p, "incident.update", org, map[string]any{"id": n.ID})
-	return &n, nil
+	return s.presentIncident(&n)
 }
 
 // ImportIncidents 第一次搬資料用(組織管理員):保留 id、時間與時間軸;這個組織已經有事件就拒絕(409)
@@ -387,6 +384,7 @@ func (s *Service) ImportIncidents(p *model.Principal, org string, list []model.I
 	}
 	seen := map[string]bool{}
 	out := []model.Incident{}
+	who := s.newImportWho(p, org)
 	for _, raw := range list {
 		i := raw.Clone()
 		i.ID = strings.ToUpper(strings.TrimSpace(i.ID))
@@ -423,6 +421,11 @@ func (s *Service) ImportIncidents(p *model.Principal, org string, list []model.I
 			}
 			if e.Date.IsZero() {
 				i.Timeline[k].Date = i.StartedAt
+			}
+		}
+		if !who.lenient { // 組織管理員:指揮官、建立者、時間軸署名先轉成 actor id(store 收到 actor id 原樣用,不會再走寬鬆解析器)
+			if err := restrictIncidentActors(who, &i); err != nil {
+				return nil, err
 			}
 		}
 		out = append(out, i)

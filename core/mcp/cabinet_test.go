@@ -12,7 +12,7 @@ import (
 	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 呼叫一個工具;回傳 (結果, 是不是錯誤)
@@ -66,7 +66,7 @@ func fails(t *testing.T, h http.Handler, auth, tool string, args map[string]any,
 }
 
 func TestCabinetToolsAdminAndRole(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})
@@ -105,12 +105,14 @@ func TestCabinetToolsAdminAndRole(t *testing.T) {
 	}
 	ok(t, admin, "", "doc_save", map[string]any{"title": "機密", "section": "機密"})
 	fails(t, admin, "", "doc_save", map[string]any{"title": "x", "section": "nope"}, "要指定區塊(levels、docs、secret)")
-	fails(t, admin, "", "doc_save", map[string]any{"title": "x", "section": "levels", "agent": "writer"}, "寫手沒有權限寫入「課程」;它可以寫的範圍:文件")
-	fails(t, admin, "", "docs", map[string]any{"id": "DOC-2", "agent": "writer"}, "寫手沒有權限讀「機密」的文件")
+	// 人類端點不能以角色身分讀寫(依角色權限的讀寫只有角色端點,見下面):400 固定句子
+	fails(t, admin, "", "doc_save", map[string]any{"title": "x", "section": "levels", "agent": "writer"}, mcp.IdentityAgentError)
+	fails(t, admin, "", "docs", map[string]any{"id": "DOC-2", "agent": "writer"}, mcp.IdentityAgentError)
 	if l := ok(t, admin, "", "docs", map[string]any{"query": "腳本"}); l["total"].(float64) != 1 {
 		t.Fatal(l)
 	}
-	if c := ok(t, admin, "", "cabinet", map[string]any{"agent": "writer"}); c["organization"] != "實驗室" || len(c["sections"].([]any)) != 2 {
+	fails(t, admin, "", "cabinet", map[string]any{"agent": "writer"}, mcp.IdentityAgentError)
+	if c := ok(t, admin, "", "cabinet", map[string]any{}); c["organization"] != "實驗室" || len(c["sections"].([]any)) != 3 {
 		t.Fatal(c)
 	}
 	ctx := ok(t, admin, "", "agent_context", map[string]any{"agent": "writer", "include_bodies": true})
@@ -133,12 +135,13 @@ func TestCabinetToolsAdminAndRole(t *testing.T) {
 	}
 	fails(t, role, auth, "docs", map[string]any{"id": "DOC-2"}, "寫手沒有權限讀「機密」的文件")
 	fails(t, role, auth, "doc_save", map[string]any{"id": "DOC-1", "title": "改"}, "寫手沒有權限寫入「課程 › L0 AI 工具介紹」;它可以寫的範圍:文件")
+	fails(t, role, auth, "doc_save", map[string]any{"title": "x", "section": "levels"}, "寫手沒有權限寫入「課程」;它可以寫的範圍:文件")
 	fails(t, role, auth, "doc_save", map[string]any{"title": "x", "section": "docs", "agent": "someone"}, "角色端點只能以自己的身分操作,不能指定其他角色")
 	w := ok(t, role, auth, "doc_save", map[string]any{"title": "行銷筆記", "tab": "行銷手法", "body": "社群"})
 	if w["author"] != "寫手" || w["tab"] != "/docs/m" {
 		t.Fatal(w)
 	}
-	if dd, _ := st.GetDoc("lab", w["id"].(string)); dd.Author != "agent:writer" {
+	if dd, _ := st.GetDoc("lab", w["id"].(string)); dd.Author != storetest.Agent(t, st, "lab", "writer").ID {
 		t.Fatal(dd.Author)
 	}
 	ok(t, role, auth, "doc_save", map[string]any{"id": w["id"], "append_body": "補充", "tags": []any{"a"}})

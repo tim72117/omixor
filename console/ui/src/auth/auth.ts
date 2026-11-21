@@ -1,5 +1,6 @@
 // 網頁版登入(LDAP)。後端見 internal/web/auth.go。
 import { useEffect, useState } from "react";
+import { parseAuthResponse } from "./loginError";
 
 export type AuthUser = { id: string; name: string; email?: string; dn?: string; groups?: string[]; admin: boolean };
 export type AuthStatus = { mode: "off" | "ldap"; loggedIn: boolean; user?: AuthUser };
@@ -26,9 +27,7 @@ export function useAuth(): AuthStatus | undefined {
 
 async function post(path: string, body: unknown) {
   const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const out = await r.json();
-  if (out?.error) throw new Error(out.error);
-  return out.result ?? out;
+  return parseAuthResponse(r.status, r.ok, r.headers.get("Retry-After"), await r.text());
 }
 
 export async function login(username: string, password: string) {

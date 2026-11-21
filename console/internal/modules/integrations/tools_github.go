@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"omixor-core/httperr"
 	"omixor-web/internal/core"
 	"omixor-web/internal/mcp"
 )
@@ -38,7 +39,7 @@ func ghRepoArg(c *mcp.Call) (string, error) {
 	return repos[0], nil
 }
 
-func ghError(err error) error { return mcp.ToolError{Message: "GitHub 回應錯誤:" + err.Error()} }
+func ghError(err error) error { return mcp.PrefixErr("GitHub 回應錯誤:", err) } // ConnError 是 httperr.Public(GitHub 回的說明刻意給人看),其他內部錯誤換成通用訊息
 
 func init() {
 	mcp.Register("github", func(c *mcp.Call) (any, error) {
@@ -232,7 +233,7 @@ func init() {
 				}
 				tail, err := GHJobLogTail(c.App, repo, j.ID, lines)
 				if err != nil {
-					logs = append(logs, map[string]any{"job": j.Name, "error": err.Error()})
+					logs = append(logs, map[string]any{"job": j.Name, "error": httperr.Report("GitHub 失敗 job 的 log", err).Msg})
 				} else {
 					logs = append(logs, map[string]any{"job": j.Name, "tail": tail})
 				}

@@ -2,10 +2,13 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
+
+	"omixor-core/httperr"
 )
 
 // 連線:omixor 要呼叫的外部服務(網址 + 認證方式)。同 Swift 版 Connections/ConnectionModels.swift。
@@ -217,3 +220,33 @@ func AsConnError(err error) (ConnError, bool) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// HTTPError 實作 httperr.Public:連線(GitHub、GitLab、GCP、Jira、OAuth…)的錯誤說明是刻意給使用者 / agent 看的
+// (HTTP 狀態與對方回的訊息、憑證怎麼處理、連不上哪台主機),不用文字比對猜它含不含內部細節;狀態碼 0 = 讓出口決定
+func (e ConnError) HTTPError() (int, map[string]any) { return 0, nil }
+
+// netFailure 連不上(DNS、拒絕連線、逾時…)轉成 ConnError:「連不上 主機:原因」。
+// 原因取 url.Error 裡面那層(不含請求網址,所以查詢參數裡的 token 不會出現)
+func netFailure(err error) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	host := ""
+	if u, perr := url.Parse(ue.URL); perr == nil {
+		host = u.Host
+	}
+	msg := "連不上"
+	if host != "" {
+		msg += " " + host
+	}
+	return ConnError{Message: msg + ":" + ue.Err.Error()}
+}
+
+// netReason 連不上的原因文字(netFailure 的 ConnError 去掉「連不上 主機:」前綴不處理,整句就是原因)
+func netReason(err error) string {
+	if e, ok := AsConnError(err); ok {
+		return e.Message
+	}
+	return httperr.Classify(err).Msg
+}

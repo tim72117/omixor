@@ -12,19 +12,20 @@ import (
 	"omixor-web/internal/auth"
 	"omixor-web/internal/auth/authtest"
 	"omixor-web/internal/core"
+	"omixor-web/internal/core/coretest"
+
+	"omixor-core/storetest"
 )
 
 func TestMain(m *testing.M) {
-	dir, _ := os.MkdirTemp("", "omixor-web-test")
-	os.Setenv("OMIXOR_CONSOLE_DATA_DIR", dir)
+	os.Setenv("OMIXOR_CONSOLE_DATA_DIR", coretest.DataDir("omixor-web-test"))
 	os.Setenv("OMIXOR_NO_TIMERS", "1")
 	// 預設不載入範本;這裡的測試要用範例資料(告警等),所以開著(templates/ 在 repo 最外層)
 	os.Setenv("OMIXOR_TEMPLATES", "1")
 	core.Vault = core.NewMemoryVault()
-	core.UseMemoryCores() // 沒有資料庫時用記憶體的核心
-	code := m.Run()
-	os.RemoveAll(dir)
-	os.Exit(code)
+	coretest.SkipIfNoPG()
+	core.UseTestStores(coretest.NewStores().Get) // 沒有資料庫時用 PostgreSQL 的測試核心(每個 DataRoot 一份)
+	storetest.Main(m)
 }
 
 type client struct {

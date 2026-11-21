@@ -8,7 +8,7 @@ func RegisterOrgTools(s *Server) {
 		defer e.Unlock()
 		list, err := e.Backend().ListOrgs()
 		if err != nil {
-			return nil, ToolError{Message: err.Error()}
+			return nil, terr(err)
 		}
 		orgs := []any{}
 		for _, o := range list {

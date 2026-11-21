@@ -56,7 +56,7 @@ func canon(t *testing.T, v any) string {
 func TestCoreToolDefsFromCore(t *testing.T) {
 	got := specDefs(t)
 	want := 0
-	for _, d := range coremcp.CoreToolDefs() {
+	for _, d := range coremcp.WithoutIdentityAgent(coremcp.CoreToolDefs()) { // 本機 /mcp 不列身分假冒型的 agent 參數
 		n := d.(map[string]any)["name"].(string)
 		ct, ok := model.CoreToolByName(n)
 		if !ok {
@@ -186,6 +186,12 @@ func TestToolsListOverRPC(t *testing.T) {
 	}
 	for _, d := range coreToolDefs() {
 		n := d.(map[string]any)["name"].(string)
+		if n == "agent_task_delegate" { // 委派者只能由角色憑證決定:本機 /mcp 不列、呼叫 400(見 identity_test.go)
+			if _, listed := byName[n]; listed {
+				t.Error("tools/list 不該列", n)
+			}
+			continue
+		}
 		g, ok := byName[n]
 		if !ok {
 			t.Error("tools/list 沒有核心工具", n)

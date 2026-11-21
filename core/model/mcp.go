@@ -72,6 +72,8 @@ type MCPServerReg struct {
 	Tools       []MCPToolRule `json:"tools"`
 	UpdatedAt   *Time         `json:"updatedAt,omitempty"`
 	UpdatedBy   string        `json:"updatedBy,omitempty"`
+	// UpdatedByActor 最後修改者的 actor 物件(ISS-36 C-3;只在服務層輸出補,存的設定裡沒有)
+	UpdatedByActor *ActorView `json:"updatedByActor,omitempty"`
 }
 
 // MCPToolRule 一個工具的規則

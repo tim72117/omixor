@@ -14,6 +14,7 @@ import (
 	"omixor-core/modules/integrations"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 有編進模組時(這個測試套件 import 了模組):API 的行為和搬之前一樣(從 core/api/integration_test.go 搬過來)。
@@ -43,7 +44,7 @@ type env struct {
 }
 
 func newEnv(t *testing.T) *env {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st, Evoleap: fakeEvoleap(t).URL, Bootstrap: "boss@example.com", TTL: 90 * 24 * time.Hour, LoginPerIP: 1000, LoginTotal: 1000}
 	srv := httptest.NewServer(api.New(svc).Handler())
 	t.Cleanup(srv.Close)

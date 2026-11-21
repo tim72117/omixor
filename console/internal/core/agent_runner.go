@@ -15,7 +15,7 @@ import (
 	"unicode/utf8"
 
 	"omixor-core/claude"
-	"omixor-core/env"
+	"omixor-core/config"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -108,7 +108,7 @@ var modelNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._\-\[\]]*$`)
 // lookClaudeBin 找 claude:環境變數 OMIXOR_CLAUDE_BIN > 常見安裝位置 > PATH(同 App 版)
 func lookClaudeBin() string {
 	var cands []string
-	if b := os.Getenv("OMIXOR_CLAUDE_BIN"); b != "" {
+	if b := config.Current().Str(config.ClaudeBin); b != "" {
 		cands = append(cands, b)
 	}
 	if home, err := os.UserHomeDir(); err == nil {
@@ -736,7 +736,7 @@ func (a *App) StopRunner() bool {
 
 func init() {
 	OnStart(func(a *App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		go a.runnerLoop()

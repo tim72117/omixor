@@ -15,8 +15,8 @@ import (
 //   - services 要是服務清單裡的(「找不到服務 …」);alert_ids 要存在(「找不到告警 …」),標題寫進時間軸
 // 呼叫時沒有拿著 Mu(事件工具不鎖 Env)。
 
-func coreActorOf(x core.Actor) *model.Actor {
-	m := model.Actor{Kind: x.Kind, ID: x.ID}
+func coreActorOf(x core.Actor) *model.IncidentActor {
+	m := model.IncidentActor{Kind: x.Kind, ID: x.ID}
 	if !m.Valid() {
 		return nil
 	}

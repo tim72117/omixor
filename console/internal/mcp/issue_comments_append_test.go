@@ -15,7 +15,7 @@ import (
 	"omixor-core/api"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // web 的 /mcp:comment 走核心的 POST …/comments(只附加一則),append_body 送 appendBody,修改不帶整份留言
@@ -72,7 +72,7 @@ func TestWebMCPConcurrentCommentsWithCore(t *testing.T) {
 		w.Write([]byte(`{"user":null}`))
 	}))
 	defer evo.Close()
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st, Evoleap: evo.URL, Bootstrap: "boss@example.com", TTL: time.Hour}
 	srv := httptest.NewServer(api.New(svc).Handler())
 	defer srv.Close()
@@ -88,6 +88,7 @@ func TestWebMCPConcurrentCommentsWithCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	iaRun(t, a, core.MCPActor, "issue_create", map[string]any{"title": "並發"})
+	other := storetest.Legacy(t, st, "default", "x") // 直接寫 Store 的留言作者要是 actor id
 
 	const n = 30
 	var wg sync.WaitGroup
@@ -102,7 +103,7 @@ func TestWebMCPConcurrentCommentsWithCore(t *testing.T) {
 				return
 			}
 			// 別處(App、另一個 omixor-web)直接寫進核心:留言與內文
-			if _, err := st.AddIssueComment("default", "ISS-1", model.Comment{ID: fmt.Sprintf("x-%d", k), Author: "x", Text: fmt.Sprintf("other-%d", k), At: model.Now()}); err != nil {
+			if _, err := st.AddIssueComment("default", "ISS-1", model.Comment{ID: fmt.Sprintf("x-%d", k), Author: other, Text: fmt.Sprintf("other-%d", k), At: model.Now()}); err != nil {
 				t.Error(err)
 			}
 		}(k)

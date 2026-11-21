@@ -23,6 +23,9 @@ func TestIssueCommentsEndpoint(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, err := boss.SaveAgent("lab", model.Agent{ID: "ceo", Name: "執行長", Active: true}); err != nil {
+		t.Fatal(err)
+	}
 	alice, bob := e.login("evo-alice"), e.login("evo-bob")
 	iss, err := alice.CreateIssue("lab", service.IssueInput{Title: "t"})
 	if err != nil {

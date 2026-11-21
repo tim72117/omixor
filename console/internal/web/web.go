@@ -16,7 +16,6 @@ package web
 import (
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -33,13 +32,13 @@ import (
 	"omixor-web/internal/mcp"
 	"omixor-web/internal/office"
 
-	"omixor-core/env"
+	"omixor-core/config"
 )
 
 const DefaultPort = 5191
 
 func ConfiguredPort() int {
-	if p, err := strconv.Atoi(env.Get("OMIXOR_WEB_PORT", "OPS_WEB_PORT")); err == nil && p > 0 && p < 65536 {
+	if p, err := strconv.Atoi(config.Current().Str(config.WebPort)); err == nil && p > 0 && p < 65536 {
 		return p
 	}
 	return DefaultPort
@@ -47,7 +46,7 @@ func ConfiguredPort() int {
 
 // ConfiguredAddr:OMIXOR_WEB_ADDR(例如 0.0.0.0:5191),否則 127.0.0.1:<OMIXOR_WEB_PORT>
 func ConfiguredAddr() string {
-	if a := env.Get("OMIXOR_WEB_ADDR", "OPS_WEB_ADDR"); a != "" {
+	if a := config.Current().Str(config.WebAddr); a != "" {
 		return a
 	}
 	return "127.0.0.1:" + strconv.Itoa(ConfiguredPort())
@@ -80,7 +79,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			writeJSON(w, 404, map[string]any{"error": "沒有這個 view:" + name})
 			return
 		}
-		if name == "system" {
+		if name == "system" || name == "members" {
 			v = forViewer(name, v, isAdmin(r, app, au))
 		}
 		writeJSON(w, 200, v)
@@ -89,14 +88,18 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		if what, ok := adminTools[r.PathValue("name")]; ok && denyNonAdmin(w, r, app, au, what) {
 			return
 		}
+		if !mcp.HasTool(r.PathValue("name")) { // 不存在的工具與不存在的動作一致:404(不是 400)
+			writeJSON(w, 404, map[string]any{"error": "沒有這個工具:" + core.ShortName(r.PathValue("name"))})
+			return
+		}
 		args, err := readArgs(r)
 		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		out, err := mcp.Run(app, r.PathValue("name"), args, core.Person(userID(r, app)))
 		if err != nil {
-			writeJSON(w, 200, map[string]any{"error": err.Error()})
+			writeFail(w, r, err)
 			return
 		}
 		writeJSON(w, 200, map[string]any{"result": core.Object(out)})
@@ -109,18 +112,13 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		}
 		args, err := readArgs(r)
 		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		args[core.UserKey] = userID(r, app)
 		out, err := core.Action(app, name, args)
 		if err != nil {
-			status := 200
-			var se core.StatusError
-			if errors.As(err, &se) && se.Status > 0 {
-				status = se.Status
-			}
-			writeJSON(w, status, map[string]any{"error": err.Error()})
+			writeFail(w, r, err)
 			return
 		}
 		res := core.Object(out)
@@ -144,9 +142,13 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			writeJSON(w, 400, map[string]any{"error": "data 不是 base64"})
 			return
 		}
+		if len(data) > core.MaxAttachment { // 太大:413(格式與空檔案是 400,走 failStatus)
+			writeErr(w, r, 413, core.UserError{Message: "圖片太大,上限 10 MB"})
+			return
+		}
 		id, err := core.SaveAttachment(app, data)
 		if err != nil {
-			writeJSON(w, 200, map[string]any{"error": err.Error()})
+			writeFail(w, r, err)
 			return
 		}
 		writeJSON(w, 200, map[string]any{"result": map[string]any{"id": id, "url": core.AttachmentURL(id)}})
@@ -281,7 +283,7 @@ func AllowedHost(h string) bool {
 	case "127.0.0.1", "localhost", "::1":
 		return true
 	}
-	for _, x := range strings.Split(env.Get("OMIXOR_WEB_HOSTS", "OPS_WEB_HOSTS"), ",") {
+	for _, x := range strings.Split(config.Current().Str(config.WebHosts), ",") {
 		if x = strings.ToLower(strings.TrimSpace(x)); x != "" && x == h {
 			return true
 		}

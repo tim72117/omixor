@@ -24,17 +24,22 @@ var adminActions = map[string]string{
 	"system_save":          "改組織的功能開關",
 	"server_features_save": "改這台伺服器開放的功能",
 	// 虛擬角色與任務(核心:組織管理員)
-	"agent_upsert":       "新增或修改虛擬角色",
-	"agent_delete":       "刪除虛擬角色",
-	"agent_task_cancel":  "取消角色任務",
-	"agent_task_requeue": "重新排入角色任務",
-	"agent_routine_run":  "手動執行角色的例行工作",
-	"chain_save":         "改組織鏈",
+	"agent_upsert":        "新增或修改虛擬角色",
+	"agent_delete":        "刪除虛擬角色",
+	"agent_task_transfer": "轉移角色的任務",
+	"agent_task_cancel":   "取消角色任務",
+	"agent_task_requeue":  "重新排入角色任務",
+	"agent_routine_run":   "手動執行角色的例行工作",
+	"chain_save":          "改組織鏈",
 	// 文件櫃版面與專案(核心:組織管理員)
 	"cabinet_layout_save": "改文件櫃的分類",
 	"project_create":      "新增專案",
 	"project_update":      "改專案",
 	"project_delete":      "刪除專案",
+	// Issue 垃圾桶(核心:組織管理員;移到垃圾桶 issue_delete 是一般成員可以做的,不列)
+	"issue_trash":   "看 Issue 垃圾桶",
+	"issue_restore": "從垃圾桶還原 Issue",
+	"issue_purge":   "永久刪除 Issue",
 	// 整合設定(核心:組織管理員)
 	"github_add_repo":       "改 GitHub 追蹤的 repo",
 	"github_remove_repo":    "改 GitHub 追蹤的 repo",
@@ -66,11 +71,15 @@ var adminActions = map[string]string{
 	"voice_settings":      "改旁白設定",
 	"agent_runner_save":   "改自動執行設定",
 	"agent_runner_stop":   "停止自動執行中的任務",
+	// console 的 MCP 連接埠權杖:查看完整權杖、換新(本機單人模式 web 使用者就是本機管理員;啟用 LDAP 時只有 web 管理員)
+	"mcp_token_reveal": "查看 MCP 權杖",
+	"mcp_token_rotate": "換新 MCP 權杖",
 }
 
 // adminTools 透過 POST /api/tool 執行、核心要組織管理員的 MCP 工具
 var adminTools = map[string]string{
 	"agent_upsert":        "新增或修改虛擬角色",
+	"agent_task_transfer": "轉移角色的任務",
 	"chain_save":          "改組織鏈",
 	"cabinet_layout_save": "改文件櫃的分類",
 	"project_save":        "新增或修改專案",
@@ -97,7 +106,17 @@ const readOnlyNotAdmin = "你登入的帳號不是 web 的管理員,只能看目
 // forViewer 依登入者調整給畫面的資料:功能開關(view「system」與 system_reload / system_save / server_features_save 的結果)
 // 非管理員兩層都不能改(組織層在最上層,系統層在 server)
 func forViewer(name string, out any, admin bool) any {
-	if admin || name != "system" {
+	if admin {
+		return out
+	}
+	if name == "members" { // 成員視圖的 canEdit(畫面也拿它決定要不要顯示垃圾桶等管理員按鈕)要和 isAdmin 一致
+		if v, ok := out.(core.MembersView); ok {
+			v.CanEdit = false
+			return v
+		}
+		return out
+	}
+	if name != "system" {
 		return out
 	}
 	if m, ok := out.(map[string]any); ok {

@@ -32,7 +32,7 @@ func (r *Remote) org(org string) string {
 func wrap(err error) error {
 	var ce *client.Error
 	if errors.As(err, &ce) && ce.Status > 0 {
-		return &service.Error{Code: ce.Status, Msg: ce.Msg}
+		return &service.Error{Code: ce.Status, Msg: ce.Msg, Data: ce.Data}
 	}
 	return err
 }
@@ -130,6 +130,18 @@ func (r *Remote) AddIssueComment(org, id, text, author string) (*model.Issue, er
 
 func (r *Remote) DeleteIssue(org, id string) error {
 	return wrap(r.Client().DeleteIssue(r.org(org), id))
+}
+
+func (r *Remote) RestoreIssue(org, id string) (*model.Issue, error) {
+	i, err := r.Client().RestoreIssue(r.org(org), id)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return i, nil
+}
+
+func (r *Remote) PurgeIssue(org, id string) error {
+	return wrap(r.Client().PurgeIssue(r.org(org), id))
 }
 
 func (r *Remote) SaveAttachment(org string, data []byte) (string, error) {

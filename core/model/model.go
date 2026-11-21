@@ -55,20 +55,40 @@ func OneOf(v string, list []string) bool {
 type Comment struct {
 	At     Time   `json:"at"`
 	Author string `json:"author"`
-	ID     string `json:"id"`
-	Text   string `json:"text"`
+	// AuthorActor 作者的 actor 物件(ISS-36 C-3;服務層出口補,和相容字串 author 並存;查不到省略)
+	AuthorActor *ActorView `json:"authorActor,omitempty"`
+	ID          string     `json:"id"`
+	Text        string     `json:"text"`
 }
 
+// Issue 的識別(規格:雲端 omixor DOC-10):
+//   - ID 內部 id,UUIDv7(伺服器產生,永遠不變、不顯示);舊資料的 ISS-<n> 已在遷移時換成 UUID
+//   - Key 顯示用編號:組織層級 ISS-<n>,專案裡 <專案代號>-<n>;每個範圍各自流水號(伺服器產生,用戶端不能指定)。
+//     搬到別的專案會發新的 key,舊的留在別名表,所以舊編號仍然查得到。收 Issue id 的地方 UUID、目前或舊的 key 都接受
+//   - Project 所屬專案 id(PRJ-<n>);空字串 = 組織層級
+//   - Version 樂觀鎖的版本號:每次改本體(標題、內文、狀態、優先度、標籤、repo、指派、專案、刪除/還原)+1;新增留言不算
+//   - DeletedAt 不是 nil = 在垃圾桶裡(軟刪除;一般列表、取得、修改都當作不存在)
 type Issue struct {
 	Body      string    `json:"body"`
 	ClosedAt  *Time     `json:"closedAt,omitempty"`
 	Comments  []Comment `json:"comments"`
 	CreatedAt Time      `json:"createdAt"`
 	CreatedBy string    `json:"createdBy"`
-	ID        string    `json:"id"`
-	Labels    []string  `json:"labels"`
-	Link      string    `json:"link"`
-	Priority  string    `json:"priority"`
+	// CreatedByActor、DeletedByActor、AssigneeActor 同名字串欄位旁邊的 actor 物件(ISS-36 C-3;服務層出口補,查不到或沒有省略)
+	CreatedByActor *ActorView `json:"createdByActor,omitempty"`
+	DeletedByActor *ActorView `json:"deletedByActor,omitempty"`
+	AssigneeActor  *ActorView `json:"assigneeActor,omitempty"`
+	ID             string     `json:"id"`
+	Key            string     `json:"key"`
+	Project        string     `json:"project"`
+	// Num key 的號碼(所屬範圍內的流水號);見 Number()
+	Num       int      `json:"number"`
+	Version   int      `json:"version"`
+	DeletedAt *Time    `json:"deletedAt,omitempty"`
+	DeletedBy string   `json:"deletedBy,omitempty"`
+	Labels    []string `json:"labels"`
+	Link      string   `json:"link"`
+	Priority  string   `json:"priority"`
 	// Repo 這張 Issue 屬於哪個程式碼倉庫(空 = 未標記);見 CleanRepo
 	Repo   string `json:"repo,omitempty"`
 	Source string `json:"source"`
@@ -120,20 +140,40 @@ func RepoMatch(repo, filter string) bool {
 	return ra == rb && ra != "" && (!pa || !pb)
 }
 
-// Number ISS-12 → 12(格式不對回傳 0)
+// MaxNumber 編號的上限(資料庫的 number 是 int4);id 的數字超過它,Number() 回 0(當作非數字 id,不參與唯一編號)
+const MaxNumber = 1<<31 - 1
+
+// Number key 在所屬範圍內的號碼:有 Num 就是它;否則從 key 的「-」後面解析;都沒有時退回解析舊格式的 id(ISS-12 → 12)。格式不對回 0
 func (i Issue) Number() int {
-	n := 0
-	rest, ok := strings.CutPrefix(strings.ToUpper(i.ID), "ISS-")
-	if !ok || rest == "" {
-		return 0
+	if i.Num > 0 {
+		return i.Num
 	}
-	for _, r := range rest {
-		if r < '0' || r > '9' {
-			return 0
+	if n := IssueKeyNumber(i.Key); n > 0 {
+		return n
+	}
+	return idNumber(i.ID, IssueKeyPrefix+"-")
+}
+
+// Display 畫面顯示的編號:key,沒有 key(舊版伺服器)時退回 id
+func (i Issue) Display() string {
+	if i.Key != "" {
+		return i.Key
+	}
+	return i.ID
+}
+
+// DedupExact 逐字去重(區分大小寫,保留第一次出現的順序),nil 回空陣列;
+// 資料庫層成員、提及、標籤用它(對應區分大小寫的主鍵);標籤清理要不分大小寫用 CleanLabels
+func DedupExact(l []string) []string {
+	out := make([]string, 0, len(l))
+	seen := make(map[string]bool, len(l))
+	for _, s := range l {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
 		}
-		n = n*10 + int(r-'0')
 	}
-	return n
+	return out
 }
 
 // CleanLabels 去頭尾空白、去掉空的與重複的(不分大小寫,保留第一次出現的寫法),同 app
@@ -183,6 +223,10 @@ type Member struct {
 	Name    string `json:"name"`
 	Role    string `json:"role"` // admin、member
 	AddedAt Time   `json:"addedAt"`
+	// ActorID 這位使用者的 actor id(usr_…;ISS-36 B-2b)。只在 store 讀出時帶,不輸出到 JSON(對外格式由 C-3 決定)
+	ActorID string `json:"-"`
+	// ActorRef 這位成員的 actor 物件(ISS-36 C-3;服務層 ListMembers、SaveMember 補;和 userId、email 並存)
+	ActorRef *ActorView `json:"actorRef,omitempty"`
 }
 
 type User struct {
@@ -194,6 +238,10 @@ type User struct {
 	Disabled    bool   `json:"disabled"`
 	CreatedAt   Time   `json:"createdAt"`
 	LastLoginAt *Time  `json:"lastLoginAt,omitempty"`
+	// ActorID 這位使用者的 actor id(omixor_actors,usr_<uuidv7>;ISS-36 B-2b)。SaveUser 存的時候空的會自動建立或取得
+	// (依 email 對上既有的「未註冊使用者」actor),讀出時一定有(遷移補齊之前的舊列例外,下一次 SaveUser 補上)。
+	// 不輸出到 JSON:對外的「誰」格式(D2:字串與物件並存)由 C-3 決定
+	ActorID string `json:"-"`
 }
 
 type Token struct {
@@ -208,13 +256,22 @@ type Token struct {
 }
 
 type AuditEntry struct {
-	ID     int64          `json:"id"`
-	At     Time           `json:"at"`
-	UserID string         `json:"userId"`
-	Email  string         `json:"email"`
-	Action string         `json:"action"`
-	Org    string         `json:"org,omitempty"`
-	Detail map[string]any `json:"detail,omitempty"`
+	ID int64 `json:"id"`
+	At Time  `json:"at"`
+	// Actor 操作者的 actor id(使用者 usr_…、角色 agt_…);空 = 沒有(login.denied 等沒有登入的操作,存 NULL)。store 讀寫用,
+	// 不輸出到 JSON(對外過渡期仍是 userId、email;actor 物件由 C-3 加)
+	Actor string `json:"-"`
+	// UserID 相容輸出的 userId:使用者 = omixor_users.id、角色 = agent:<handle>。store 不存這個欄位(ListAudit 回空),由服務層 ListAudit 依 Actor 補
+	UserID string `json:"userId"`
+	// Email 操作當時的 email 快照(使用者;角色是空)。使用者之後改 email,舊紀錄仍是當時的
+	Email string `json:"email"`
+	// Source 這個身分是怎麼來的(model.Via*:login、pair、mcp、local、agent-credential;空 = 沒標)。不要和 detail 裡的 via 鍵(登入方式,如 ldap)混淆
+	Source string `json:"source,omitempty"`
+	// ActorRef 操作者的 actor 物件(ISS-36 C-3;服務層 ListAudit 補,沒有操作者或查不到省略;和相容的 userId、email 並存)
+	ActorRef *ActorView     `json:"actorRef,omitempty"`
+	Action   string         `json:"action"`
+	Org      string         `json:"org,omitempty"`
+	Detail   map[string]any `json:"detail,omitempty"`
 }
 
 // ImportResult 匯入結果
@@ -229,6 +286,20 @@ type Principal struct {
 	Token Token
 	// Agent 不是 nil 表示這是「角色憑證」換來的身分(只能做 service 明確開放給角色的事,見 service/agents.go)
 	Agent *AgentIdentity
+	// Actor 這次操作的「誰」(ISS-36 B-3):使用者登入 = 使用者 actor(usr_…),角色憑證 = 角色 actor(agt_…)。
+	// 手工組出來的 Principal(測試、本機流程)可能是零值,取用處要自己判斷 Actor.ID 是否為空
+	Actor ActorRef
+	// Via 身分的來源,見 Via* 常數;空 = 沒標(舊路徑)
+	Via string
 }
+
+// Principal.Via 的值:身分是怎麼來的
+const (
+	ViaLogin           = "login"            // 登入換來的 omixor token(含 LDAP、evoleap)
+	ViaPair            = "pair"             // 配對碼換來的 token(手機)
+	ViaMCP             = "mcp"              // MCP 端點
+	ViaLocal           = "local"            // 本機模式(單機、不經登入)
+	ViaAgentCredential = "agent-credential" // 角色憑證(agentId + secret)或執行者代角色
+)
 
 func (p Principal) ServerAdmin() bool { return p.User.Role == "admin" && !p.User.Disabled }

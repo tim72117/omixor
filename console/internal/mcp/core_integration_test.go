@@ -11,7 +11,7 @@ import (
 	"omixor-core/api"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // omixor-web 遠端模式接上真的核心(omixor-core 的 API + 記憶體存放):evoleap 換 token、MCP 工具讀寫都進核心
@@ -24,7 +24,7 @@ func TestConsoleWithCore(t *testing.T) {
 		w.Write([]byte(`{"user":null}`))
 	}))
 	defer evo.Close()
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st, Evoleap: evo.URL, Bootstrap: "boss@example.com", TTL: time.Hour}
 	srv := httptest.NewServer(api.New(svc).Handler())
 	defer srv.Close()
@@ -42,7 +42,7 @@ func TestConsoleWithCore(t *testing.T) {
 	}
 
 	d := iaRun(t, a, core.MCPActor, "issue_create", map[string]any{"title": "接上核心", "labels": []any{"x"}})
-	if d["id"] != "ISS-1" {
+	if d["key"] != "ISS-1" {
 		t.Fatal(d)
 	}
 	d = iaRun(t, a, core.MCPActor, "issue_update", map[string]any{"id": "ISS-1", "status": "closed", "comment": "好了"})
@@ -50,8 +50,12 @@ func TestConsoleWithCore(t *testing.T) {
 		t.Fatal(d)
 	}
 	got, _ := st.GetIssue("default", "ISS-1")
-	if got == nil || got.Status != "closed" || got.ClosedAt == nil || len(got.Comments) != 1 || got.CreatedBy != "mcp" {
+	if got == nil || got.Status != "closed" || got.ClosedAt == nil || len(got.Comments) != 1 {
 		t.Fatalf("要寫進核心:%+v", got)
+	}
+	// 署名由登入身分決定(server 依 token 解出使用者):建立者與留言作者是登入使用者的 actor,不是 console 傳的人員 id
+	if u, err := st.UserByActorID(got.CreatedBy); err != nil || u == nil || got.Comments[0].Author != got.CreatedBy {
+		t.Fatalf("署名要是登入使用者的 actor:%+v %v", got, err)
 	}
 	if l := iaRun(t, a, core.MCPActor, "issues", map[string]any{"status": "all"}); l["total"].(float64) != 1 {
 		t.Fatal(l)

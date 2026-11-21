@@ -83,7 +83,7 @@ func New() *App {
 		subs: map[chan Event]struct{}{},
 	}
 	a.loadSeed()
-	if pgPool != nil {
+	if pgPool() != nil {
 		a.loadPersisted()
 	}
 	return a
@@ -239,8 +239,8 @@ func (a *App) Log(actor Actor, icon, text, section string) {
 		item["org"] = org
 	}
 	a.C["activity"] = append([]map[string]any{item}, a.C["activity"]...)
-	if pgPool != nil {
-		go activityInsert(item)
+	if pgPool() != nil {
+		pgGo(func() { activityInsert(item) })
 	}
 	go a.Changed("activity")
 }

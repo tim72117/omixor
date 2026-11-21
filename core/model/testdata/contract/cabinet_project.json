@@ -17,6 +17,13 @@
   "docs": [
     {
       "author": "agent:pm",
+      "authorActor": {
+        "id": "agt_019a3f2c-0000-7000-8000-000000000003",
+        "kind": "agent",
+        "handle": "pm",
+        "name": "產品經理",
+        "status": "suspended"
+      },
       "body": "# 首頁\n\n- Hero\n- 案例",
       "createdAt": "2026-11-02T00:00:00Z",
       "id": "DOC-9",
@@ -30,5 +37,6 @@
       "updatedAt": "2026-11-03T00:00:00Z"
     }
   ],
-  "layoutSaved": true
+  "layoutSaved": true,
+  "layoutVersion": 1
 }

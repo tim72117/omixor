@@ -32,8 +32,17 @@ func (a *API) agentRoutes(mux *http.ServeMux) {
 		l, err := a.Svc.AgentTools(p, r.PathValue("org"), r.PathValue("id"))
 		reply(w, l, err)
 	}))
+	// 刪角色:名下有任務(任何狀態)時 409(回應多帶 code = agentHasTasks、agent、taskCounts、total);
+	// body {"transferTo": "<角色 id>"} = 同一個交易裡先把任務轉給它再刪
 	mux.HandleFunc("POST "+ag+"/{id}/delete", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
-		reply(w, true, a.Svc.DeleteAgent(p, r.PathValue("org"), r.PathValue("id")))
+		var in struct {
+			TransferTo string `json:"transferTo"`
+		}
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		reply(w, true, a.Svc.DeleteAgentTo(p, r.PathValue("org"), r.PathValue("id"), in.TransferTo))
 	}))
 
 	// 立刻排一筆例行任務:body 可帶 {"author": "..."}(署名,只有伺服器管理員的有效)
@@ -78,6 +87,16 @@ func (a *API) agentRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+tk+"/{id}", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		t, err := a.Svc.GetAgentTask(p, r.PathValue("org"), r.PathValue("id"))
 		reply(w, t, err)
+	}))
+	// 不刪角色的單獨轉移:{"from": "<角色>", "to": "<角色>", "scope": "all|open"}(組織管理員;scope 空 = open,只轉待領取與需要協助)
+	mux.HandleFunc("POST "+tk+"/transfer", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in service.AgentTransferInput
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		res, err := a.Svc.TransferAgentTasks(p, r.PathValue("org"), in)
+		reply(w, res, err)
 	}))
 	mux.HandleFunc("POST "+tk+"/claim", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		var in service.ClaimInput

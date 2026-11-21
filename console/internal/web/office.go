@@ -29,7 +29,7 @@ func registerOffice(mux *http.ServeMux, hub *office.Hub) {
 	mux.HandleFunc("POST /api/office/command", func(w http.ResponseWriter, r *http.Request) {
 		args, err := readArgs(r)
 		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		wait := 0.0
@@ -44,12 +44,12 @@ func registerOffice(mux *http.ServeMux, hub *office.Hub) {
 		}
 		req, err := office.RequestFromArgs(args)
 		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		cmds, err := hub.Submit(req)
 		if err != nil {
-			writeJSON(w, officeErrStatus(err), map[string]any{"error": err.Error()})
+			officeFail(w, r, err)
 			return
 		}
 		writeJSON(w, 200, map[string]any{"result": officeCommandResult(r, hub, cmds, wait)})
@@ -62,17 +62,17 @@ func registerOffice(mux *http.ServeMux, hub *office.Hub) {
 	mux.HandleFunc("POST /api/office/report", func(w http.ResponseWriter, r *http.Request) {
 		b, err := io.ReadAll(io.LimitReader(r.Body, 256<<10))
 		if err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		var rep office.Report
 		if err := json.Unmarshal(b, &rep); err != nil {
-			writeJSON(w, 400, map[string]any{"error": "格式錯誤:" + err.Error()})
+			badFormat(w, err)
 			return
 		}
 		out, err := hub.Report(rep)
 		if err != nil {
-			writeJSON(w, officeErrStatus(err), map[string]any{"error": err.Error()})
+			officeFail(w, r, err)
 			return
 		}
 		writeJSON(w, 200, map[string]any{"result": out})
@@ -87,7 +87,7 @@ func registerOffice(mux *http.ServeMux, hub *office.Hub) {
 		v, err := hub.Subscribe()
 		if err != nil {
 			w.Header().Set("Retry-After", "10")
-			writeJSON(w, 503, map[string]any{"error": err.Error()})
+			writeErr(w, r, 503, err)
 			return
 		}
 		defer hub.Unsubscribe(v)

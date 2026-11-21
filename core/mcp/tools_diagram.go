@@ -32,7 +32,10 @@ type diagramKind struct {
 }
 
 func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
-	agent := c.Args.Str("agent")
+	agent, err := identityAgent(c)
+	if err != nil {
+		return nil, err
+	}
 	withAgent := func(m map[string]any) map[string]any {
 		if agent != "" {
 			m["agent"] = agent
@@ -77,7 +80,7 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 	}
 	w, h, warns, svg, err := k.render(spec)
 	if err != nil {
-		return nil, ToolError{err.Error()}
+		return nil, terr(err)
 	}
 	out := map[string]any{"width": w, "height": h, "warnings": warns}
 	if v, ok := c.Args.Raw["svg"].(bool); !ok || v {
@@ -95,7 +98,7 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 	sv := Args{Raw: sm}
 	src, err := k.source(spec)
 	if err != nil {
-		return nil, ToolError{err.Error()}
+		return nil, terr(err)
 	}
 	args := withAgent(map[string]any{})
 	// 標籤照原樣([]any)交給 doc_save:它用 Args.Strings 讀,[]string 認不得,標籤會被當成沒給

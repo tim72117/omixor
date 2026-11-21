@@ -2,12 +2,14 @@ package integrations_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"omixor-core/model"
 	"omixor-core/modules/integrations"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 從 core/service/integration_test.go 搬過來(規則不變)
@@ -23,9 +25,9 @@ func code(err error) int {
 }
 
 // chainEnv 組織 o1:boss(組織管理員)、alice、bob(成員);回傳模組的服務層
-func chainEnv(t *testing.T) (*integrations.Service, *store.Mem, *model.Principal, *model.Principal, *model.Principal) {
+func chainEnv(t *testing.T) (*integrations.Service, *store.PG, *model.Principal, *model.Principal, *model.Principal) {
 	t.Helper()
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.CreateOrg(model.Org{ID: "o1", Name: "組織一", CreatedAt: now})
@@ -49,8 +51,9 @@ func TestStoredDocFormatUnchanged(t *testing.T) {
 	if _, err := svc.SaveGitLabSettings(boss, "o1", integrations.GitLabSettingsInput{BaseURL: &base, Add: []string{"g/p"}}); err != nil {
 		t.Fatal(err)
 	}
+	bossActor, _ := st.ResolveLegacy("o1", "boss@x") // updated_by 存 actor id
 	d, err := st.GetOrgDoc("o1", "github")
-	if err != nil || string(d.Data) != `{"repos":["a/b"],"saved":false}` || d.UpdatedBy != "boss@x" || d.UpdatedAt == nil {
+	if err != nil || !jsonEqual(d.Data, `{"repos":["a/b"],"saved":false}`) || d.UpdatedBy != bossActor || bossActor == "" || d.UpdatedAt == nil {
 		t.Fatalf("%s %+v %v", d.Data, d, err)
 	}
 	d, err = st.GetOrgDoc("o1", "gitlab")
@@ -63,7 +66,10 @@ func TestStoredDocFormatUnchanged(t *testing.T) {
 		t.Fatalf("%s", d.Data)
 	}
 	// 以前 PG 專屬方法存的資料(data 沒有 updatedAt)照讀
-	_ = st.SaveOrgDoc("o1", "github", store.OrgDoc{Data: json.RawMessage(`{"repos":["x/y"],"saved":false}`), UpdatedBy: "old@x"})
+	oldActor, _ := st.ResolveLegacy("o1", "old@x")
+	if err := st.SaveOrgDoc("o1", "github", store.OrgDoc{Data: json.RawMessage(`{"repos":["x/y"],"saved":false}`), UpdatedBy: oldActor}); err != nil {
+		t.Fatal(err)
+	}
 	g, err := svc.GetGitHubSettings(boss, "o1")
 	if err != nil || !g.Saved || len(g.Repos) != 1 || g.Repos[0] != "x/y" || g.UpdatedBy != "old@x" {
 		t.Fatalf("%+v %v", g, err)
@@ -170,4 +176,10 @@ func TestGitLabSettings(t *testing.T) {
 	if r.Imported || r.Settings.Projects[0] != "g/p" {
 		t.Fatalf("%+v", r)
 	}
+}
+
+// jsonb 會重排空白,所以比語意
+func jsonEqual(got json.RawMessage, want string) bool {
+	var a, b any
+	return json.Unmarshal(got, &a) == nil && json.Unmarshal([]byte(want), &b) == nil && reflect.DeepEqual(a, b)
 }

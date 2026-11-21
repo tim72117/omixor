@@ -78,9 +78,9 @@ func placeOf(e Env, project string, l model.Layout, section, tab string) string 
 
 // cabAgent 有給 agent 參數時找角色(找不到回錯誤);沒給回 nil
 func cabAgent(e Env, c *Call) (*model.Agent, error) {
-	name := c.Args.Str("agent")
-	if name == "" {
-		return nil, nil
+	name, err := identityAgent(c) // 人類端點帶 agent:400;角色端點是憑證強制的角色
+	if err != nil || name == "" {
+		return nil, err
 	}
 	g, err := e.Backend().GetAgent(e.Org(), name)
 	if err != nil {
@@ -135,6 +135,7 @@ func docScopeAll(e Env, l model.Layout, g model.Agent) []any {
 func docJSON(e Env, l model.Layout, d model.CabinetDoc, full bool) map[string]any {
 	o := map[string]any{"id": d.ID, "title": d.Title, "section": d.Section, "location": l.Location(d.Section, d.TabPath()),
 		"tags": d.Tags, "author": e.AuthorName(d.Author), "updatedAt": iso(d.UpdatedAt.Time)}
+	putActor(o, "authorActor", d.AuthorActor)
 	if d.Project != "" {
 		o["project"] = d.Project
 	}
@@ -262,7 +263,7 @@ func cabinetContext(e Env, g model.Agent, includeBodies bool) map[string]any {
 
 // projectJSON 專案的輸出
 func projectJSON(x model.Project) map[string]any {
-	return map[string]any{"id": x.ID, "name": x.Name, "description": x.Description,
+	return map[string]any{"id": x.ID, "name": x.Name, "key": x.Key, "description": x.Description,
 		"createdAt": iso(x.CreatedAt.Time), "updatedAt": iso(x.UpdatedAt.Time)}
 }
 
@@ -299,9 +300,9 @@ func RegisterCabinetTools(s *Server) {
 		e := agentEnv(c)
 		bk, org := e.Backend(), e.Org()
 		if id := c.Args.Opt("id"); id != nil && *id != "" {
-			p := service.ProjectPatch{Name: c.Args.Opt("name"), Description: c.Args.Opt("description")}
-			if p.Name == nil && p.Description == nil {
-				return nil, ToolError{Message: "要給 name 或 description"}
+			p := service.ProjectPatch{Name: c.Args.Opt("name"), Key: c.Args.Opt("key"), Description: c.Args.Opt("description")}
+			if p.Name == nil && p.Description == nil && p.Key == nil {
+				return nil, ToolError{Message: "要給 name、key 或 description"}
 			}
 			x, err := bk.UpdateProject(org, *id, p)
 			if err != nil {
@@ -313,7 +314,7 @@ func RegisterCabinetTools(s *Server) {
 		if err != nil {
 			return nil, err
 		}
-		x, err := bk.CreateProject(org, service.ProjectInput{Name: name, Description: c.Args.Str("description")})
+		x, err := bk.CreateProject(org, service.ProjectInput{Name: name, Key: c.Args.Str("key"), Description: c.Args.Str("description")})
 		if err != nil {
 			return nil, terr(err)
 		}
@@ -331,7 +332,7 @@ func RegisterCabinetTools(s *Server) {
 		if err != nil {
 			return nil, err
 		}
-		return withProject(e, map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, g)}, cab.Project), nil
+		return withProject(e, map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, g), "layoutVersion": cab.LayoutVersion}, cab.Project), nil
 	})
 
 	s.Register("docs", func(c *Call) (any, error) {
@@ -585,10 +586,16 @@ func RegisterCabinetTools(s *Server) {
 		if err != nil {
 			return nil, err
 		}
+		// 樂觀鎖:有給 expectedVersion 就用它(之前用 cabinet 讀到的 layoutVersion);沒給就用這次呼叫開頭讀到的版本,
+		// 至少擋住「讀了之後、存之前」別人的修改(向下相容:舊的呼叫不用改)
+		expected := cab.LayoutVersion
+		if n, ok := c.Args.Int("expectedVersion"); ok {
+			expected = int64(n)
+		}
 		if project == "" {
-			_, err = e.Backend().SaveCabinetLayout(e.Org(), layout)
+			_, err = e.Backend().SaveCabinetLayout(e.Org(), layout, &expected)
 		} else {
-			_, err = e.Backend().SaveProjectCabinetLayout(e.Org(), project, layout)
+			_, err = e.Backend().SaveProjectCabinetLayout(e.Org(), project, layout, &expected)
 		}
 		if err != nil {
 			return nil, terr(err)
@@ -597,7 +604,7 @@ func RegisterCabinetTools(s *Server) {
 		if err != nil {
 			return nil, err
 		}
-		return withProject(e, map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, nil), "added": added}, cab.Project), nil
+		return withProject(e, map[string]any{"organization": e.OrgName(), "sections": cabinetSections(cab, nil), "added": added, "layoutVersion": cab.LayoutVersion}, cab.Project), nil
 	})
 }
 

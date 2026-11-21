@@ -19,7 +19,7 @@ const wireframeDesc = "用元件與版面描述(JSON)畫出 UI/UX 畫面的線�
 	"image(打叉框,label、ratio)、avatar(size、label)、icon、list(items 或 count;avatar、chevron)、table(columns、rows 列數或 [[…]])、tabs(items、active)、chart(kind bar|line|pie、title)、badge、divider、spacer(size;沒給就撐開)、modal(疊層:title、width、children)。" +
 	"不認得的 type 畫成虛線框並列在 warnings。內容超出裝置高度時畫布自動加高。" +
 	"範例:{\"device\":\"mobile\",\"root\":{\"type\":\"col\",\"children\":[{\"type\":\"header\",\"title\":\"登入\"},{\"type\":\"col\",\"padding\":24,\"gap\":16,\"children\":[{\"type\":\"input\",\"label\":\"Email\"},{\"type\":\"input\",\"label\":\"密碼\",\"kind\":\"password\"},{\"type\":\"button\",\"text\":\"登入\",\"width\":\"fill\"}]}]}}。" +
-	"不給 spec 而給 doc 時,讀那份文件的第一個 ```wireframe 區塊重畫。以角色身分工作時帶 agent;存文件時只能寫到該角色可寫的位置。"
+	"不給 spec 而給 doc 時,讀那份文件的第一個 ```wireframe 區塊重畫。存文件時依呼叫者(角色端點是憑證的角色)的文件權限。"
 
 // WireframeToolDefs 線框圖工具的規格
 func WireframeToolDefs() []any { return []any{wireframeDef()} }
@@ -31,7 +31,6 @@ func wireframeDef() map[string]any {
 			"anyOf":       []any{map[string]any{"type": "object"}, map[string]any{"type": "string"}},
 		},
 		"doc":   pStr("文件 id:不給 spec 時讀這份文件裡第一個 ```wireframe 區塊重畫"),
-		"agent": pStr("以虛擬角色身分工作時填角色 id 或名稱(讀寫文件依該角色的文件權限)"),
 		"svg":   pBool("回傳 SVG 原始碼,預設 true;只想存文件時可設 false 省上下文"),
 		"save": map[string]any{
 			"type":        "object",

@@ -6,43 +6,26 @@ import (
 	"omixor-web/internal/core"
 )
 
-func TestCabinetToolsAccess(t *testing.T) {
+// 文件署名一律是呼叫者(MCP 用戶端或畫面的使用者);不能以角色身分讀寫(agent 參數見 identity_test.go)
+func TestCabinetToolsAuthors(t *testing.T) {
 	a := iaApp(t)
 	d := iaRun(t, a, core.MCPActor, "doc_save", map[string]any{"title": "L0", "tab": "L0", "body": "你好"})
-	if d["location"] != "課程 › L0 AI 工具介紹" || d["chars"].(float64) != 2 || d["author"] != "MCP 用戶端" {
+	if d["location"] != "課程 › L0 AI 工具介紹" || d["chars"].(float64) != 2 || d["author"] != core.LocalIdentity {
 		t.Fatal(d)
 	}
-	iaErr(t, a, "doc_save", map[string]any{"title": "x", "section": "levels", "agent": "narrator"},
-		"旁白製作沒有權限寫入「課程」;它可以寫的範圍:")
-	iaErr(t, a, "doc_save", map[string]any{"title": "x", "section": "docs", "agent": "marketing"},
-		"行銷沒有權限寫入「文件」;它可以寫的範圍:軟體與課程行銷手法")
-	iaErr(t, a, "docs", map[string]any{"id": "DOC-1", "agent": "triager"}, "Issue 整理員沒有權限讀「課程 › L0 AI 工具介紹」的文件")
-	d = iaRun(t, a, core.MCPActor, "docs", map[string]any{"id": "doc-1", "agent": "narrator"})
+	d = iaRun(t, a, core.MCPActor, "docs", map[string]any{"id": "doc-1"})
 	if d["body"] != "你好" {
 		t.Fatal(d)
 	}
-	d = iaRun(t, a, core.MCPActor, "doc_save", map[string]any{"title": "寫", "tab": "L2", "agent": "course-dev"})
-	if d["author"] != "課程開發" {
-		t.Fatal(d)
-	}
-	c := iaRun(t, a, core.MCPActor, "cabinet", map[string]any{"agent": "triager"})
-	secs := c["sections"].([]any)
-	if c["organization"] != "evoleap" || len(secs) != 1 || secs[0].(map[string]any)["access"] != "write" {
+	c := iaRun(t, a, core.MCPActor, "cabinet", map[string]any{})
+	if c["organization"] != "evoleap" || len(c["sections"].([]any)) < 2 {
 		t.Fatal(c)
 	}
-	// 畫面新增的文件署名使用者
 	iaRun(t, a, core.Person("tim"), "doc_save", map[string]any{"title": "人寫的", "section": "overview"})
 	a.Mu.Lock()
-	by := a.FindDoc("DOC-3").Author
+	by := a.FindDoc("DOC-2").Author
 	a.Mu.Unlock()
-	// 以角色身分新增的文件署名角色(存在核心的是 agent:<id>)
-	a.Mu.Lock()
-	by2 := a.FindDoc("DOC-2").Author
-	a.Mu.Unlock()
-	if by2 != "agent:course-dev" {
-		t.Fatal(by2)
-	}
-	if by != "tim" {
+	if by != core.LocalIdentity {
 		t.Fatal(by)
 	}
 }

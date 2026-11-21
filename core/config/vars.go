@@ -1,0 +1,215 @@
+package config
+
+import "math"
+
+// 這個檔案是 omixor 所有正式環境變數的唯一定義:名稱、舊名稱、型別、預設值、說明、是否機密、屬於哪些程式。
+// 新增設定只改這裡;-h 的環境變數說明與 docs/configuration.md 都由這份定義產生(core/config 的測試會比對文件)。
+// 程式碼不要直接讀環境變數(os.Getenv);啟動時 config.Load(程式) 讀一次、驗證,之後用回傳的 *Config。
+
+// 群組(文件的章節順序)
+const (
+	GroupShared = "共用"
+	GroupServer = "伺服器(omixor-server)"
+	GroupLDAP   = "LDAP 登入(omixor-server)"
+	GroupLocal  = "本機守護服務(omixor-local)"
+	GroupWeb    = "畫面與 API(omixor-web)"
+	GroupCLI    = "命令列(omixor)"
+	GroupMCP    = "MCP 轉接(omixor-mcp)"
+)
+
+// Groups 文件裡群組的順序
+var Groups = []string{GroupShared, GroupServer, GroupLDAP, GroupLocal, GroupWeb, GroupCLI, GroupMCP}
+
+var portRange = &[2]int{1, 65535}
+
+// ---- 共用 ----
+
+var (
+	DatabaseURL = add(&Var{Name: "OMIXOR_DATABASE_URL", Legacy: []string{"OPS_DATABASE_URL"}, Kind: Conn, Secret: true,
+		Schemes: []string{"postgres", "postgresql"}, Group: GroupShared, Programs: progs(Server, Local, Web), RequiredFor: progs(Server),
+		Doc: "PostgreSQL 連線設定,網址形式(postgres://使用者:密碼@主機/資料庫,可有多個主機、unix socket)或 key=value 形式" +
+			"(host=/cloudsql/專案:區域:執行個體 user=… password=… dbname=…,Cloud SQL 常用);密碼(網址的密碼、query 的 password/sslpassword、key=value 的 password=)會被遮蔽。" +
+			"server 必填;local 沒設就啟動內建的 PostgreSQL;web 沒設就存資料夾裡的 JSON 檔。" +
+			"獨立模式的 omixor-local 也會使用它(例如開發用的 docker-compose 為 omixor-web 設的)"})
+	LDAPBindPassword = add(&Var{Name: "OMIXOR_LDAP_BIND_PASSWORD", Legacy: []string{"OPS_LDAP_BIND_PASSWORD"}, Kind: String, Secret: true,
+		Group: GroupLDAP, Programs: progs(Server, Web),
+		Doc: "LDAP 服務帳號密碼。server 用在 OMIXOR_LDAP_BIND_DN;web 不想用鑰匙圈/資料庫保存時改從這裡讀"})
+	Addr = add(&Var{Name: "OMIXOR_ADDR", Kind: String, Group: GroupShared, Programs: progs(Server, Local),
+		DefaultDoc: "server: :$PORT(沒有 PORT 就 :8080);local:獨立模式 127.0.0.1:8770、App 模式 127.0.0.1:0",
+		Doc:        "HTTP 監聽位址。local 只接受本機位址"})
+	ServerURL = add(&Var{Name: "OMIXOR_SERVER", Legacy: []string{"OPS_ISSUE_SERVER"}, Kind: URL, Schemes: []string{"http", "https"},
+		Group: GroupShared, Programs: progs(CLI, Web),
+		DefaultDoc: "cli:上次登入的、舊版登入資料的、正式站",
+		Doc:        "連哪一台 omixor server。cli:--server 旗標優先於它;web:設了就是遠端模式,授權、組織、Issue 交給那台"})
+)
+
+// ---- 伺服器 ----
+
+var (
+	PublicURL = add(&Var{Name: "OMIXOR_PUBLIC_URL", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server),
+		Doc: "對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent。local 啟動時自己填上"})
+	SiteDir = add(&Var{Name: "OMIXOR_SITE_DIR", Kind: Path, Group: GroupServer, Programs: progs(Server),
+		Doc: "形象網站檔案所在的資料夾(Docker 映像裡是 /site);沒設或不存在就不提供網站"})
+	TokenDays = add(&Var{Name: "OMIXOR_TOKEN_DAYS", Kind: Int, Default: "90", Range: &[2]int{0, 36500}, Group: GroupServer, Programs: progs(Server),
+		Doc: "使用者 token 的有效天數"})
+	AdminBootstrapEmail = add(&Var{Name: "OMIXOR_ADMIN_BOOTSTRAP_EMAIL", Kind: String, Group: GroupServer, Programs: progs(Server),
+		Doc: "第一位管理員的 email(資料庫還沒有管理員時,這個 email 登入就成為管理員)"})
+	AgentCredHours = add(&Var{Name: "OMIXOR_AGENT_CRED_HOURS", Kind: Float, Group: GroupServer, Programs: progs(Server),
+		DefaultDoc: "服務內建的預設",
+		Doc:        "領取任務時發給角色的憑證有效小時數(要大於 0,否則用預設)"})
+	Port = add(&Var{Name: "PORT", Kind: Int, Default: "8080", Range: portRange, Group: GroupServer, Programs: progs(Server),
+		Doc: "Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴)"})
+	MigrateMaxAutoRewriteMB = add(&Var{Name: "OMIXOR_MIGRATE_MAX_AUTO_REWRITE_MB", Kind: Int, Default: "1024", Range: &[2]int{0, 100000000}, Group: GroupServer, Programs: progs(Server),
+		Doc: "啟動遷移會重寫整張表的 ALTER(新增 stored 產生欄位 project_ref:omixor_docs、omixor_cabinet_sections、ops_issues),表(含索引)超過這個大小(MB)就不自動做、只警告," +
+			"要在維護窗口先跑 core/store/sql/premigrate.sql(必須用與服務相同的資料庫角色)再重啟;0 = 不限制(一律自動做,重寫期間該表讀寫全被擋)"})
+	MigrateBudgetMinutes = add(&Var{Name: "OMIXOR_MIGRATE_BUDGET_MINUTES", Kind: Int, Default: "10", Range: &[2]int{1, 1440}, Group: GroupServer, Programs: progs(Server),
+		Doc: "啟動遷移(在開始監聽之前同步執行)所有階段共用的總預算(分鐘);用完就略過剩下的、只警告,下次啟動接著做。" +
+			"要小於平台的啟動探測時限(Cloud Run 要設定足夠長的 startup probe)"})
+	EvoleapURL = add(&Var{Name: "EVOLEAP_URL", Kind: URL, Default: "https://evoleap.io", Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server),
+		Doc: "evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)"})
+)
+
+// ---- LDAP(omixor-server;完整的檢查在 core/ldapauth,設了 OMIXOR_LDAP_URL 才啟用) ----
+
+var (
+	LDAPURL = add(&Var{Name: "OMIXOR_LDAP_URL", Kind: URL, Schemes: []string{"ldap", "ldaps"}, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "LDAP / Active Directory 位址,ldap://主機:389 或 ldaps://主機:636。沒設 = 不啟用 LDAP 登入;設了就必須設 BIND_DN 或 USER_DN_TEMPLATE 其中一個"})
+	LDAPStartTLS = add(&Var{Name: "OMIXOR_LDAP_START_TLS", Kind: Bool, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "ldap:// 連線升級成 StartTLS(ldaps:// 不用)"})
+	LDAPCACert = add(&Var{Name: "OMIXOR_LDAP_CA_CERT", Kind: Path, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "驗證 LDAP 伺服器憑證用的 CA 憑證檔(PEM)"})
+	LDAPInsecureSkipVerify = add(&Var{Name: "OMIXOR_LDAP_INSECURE_SKIP_VERIFY", Kind: Bool, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "不驗證 LDAP 伺服器憑證(只建議測試用)"})
+	LDAPBindDN = add(&Var{Name: "OMIXOR_LDAP_BIND_DN", Kind: String, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "服務帳號 DN(用服務帳號搜尋使用者的方式);要同時給密碼與 OMIXOR_LDAP_BASE_DN"})
+	LDAPBindPasswordFile = add(&Var{Name: "OMIXOR_LDAP_BIND_PASSWORD_FILE", Kind: Path, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "服務帳號密碼存在這個檔案(Docker secret);OMIXOR_LDAP_BIND_PASSWORD 有設時以它為準"})
+	LDAPBaseDN = add(&Var{Name: "OMIXOR_LDAP_BASE_DN", Kind: String, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "搜尋使用者的起點 DN(用服務帳號搜尋時必填)"})
+	LDAPUserFilter = add(&Var{Name: "OMIXOR_LDAP_USER_FILTER", Kind: String, Group: GroupLDAP, Programs: progs(Server),
+		DefaultDoc: "(<ID_ATTR>=%s)", Doc: "搜尋使用者的過濾條件,要剛好有一個 %s(換成帳號)"})
+	LDAPUserDNTemplate = add(&Var{Name: "OMIXOR_LDAP_USER_DN_TEMPLATE", Kind: String, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "直接用使用者身分 bind 的 DN 樣板,要剛好有一個 %s(換成帳號)"})
+	LDAPIDAttr = add(&Var{Name: "OMIXOR_LDAP_ID_ATTR", Kind: String, DefaultDoc: "sAMAccountName", Group: GroupLDAP, Programs: progs(Server),
+		Doc: "帳號對應的屬性"})
+	LDAPNameAttr = add(&Var{Name: "OMIXOR_LDAP_NAME_ATTR", Kind: String, DefaultDoc: "displayName", Group: GroupLDAP, Programs: progs(Server),
+		Doc: "顯示名稱對應的屬性"})
+	LDAPMailAttr = add(&Var{Name: "OMIXOR_LDAP_MAIL_ATTR", Kind: String, DefaultDoc: "mail", Group: GroupLDAP, Programs: progs(Server),
+		Doc: "email 對應的屬性"})
+	LDAPTimeoutSeconds = add(&Var{Name: "OMIXOR_LDAP_TIMEOUT_SECONDS", Kind: Int, Default: "10", Range: &[2]int{1, math.MaxInt}, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "LDAP 連線與查詢的逾時秒數"})
+	LDAPAdmins = add(&Var{Name: "OMIXOR_LDAP_ADMINS", Kind: String, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "伺服器管理員的帳號(逗號分隔),每次登入都確認"})
+	LDAPEmailDomain = add(&Var{Name: "OMIXOR_LDAP_EMAIL_DOMAIN", Kind: String, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "目錄沒有 mail 時,用 帳號@這個網域 當 email;只要網域(例如 corp.example.com)"})
+	LDAPTrustMail = add(&Var{Name: "OMIXOR_LDAP_TRUST_MAIL", Kind: Bool, Group: GroupLDAP, Programs: progs(Server),
+		Doc: "信任目錄的 mail:預先加入的同 email 使用者登入時自動對上"})
+)
+
+// ---- 本機守護服務 ----
+
+var (
+	DataDir = add(&Var{Name: "OMIXOR_DATA_DIR", Kind: Path, Group: GroupLocal, Programs: progs(Local),
+		DefaultDoc: "獨立模式:<使用者設定資料夾>/omixor/core;App 模式必填",
+		Doc:        "資料夾(PostgreSQL 資料、credentials.json 等)。-data 旗標優先"})
+	LocalToken = add(&Var{Name: "OMIXOR_LOCAL_TOKEN", Kind: String, Secret: true, Group: GroupLocal, Programs: progs(Local),
+		Doc: "macOS App 給的 token(omx_ 開頭,每次啟動換一把);有設就是 App 模式,沒設是獨立模式。讀取後立刻從環境移除,子程序不會繼承"})
+	LocalUser = add(&Var{Name: "OMIXOR_LOCAL_USER", Kind: String, DefaultDoc: "local", Group: GroupLocal, Programs: progs(Local),
+		Doc: "本機使用者的 email 或 id"})
+	LocalName = add(&Var{Name: "OMIXOR_LOCAL_NAME", Kind: String, DefaultDoc: "同 OMIXOR_LOCAL_USER", Group: GroupLocal, Programs: progs(Local),
+		Doc: "本機使用者的顯示名稱"})
+	LocalOrg = add(&Var{Name: "OMIXOR_LOCAL_ORG", Kind: String, DefaultDoc: "default", Group: GroupLocal, Programs: progs(Local),
+		Doc: "確保存在的預設組織 id(不能刪)"})
+	ExitOnStdinEOF = add(&Var{Name: "OMIXOR_EXIT_ON_STDIN_EOF", Kind: Bool, Group: GroupLocal, Programs: progs(Local),
+		Doc: "標準輸入關掉就結束(App 結束或當掉時守護服務跟著結束;只在 App 模式有作用)"})
+	PGCtlTimeout = add(&Var{Name: "PGCTLTIMEOUT", Kind: Int, Range: &[2]int{1, 86400}, Group: GroupLocal, Programs: progs(Local),
+		DefaultDoc: "依啟動逾時推算(至少 60)",
+		Doc:        "pg_ctl 啟動內建 PostgreSQL 的等待秒數(pg_ctl 自己認的變數;自己設了就用你的)"})
+)
+
+// ---- 畫面與 API(console / omixor-web) ----
+
+var (
+	SecretKey = add(&Var{Name: "OMIXOR_SECRET_KEY", Legacy: []string{"OPS_SECRET_KEY"}, Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web),
+		Doc: "用資料庫時必填:base64 的 32 bytes(openssl rand -base64 32),加密 token 與密碼;換掉後已存的會解不開"})
+	ServerToken = add(&Var{Name: "OMIXOR_SERVER_TOKEN", Legacy: []string{"OPS_ISSUE_SERVER_TOKEN"}, Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web),
+		Doc: "遠端模式連 OMIXOR_SERVER 用的固定 token(沒設就用存著的登入、401 時走 evoleap 換)"})
+	Servers = add(&Var{Name: "OMIXOR_SERVERS", Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web),
+		Doc: "可以連的遠端 omixor 清單:JSON 陣列,或指向 JSON 檔的路徑(內容可能含 token,視為機密)"})
+	Evoleap = add(&Var{Name: "OMIXOR_EVOLEAP", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupWeb, Programs: progs(Web),
+		DefaultDoc: "內建的 evoleap 連線", Doc: "遠端模式登入用的 evoleap 網址"})
+	EvoleapConsole = add(&Var{Name: "OMIXOR_EVOLEAP_CONSOLE", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupWeb, Programs: progs(Web),
+		Doc: "evoleap 核准頁網址(沒設用 evoleap 回傳的)"})
+	NoTimers = add(&Var{Name: "OMIXOR_NO_TIMERS", Legacy: []string{"OPS_NO_TIMERS"}, Kind: Bool, Group: GroupWeb, Programs: progs(Web),
+		Doc: "不開背景計時器(例行任務、輪詢;測試用)"})
+	NoBrowser = add(&Var{Name: "OMIXOR_NO_BROWSER", Legacy: []string{"OPS_NO_BROWSER"}, Kind: Flag, Group: GroupWeb, Programs: progs(Web),
+		Doc: "啟動時不自動開瀏覽器(Docker 映像預設開著)。有設就不開:任何非空值都算,包含 0、false"})
+	ConsoleDataDir = add(&Var{Name: "OMIXOR_CONSOLE_DATA_DIR", Legacy: []string{"OPS_DATA_DIR"}, Kind: Path, Group: GroupWeb, Programs: progs(Web, MCP),
+		DefaultDoc: "~/Library/Application Support/omixor-console(依系統)", Doc: "資料夾(範例資料、設定、auth.json 等);測試一律指到暫存資料夾"})
+	Auth = add(&Var{Name: "OMIXOR_AUTH", Legacy: []string{"OPS_AUTH"}, Kind: Enum, Soft: true, Choices: []string{"off"}, Group: GroupWeb, Programs: progs(Web),
+		Doc: "off(不分大小寫)= 強制不用登入(設定錯了進不去時用它回到本機模式);其他值只在啟動時警告、一律忽略"})
+	APIToken = add(&Var{Name: "OMIXOR_API_TOKEN", Legacy: []string{"OPS_API_TOKEN"}, Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web),
+		Doc: "/api/issues/ 可以用的 Bearer token(至少 16 字元,不夠長視為沒設)"})
+	ShuttlePath = add(&Var{Name: "OMIXOR_SHUTTLE_PATH", Legacy: []string{"OPS_SHUTTLE_PATH"}, Kind: Path, Group: GroupWeb, Programs: progs(Web),
+		Doc: "語音 shuttle 資料夾(優先於畫面裡的設定)"})
+	ClaudeBin = add(&Var{Name: "OMIXOR_CLAUDE_BIN", Kind: Path, Group: GroupWeb, Programs: progs(Web),
+		DefaultDoc: "常見安裝位置,再找 PATH", Doc: "claude 執行檔路徑(自動執行角色任務用)"})
+	OfficeDir = add(&Var{Name: "OMIXOR_OFFICE_DIR", Kind: Path, Group: GroupWeb, Programs: progs(Web),
+		DefaultDoc: "<執行檔>/../../office3d、<執行檔>/../office3d、<執行檔>/office3d", Doc: "3D 辦公室(office3d)資料夾,裡面要有 places.json"})
+	Templates = add(&Var{Name: "OMIXOR_TEMPLATES", Kind: String, Group: GroupWeb, Programs: progs(Web),
+		DefaultDoc: "不載入範本", Doc: "範本資料:1/on/true/yes/auto = 自動找 templates/;0/off/false/no = 不載入;其他值 = 範本資料夾路徑"})
+	MCPPort = add(&Var{Name: "OMIXOR_MCP_PORT", Legacy: []string{"OPS_MCP_PORT"}, Kind: Int, Default: "3765", Range: portRange, Group: GroupWeb, Programs: progs(Web, MCP),
+		Doc: "MCP 連接埠(和 macOS App 相同;兩個同時開時給其中一個換埠);omixor-mcp 用它組出轉接位址"})
+	MCPAddr = add(&Var{Name: "OMIXOR_MCP_ADDR", Legacy: []string{"OPS_MCP_ADDR"}, Kind: String, Default: "127.0.0.1", Group: GroupWeb, Programs: progs(Web),
+		Doc: "MCP 聽的位址(Docker 裡設 0.0.0.0,連接埠只發布到主機的 127.0.0.1)"})
+	MCPToken = add(&Var{Name: "OMIXOR_CONSOLE_MCP_TOKEN", Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web, MCP),
+		Doc: "console 的 MCP 連接埠要求的 Bearer 權杖(至少 32 字元,不能含空白或換行;結尾換行會先去掉);有設但無效時 console 與 omixor-mcp 拒絕啟動;沒設時 console 自己產生並保存(omixor-mcp 也先讀這個,再讀 console 資料夾裡的 mcp_token)"})
+	WebPort = add(&Var{Name: "OMIXOR_WEB_PORT", Legacy: []string{"OPS_WEB_PORT"}, Kind: Int, Default: "5191", Range: portRange, Group: GroupWeb, Programs: progs(Web),
+		Doc: "畫面與 API 的連接埠(沒設 OMIXOR_WEB_ADDR 時聽 127.0.0.1:<連接埠>)"})
+	WebAddr = add(&Var{Name: "OMIXOR_WEB_ADDR", Legacy: []string{"OPS_WEB_ADDR"}, Kind: String, DefaultDoc: "127.0.0.1:<OMIXOR_WEB_PORT>", Group: GroupWeb, Programs: progs(Web),
+		Doc: "畫面聽的位址,例如 0.0.0.0:5191;不是本機位址時必須先啟用 LDAP 登入(或設 OMIXOR_WEB_LOCAL_ONLY_PUBLISH)"})
+	WebHosts = add(&Var{Name: "OMIXOR_WEB_HOSTS", Legacy: []string{"OPS_WEB_HOSTS"}, Kind: String, Group: GroupWeb, Programs: progs(Web),
+		Doc: "允許的主機名稱(逗號分隔);反向代理的網域要列在這裡"})
+	WebLocalOnlyPublish = add(&Var{Name: "OMIXOR_WEB_LOCAL_ONLY_PUBLISH", Legacy: []string{"OPS_WEB_LOCAL_ONLY_PUBLISH"}, Kind: Gate, Group: GroupWeb, Programs: progs(Web),
+		Doc: "安全閘門:在 Docker 裡聽 0.0.0.0、但連接埠只發布到主機的 127.0.0.1 時設 1,可略過「不是本機位址必須啟用 LDAP」的檢查。只認精確的 1,其他值(true、yes、on…)一律視為沒設"})
+)
+
+// ---- 命令列(omixor) ----
+
+var (
+	Credentials = add(&Var{Name: "OMIXOR_CREDENTIALS", Kind: Path, Group: GroupCLI, Programs: progs(CLI),
+		DefaultDoc: "<設定資料夾>/credentials/<伺服器>.json", Doc: "登入資料檔(指定單一檔案時只用那個檔,不記「上次登入的伺服器」)"})
+	ConfigDir = add(&Var{Name: "OMIXOR_CONFIG_DIR", Kind: Path, Group: GroupCLI, Programs: progs(CLI),
+		DefaultDoc: "~/.config/omixor", Doc: "CLI 設定資料夾(登入資料、目前的伺服器)"})
+)
+
+// ---- MCP 轉接(omixor-mcp) ----
+
+var (
+	MCPURL = add(&Var{Name: "OMIXOR_MCP_URL", Legacy: []string{"OPS_MCP_URL"}, Kind: URL, Schemes: []string{"http", "https"}, Group: GroupMCP, Programs: progs(MCP),
+		DefaultDoc: "http://127.0.0.1:<OMIXOR_MCP_PORT>/mcp", Doc: "要轉接到的 MCP 位址"})
+)
+
+// DevVar 測試/開發用的環境變數:不是正式設定,不進設定表與 Config,測試程式碼直接讀
+type DevVar struct {
+	Name string
+	Doc  string
+}
+
+// DevVars 測試/開發用變數(文件另列一節;守門測試不檢查測試檔)
+var DevVars = []DevVar{
+	{"OMIXOR_TEST_DATABASE_URL", "測試用 PostgreSQL 連線網址;沒設就自動起內建 PostgreSQL(core/storetest/testdb)"},
+	{"OMIXOR_TEST_NO_EMBEDDED_PG", "設 1:需要 PostgreSQL 的測試略過(不自動起內建的)"},
+	{"OPS_TEST_DATABASE_URL", "OMIXOR_TEST_DATABASE_URL 的舊名稱(測試輔助仍支援)"},
+	{"OPS_TEST_NO_EMBEDDED_PG", "OMIXOR_TEST_NO_EMBEDDED_PG 的舊名稱(測試輔助仍支援)"},
+	{"FAKE_CLAUDE", "設 1:測試用的假 claude 程序(core/claude)"},
+	{"UPDATE_CONTRACT", "設 1:重寫 core/model 的契約範例檔"},
+	{"UPDATE_CONFIG_DOC", "設 1:重寫 docs/configuration.md(core/config 的測試)"},
+	{"OMIXOR_KEYCHAIN_TEST", "設 1:用暫存鑰匙圈檔案測 macOS /usr/bin/security(console)"},
+	{"OMIXOR_STRICT", "設 1:還沒實作的 MCP 工具會讓測試失敗(console/internal/mcp)"},
+	{"FLOWCHART_OUT", "指定資料夾:流程圖測試把圖存下來看"},
+	{"WIREFRAME_OUT", "指定資料夾:線框圖測試把圖存下來看"},
+}
+
+// SystemVars 不屬於 omixor 設定、保持原樣直接讀的系統變數
+var SystemVars = []string{"PATH", "SHELL"}

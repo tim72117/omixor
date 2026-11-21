@@ -71,7 +71,7 @@ func (a *App) switchMock() {
 	}
 	// 收起目前組織的資料;資料庫模式先把還沒存的變更以舊組織的名稱存掉
 	cur := &mockData{C: a.C, Sprint: a.Sprint}
-	if pgPool != nil {
+	if pgPool() != nil {
 		flushMockAsync(s.org, cur)
 	}
 	s.stash[s.org] = cur
@@ -79,7 +79,7 @@ func (a *App) switchMock() {
 	next, ok := s.stash[target]
 	if !ok {
 		next = emptyMock()
-		if pgPool != nil {
+		if pgPool() != nil {
 			loadMockPG(target, next)
 		}
 	}
@@ -92,16 +92,16 @@ func (a *App) switchMock() {
 // dropMock 刪除組織時丟掉它的資料(呼叫時要拿著 Mu)
 func (a *App) dropMock(org string) {
 	delete(a.mockSt().stash, org)
-	if pgPool == nil || org == DefaultOrgID {
+	if pgPool() == nil || org == DefaultOrgID {
 		return
 	}
-	go func() {
+	pgGo(func() {
 		ctx, cancel := pgCtx()
 		defer cancel()
-		if _, err := pgPool.Exec(ctx, `delete from ops_state where name like $1`, escapeLike(org)+"/%"); err != nil {
+		if _, err := pgExec(ctx, `delete from ops_state where name like $1`, escapeLike(org)+"/%"); err != nil {
 			log.Printf("刪除組織 %s 的範例資料失敗:%v", org, err)
 		}
-	}()
+	})
 }
 
 func escapeLike(s string) string {
@@ -128,14 +128,14 @@ func flushMockAsync(org string, d *mockData) {
 			data[mockStateKey(org, n)] = Marshal(d.C[n])
 		}
 	}
-	go pgWriteState(data)
+	pgGo(func() { _ = pgWriteState(data) })
 }
 
 // loadMockPG 讀資料庫裡這個組織存過的集合(沒有的維持空的)
 func loadMockPG(org string, d *mockData) {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	rows, err := pgPool.Query(ctx, `select name, data::text from ops_state where name like $1`, escapeLike(org)+"/%")
+	rows, err := pgQuery(ctx, `select name, data::text from ops_state where name like $1`, escapeLike(org)+"/%")
 	if err != nil {
 		log.Printf("讀組織 %s 的範例資料失敗:%v", org, err)
 		return
@@ -171,7 +171,7 @@ func loadMockPG(org string, d *mockData) {
 	rows.Close()
 
 	// 這個組織的動態牆(最新的 activityKeep 筆)
-	arows, err := pgPool.Query(ctx, `select item::text from ops_activity where item->>'org' = $1 order by at desc, seq desc limit $2`, org, activityKeep)
+	arows, err := pgQuery(ctx, `select item::text from ops_activity where item->>'org' = $1 order by at desc, seq desc limit $2`, org, activityKeep)
 	if err != nil {
 		log.Printf("讀組織 %s 的動態失敗:%v", org, err)
 		return

@@ -16,12 +16,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"omixor-core/errmask"
 	"omixor-core/model"
 	"omixor-core/store"
 )
@@ -32,6 +34,7 @@ const TokenPrefix = "omx_"
 type Error struct {
 	Code int
 	Msg  string
+	Data map[string]any // 額外要回給呼叫端的欄位(例如版本衝突的 currentVersion);api 併進回應的最上層
 }
 
 func (e *Error) Error() string { return e.Msg }
@@ -40,13 +43,35 @@ func fail(code int, format string, a ...any) error {
 	return &Error{Code: code, Msg: fmt.Sprintf(format, a...)}
 }
 
-// Code 錯誤的 HTTP 狀態碼(不是 *Error 時是 500)
+// Code 錯誤的 HTTP 狀態碼(不是 *Error 時是 500;資料庫外鍵錯誤:仍被參照 ErrInUse → 409,指向不存在 ErrBadRef → 400)
+// 對外的狀態碼規則以 core/httperr 為準(httperr 會 import service,這裡不能轉呼叫,否則循環);
+// httperr 的測試(TestCodeMatchesService)確保兩邊對同一個錯誤的狀態碼一致。
 func Code(err error) int {
 	var e *Error
 	if errors.As(err, &e) {
 		return e.Code
 	}
+	switch {
+	case errors.Is(err, store.ErrInUse), errors.Is(err, store.ErrVersionConflict), errors.Is(err, store.ErrLocked):
+		return 409
+	case errors.Is(err, store.ErrBadRef), errors.Is(err, store.ErrProjectNoKey):
+		return 400
+	case errors.Is(err, store.ErrNotFound):
+		return 404
+	case errors.Is(err, store.ErrUnmigratedRow):
+		return 503
+	}
 	return 500
+}
+
+// auditErrText 寫進稽核紀錄的錯誤文字:資料庫錯誤、路徑、連線位址等內部細節換成通用訊息(原文進 log,去掉換行),其他照原訊息。
+// (和 httperr 同一份判斷,放在不依賴 service 的 errmask;httperr 本身 import service,這裡不能反過來用它)
+func auditErrText(err error) string {
+	if m, ok := errmask.Mask(err, true); ok {
+		log.Printf("稽核紀錄的錯誤原文(紀錄裡已改成通用訊息):%s", strings.NewReplacer("\r", `\r`, "\n", `\n`).Replace(err.Error()))
+		return m
+	}
+	return err.Error()
 }
 
 type Service struct {
@@ -118,9 +143,17 @@ func HashToken(tok string) []byte { h := sha256.Sum256([]byte(tok)); return h[:]
 func (s *Service) Audit(p *model.Principal, action, org string, detail map[string]any) {
 	e := model.AuditEntry{At: s.mt(), Action: action, Org: org, Detail: detail}
 	if p != nil {
-		e.UserID, e.Email = p.User.ID, p.User.Email
+		e.Actor = s.whoActor(p)
+		if p.Agent == nil { // email 快照:使用者操作當時的 email;角色沒有
+			e.Email = p.User.Email
+		}
+		e.Source = p.Via
 	}
-	_ = s.Store.AddAudit(e)
+	// 稽核比什麼都重要:actor 對不上(不該發生)時,不帶 actor 再寫一次,不要整筆丟掉
+	if err := s.Store.AddAudit(e); errors.Is(err, store.ErrBadRef) {
+		e.Actor = ""
+		_ = s.Store.AddAudit(e)
+	}
 }
 
 // ================= 授權 =================
@@ -248,7 +281,7 @@ func (s *Service) LoginWithEvoleap(evoToken, device, ip string) (*LoginResult, e
 	if me.User.Name != "" {
 		u.Name = me.User.Name
 	}
-	if err := s.Store.SaveUser(*u); err != nil {
+	if err := s.saveUser(u); err != nil {
 		return nil, err
 	}
 	return s.issueToken(u, device, now, "")
@@ -296,7 +329,11 @@ func (s *Service) Authenticate(raw string) (*model.Principal, error) {
 	if t.LastUsedAt == nil || s.now().Sub(t.LastUsedAt.Time) > time.Minute {
 		_ = s.Store.TouchToken(t.ID, s.now())
 	}
-	return &model.Principal{User: *u, Token: *t}, nil
+	actor, err := s.userActorRef(u)
+	if err != nil {
+		return nil, err
+	}
+	return &model.Principal{User: *u, Token: *t, Actor: actor, Via: model.ViaLogin}, nil
 }
 
 func (s *Service) Logout(p *model.Principal) error {
@@ -347,7 +384,7 @@ func (s *Service) SaveUser(p *model.Principal, email string, role *string, disab
 	if u.ID == p.User.ID && (u.Role != "admin" || u.Disabled) {
 		return nil, fail(400, "不能把自己降級或停用")
 	}
-	if err := s.Store.SaveUser(*u); err != nil {
+	if err := s.saveUser(u); err != nil {
 		return nil, err
 	}
 	action := "user.update"
@@ -383,7 +420,28 @@ func (s *Service) ListAudit(p *model.Principal, limit int) ([]model.AuditEntry, 
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	return s.Store.ListAudit(limit)
+	l, err := s.Store.ListAudit(limit)
+	if err != nil {
+		return nil, err
+	}
+	// 相容輸出:userId = 使用者 actor 的使用者 id(使用者列已不在,例如已刪除:退回 actor id)、角色 = agent:<handle>;email 是當時的快照
+	ids := make([]string, 0, len(l))
+	for _, e := range l {
+		ids = append(ids, e.Actor)
+	}
+	n, err := s.LoadActors(ids...)
+	if err != nil {
+		return nil, err
+	}
+	for i := range l {
+		id := l[i].Actor
+		l[i].ActorRef = n.View(id)
+		l[i].UserID = n.Legacy(id, model.LegacyUserID)
+		if r, ok := n.Record(id); ok && l[i].UserID == "" && r.Kind == model.ActorKindUser {
+			l[i].UserID = id
+		}
+	}
+	return l, nil
 }
 
 // ================= 組織與成員 =================
@@ -496,7 +554,22 @@ func (s *Service) ListMembers(p *model.Principal, org string) ([]model.Member, e
 	if _, err := s.orgRole(p, org); err != nil {
 		return nil, err
 	}
-	return s.Store.ListMembers(org)
+	l, err := s.Store.ListMembers(org)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(l))
+	for _, m := range l {
+		ids = append(ids, m.ActorID)
+	}
+	n, err := s.LoadActors(ids...)
+	if err != nil {
+		return nil, err
+	}
+	for i := range l {
+		l[i].ActorRef = n.View(l[i].ActorID)
+	}
+	return l, nil
 }
 
 // SaveMember 把人加進組織或改角色(組織管理員);名單上還沒有這個 email 就先建一個待連結的使用者
@@ -517,7 +590,7 @@ func (s *Service) SaveMember(p *model.Principal, org, email, role string) (*mode
 	u, err := s.Store.UserByEmail(email)
 	if errors.Is(err, store.ErrNotFound) {
 		u = &model.User{ID: RandID("u_", 9), Email: email, Role: "member", CreatedAt: s.mt()}
-		if err := s.Store.SaveUser(*u); err != nil {
+		if err := s.saveUser(u); err != nil {
 			return nil, err
 		}
 		s.Audit(p, "user.add", org, map[string]any{"email": email})
@@ -529,6 +602,7 @@ func (s *Service) SaveMember(p *model.Principal, org, email, role string) (*mode
 		return nil, err
 	}
 	s.Audit(p, "member.save", org, map[string]any{"email": email, "role": role})
+	m.ActorRef = s.WhoView(u.ActorID)
 	return &m, nil
 }
 
@@ -544,9 +618,9 @@ func (s *Service) RemoveMember(p *model.Principal, org, email string) error {
 		return fail(404, "%s 不是組織 %s 的成員", email, org)
 	}
 	s.agents.mu.Lock()
-	s.pruneChainNode(org, model.UserNode(u.Email))
+	s.pruneChainNode(org, u.ActorID) // 組織鏈、頻道的成員是 actor id
 	s.agents.mu.Unlock()
-	s.pruneChannelNode(org, model.UserNode(u.Email))
+	s.pruneChannelNode(org, u.ActorID)
 	s.Audit(p, "member.remove", org, map[string]any{"email": u.Email})
 	return nil
 }

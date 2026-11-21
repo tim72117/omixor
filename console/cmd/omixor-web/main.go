@@ -1,4 +1,4 @@
-// omixor-web:omixor console(Go + React)。環境變數的舊名稱 OPS_* 仍相容(見 omixor-core/env)。
+// omixor-web:omixor console(Go + React)。環境變數集中定義在 omixor-core/config(說明見 docs/configuration.md,-h 也會列出),舊名稱 OPS_* 仍相容。
 //
 //	MCP:http://127.0.0.1:3765/mcp(OMIXOR_MCP_PORT 可改),規格和 Swift 版一模一樣
 //	畫面:http://127.0.0.1:5191(OMIXOR_WEB_PORT 改連接埠;OMIXOR_WEB_ADDR 改位址,例如 0.0.0.0:5191,必須先啟用 LDAP 登入)
@@ -15,6 +15,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -29,17 +30,30 @@ import (
 	"omixor-web/internal/web"
 	webui "omixor-web/ui"
 
-	"omixor-core/env"
+	"omixor-core/config"
 )
 
 func main() {
-	if len(os.Args) >= 2 && os.Args[1] == "import-issues" {
-		runImportIssues(os.Args[2:])
+	if len(os.Args) >= 2 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
+		fmt.Println("用法:omixor-web [import <資料夾> | import-issues [-org <組織>] [-overwrite] <資料夾或 issues.json>]")
+		fmt.Println()
+		fmt.Print(config.Usage(config.Web))
 		return
 	}
-	if url := env.Get("OMIXOR_DATABASE_URL", "OPS_DATABASE_URL"); url != "" {
-		if err := core.OpenDB(url, env.Get("OMIXOR_SECRET_KEY", "OPS_SECRET_KEY")); err != nil {
-			log.Fatalf("PostgreSQL:%v", err)
+	// 設定集中載入並驗證一次(有問題一次列完後結束);之後不再直接讀環境變數
+	cfg := config.MustLoad(config.Web)
+	if err := core.CheckMCPTokenEnv(); err != nil { // OMIXOR_CONSOLE_MCP_TOKEN 有設但無效:不悄悄改用別把,直接拒絕啟動
+		log.Fatal(err)
+	}
+	// 本機使用者(omixor-console)要在建核心 store(啟動遷移)之前告訴遷移:舊資料裡的 mcp、tim、ops-web、omixor-console 才會都對到它的 actor
+	core.ConfigureLocalIdentity()
+	if len(os.Args) >= 2 && os.Args[1] == "import-issues" {
+		runImportIssues(os.Args[2:], cfg)
+		return
+	}
+	if url := cfg.Str(config.DatabaseURL); url != "" {
+		if err := core.OpenDB(url, cfg.Str(config.SecretKey)); err != nil {
+			log.Fatalf("PostgreSQL:%v", cfg.Redact(err.Error()))
 		}
 		log.Printf("資料:PostgreSQL")
 	}
@@ -67,7 +81,7 @@ func main() {
 	au := auth.New(auth.VaultSecrets{})
 	addr := web.ConfiguredAddr()
 	// 在 Docker 裡要聽 0.0.0.0,但連接埠只發布到主機的 127.0.0.1 時,設 OMIXOR_WEB_LOCAL_ONLY_PUBLISH=1
-	if !web.IsLoopbackAddr(addr) && !au.Enabled() && env.Get("OMIXOR_WEB_LOCAL_ONLY_PUBLISH", "OPS_WEB_LOCAL_ONLY_PUBLISH") != "1" {
+	if !web.IsLoopbackAddr(addr) && !au.Enabled() && !cfg.Bool(config.WebLocalOnlyPublish) {
 		log.Fatalf("畫面要聽 %s(不只本機)時,一定要先啟用 LDAP 登入:先用本機模式開,在 設定 › 認證 設好,再改 OMIXOR_WEB_ADDR", addr)
 	}
 	ln, err := net.Listen("tcp4", addr)
@@ -90,7 +104,7 @@ func main() {
 		app.SaveNow()
 		os.Exit(0)
 	}()
-	if env.Get("OMIXOR_NO_BROWSER", "OPS_NO_BROWSER") == "" {
+	if !cfg.Bool(config.NoBrowser) {
 		go func() { time.Sleep(300 * time.Millisecond); _ = core.OpenURLCommand(url).Start() }()
 	}
 	srv := &http.Server{Handler: web.Handler(app, webui.Dist(), au), ReadHeaderTimeout: 10 * time.Second}
@@ -114,17 +128,17 @@ func runImport() {
 	log.Printf("完成,共 %d 個檔案。鑰匙圈裡的登入沒辦法搬,連線要在畫面上重新登入", len(done))
 }
 
-func runImportIssues(args []string) {
+func runImportIssues(args []string, cfg *config.Config) {
 	fs := flag.NewFlagSet("import-issues", flag.ExitOnError)
 	org := fs.String("org", "", "組織 id(給檔案時預設 default;給資料夾時只匯入這個組織)")
 	overwrite := fs.Bool("overwrite", false, "資料庫已經有的 id 用檔案內容覆蓋(預設略過)")
 	_ = fs.Parse(args)
-	url := env.Get("OMIXOR_DATABASE_URL", "OPS_DATABASE_URL")
+	url := cfg.Str(config.DatabaseURL)
 	if url == "" || fs.NArg() != 1 {
 		log.Fatal("用法:OMIXOR_DATABASE_URL=… omixor-web import-issues [-org <組織>] [-overwrite] <資料夾或 issues.json>")
 	}
 	if err := core.OpenIssueDB(url); err != nil {
-		log.Fatalf("PostgreSQL:%v", err)
+		log.Fatalf("PostgreSQL:%v", cfg.Redact(err.Error()))
 	}
 	res, err := core.ImportIssuesPath(fs.Arg(0), *org, *overwrite)
 	for _, r := range res {

@@ -6,12 +6,15 @@
 // 拖曳游標:能放的欄 dropEffect = move 並高亮;不能放的欄(原欄、待處理 ↔ 進行中)dropEffect = none(禁止游標、瀏覽器不觸發 drop),
 // 待處理 ↔ 進行中 另外在欄內顯示一行提示。dragover 時讀不到 dataTransfer 的資料,所以 dragstart 時把 Issue 記在 dragging。
 import { useState } from "react";
-import { tool, useActionQuery, useDebounced } from "../../api";
+import { useActionQuery, useDebounced } from "../../api";
 import { color, EmptyState, Pill } from "../../components/ui";
 import { boardDropStatus } from "../../components/models";
 import { copyText, SIcon, useAct, useContextMenu, useList, useOmixor } from "../../components/omixorKit";
 import { RepoFilterSelect, usedRepos, useDev } from "./devShared";
 import { PRIORITY, showPriorityPill, type Issue } from "./DevIssuesTab";
+import { issueKey, PROJECT_ALL, PROJECT_ORG } from "./issueModel";
+import { updateIssue, useProjects } from "./issueApi";
+import { projectName } from "./IssueForm";
 
 type Priority = Issue["priority"];
 const PRIORITIES: Priority[] = ["urgent", "high", "normal", "low"];
@@ -37,9 +40,13 @@ export function DevBoardTab() {
   const [label, setLabel] = useState("");
   const [priority, setPriority] = useState<Priority | "">("");
   const [repo, setRepo] = useState(""); // "" = 全部倉庫;NO_REPO = 未標記;其他 = 只列這個倉庫(比對規則在核心的 model.RepoMatch)
+  const [project, setProject] = useState(PROJECT_ALL); // 同 Issue 分頁:"" 全部、"-" 只組織層級、PRJ-n
+  const projects = useProjects();
   const [issues] = useList<Issue>("issues"); // 全部(倉庫選單用,同 Issue 分頁);看板本身照 issue_board 的結果
   const q = useDebounced(query, 250);
-  const [board, err] = useActionQuery<IssueBoard>("issue_board", { q, label, priority, repo }, ["issues"]);
+  const [board, err] = useActionQuery<IssueBoard>("issue_board", { q, label, priority, repo, project }, ["issues"]);
+  // 分欄、篩選都以後端 issue_board 回傳的為準(已依 project 篩),畫面不再自己篩
+  const columns = board?.columns ?? [];
   const [targeted, setTargeted] = useState<string>();
   /** 拖曳中的 Issue(dragstart 記下、dragend 清掉)與它原本的欄 */
   const [dragging, setDragging] = useState<{ issue: Issue; from: string }>();
@@ -49,13 +56,13 @@ export function DevBoardTab() {
 
   const labels = board?.labels ?? [];
   const total = board?.total ?? 0;
-  const hasFilter = !!query || !!label || !!priority || !!repo;
+  const hasFilter = !!query || !!label || !!priority || !!repo || project !== PROJECT_ALL;
   const setStatus = (i: Issue, s: "open" | "closed") => {
-    if (i.status !== s) run(() => tool("issue_update", { id: i.id, status: s }));
+    if (i.status !== s) run(() => updateIssue(i, { status: s }));
   };
   // 只有能放的欄會觸發 drop(不能放的 dragover 設了 dropEffect = none);仍照 dropStatus 再判斷一次
   const drop = (id: string, col: BoardColumn) => {
-    const i = board?.columns.flatMap((c) => c.issues).find((x) => x.id === id);
+    const i = columns.flatMap((c) => c.issues).find((x) => x.id === id);
     const s = i && boardDropStatus(col.dropStatus, i.status);
     if (i && s) setStatus(i, s);
   };
@@ -76,17 +83,21 @@ export function DevBoardTab() {
           <option value="">全部優先度</option><option disabled>──────</option>
           {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY[p].label}</option>)}
         </select>
+        <select className="select" title="依專案篩選" value={project} onChange={(e) => setProject(e.target.value)}>
+          <option value={PROJECT_ALL}>全部專案</option><option value={PROJECT_ORG}>組織(未分專案)</option>
+          {projects.map((p) => <option key={p.id} value={p.id}>{projectName(p)}</option>)}
+        </select>
         <RepoFilterSelect value={repo} onChange={setRepo} repos={usedRepos(issues)} />
-        {hasFilter && <button className="btn link" onClick={() => { setQuery(""); setLabel(""); setPriority(""); setRepo(""); }}>清除</button>}
+        {hasFilter && <button className="btn link" onClick={() => { setQuery(""); setLabel(""); setPriority(""); setRepo(""); setProject(PROJECT_ALL); }}>清除</button>}
         <span className="grow" />
-        {board && <span className="muted num">{hasFilter ? `${board.matched} / ${total} 個 Issue` : `${total} 個 Issue`}</span>}
+        {board && <span className="muted num">{hasFilter ? `${columns.reduce((n, c) => n + c.issues.length, 0)} / ${total} 個 Issue` : `${total} 個 Issue`}</span>}
       </div>
       {err && !board ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={err} />
         : !board ? null : total === 0 ? (
           <EmptyState title="這個組織還沒有 Issue" icon="rectangle.split.3x1" message="到「Issue」分頁新增,或讓 AI 透過 MCP 的 issue_create 建立;建立後會依狀態出現在看板上。" />
         ) : (
           <div className="ox-board">
-            {board.columns.map((col) => {
+            {columns.map((col) => {
               const items = col.issues;
               const isTarget = targeted === col.key;
               const isBlocked = blocked === col.key;
@@ -170,12 +181,12 @@ function IssueCard({ issue, onStatus, dragging, onDragStart, onDragEnd }: {
           "sep",
           open ? { label: "關閉 Issue", onClick: () => onStatus("closed") } : { label: "重新打開", onClick: () => onStatus("open") },
           "sep",
-          { label: "複製編號", onClick: () => copyText(issue.id) },
+          { label: "複製編號", onClick: () => copyText(issueKey(issue)) },
         ])}>
         <div style={{ width: 3, flex: "none", background: color(p.color) }} title={`優先度:${p.label}`} />
         <div className="col grow" style={{ padding: 10, gap: 6, minWidth: 0 }}>
           <div className="row gap6">
-            <span className="caption mono muted">{issue.id}</span>
+            <span className="caption mono muted">{issueKey(issue)}</span>
             <span className="grow" />
             {issue.comments?.length > 0 && <span className="caption muted row gap4"><SIcon name="bubble.left" size={11} />{issue.comments.length}</span>}
             {showPriorityPill(issue.priority) && <Pill text={p.label} color={p.color} />}

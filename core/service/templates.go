@@ -120,10 +120,13 @@ func (s *Service) usableTemplate(org, id string) (model.OrgTemplate, error) {
 	return t, nil
 }
 
-// templateNode 樣板的節點換成鏈上的節點:creator → user:<email>;其他是角色 id
-func templateNode(raw, creator string) string {
+// templateNode 樣板的節點換成鏈上的節點(actor id):creator → 套用的人;其他是角色 id → 角色的 actor id(角色還沒建起來就回 agent:<id>,存邊時會被擋)
+func templateNode(raw, creator string, n *chainNodes) string {
 	if raw == model.TemplateCreator {
 		return creator
+	}
+	if id := n.agentActor(raw); id != "" {
+		return id
 	}
 	return model.AgentNode(raw)
 }
@@ -240,7 +243,10 @@ func (s *Service) runTemplate(p *model.Principal, org string, t model.OrgTemplat
 	}
 
 	// 4. 頻道(建立者自動是成員)
-	creator := model.UserNode(p.User.Email)
+	creator, err := s.selfActorID(org, p) // 套用的人(actor id)
+	if err != nil {
+		return nil, err
+	}
 	if len(t.Channels) > 0 {
 		chs, err := s.Store.ListChannels(org)
 		if err != nil {
@@ -278,7 +284,7 @@ func (s *Service) runTemplate(p *model.Principal, org string, t model.OrgTemplat
 		}
 		news := []pending{}
 		for _, e := range t.Chain {
-			from, to := templateNode(e.From, creator), templateNode(e.To, creator)
+			from, to := templateNode(e.From, creator, n), templateNode(e.To, creator, n)
 			name := e.From + " → " + e.To
 			if _, ok := cur.Edge(from, to); ok {
 				add("chain", name, true, "", nil)
@@ -346,9 +352,15 @@ func (s *Service) applyScenario(p *model.Principal, org, butlerID, chID string, 
 	if err != nil {
 		return err
 	}
-	by := strings.TrimSpace(p.User.Email)
-	if by == "" {
-		by = model.SystemAuthor
+	by, byName := model.SystemActorOmixor, strings.ToLower(strings.TrimSpace(p.User.Email)) // 建立者的 actor id;沒有 email = 系統
+	if byName != "" {
+		if by, err = s.callerActorID(p, org); err != nil {
+			return err
+		}
+	}
+	butlerActor, err := s.agentActorID(org, butler.ID)
+	if err != nil {
+		return err
 	}
 	note := func(author, text string) model.AgentTaskNote {
 		return model.AgentTaskNote{ID: uuid(), Author: author, Text: text, At: s.mt()}
@@ -371,7 +383,11 @@ func (s *Service) applyScenario(p *model.Principal, org, butlerID, chID string, 
 			return err
 		}
 		child, err := s.insertTask(org, g, scenarioTitle(st.Title),
-			model.LabeledInstructions(model.DefaultChainLabel, st.Title+"\n\n(來源:"+parent.ID+")"), "normal", model.AgentNode(butler.ID), []string{parent.ID})
+			model.LabeledInstructions(model.DefaultChainLabel, st.Title+"\n\n(來源:"+parent.ID+")"), "normal", butlerActor, []string{parent.ID})
+		if err != nil {
+			return err
+		}
+		gActor, err := s.agentActorID(org, g.ID)
 		if err != nil {
 			return err
 		}
@@ -380,32 +396,38 @@ func (s *Service) applyScenario(p *model.Principal, org, butlerID, chID string, 
 			status = "done"
 		}
 		if err := finish(child, status, st.Report, []model.AgentTaskNote{
-			note(model.AgentNode(g.ID), st.Report),
-			note(model.ChainAuthor, model.ChainReportPrefix+butler.Name+"(模擬,不排檢視任務)"),
+			note(gActor, st.Report),
+			note(model.SystemActorChain, model.ChainReportPrefix+butler.Name+"(模擬,不排檢視任務)"),
 		}); err != nil {
 			return err
 		}
-		pnotes = append(pnotes, note(model.AgentNode(butler.ID), fmt.Sprintf("已委派給 %s:%s(%s)", g.Name, child.ID, model.TaskStatusLabel(status))))
+		pnotes = append(pnotes, note(butlerActor, fmt.Sprintf("已委派給 %s:%s(%s)", g.Name, child.ID, model.TaskStatusLabel(status))))
 	}
 	status := "done"
 	if len(sc.Decisions) > 0 {
 		status = "blocked"
-		pnotes = append(pnotes, note(model.AgentNode(butler.ID), "需要家人決定:\n- "+strings.Join(sc.Decisions, "\n- ")))
+		pnotes = append(pnotes, note(butlerActor, "需要家人決定:\n- "+strings.Join(sc.Decisions, "\n- ")))
 	}
-	if by != model.SystemAuthor {
-		pnotes = append(pnotes, note(model.ChainAuthor, model.ChainReportPrefix+strings.ToLower(by)))
+	if byName != "" {
+		pnotes = append(pnotes, note(model.SystemActorChain, model.ChainReportPrefix+byName))
 	}
 	if err := finish(parent, status, sc.FinalReply, pnotes); err != nil {
 		return err
 	}
 
 	// 頻道的示範對話(不記 @)
-	creator := model.UserNode(p.User.Email)
+	creator, err := s.selfActorID(org, p)
+	if err != nil {
+		return err
+	}
+	if butler.ActorID == "" {
+		return fail(500, "角色 %s 沒有 actor,不能寫入示範對話", butler.ID)
+	}
 	tag := "【" + model.ScenarioTag + "】"
 	msgs := []model.ChannelMessage{
 		{Author: creator, Text: tag + sc.Request},
-		{Author: model.AgentNode(butler.ID), Text: tag + sc.ButlerReply},
-		{Author: model.AgentNode(butler.ID), Text: tag + sc.FinalReply + "\n\n(模擬任務 " + parent.ID + ")"},
+		{Author: butler.ActorID, Text: tag + sc.ButlerReply},
+		{Author: butler.ActorID, Text: tag + sc.FinalReply + "\n\n(模擬任務 " + parent.ID + ")"},
 	}
 	last := 0
 	for _, m := range msgs {

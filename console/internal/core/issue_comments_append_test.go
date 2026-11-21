@@ -35,7 +35,7 @@ func TestCommentIssueConcurrentAppendOnly(t *testing.T) {
 				return
 			}
 			// 別處直接寫進核心(另一個 omixor-web、App)
-			if _, err := lc.Svc.Store.AddIssueComment(org, is.ID, model.Comment{ID: fmt.Sprintf("x-%d", k), Author: "x", Text: fmt.Sprintf("other-%d", k), At: model.Now()}); err != nil {
+			if _, err := lc.Svc.Store.AddIssueComment(org, is.ID, model.Comment{ID: fmt.Sprintf("x-%d", k), Author: lc.P.Actor.ID, Text: fmt.Sprintf("other-%d", k), At: model.Now()}); err != nil {
 				t.Error(err)
 			}
 			// 夾雜修改其他欄位(標籤):不能帶整份留言蓋掉別人的

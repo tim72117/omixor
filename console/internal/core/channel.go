@@ -111,7 +111,11 @@ func (o AgentOps) CreateChannel(org string, in service.ChannelInput) (*model.Cha
 		o.a.Mu.Unlock()
 		text := fmt.Sprintf("建立對話頻道「%s」(%d 位成員)", c.Name, len(c.Members))
 		if c.IssueID != "" {
-			text = fmt.Sprintf("為 %s 建立對話頻道「%s」", c.IssueID, c.Name)
+			ref := c.IssueID // 動態牆顯示編號(key),不顯示內部 UUID;查不到才原樣
+			if i, err := b.GetIssue(org, ref); err == nil && i != nil {
+				ref = i.Display()
+			}
+			text = fmt.Sprintf("為 %s 建立對話頻道「%s」", ref, c.Name)
 		}
 		o.logChannel(Person(me), text)
 	}

@@ -43,7 +43,7 @@ func View(a *App, name string) (any, bool) {
 func Action(a *App, name string, args map[string]any) (any, error) {
 	f, ok := actions[name]
 	if !ok {
-		return nil, fmt.Errorf("沒有這個動作:%s", name)
+		return nil, StatusError{Status: 404, Message: "沒有這個動作:" + ShortName(name)}
 	}
 	return f(a, args)
 }
@@ -61,13 +61,21 @@ type UserError struct{ Message string }
 
 func (e UserError) Error() string { return e.Message }
 
+// HTTPError 給畫面看的錯誤(httperr.Public):沒有指定狀態碼
+func (e UserError) HTTPError() (int, map[string]any) { return 0, nil }
+
 // StatusError 給畫面看、而且要用特定 HTTP 狀態碼回應的錯誤(例如 409:畫面顯示的組織已經不是目前的組織)
 type StatusError struct {
 	Status  int
 	Message string
+	// Data 要一併回給畫面的欄位(併進回應的最上層,例如刪角色 409 的 code、taskCounts);沒有是 nil
+	Data map[string]any
 }
 
 func (e StatusError) Error() string { return e.Message }
+
+// HTTPError 指定狀態碼與要併進回應的欄位(httperr.Public)
+func (e StatusError) HTTPError() (int, map[string]any) { return e.Status, e.Data }
 
 // 基本的 View:範例資料集合、導覽、MCP 狀態
 func init() {
@@ -148,4 +156,12 @@ func UserActor(a *App, args map[string]any) Actor {
 		return Person(id)
 	}
 	return Person(a.Me)
+}
+
+// ShortName 使用者送來的名稱放進訊息前先截短(避免超長的路徑片段被原樣回顯)
+func ShortName(s string) string {
+	if r := []rune(s); len(r) > 60 {
+		return string(r[:60]) + "…"
+	}
+	return s
 }

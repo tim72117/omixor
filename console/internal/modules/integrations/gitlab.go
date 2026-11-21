@@ -12,7 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"omixor-core/env"
+	"omixor-core/config"
+	"omixor-core/httperr"
 	coreinteg "omixor-core/modules/integrations"
 	"omixor-web/internal/core"
 )
@@ -799,7 +800,7 @@ func GLRefresh(a *core.App) {
 		a.Mu.Unlock()
 	}
 	if _, err := glConn(a); err != nil {
-		setErr(err.Error())
+		setErr(httperr.Report("GitLab 同步", err).Msg)
 		return
 	}
 	if !GLLoggedIn(a) {
@@ -826,7 +827,7 @@ func GLRefresh(a *core.App) {
 		case ok && e.Status == 404:
 			errs[k] = "找不到(確認專案路徑或 id;私有專案要登入的帳號有權限)"
 		default:
-			errs[k] = err.Error()
+			errs[k] = httperr.Report("GitLab 同步 "+k, err).Msg
 		}
 	}
 	sort.SliceStable(mrs, func(i, j int) bool { return core.TimeOrPast(mrs[i].UpdatedAt).After(core.TimeOrPast(mrs[j].UpdatedAt)) })
@@ -936,7 +937,7 @@ func glPipelineJSON(p GLPipeline) map[string]any {
 
 func init() {
 	core.OnStart(func(a *core.App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		go func() {

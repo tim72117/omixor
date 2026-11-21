@@ -15,7 +15,7 @@ import (
 	"omixor-core/client"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // CLI 對真的核心 API(記憶體存放 + 假的 evoleap)跑一輪
@@ -24,7 +24,7 @@ func TestCLI(t *testing.T) {
 		w.Write([]byte(`{"user":{"id":"e1","email":"boss@example.com","name":"老闆","google":true}}`))
 	}))
 	defer evo.Close()
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st, Evoleap: evo.URL, Bootstrap: "boss@example.com", TTL: time.Hour}
 	srv := httptest.NewServer(api.New(svc).Handler())
 	defer srv.Close()
@@ -135,5 +135,63 @@ func TestCredentialsPerServer(t *testing.T) {
 	t.Setenv("OMIXOR_SERVER", prod+"/")
 	if got := pickServer(""); got != prod {
 		t.Fatal("OMIXOR_SERVER 優先於上次登入的", got)
+	}
+}
+
+// issues restore 對伺服器管理員:被刪掉的留言連同歷史作者(舊式人員字串 tim、mcp、別人的 email)要能還原回來
+// (一般的整份取代會擋「代別的使用者署名」;restore 走明確的還原路徑,見 service.IssuePatch.Restore)
+func TestCLIRestoreHistoricalComments(t *testing.T) {
+	evo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"user":{"id":"e1","email":"boss@example.com","name":"老闆","google":true}}`))
+	}))
+	defer evo.Close()
+	st := storetest.New(t)
+	svc := &service.Service{Store: st, Evoleap: evo.URL, Bootstrap: "boss@example.com", TTL: time.Hour}
+	srv := httptest.NewServer(api.New(svc).Handler())
+	defer srv.Close()
+	dir := t.TempDir()
+	t.Setenv("OMIXOR_CONFIG_DIR", dir)
+	t.Setenv("OMIXOR_CREDENTIALS", filepath.Join(dir, "cred.json"))
+	t.Setenv("OMIXOR_SERVER", "")
+	res, err := client.New(srv.URL).LoginWithEvoleap("x", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = saveCred(credentials{Server: srv.URL, Token: res.Token})
+	run := func(args ...string) string {
+		t.Helper()
+		var b bytes.Buffer
+		if err := Run(args, &b); err != nil {
+			t.Fatalf("%v:%v", args, err)
+		}
+		return b.String()
+	}
+	run("orgs", "create", "default", "--name", "evoleap")
+	now := model.Time{Time: time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)}
+	file := filepath.Join(dir, "issues.json")
+	b, _ := json.Marshal([]model.Issue{{ID: "ISS-1", Title: "原本的", Status: "open", Priority: "normal", CreatedBy: "tim", CreatedAt: now, UpdatedAt: now,
+		Comments: []model.Comment{{ID: "c1", Author: "tim", Text: "舊留言一", At: now}, {ID: "c2", Author: "someone@else.example", Text: "舊留言二", At: now}, {ID: "c3", Author: "mcp", Text: "舊留言三", At: now}}}})
+	_ = os.WriteFile(file, b, 0o600)
+	run("issues", "import", file)
+	cl, _ := authed(srv.URL)
+	none := []model.Comment{}
+	if _, err := cl.UpdateIssue("default", "ISS-1", service.IssuePatch{Comments: &none}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := cl.GetIssue("default", "ISS-1"); len(got.Comments) != 0 {
+		t.Fatalf("留言要先被清掉:%+v", got.Comments)
+	}
+	// 沒有 restore 旗標:整份取代裡的新留言作者是別的使用者 → 擋(D9)
+	src := []model.Comment{{ID: "c2", Author: "someone@else.example", Text: "舊留言二", At: now}}
+	if _, err := cl.UpdateIssue("default", "ISS-1", service.IssuePatch{Comments: &src}); err == nil {
+		t.Fatal("一般的整份取代不能代別的使用者署名")
+	}
+	run("issues", "restore", "ISS-1", "--from", file)
+	got, err := cl.GetIssue("default", "ISS-1")
+	if err != nil || got.Title != "原本的" || len(got.Comments) != 3 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if got.Comments[1].Author != "someone@else.example" {
+		t.Fatalf("歷史作者要保留顯示:%+v", got.Comments)
 	}
 }

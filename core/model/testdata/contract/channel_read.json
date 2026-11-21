@@ -1,6 +1,14 @@
 {
   "channelId": "CH-2",
   "member": "user:tim@example.com",
+  "memberActor": {
+    "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+    "kind": "user",
+    "handle": "tim@example.com",
+    "name": "Tim",
+    "email": "tim@example.com",
+    "status": "active"
+  },
   "lastRead": 5,
   "at": "2026-11-03T08:01:00Z"
 }

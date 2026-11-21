@@ -83,7 +83,7 @@ func TestMockToolsFlow(t *testing.T) {
 		t.Fatal(g)
 	}
 	inc := mockRun(t, a, "incident_declare", map[string]any{"title": "x", "sev": 2.0, "impact": "i", "alert_ids": []any{"ALT-5125"}})
-	if inc["id"] != "INC-2042" || inc["commander"] != "tim" || len(inc["timeline"].([]any)) != 2 {
+	if inc["id"] != "INC-2042" || inc["commander"] != core.LocalIdentity || len(inc["timeline"].([]any)) != 2 {
 		t.Fatal(inc)
 	}
 	if txt := inc["timeline"].([]any)[0].(map[string]any)["text"]; txt != "宣告 SEV2 事件,指揮官:蔡庭宇" {

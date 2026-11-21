@@ -9,12 +9,12 @@ import (
 	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // docs 分段讀、doc_save 局部修改
 func TestDocPartsTools(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})
@@ -22,7 +22,9 @@ func TestDocPartsTools(t *testing.T) {
 	_ = st.SaveMember(model.Member{Org: "lab", UserID: "u1", Email: "boss@x", Role: "admin", AddedAt: now})
 	boss := &model.Principal{User: model.User{ID: "u1", Email: "boss@x", Role: "member"}}
 	admin := mcp.AdminEndpoint(mcp.AdminEndpointConfig{
-		Resolve: func(r *http.Request) (backend.Backend, string, error) { return &backend.Local{Svc: svc, P: boss}, "lab", nil },
+		Resolve: func(r *http.Request) (backend.Backend, string, error) {
+			return &backend.Local{Svc: svc, P: boss}, "lab", nil
+		},
 	})
 	body := "# 構想\n\n## 定位\n\n- 一句話:動態牆\n\n## 待決定\n\n- 誰來寫\n"
 	d := ok(t, admin, "", "doc_save", map[string]any{"title": "動態牆", "section": "docs", "body": body})

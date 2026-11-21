@@ -11,6 +11,7 @@ import (
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // fakeDirectory 假的 LDAP 目錄:帳號 → 密碼與資料
@@ -35,7 +36,7 @@ func (f *fakeDirectory) Authenticate(username, password string) (*ldapauth.Ident
 
 func ldapEnv(t *testing.T) (*service.Service, *fakeDirectory, store.Store) {
 	t.Helper()
-	st := store.NewMem()
+	st := storetest.New(t)
 	dir := &fakeDirectory{users: map[string]fakeEntry{
 		"amy":   {pw: "pw-amy", name: "Amy Lin", mail: "Amy@Corp.Test"},
 		"boss":  {pw: "pw-boss", name: "Boss", mail: "boss@corp.test"},
@@ -172,7 +173,7 @@ func TestLoginWithLDAPDisabledAndErrors(t *testing.T) {
 	svc, dir, st := ldapEnv(t)
 
 	// 沒啟用
-	off := &service.Service{Store: store.NewMem()}
+	off := &service.Service{Store: storetest.New(t)}
 	if _, err := off.LoginWithLDAP("amy", "x", "", "1.1.1.1"); statusOf(err) != 404 {
 		t.Fatalf("沒啟用:%v", err)
 	}

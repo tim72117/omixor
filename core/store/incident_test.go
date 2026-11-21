@@ -6,9 +6,10 @@ import (
 	"omixor-core/model"
 )
 
-// 事件:編號從 INC-2001 開始、新的在前、整筆取代、匯入只在空的時候;File 寫入後重開還在(一致性測試的一項,見 conformance_test.go)
+// 事件:編號從 INC-2001 開始、新的在前、整筆取代、匯入只在空的時候(一致性測試的一項,見 conformance_test.go)
 func suiteIncidents(t *testing.T, impl storeImpl) {
 	st := impl.open(t)
+	newOrg(t, st, "o", "p", "q")
 	at := mt("2026-01-02T03:04:05Z")
 	a, err := st.CreateIncident("o", model.Incident{Title: "a", Sev: 2, Status: "investigating", StartedAt: at})
 	chk(t, err)

@@ -1,6 +1,13 @@
 // 共用型別。資料的 JSON 格式和 Swift 版 MCPJSON 一樣(欄位名稱看 mac/Sources/Omixor/Core/Models.swift 等)。
 export type Actor = { kind: "person" | "ai" | "system"; id?: string };
 
+/** core 輸出的「誰」物件(model.ActorView;ISS-36 C-3):和相容字串欄位並存(authorActor 對 author、createdByActor 對 createdBy…)。
+ *  name、handle 是「現在」的值;查不到的 actor 整個欄位沒有。 */
+export type ActorView = {
+  id: string; kind: "user" | "agent" | "system"; handle: string; name: string; email?: string;
+  status: "active" | "disabled" | "suspended" | "retired";
+};
+
 export type SectionId =
   | "overview" | "development" | "pipelines" | "infrastructure" | "monitoring"
   | "incidents" | "automation" | "cabinet" | "settings" | "channels" | "system";

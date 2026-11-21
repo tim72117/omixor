@@ -132,19 +132,16 @@ func (s *Session) AgentName(id string) string {
 	return name
 }
 
-// Author 署名:角色端點一律是憑證的角色;管理端點有給 agent 就是該角色(找不到回錯誤),沒給回空字串(由 service 決定)
+// Author 署名:角色端點一律是憑證的角色;人類端點(管理端點)是呼叫者(回空字串,由 service 依登入身分決定)。
+// 人類端點帶了 agent 就是想以角色身分署名:400,不接受(見 identity_agent.go)
 func (s *Session) Author(agent string) (string, error) {
 	if s.Identity != nil {
 		return model.AgentPrefix + s.Identity.AgentID, nil
 	}
-	if strings.TrimSpace(agent) == "" {
-		return "", nil
+	if strings.TrimSpace(agent) != "" {
+		return "", ToolError{Message: IdentityAgentError, Status: 400}
 	}
-	g, err := s.B.GetAgent(s.OrgID, agent)
-	if err != nil {
-		return "", Errorf("找不到角色 %s", agent)
-	}
-	return model.AgentPrefix + g.ID, nil
+	return "", nil
 }
 
 func (s *Session) AuthorName(author string) string {

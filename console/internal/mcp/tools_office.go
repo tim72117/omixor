@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"omixor-core/httperr"
 	"omixor-web/internal/office"
 )
 
@@ -32,7 +33,7 @@ func init() {
 		}
 		req, err := office.RequestFromArgs(args)
 		if err != nil {
-			return nil, ToolError{Message: err.Error()}
+			return nil, officeToolError(err)
 		}
 		cmds, err := hub.Submit(req)
 		if err != nil {
@@ -82,5 +83,5 @@ func officeToolError(err error) error {
 	if errors.As(err, &ve) {
 		return ToolError{Message: ve.Msg}
 	}
-	return ToolError{Message: "虛擬辦公室:" + err.Error()}
+	return ToolError{Message: "虛擬辦公室:" + httperr.Report("mcp 虛擬辦公室", err).Msg} // 找不到資料夾等的路徑換成通用訊息、原文進 log
 }

@@ -9,13 +9,13 @@ import (
 	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 繪圖工具存回既有文件:只換掉圖的區塊(不整份覆寫)、維持 ```mermaid、提醒另一種圖的區塊沒動;
 // 在角色端點,內部呼叫的 doc_save 也套用角色的工具開關(沒開放就不能藉繪圖工具寫文件)
 func TestDiagramSaveEditsAndNestedAllow(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})
@@ -26,7 +26,9 @@ func TestDiagramSaveEditsAndNestedAllow(t *testing.T) {
 		t.Fatal(err)
 	}
 	admin := mcp.AdminEndpoint(mcp.AdminEndpointConfig{
-		Resolve: func(r *http.Request) (backend.Backend, string, error) { return &backend.Local{Svc: svc, P: boss}, "lab", nil },
+		Resolve: func(r *http.Request) (backend.Backend, string, error) {
+			return &backend.Local{Svc: svc, P: boss}, "lab", nil
+		},
 	})
 
 	body := "前言\n\n```wireframe\n{\"device\": \"mobile\", \"root\": {\"type\": \"col\"}}\n```\n\n```mermaid title=\"舊\"\nflowchart TD\n  a --> b\n```\n\n結尾"

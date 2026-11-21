@@ -5,7 +5,7 @@ import Foundation
 // 網址、token 與重新登入都和 Issue 共用 IssueRemote(Issues/IssueRemote.swift)。
 //
 // 以角色身分(MCP 的 agent 參數)發訊息、標已讀時,另外帶 author / member = agent:<id>;
-// 核心的 REST 契約沒有這兩個欄位時,伺服器會忽略它們,改用登入的人。
+// 伺服器只讓伺服器管理員代角色(as / author);一般成員給了別人會被忽略、記成登入的人。目前 App 的畫面都不帶(nil = 登入的人)。
 
 extension IssueRemote {
     private func decodeChannel<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {

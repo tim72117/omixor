@@ -82,9 +82,10 @@ func RegisterIssueTools(s *Server) {
 		}
 		labels, _ := c.Args.Strings("labels")
 		issue, err := e.Backend().CreateIssue(e.Org(), service.IssueInput{Title: title, Body: body, Priority: priority,
-			Labels: labels, Source: c.Args.Str("source"), Link: c.Args.Str("link"), Repo: c.Args.Str("repo"), Author: author, Assignee: c.Args.Str("assignee")})
+			Labels: labels, Source: c.Args.Str("source"), Link: c.Args.Str("link"), Repo: c.Args.Str("repo"), Author: author, Assignee: c.Args.Str("assignee"),
+			Project: c.Args.Str("project")})
 		if err != nil { // Issue 伺服器連不上(同 Swift)
-			return nil, Errorf("Issue 沒有存起來:%s", err.Error())
+			return nil, prefixErr("Issue 沒有存起來:", err)
 		}
 		return issueJSON(e, *issue), nil
 	})
@@ -103,7 +104,7 @@ func RegisterIssueTools(s *Server) {
 			if backend.NotFound(err) {
 				return nil, Errorf("找不到 Issue %s", id)
 			}
-			return nil, Errorf("Issue 沒有改成:%s", err.Error())
+			return nil, prefixErr("Issue 沒有改成:", err)
 		}
 		author, err := e.Author(c.Args.Str("agent"))
 		if err != nil {
@@ -119,7 +120,7 @@ func RegisterIssueTools(s *Server) {
 		}
 		title := c.Args.Opt("title")
 		if title != nil && *title == "" {
-			return nil, ToolError{"標題不能是空的"}
+			return nil, ToolError{Message: "標題不能是空的"}
 		}
 
 		// 變更的順序同 Swift 版:body → append_body、labels → add_labels
@@ -169,15 +170,21 @@ func RegisterIssueTools(s *Server) {
 		if as := c.Args.Opt("assignee"); as != nil && *as != cur.Assignee { // 指派給角色(空字串 = 取消指派)
 			patch.Assignee = as
 		}
+		if pr := c.Args.Opt("project"); pr != nil && !strings.EqualFold(strings.TrimSpace(*pr), cur.Project) { // 搬專案(空字串 = 組織層級)
+			patch.Project = pr
+		}
+		if v, ok := c.Args.Int("version"); ok { // 有給就檢查版本,衝突回錯誤
+			patch.Version = &v
+		}
 		updated, err := bk.UpdateIssue(org, id, patch)
 		if err != nil {
-			return nil, Errorf("Issue 沒有改成:%s", err.Error())
+			return nil, prefixErr("Issue 沒有改成:", err)
 		}
 		if cm := c.Args.Opt("comment"); cm != nil {
 			if t := strings.TrimSpace(*cm); t != "" { // 空白留言不做事
 				updated, err = addIssueComment(bk, org, id, t, author)
 				if err != nil {
-					return nil, Errorf("Issue 沒有改成:%s", err.Error())
+					return nil, prefixErr("Issue 沒有改成:", err)
 				}
 			}
 		}
@@ -195,7 +202,7 @@ func RegisterIssueTools(s *Server) {
 				if backend.NotFound(err) {
 					return nil, Errorf("找不到 Issue %s", *id)
 				}
-				return nil, ToolError{err.Error()}
+				return nil, terr(err)
 			}
 			return issueJSON(e, *i), nil
 		}
@@ -204,14 +211,14 @@ func RegisterIssueTools(s *Server) {
 			status = *s
 		}
 		if status != "open" && status != "closed" && status != "all" {
-			return nil, ToolError{"status 必須是 open、closed、all 之一"}
+			return nil, ToolError{Message: "status 必須是 open、closed、all 之一"}
 		}
 		all, err := bk.ListIssues(org)
 		if err != nil {
-			return nil, ToolError{err.Error()}
+			return nil, terr(err)
 		}
 		// 篩選、排序規則同 GET …/issues(model.QueryIssues):query 搜尋標題、內文、留言、編號、標籤,空白分隔的每個字都要有
-		q := model.IssueQuery{Q: c.Args.Str("query"), Status: status, Repo: c.Args.Str("repo"), Sort: model.IssueSortPriority}
+		q := model.IssueQuery{Q: c.Args.Str("query"), Status: status, Repo: c.Args.Str("repo"), Project: c.Args.Str("project"), Sort: model.IssueSortPriority}
 		if label := c.Args.Opt("label"); label != nil {
 			q.Label = *label
 		}
@@ -227,11 +234,12 @@ func RegisterIssueTools(s *Server) {
 				break
 			}
 			row := map[string]any{
-				"id": i.ID, "title": i.Title, "status": i.Status, "priority": i.Priority,
+				"key": i.Display(), "id": i.ID, "project": i.Project, "title": i.Title, "status": i.Status, "priority": i.Priority,
 				"labels": i.Labels, "source": i.Source, "comments": len(i.Comments), "updatedAt": iso(i.UpdatedAt.Time),
 			}
 			if i.Assignee != "" {
 				row["assignee"] = i.Assignee
+				putActor(row, "assigneeActor", i.AssigneeActor)
 			}
 			if i.Repo != "" {
 				row["repo"] = i.Repo

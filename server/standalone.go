@@ -88,7 +88,7 @@ func writeStandaloneCred(dir string, c StandaloneCred) error {
 
 // OpenStandalone 獨立模式打開資料夾:沿用 credentials.json 的 token(沒有、格式不對或 rotate 時產生新的),
 // 裝置名稱用 StandaloneDevice(只作廢獨立模式自己的舊 token,不動 App 模式的)。
-// credentials.json 的 token 在 store 裡沒有有效紀錄(被撤銷、換了本機使用者、store.json 不見)時也換新的,
+// credentials.json 的 token 在 store 裡沒有有效紀錄(被撤銷、換了本機使用者、資料庫換了或被清掉)時也換新的,
 // 不會用舊的雜湊重建紀錄(見 ensureUser);rotate 時這台守護服務發過的所有獨立模式 token 都作廢。
 // 打開後馬上把 token 寫回 credentials.json(網址先沿用檔案裡的,啟動好再用 SaveStandaloneCred 補上這次的)
 func OpenStandalone(cfg LocalConfig, rotate bool) (*Local, error) {
@@ -112,6 +112,7 @@ func OpenStandalone(cfg LocalConfig, rotate bool) (*Local, error) {
 	}
 	// 先把 token 存起來(網址之後啟動好再補),免得 token 換了檔案卻沒更新
 	if err := l.SaveStandaloneCred(old.Server); err != nil {
+		_ = l.Close()
 		return nil, fmt.Errorf("寫 %s 失敗:%w", StandaloneCredPath(cfg.DataDir), err)
 	}
 	return l, nil

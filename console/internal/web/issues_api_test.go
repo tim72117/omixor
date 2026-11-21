@@ -8,6 +8,7 @@ import (
 
 	"omixor-web/internal/auth"
 	"omixor-web/internal/auth/authtest"
+	"omixor-core/model"
 	"omixor-web/internal/core"
 )
 
@@ -35,7 +36,7 @@ func TestIssueAPICurrentOrg(t *testing.T) {
 		"source": "Swift", "link": "https://example.com", "author": "mcp",
 	}, nil)
 	is, _ := out["result"].(map[string]any)
-	if is == nil || is["createdBy"] != "mcp" || is["priority"] != "high" || len(is["labels"].([]any)) != 2 {
+	if is == nil || is["createdBy"] != core.LocalIdentity || is["priority"] != "high" || len(is["labels"].([]any)) != 2 {
 		t.Fatalf("建立結果不對:%v", out)
 	}
 	id := is["id"].(string)
@@ -43,7 +44,7 @@ func TestIssueAPICurrentOrg(t *testing.T) {
 	if len(app.Issues()) != before+1 || app.Issues()[0].ID != id {
 		t.Fatal("app 的清單沒更新")
 	}
-	if !strings.Contains(app.C["activity"][0]["text"].(string), "建立 "+id) {
+	if !strings.Contains(app.C["activity"][0]["text"].(string), "建立 "+is["key"].(string)) {
 		t.Fatal("目前組織要記動態牆")
 	}
 	app.Mu.Unlock()
@@ -57,6 +58,10 @@ func TestIssueAPICurrentOrg(t *testing.T) {
 		t.Fatal("沒有標題要報錯")
 	}
 
+	// 角色署名要先有這個角色(嚴格解析器:不存在的角色 400)
+	if _, err := app.AgentOps().SaveAgent(org, model.Agent{ID: "pm", Name: "PM", Active: true}); err != nil {
+		t.Fatal(err)
+	}
 	// 修改:給的欄位整個取代;關閉時記時間;留言照給的內容
 	_, out = c.do("POST", "/api/issues/"+org+"/"+strings.ToLower(id), map[string]any{
 		"author": "agent:pm", "status": "closed", "labels": []string{"c"},
@@ -71,7 +76,7 @@ func TestIssueAPICurrentOrg(t *testing.T) {
 		t.Fatalf("留言不對:%v", cm)
 	}
 	app.Mu.Lock()
-	if !strings.Contains(app.C["activity"][0]["text"].(string), "關閉 "+id) {
+	if !strings.Contains(app.C["activity"][0]["text"].(string), "關閉 "+is["key"].(string)) {
 		t.Fatal("關閉要記動態牆")
 	}
 	app.Mu.Unlock()
@@ -108,11 +113,11 @@ func TestIssueAPIOtherOrg(t *testing.T) {
 
 	_, out := c.do("POST", "/api/issues/"+other, map[string]any{"title": "別的組織", "author": "tim"}, nil)
 	is, _ := out["result"].(map[string]any)
-	if is == nil || is["createdBy"] != "tim" {
+	if is == nil || is["createdBy"] != core.LocalIdentity {
 		t.Fatal(out)
 	}
 	_, out = c.do("POST", "/api/issues/"+other, map[string]any{"title": "第二筆"}, nil)
-	if out["result"].(map[string]any)["id"] != "ISS-"+strconv.Itoa(len(issueList(t, c, other))) {
+	if out["result"].(map[string]any)["key"] != "ISS-"+strconv.Itoa(len(issueList(t, c, other))) {
 		t.Fatalf("編號要接著那個組織的:%v", out)
 	}
 	list := issueList(t, c, other)
@@ -157,12 +162,12 @@ func TestIssueAPIAuth(t *testing.T) {
 	}
 	tok := map[string]string{"Authorization": "Bearer test-token-0123456789"}
 	_, out = c.do("POST", "/api/issues/"+org, map[string]any{"title": "token 建立", "author": "mcp"}, tok)
-	if is, _ := out["result"].(map[string]any); is == nil || is["createdBy"] != "mcp" {
-		t.Fatalf("token 呼叫作者照 body:%v", out)
+	if is, _ := out["result"].(map[string]any); is == nil || is["createdBy"] != core.LocalIdentity {
+		t.Fatalf("token 呼叫:本機模式署名一律是本機使用者(body 的 author 不傳給核心):%v", out)
 	}
 	c.do("POST", "/api/auth/login", map[string]any{"username": "bob", "password": "bob-pw"}, nil)
 	_, out = c.do("POST", "/api/issues/"+org, map[string]any{"title": "登入者建立", "author": "mcp"}, nil)
-	if is, _ := out["result"].(map[string]any); is == nil || is["createdBy"] != "bob" {
-		t.Fatalf("登入者呼叫作者是登入者:%v", out)
+	if is, _ := out["result"].(map[string]any); is == nil || is["createdBy"] != core.LocalIdentity {
+		t.Fatalf("登入者呼叫:本機模式的操作者就是本機使用者:%v", out)
 	}
 }

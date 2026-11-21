@@ -90,7 +90,7 @@ func connSend(c *Connection, method, rawURL string, headers map[string]string, b
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, explainTLSError(c, err)
+		return nil, netFailure(explainTLSError(c, err))
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))

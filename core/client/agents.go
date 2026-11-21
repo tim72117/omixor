@@ -27,8 +27,21 @@ func (c *Client) SaveAgent(org string, in model.Agent) (*model.Agent, error) {
 	return &g, c.Do("POST", c.agents(org), in, &g)
 }
 
-func (c *Client) DeleteAgent(org, id string) error {
-	return c.Do("POST", c.agents(org)+"/"+esc(id)+"/delete", map[string]any{}, nil)
+func (c *Client) DeleteAgent(org, id string) error { return c.DeleteAgentTo(org, id, "") }
+
+// DeleteAgentTo 刪角色;名下有任務時 transferTo(目標角色)不空才會先轉移(沒給是 409,Error.Data 有各狀態的任務數)
+func (c *Client) DeleteAgentTo(org, id, transferTo string) error {
+	body := map[string]any{}
+	if transferTo != "" {
+		body["transferTo"] = transferTo
+	}
+	return c.Do("POST", c.agents(org)+"/"+esc(id)+"/delete", body, nil)
+}
+
+// TransferAgentTasks 不刪角色的單獨轉移(見 service.TransferAgentTasks)
+func (c *Client) TransferAgentTasks(org string, in service.AgentTransferInput) (*service.AgentTransferResult, error) {
+	var r service.AgentTransferResult
+	return &r, c.Do("POST", c.agentTasks(org)+"/transfer", in, &r)
 }
 
 func (c *Client) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {

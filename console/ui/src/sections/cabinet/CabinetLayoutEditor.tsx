@@ -1,6 +1,6 @@
 // 文件櫃結構編輯:區塊與頁籤可新增、改名、刪除(裡面還有文件時不能刪)(Swift 的 CabinetLayoutEditor)
 import { useState } from "react";
-import { action, useRun, useView } from "../../api";
+import { ApiError, action, useRun, useView } from "../../api";
 import { Icon } from "../../components/Icon";
 import type { CabinetDoc, CabinetSection, CabinetTab, OrgIndex } from "../../components/models";
 import { ErrorText, Modal } from "../../components/ui";
@@ -60,12 +60,21 @@ export function validateLayout(sections: CabinetSection[], docs: CabinetDoc[]): 
 }
 
 /** project:編輯哪個專案的結構(空字串 = 未分專案);projectName 顯示在標題 */
-export function CabinetLayoutEditor({ project = "", projectName, layout, docs, onClose }: { project?: string; projectName?: string; layout: CabinetSection[]; docs: CabinetDoc[]; onClose: () => void }) {
+/** 版本衝突:HTTP 409 且回應帶 currentVersion(core/service/cabinet.go);回傳目前版本,不是衝突回 undefined */
+export function conflictVersion(e: unknown): number | undefined {
+  if (e instanceof ApiError && e.status === 409 && typeof e.data?.currentVersion === "number") return e.data.currentVersion;
+  return undefined;
+}
+
+/** layoutVersion:載入結構時的版本號,存檔帶上(expectedVersion);別人先存過就 409,提示重新載入 */
+export function CabinetLayoutEditor({ project = "", projectName, layout, layoutVersion = 0, docs, onClose }: { project?: string; projectName?: string; layout: CabinetSection[]; layoutVersion?: number; docs: CabinetDoc[]; onClose: () => void }) {
   const [orgs] = useView<OrgIndex>("orgs");
   const [draft, setDraft] = useState<CabinetSection[]>(() => JSON.parse(JSON.stringify(layout)));
   const [err, setErr] = useState<string>();
+  const [baseVersion, setBaseVersion] = useState(layoutVersion); // 這份草稿是從哪個版本改的
   const [tplOpen, setTplOpen] = useState(false);
-  const { busy, error, run } = useRun();
+  const [latest, setLatest] = useState<number>(); // 衝突時伺服器回報的目前版本(currentVersion)
+  const { busy, error, run, setError } = useRun();
   const cur = orgs?.orgs.find((o) => o.id === orgs.current);
   const upd = (id: string, f: (s: CabinetSection) => CabinetSection) => setDraft((d) => d.map((s) => (s.id === id ? f(s) : s)));
   const newSectionId = () => { let n = draft.length + 1; while (draft.some((s) => s.id === `s${n}`)) n++; return `s${n}`; };
@@ -79,8 +88,24 @@ export function CabinetLayoutEditor({ project = "", projectName, layout, docs, o
     const e = validateLayout(draft, docs);
     if (e) { setErr(e); return; }
     setErr(undefined);
-    run(async () => { await action("cabinet_layout_save", { layout: draft, ...(project ? { project } : {}) }); onClose(); });
+    // 版本有了(存過)卻要存成空結構:多半是讀取失敗或誤刪,先確認,免得把還在的資料蓋掉
+    if (draft.length === 0 && baseVersion > 0 && !window.confirm("結構是空的,確定要儲存嗎?這會清掉目前所有區塊。")) return;
+    run(async () => {
+      try {
+        await action("cabinet_layout_save", { layout: draft, expectedVersion: baseVersion, ...(project ? { project } : {}) });
+      } catch (e) {
+        const v = conflictVersion(e);
+        if (v !== undefined) setLatest(v);
+        throw e;
+      }
+      onClose();
+    });
   };
+  const conflict = latest !== undefined && !!error;
+  // 畫面的結構還沒更新到衝突回報的版本時先不給重新載入(否則會把舊結構配新版本號存回去)
+  const stale = latest !== undefined && layoutVersion < latest;
+  // 重新載入:丟掉草稿,換成目前最新的結構與版本(畫面在衝突時已經重讀)
+  const reload = () => { setDraft(JSON.parse(JSON.stringify(layout))); setBaseVersion(layoutVersion); setLatest(undefined); setErr(undefined); setError(undefined); };
   return (
     <Modal open onClose={onClose} width={640}>
       <span className="modal-title">文件櫃結構({cur?.name ?? ""}{projectName ? ` › ${projectName}` : ""})</span>
@@ -109,7 +134,9 @@ export function CabinetLayoutEditor({ project = "", projectName, layout, docs, o
         ))}
       </div>
       {err && <span style={{ color: "var(--orange)" }}>{err}</span>}
-      <ErrorText>{error}</ErrorText>
+      {conflict
+        ? <div className="row gap8"><ErrorText>{error}</ErrorText><button className="btn" disabled={stale} onClick={reload}>{stale ? "正在更新最新結構…" : "重新載入最新結構(放棄目前修改)"}</button></div>
+        : <ErrorText>{error}</ErrorText>}
       <div className="row gap8" style={{ position: "relative" }}>
         <button className="btn" onClick={() => setDraft((d) => [...d, { id: newSectionId(), label: "新區塊", path: "", tabs: [] }])}><Icon name="folder.badge.plus" size={12} />新增區塊</button>
         <button className="btn" onClick={() => setTplOpen(!tplOpen)}>套用範本 <Icon name="chevron.down" size={10} /></button>

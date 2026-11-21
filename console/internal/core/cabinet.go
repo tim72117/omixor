@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"omixor-core/backend"
-	"omixor-core/env"
+	"omixor-core/config"
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-web/internal/templates"
@@ -308,23 +308,24 @@ func (o CabinetOps) DeleteDoc(org, id string) error {
 }
 
 // SaveLayout 存未分專案的新結構(核心檢查:被拿掉的區塊、頁籤裡不能還有文件;遠端模式要組織管理員)
-func (o CabinetOps) SaveLayout(org string, layout []CabinetSection) ([]CabinetSection, error) {
-	return o.SaveProjectLayout(org, "", layout)
+// expected 非 nil 是樂觀鎖(版本不符 409,訊息「結構已被別人更新,請重新載入」);nil 是無鎖覆蓋
+func (o CabinetOps) SaveLayout(org string, layout []CabinetSection, expected *int64) ([]CabinetSection, error) {
+	return o.SaveProjectLayout(org, "", layout, expected)
 }
 
 // SaveProjectLayout 存某個專案的新結構(project 空 = 未分專案;不存在的專案 404)
-func (o CabinetOps) SaveProjectLayout(org, project string, layout []CabinetSection) ([]CabinetSection, error) {
+func (o CabinetOps) SaveProjectLayout(org, project string, layout []CabinetSection, expected *int64) ([]CabinetSection, error) {
 	b, err := agentBackend()
 	if err != nil {
 		return nil, err
 	}
 	var l []CabinetSection
 	if project == "" {
-		l, err = b.SaveCabinetLayout(org, layout)
+		l, err = b.SaveCabinetLayout(org, layout, expected)
 	} else {
-		l, err = b.SaveProjectCabinetLayout(org, project, layout)
+		l, err = b.SaveProjectCabinetLayout(org, project, layout, expected)
 	}
-	if err == nil {
+	if err == nil || cabCode(err) == 409 { // 版本衝突:別人改過了,先把最新的結構換進快取、通知畫面重讀
 		o.done(org)
 	}
 	return l, err
@@ -381,6 +382,7 @@ func (o CabinetOps) CreateProject(org string, in service.ProjectInput) (*model.P
 	if err != nil {
 		return nil, err
 	}
+	o.a.projectsRefresh(org)
 	o.a.Changed("cabinet")
 	return x, nil
 }
@@ -393,6 +395,7 @@ func (o CabinetOps) UpdateProject(org, id string, p service.ProjectPatch) (*mode
 	}
 	x, err := b.UpdateProject(org, id, p)
 	if err == nil {
+		o.a.projectsRefresh(org)
 		o.a.Changed("cabinet")
 	}
 	return x, err
@@ -405,6 +408,7 @@ func (o CabinetOps) DeleteProject(org, id string) error {
 		return err
 	}
 	if err = b.DeleteProject(org, id); err == nil {
+		o.a.projectsRefresh(org)
 		o.a.Changed("cabinet")
 	}
 	return err
@@ -443,7 +447,7 @@ func readOldCabinet(dir string) (layout []CabinetSection, docs []CabinetDoc, fou
 	bad := json.Unmarshal(b, &raws) != nil || raws == nil
 	now := model.Time{Time: time.Now().UTC().Truncate(time.Second)}
 	for _, r := range raws {
-		d, err := model.ParseDocJSON(r, MCPAuthor, now)
+		d, err := model.ParseDocJSON(r, LocalIdentity, now)
 		if err != nil {
 			bad = true
 			break
@@ -502,7 +506,11 @@ func (a *App) migrateCabinet(org string) {
 		return
 	}
 	if cab, err := ops.GetCabinet(org); err == nil && !cab.LayoutSaved {
-		_, _ = ops.SaveLayout(org, TemplateCabinetLayout())
+		// expected=0:只在「從沒存過」時套範本;判斷與存檔之間別人存了就 409,略過、不覆蓋
+		zero := int64(0)
+		if _, err := ops.SaveLayout(org, TemplateCabinetLayout(), &zero); err != nil && cabCode(err) != 409 {
+			log.Printf("套用文件櫃範本(%s):%v", org, err)
+		}
 	}
 }
 
@@ -527,13 +535,14 @@ func init() {
 			layout = model.CloneLayout(a.CabinetLayout())
 		}
 		if be, err := agentBackend(); err == nil {
-			if _, err := be.SaveCabinetLayout(filepath.Base(dir), layout); err != nil {
+			zero := int64(0) // 新組織第一次存;已經有人存了(409)就不覆蓋
+			if _, err := be.SaveCabinetLayout(filepath.Base(dir), layout, &zero); err != nil && cabCode(err) != 409 {
 				log.Printf("新組織的文件櫃結構:%v", err)
 			}
 		}
 	})
 	OnStart(func(a *App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		// 每 5 秒重讀目前組織的文件櫃(別的路徑改了資料、遠端的修改才看得到;網路與資料庫請求都在鎖外)
@@ -575,7 +584,7 @@ func init() {
 		if cab.Docs == nil {
 			cab.Docs = []CabinetDoc{}
 		}
-		out := map[string]any{"project": project, "layout": cab.Layout, "docs": cab.Docs, "layoutSaved": cab.LayoutSaved}
+		out := map[string]any{"project": project, "layout": cab.Layout, "docs": cab.Docs, "layoutSaved": cab.LayoutSaved, "layoutVersion": cab.LayoutVersion}
 		projects, err := ops.ListProjects(org)
 		if projects == nil {
 			projects = []model.Project{}
@@ -591,9 +600,10 @@ func init() {
 	})
 	RegisterAction("project_create", func(a *App, args map[string]any) (any, error) {
 		name := strings.TrimSpace(agentArg(args, "name"))
-		x, err := a.CabinetOps().CreateProject(a.currentOrgNow(), service.ProjectInput{Name: name, Description: strings.TrimSpace(agentArg(args, "description"))})
+		x, err := a.CabinetOps().CreateProject(a.currentOrgNow(), service.ProjectInput{Name: name, Key: strings.TrimSpace(agentArg(args, "key")),
+			Description: strings.TrimSpace(agentArg(args, "description"))})
 		if err != nil {
-			return nil, agentUserErr(err)
+			return nil, agentConflictErr(err) // 代號格式、重複、保留字的訊息原樣帶回
 		}
 		return x, nil
 	})
@@ -607,12 +617,16 @@ func init() {
 			v = strings.TrimSpace(v)
 			p.Description = &v
 		}
-		if p.Name == nil && p.Description == nil {
-			return nil, UserError{"要給 name 或 description"}
+		if v, ok := args["key"].(string); ok { // "" = 清掉代號;專案已有 Issue(含垃圾桶)時核心回 409
+			v = strings.TrimSpace(v)
+			p.Key = &v
+		}
+		if p.Name == nil && p.Description == nil && p.Key == nil {
+			return nil, UserError{"要給 name、key 或 description"}
 		}
 		x, err := a.CabinetOps().UpdateProject(a.currentOrgNow(), agentArg(args, "id"), p)
 		if err != nil {
-			return nil, agentUserErr(err)
+			return nil, agentConflictErr(err)
 		}
 		return x, nil
 	})
@@ -639,9 +653,17 @@ func init() {
 			return nil, UserError{"要給 layout"}
 		}
 		project := model.NormalizeProjectID(agentArg(args, "project"))
-		l, err := a.CabinetOps().SaveProjectLayout(a.currentOrgNow(), project, layout)
+		var expected *int64 // 畫面載入結構時記下的 layoutVersion;沒帶(舊畫面)= 無鎖覆蓋
+		if v, ok := args["expectedVersion"]; ok && v != nil {
+			var n int64
+			if err := ReadInto(v, &n); err != nil {
+				return nil, UserError{"expectedVersion 要是數字"}
+			}
+			expected = &n
+		}
+		l, err := a.CabinetOps().SaveProjectLayout(a.currentOrgNow(), project, layout, expected)
 		if err != nil {
-			return nil, agentUserErr(err)
+			return nil, agentConflictErr(err) // 版本衝突 409 帶 currentVersion 給畫面
 		}
 		return l, nil
 	})

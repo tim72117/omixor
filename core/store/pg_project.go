@@ -11,12 +11,12 @@ import (
 
 // ---- 專案(PG;表 omixor_projects 的定義在 pg.go 的 pgSchema;專案的文件櫃結構在 omixor_cabinet_layouts 的 (org, project)) ----
 
-const projectCols = `id, name, description, created_at, updated_at`
+const projectCols = `id, name, key, description, created_at, updated_at`
 
 func scanProject(row pgx.Row) (*model.Project, error) {
 	var x model.Project
 	var created, updated time.Time
-	if err := row.Scan(&x.ID, &x.Name, &x.Description, &created, &updated); err != nil {
+	if err := row.Scan(&x.ID, &x.Name, &x.Key, &x.Description, &created, &updated); err != nil {
 		return nil, notFound(err)
 	}
 	x.CreatedAt, x.UpdatedAt = model.Time{Time: created.UTC()}, model.Time{Time: updated.UTC()}
@@ -72,25 +72,51 @@ func (p *PG) CreateProject(org string, x model.Project) (model.Project, error) {
 		return x, err
 	}
 	x.ID = fmt.Sprintf("%s%d", model.ProjectPrefix, num+1)
-	if _, err := tx.Exec(c, `insert into omixor_projects (org, id, number, name, description, created_at, updated_at) values ($1,$2,$3,$4,$5,$6,$7)`,
-		org, x.ID, num+1, x.Name, x.Description, secs(x.CreatedAt.Time), secs(x.UpdatedAt.Time)); err != nil {
+	if _, err := tx.Exec(c, `insert into omixor_projects (org, id, number, name, key, description, created_at, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		org, x.ID, num+1, x.Name, x.Key, x.Description, secs(x.CreatedAt.Time), secs(x.UpdatedAt.Time)); err != nil {
+		if isUniqueViolation(err) {
+			return x, fmt.Errorf("%w: %s", ErrDuplicateKey, x.Key)
+		}
 		return x, err
 	}
 	return x, tx.Commit(c)
 }
 
+// UpdateProject 改名稱、代號、描述。代號變了而且專案裡已經有 Issue(含垃圾桶)時回 ErrInUse(第一版只能在還沒有 Issue 時改代號);
+// 代號在組織內重複回 ErrDuplicateKey。和建立 Issue 用同一把鎖(lockIssues),檢查與修改之間不會有新的 Issue 進來
 func (p *PG) UpdateProject(org string, x model.Project) error {
 	c, cancel := ctx()
 	defer cancel()
-	tag, err := p.pool.Exec(c, `update omixor_projects set name = $3, description = $4, updated_at = $5 where org = $1 and id = $2`,
-		org, x.ID, x.Name, x.Description, secs(x.UpdatedAt.Time))
+	tx, err := p.pool.Begin(c)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
+	defer tx.Rollback(c)
+	if err := lockIssues(c, tx, org); err != nil {
+		return err
 	}
-	return nil
+	var cur string
+	err = tx.QueryRow(c, `select key from omixor_projects where org = $1 and id = $2 for update`, org, x.ID).Scan(&cur)
+	if err != nil {
+		return notFound(err)
+	}
+	if cur != x.Key {
+		var n int
+		if err := tx.QueryRow(c, `select count(*) from ops_issues where org = $1 and project = $2`, org, x.ID).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			return fmt.Errorf("%w: 專案 %s 裡已經有 %d 張 Issue", ErrInUse, x.ID, n)
+		}
+	}
+	if _, err := tx.Exec(c, `update omixor_projects set name = $3, key = $4, description = $5, updated_at = $6 where org = $1 and id = $2`,
+		org, x.ID, x.Name, x.Key, x.Description, secs(x.UpdatedAt.Time)); err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("%w: %s", ErrDuplicateKey, x.Key)
+		}
+		return err
+	}
+	return tx.Commit(c)
 }
 
 func (p *PG) DeleteProject(org, id string) error {
@@ -103,7 +129,7 @@ func (p *PG) DeleteProject(org, id string) error {
 	defer tx.Rollback(c)
 	tag, err := tx.Exec(c, `delete from omixor_projects where org = $1 and id = $2`, org, id)
 	if err != nil {
-		return err
+		return fkErrDelete(err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
@@ -111,6 +137,11 @@ func (p *PG) DeleteProject(org, id string) error {
 	// 未分專案(空字串)不是專案,不會走到這裡;只刪這個專案的結構
 	if _, err := tx.Exec(c, `delete from omixor_cabinet_layouts where org = $1 and project = $2 and project <> ''`, org, id); err != nil {
 		return err
+	}
+	for _, t := range []string{"omixor_cabinet_sections", "omixor_cabinet_tabs"} {
+		if _, err := tx.Exec(c, `delete from `+t+` where org = $1 and project = $2 and project <> ''`, org, id); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(c)
 }

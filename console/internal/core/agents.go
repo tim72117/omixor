@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"omixor-core/backend"
-	"omixor-core/env"
+	"omixor-core/config"
+	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -330,15 +332,31 @@ func (o AgentOps) SaveAgent(org string, in model.Agent) (*model.Agent, error) {
 	return g, err
 }
 
-func (o AgentOps) DeleteAgent(org, id string) error {
+func (o AgentOps) DeleteAgent(org, id string) error { return o.DeleteAgentTo(org, id, "") }
+
+// DeleteAgentTo 刪角色;名下有任務時 transferTo 空 = 409(核心的 *service.Error,Data 有各狀態的任務數),不空 = 先轉給它再刪
+func (o AgentOps) DeleteAgentTo(org, id, transferTo string) error {
 	b, err := o.be()
 	if err != nil {
 		return err
 	}
-	if err = b.DeleteAgent(org, id); err == nil {
+	if err = b.DeleteAgentTo(org, id, transferTo); err == nil {
 		o.done(org)
 	}
 	return err
+}
+
+// TransferAgentTasks 不刪角色的單獨轉移(scope:all 全部 | open 只轉待領取與需要協助,空 = open)
+func (o AgentOps) TransferAgentTasks(org string, in service.AgentTransferInput) (*service.AgentTransferResult, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	res, err := b.TransferAgentTasks(org, in)
+	if err == nil {
+		o.done(org)
+	}
+	return res, err
 }
 
 func (o AgentOps) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {
@@ -637,7 +655,7 @@ func init() {
 		return map[string]int{"automation": n}
 	})
 	OnStart(func(a *App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		// 例行任務排程(本機核心:每 60 秒;遠端模式由雲端自己排)
@@ -689,8 +707,16 @@ func init() {
 		}
 		return saved, nil
 	})
+	// 名下有任務(任何狀態)的角色要先轉移:不帶 transferTo = 409(回應帶 code = agentHasTasks、taskCounts、total,畫面據此開「轉移給…」視窗);
+	// 帶 transferTo(目標角色 id)= 同一個交易裡先轉移再刪
 	RegisterAction("agent_delete", func(a *App, args map[string]any) (any, error) {
-		return nil, agentUserErr(a.AgentOps().DeleteAgent(a.currentOrgNow(), agentArg(args, "id")))
+		return nil, agentConflictErr(a.AgentOps().DeleteAgentTo(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "transferTo")))
+	})
+	// 不刪角色的單獨轉移:{from, to, scope: all|open}
+	RegisterAction("agent_task_transfer", func(a *App, args map[string]any) (any, error) {
+		res, err := a.AgentOps().TransferAgentTasks(a.currentOrgNow(), service.AgentTransferInput{
+			From: agentArg(args, "from"), To: agentArg(args, "to"), Scope: agentArg(args, "scope")})
+		return res, agentUserErr(err)
 	})
 	RegisterAction("agent_task_cancel", func(a *App, args map[string]any) (any, error) {
 		t, err := a.AgentOps().CancelTask(a.currentOrgNow(), agentArg(args, "id"))
@@ -724,7 +750,21 @@ func init() {
 	})
 }
 
-// agentUserErr 核心的錯誤轉成畫面看得懂的 UserError(nil 原樣回傳)
+// agentConflictErr 同 agentUserErr,但 409 帶著核心給的欄位(StatusError.Data;例如刪角色時名下有任務的 code、taskCounts、
+// 版本衝突的 currentVersion);狀態碼、訊息、data 取自 httperr,和 API、MCP 同一份規則
+func agentConflictErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	in := httperr.Report(callerOp(2), err)
+	if in.Status == 409 && len(in.Data) > 0 {
+		return StatusError{Status: 409, Message: in.Msg, Data: in.Data}
+	}
+	return UserError{in.Msg}
+}
+
+// agentUserErr 核心的錯誤轉成畫面看得懂的 UserError(nil 原樣回傳);訊息取自 httperr:
+// 資料庫錯誤等內部細節換成通用訊息,原文連同呼叫的位置寫進 log
 func agentUserErr(err error) error {
 	if err == nil {
 		return nil
@@ -732,5 +772,21 @@ func agentUserErr(err error) error {
 	if _, ok := err.(UserError); ok {
 		return err
 	}
-	return UserError{err.Error()}
+	return UserError{httperr.Report(callerOp(2), err).Msg}
+}
+
+// callerOp 呼叫端的函式與行號(log 的操作名稱);skip 2 = 呼叫 agentUserErr 的那一行
+func callerOp(skip int) string {
+	pc, file, line, ok := runtime.Caller(skip)
+	if !ok {
+		return "console 動作"
+	}
+	name := "?"
+	if f := runtime.FuncForPC(pc); f != nil {
+		name = f.Name()
+	}
+	if i := strings.LastIndexAny(file, `/\`); i >= 0 {
+		file = file[i+1:]
+	}
+	return fmt.Sprintf("console %s(%s:%d)", name, file, line)
 }

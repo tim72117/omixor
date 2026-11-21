@@ -1,18 +1,20 @@
 package service_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 測試用:組織 o1,管理員 boss、成員 alice;角色 writer(可寫 docs、可讀 overview)
 func cabEnv(t *testing.T) (*service.Service, *model.Principal, *model.Principal) {
 	t.Helper()
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	for _, u := range []model.User{{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now}, {ID: "u2", Email: "alice@x", Role: "member", CreatedAt: now}} {
@@ -108,7 +110,7 @@ func TestCabinetDocsAndLayout(t *testing.T) {
 	if l, _ := svc.Store.ListDocs("o1"); len(l) != 0 {
 		t.Fatal("刪組織要刪文件")
 	}
-	if _, err := svc.Store.GetCabinetLayout("o1", ""); err != store.ErrNotFound {
+	if _, _, err := svc.Store.GetCabinetLayout("o1", ""); err != store.ErrNotFound {
 		t.Fatal("刪組織要刪結構")
 	}
 }
@@ -226,5 +228,60 @@ func TestImportCabinetRejectedWritesNothing(t *testing.T) {
 	c, _ := svc.GetCabinet(alice, "o1", "")
 	if c.LayoutSaved || len(c.Docs) != 1 {
 		t.Fatalf("被拒時不能先存結構:%+v", c)
+	}
+}
+
+// 匯入只在「沒存過」時套結構:別人先存過,匯入略過、不覆蓋、版本不動
+func TestImportCabinetKeepsExistingLayout(t *testing.T) {
+	svc, boss, _ := cabEnv(t)
+	mine := []model.CabinetSection{{ID: "mine", Label: "mine", Tabs: []model.CabinetTab{}}}
+	if _, err := svc.SaveCabinetLayout(boss, "o1", "", mine); err != nil {
+		t.Fatal(err)
+	}
+	other := []model.CabinetSection{{ID: "other", Label: "other", Tabs: []model.CabinetTab{}}}
+	res, err := svc.ImportCabinet(boss, "o1", service.CabinetImport{Layout: other})
+	if err != nil || !res.LayoutSkipped || res.LayoutSaved {
+		t.Fatal(res, err)
+	}
+	if c, _ := svc.GetCabinet(boss, "o1", ""); c.LayoutVersion != 1 || c.Layout[0].ID != "mine" {
+		t.Fatalf("不能被覆蓋:%+v", c)
+	}
+}
+
+// 結構樂觀鎖:版本遞增;版本不符 409(帶 currentVersion);不帶版本的舊呼叫無鎖覆蓋;只有管理員能存
+func TestSaveCabinetLayoutIfVersion(t *testing.T) {
+	svc, boss, alice := cabEnv(t)
+	one := func(n int64) *int64 { return &n }
+	mk := func(id string) []model.CabinetSection {
+		return []model.CabinetSection{{ID: id, Label: id, Tabs: []model.CabinetTab{}}}
+	}
+	c, err := svc.GetCabinet(boss, "o1", "")
+	if err != nil || c.LayoutVersion != 0 || c.LayoutSaved {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if _, v, err := svc.SaveCabinetLayoutIf(boss, "o1", "", mk("a"), one(0)); err != nil || v != 1 {
+		t.Fatal(v, err)
+	}
+	if _, _, err := svc.SaveCabinetLayoutIf(alice, "o1", "", mk("x"), one(1)); code(err) != 403 {
+		t.Fatal("成員不能存", err)
+	}
+	_, _, err = svc.SaveCabinetLayoutIf(boss, "o1", "", mk("b"), one(0))
+	var se *service.Error
+	if code(err) != 409 || !errors.As(err, &se) || se.Data["currentVersion"] != int64(1) || !strings.Contains(err.Error(), "請重新載入") {
+		t.Fatalf("要 409 並帶目前版本:%v", err)
+	}
+	// 無版本的舊呼叫(也是內部用的 SaveCabinetLayout):覆蓋,版本 +1
+	if _, err := svc.SaveCabinetLayout(boss, "o1", "", mk("legacy")); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := svc.GetCabinet(boss, "o1", ""); c.LayoutVersion != 2 || c.Layout[0].ID != "legacy" {
+		t.Fatalf("%+v", c)
+	}
+	// 驗證失敗(400)不動版本
+	if _, _, err := svc.SaveCabinetLayoutIf(boss, "o1", "", []model.CabinetSection{{ID: "d", Label: ""}}, one(2)); code(err) != 400 {
+		t.Fatal(err)
+	}
+	if c, _ := svc.GetCabinet(boss, "o1", ""); c.LayoutVersion != 2 {
+		t.Fatal("失敗不能加版本", c.LayoutVersion)
 	}
 }

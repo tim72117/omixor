@@ -3,12 +3,37 @@
     "id": "CH-2",
     "name": "登入頁改版",
     "topic": "討論 Safari 白畫面",
-    "issueId": "ISS-12",
+    "issueId": "019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8d",
     "members": [
       "user:tim@example.com",
       "agent:eng"
     ],
     "createdBy": "user:tim@example.com",
+    "memberActors": [
+      {
+        "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+        "kind": "user",
+        "handle": "tim@example.com",
+        "name": "Tim",
+        "email": "tim@example.com",
+        "status": "active"
+      },
+      {
+        "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+        "kind": "agent",
+        "handle": "eng",
+        "name": "工程師",
+        "status": "active"
+      }
+    ],
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
     "createdAt": "2026-11-01T10:00:00Z",
     "updatedAt": "2026-11-02T10:00:00Z",
     "unread": 3,
@@ -23,6 +48,24 @@
       "user:tim@example.com"
     ],
     "createdBy": "user:tim@example.com",
+    "memberActors": [
+      {
+        "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+        "kind": "user",
+        "handle": "tim@example.com",
+        "name": "Tim",
+        "email": "tim@example.com",
+        "status": "active"
+      }
+    ],
+    "createdByActor": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
     "createdAt": "2026-10-01T00:00:00Z",
     "updatedAt": "2026-10-01T00:00:00Z",
     "unread": 0,

@@ -29,15 +29,18 @@ func (c *Client) GetProjectCabinet(org, project string) (*model.Cabinet, error) 
 	return &x, c.Do("GET", c.cabinet(org)+projectQuery(project), nil, &x)
 }
 
-// SaveCabinetLayout 改未分專案的結構
-func (c *Client) SaveCabinetLayout(org string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
-	return c.SaveProjectCabinetLayout(org, "", layout)
+// SaveCabinetLayout 改未分專案的結構;expectedVersion 非 nil 是樂觀鎖(版本不符 409),nil 是無鎖覆蓋
+func (c *Client) SaveCabinetLayout(org string, layout []model.CabinetSection, expectedVersion *int64) ([]model.CabinetSection, error) {
+	return c.SaveProjectCabinetLayout(org, "", layout, expectedVersion)
 }
 
-// SaveProjectCabinetLayout 改專案(空 = 未分專案)的結構
-func (c *Client) SaveProjectCabinetLayout(org, project string, layout []model.CabinetSection) ([]model.CabinetSection, error) {
+// SaveProjectCabinetLayout 改專案(空 = 未分專案)的結構;expectedVersion 同上
+func (c *Client) SaveProjectCabinetLayout(org, project string, layout []model.CabinetSection, expectedVersion *int64) ([]model.CabinetSection, error) {
 	var l []model.CabinetSection
 	body := map[string]any{"layout": layout}
+	if expectedVersion != nil {
+		body["expectedVersion"] = *expectedVersion
+	}
 	if project != "" {
 		body["project"] = project
 	}

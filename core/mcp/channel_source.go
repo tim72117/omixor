@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,8 +20,11 @@ import (
 type MCPTasks struct {
 	URL   string
 	Token string // 選填:Authorization: Bearer <Token>
-	HTTP  *http.Client
-	id    atomic.Int64
+	// TokenFunc 選填:每次請求前取權杖(優先於 Token;例如 console 換新權杖後不用重開)。
+	// 回傳錯誤或空字串 = 這一輪讀不到權杖:不送請求(不送沒帶 Authorization 的請求),回錯誤,等下一輪再試
+	TokenFunc func() (string, error)
+	HTTP      *http.Client
+	id        atomic.Int64
 }
 
 func (m *MCPTasks) client() *http.Client {
@@ -32,6 +36,17 @@ func (m *MCPTasks) client() *http.Client {
 
 // call 呼叫一個工具,把回傳的文字當 JSON 解到 out
 func (m *MCPTasks) call(tool string, args map[string]any, out any) error {
+	tok := m.Token
+	if m.TokenFunc != nil {
+		t, err := m.TokenFunc()
+		if err == nil && t == "" {
+			err = errors.New("讀不到 MCP 權杖")
+		}
+		if err != nil {
+			return fmt.Errorf("讀不到 MCP 權杖,先不送請求:%w", err)
+		}
+		tok = t
+	}
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": m.id.Add(1), "method": "tools/call",
 		"params": map[string]any{"name": tool, "arguments": args}})
 	req, err := http.NewRequest("POST", m.URL, bytes.NewReader(body))
@@ -40,8 +55,8 @@ func (m *MCPTasks) call(tool string, args map[string]any, out any) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	if m.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+m.Token)
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	resp, err := m.client().Do(req)
 	if err != nil {

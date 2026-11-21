@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,7 +64,7 @@ func TestOldCabinetFilesImported(t *testing.T) {
 	a.Mu.Lock()
 	a.LoadOrgData()
 	d := a.FindDoc("doc-2")
-	if d == nil || d.Author != MCPAuthor || d.Tags == nil || !d.UpdatedAt.Equal(d.CreatedAt.Time) {
+	if d == nil || d.Author != LocalIdentity || d.Tags == nil || !d.UpdatedAt.Equal(d.CreatedAt.Time) {
 		t.Fatalf("文件預設值不對:%+v", d)
 	}
 	if l := a.CabinetLayout(); len(l) != 1 || l[0].Tabs == nil {
@@ -133,7 +134,7 @@ func TestOrgCreateAndSwitch(t *testing.T) {
 	a.CreateIssue("預設組織的 Issue", "", "high", nil, "", "", "tim")
 	org := a.CurrentOrgID()
 	a.Mu.Unlock()
-	if _, err := a.CabinetOps().SaveLayout(org, append(TemplateCabinetLayout(), CabinetSection{ID: "extra", Label: "額外", Tabs: []CabinetTab{}})); err != nil {
+	if _, err := a.CabinetOps().SaveLayout(org, append(TemplateCabinetLayout(), CabinetSection{ID: "extra", Label: "額外", Tabs: []CabinetTab{}}), nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.CabinetOps().CreateDoc(org, service.DocInput{Title: "文件", Section: "docs", Author: "tim"}); err != nil {
@@ -283,18 +284,19 @@ func TestTaskFlowAndDelete(t *testing.T) {
 	if n != base+1 {
 		t.Fatal("blocked 要算進 AI 自動化徽章")
 	}
-	if err := ops.DeleteAgent(org, "narrator"); err != nil {
+	// 名下有任務:不能直接刪(409),要先轉移;轉移後任務跟著新角色,舊角色刪掉
+	if err := ops.DeleteAgent(org, "narrator"); err == nil || !strings.Contains(err.Error(), "要先轉移") {
+		t.Fatalf("名下有任務要擋下:%v", err)
+	}
+	if err := ops.DeleteAgentTo(org, "narrator", "marketing"); err != nil {
 		t.Fatal(err)
 	}
 	a.Mu.Lock()
 	x := a.FindTask(t1.ID)
 	name := a.Name(AI("narrator"))
 	a.Mu.Unlock()
-	if x.Status != "canceled" {
-		t.Fatal("刪除角色要取消未完成的任務")
-	}
-	if _, err := ops.ReportTask(org, t1.ID, service.TaskReport{}); err == nil || err.Error() != t1.ID+" 已取消" {
-		t.Fatalf("已取消的任務不能回報:%v", err)
+	if x.AgentID != "marketing" || x.Status != "queued" {
+		t.Fatalf("刪除角色要把任務轉給目標角色:%+v", x)
 	}
 	if name != "AI" {
 		t.Fatal("刪掉的角色不再有名稱")
@@ -366,7 +368,7 @@ func TestActions(t *testing.T) {
 	a.Mu.Lock()
 	task := a.AgentTasks()[0]
 	a.Mu.Unlock()
-	if task.CreatedBy != "tim" || task.Title != "保留" {
+	if task.CreatedBy != LocalIdentity || task.Title != "保留" {
 		t.Fatalf("現在排一筆:%+v", task)
 	}
 	p, _ := Action(a, "agent_prompt", map[string]any{"agent": g.ID, "task": task.ID})
@@ -384,6 +386,21 @@ func TestActions(t *testing.T) {
 	a.Mu.Unlock()
 	if x.Status != "queued" || x.CompletedAt != nil {
 		t.Fatalf("重新排入:%+v", x)
+	}
+	// 刪角色:名下有任務 → 409(StatusError,帶 code 與各狀態的任務數,畫面據此開轉移視窗)
+	_, err = Action(a, "agent_delete", map[string]any{"id": g.ID})
+	var se StatusError
+	if !errors.As(err, &se) || se.Status != 409 || se.Data["code"] != "agentHasTasks" || se.Data["total"] != 1 {
+		t.Fatalf("名下有任務要 409:%#v %v", se, err)
+	}
+	out, err = Action(a, "agent_upsert", map[string]any{"name": "接手的"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g2 := out.(*Agent)
+	tr, err := Action(a, "agent_task_transfer", map[string]any{"from": g.ID, "to": g2.ID})
+	if err != nil || tr.(*service.AgentTransferResult).Total != 1 {
+		t.Fatalf("單獨轉移:%+v %v", tr, err)
 	}
 	if _, err := Action(a, "agent_delete", map[string]any{"id": g.ID}); err != nil {
 		t.Fatal(err)
@@ -426,24 +443,23 @@ func TestImportIssuesPathViaCore(t *testing.T) {
 	file := `[
 	 {"id":"ISS-30","title":"三十","status":"closed","priority":"urgent","labels":["x"," x "],"createdBy":"tim","createdAt":"2026-11-10T00:00:03Z","updatedAt":"2026-11-10T00:00:04Z","closedAt":"2026-11-10T00:00:04Z",
 	  "comments":[{"id":"c1","author":"tim","text":"嗨","at":"2026-11-10T00:00:05Z"},{"author":"tim","text":"沒有 id"}]},
-	 {"id":"ISS-1","title":"和既有的同號"},
-	 {"title":"沒有 id"}
+	 {"id":"ISS-1","title":"和既有的同號"}
 	]`
 	_ = os.WriteFile(filepath.Join(src, "orgs", org, "issues.json"), []byte(file), 0o644)
 
 	res, err := ImportIssuesPath(src, "", false)
-	if err != nil || len(res) != 1 || res[0].Inserted != 1 || res[0].Skipped != 2 || res[0].Updated != 0 {
+	if err != nil || len(res) != 1 || res[0].Inserted != 1 || res[0].Skipped != 1 || res[0].Updated != 0 {
 		t.Fatalf("%+v %v", res, err)
 	}
 	res, err = ImportIssuesPath(src, "", false) // 重跑不重複
-	if err != nil || res[0].Inserted != 0 || res[0].Skipped != 3 {
+	if err != nil || res[0].Inserted != 0 || res[0].Skipped != 2 {
 		t.Fatalf("重跑:%+v %v", res, err)
 	}
 	a.Mu.Lock()
 	a.ReloadIssues()
 	list := append([]model.Issue{}, a.Issues()...)
 	a.Mu.Unlock()
-	if len(list) != 2 || list[0].ID != "ISS-1" || list[0].Title != "既有的" || list[1].ID != "ISS-30" {
+	if len(list) != 2 || list[0].Key != "ISS-1" || list[0].Title != "既有的" || list[1].Key != "ISS-30" {
 		t.Fatalf("順序:%+v", list)
 	}
 	n := list[1]
@@ -459,7 +475,7 @@ func TestImportIssuesPathViaCore(t *testing.T) {
 	a.ReloadIssues()
 	first := a.Issues()[0]
 	a.Mu.Unlock()
-	if first.Title != "和既有的同號" || first.CreatedBy != MCPAuthor {
+	if first.Title != "和既有的同號" || first.CreatedBy != LocalIdentity {
 		t.Fatalf("覆蓋後:%+v", first)
 	}
 }

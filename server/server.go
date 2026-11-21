@@ -33,29 +33,24 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	oxenv "omixor-core/env"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"omixor-core/api"
 	"omixor-core/backend"
+	"omixor-core/config"
 	"omixor-core/mcp"
 	"omixor-core/service"
 	"omixor-core/store"
 	"omixor-core/version"
 )
 
-func env(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
+// Handler /health 加上核心 API(設定用 config.Current();要指定設定用 HandlerWith)
+func Handler(svc *service.Service) http.Handler { return HandlerWith(svc, config.Current()) }
 
-// Handler /health 加上核心 API
-func Handler(svc *service.Service) http.Handler {
+// HandlerWith 同 Handler,用指定的設定(OMIXOR_PUBLIC_URL、OMIXOR_SITE_DIR)
+func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 	mux := http.NewServeMux()
 	// Cloud Run 保留 /healthz,不能用
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ok") })
@@ -67,7 +62,7 @@ func Handler(svc *service.Service) http.Handler {
 	mux.Handle("/api/", api.New(svc).Handler())
 
 	// MCP:角色端點與管理端點(協定與工具都在 omixor-core/mcp,這裡只接路由與認證;文件櫃工具是核心內建的,不用另外掛)
-	public := strings.TrimRight(os.Getenv("OMIXOR_PUBLIC_URL"), "/")
+	public := strings.TrimRight(cfg.Str(config.PublicURL), "/")
 	agentURL := ""
 	if public != "" {
 		agentURL = public + "/mcp/agent"
@@ -97,35 +92,42 @@ func Handler(svc *service.Service) http.Handler {
 		},
 	}))
 	// 對外的形象網站(英文版;只有設了 OMIXOR_SITE_DIR 才提供,見 site.go)
-	mountSite(mux, os.Getenv("OMIXOR_SITE_DIR"))
+	mountSite(mux, cfg.Str(config.SiteDir))
 	return mux
 }
 
 func Run() {
-	url := oxenv.Get("OMIXOR_DATABASE_URL", "OPS_DATABASE_URL")
-	if url == "" {
-		log.Fatal("要設 OMIXOR_DATABASE_URL")
+	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
+		fmt.Println("omixor-server:omixor 的線上服務(沒有旗標,全部用環境變數設定)")
+		fmt.Println()
+		fmt.Print(config.Usage(config.Server))
+		return
 	}
-	st, err := store.NewPG(url)
+	// 設定集中載入並驗證一次(型別、必填、互斥;有問題一次列完);之後不再直接讀環境變數
+	cfg := config.MustLoad(config.Server)
+	store.SetMigrationLimits(cfg.Int(config.MigrateMaxAutoRewriteMB), cfg.Int(config.MigrateBudgetMinutes))
+	st, err := store.NewPG(cfg.Str(config.DatabaseURL))
 	if err != nil {
-		log.Fatalf("PostgreSQL:%v", err)
+		log.Fatalf("PostgreSQL:%v", cfg.Redact(err.Error()))
 	}
-	days, _ := strconv.Atoi(env("OMIXOR_TOKEN_DAYS", "90"))
-	svc := &service.Service{Store: st, Evoleap: env("EVOLEAP_URL", "https://evoleap.io"),
-		Bootstrap: os.Getenv("OMIXOR_ADMIN_BOOTSTRAP_EMAIL"), TTL: time.Duration(days) * 24 * time.Hour}
-	if h, err := strconv.ParseFloat(os.Getenv("OMIXOR_AGENT_CRED_HOURS"), 64); err == nil && h > 0 {
+	svc := &service.Service{Store: st, Evoleap: cfg.Str(config.EvoleapURL),
+		Bootstrap: cfg.Str(config.AdminBootstrapEmail), TTL: time.Duration(cfg.Int(config.TokenDays)) * 24 * time.Hour}
+	if h := cfg.Float(config.AgentCredHours); h > 0 {
 		svc.AgentCredTTL = time.Duration(h * float64(time.Hour))
 	}
-	if err := configureLDAP(svc, os.Getenv); err != nil {
-		log.Fatalf("LDAP 設定:%v", err)
+	if err := configureLDAP(svc, cfg.Getenv); err != nil {
+		log.Fatalf("LDAP 設定:%v", cfg.Redact(err.Error()))
 	}
 	if err := svc.EnsureOrgsForIssues(); err != nil {
 		log.Fatalf("補建組織失敗:%v", err)
 	}
 	// 例行任務排程:每 60 秒檢查一次,到時間的替角色排任務
 	svc.StartRoutines(time.Minute, nil)
-	addr := env("OMIXOR_ADDR", ":"+env("PORT", "8080"))
+	addr := cfg.Str(config.Addr)
+	if addr == "" {
+		addr = ":" + cfg.Str(config.Port)
+	}
 	log.Printf("omixor server 在 %s", addr)
-	hs := &http.Server{Addr: addr, Handler: Handler(svc), ReadHeaderTimeout: 10 * time.Second}
+	hs := &http.Server{Addr: addr, Handler: HandlerWith(svc, cfg), ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(hs.ListenAndServe())
 }

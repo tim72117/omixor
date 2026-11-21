@@ -8,7 +8,9 @@ package server
 //
 // 和雲端版同一套核心(service、api、mcp 與路由都用 Handler),差別只在:
 //
-//   - 存放處是資料夾裡的 JSON(core/store/file.go),不用 PostgreSQL
+//   - 存放處是 PostgreSQL(core/store/pg.go):預設由守護服務自己啟動一個內建的 PostgreSQL(資料在 <資料夾>/pgdata,
+//     只聽 127.0.0.1,見 embeddedpg.go;第一次要下載 PostgreSQL 二進位檔),設了 OMIXOR_DATABASE_URL 就直接連那個資料庫、不啟動內建的。
+//     以前存在資料夾的 store.json(檔案版 store)已經拿掉,不會自動遷移,舊的 store.json 不會匯入(啟動時若有 store.json 而且還沒有 pgdata 會印警告)
 //   - 只有一個本機使用者(伺服器管理員),用本機的 token 連線;不接受 evoleap 登入
 //   - 多了 /local/… 端點:App 同步組織清單、第一次把 App 原本的本機 JSON 匯入
 //
@@ -16,6 +18,7 @@ package server
 //
 //	OMIXOR_DATA_DIR              資料夾(App 模式必填;App 用 <App 資料夾>/core。
 //	                             獨立模式預設 <使用者設定資料夾>/omixor/core,見 standalone.go)
+//	OMIXOR_DATABASE_URL          PostgreSQL 連線網址(選填;舊名稱 OPS_DATABASE_URL 相容);沒設就用內建的
 //	OMIXOR_LOCAL_TOKEN           App 給的 token(omx_ 開頭);每次啟動換一把,上一次的作廢。沒給就是獨立模式
 //	OMIXOR_LOCAL_USER            本機使用者的 email(預設 local;App 傳它的使用者 id,例如 tim,
 //	                             訊息頻道與組織鏈的節點才會和 App 原本的本機資料一致:user:tim)
@@ -32,13 +35,14 @@ package server
 // 跨平台:Unix 用 flock、Windows 用 LockFileEx 鎖資料夾(lock_unix.go、lock_windows.go);
 // 檔案權限 0o600 / 0o700 在 Windows 沒有作用,靠使用者資料夾的 ACL;寫檔用「暫存檔 + os.Rename」,
 // Windows 上 os.Rename 會取代既有的檔案(MoveFileEx + MOVEFILE_REPLACE_EXISTING)。
+// PostgreSQL 不能用 root / 系統管理員身分執行(用內建的時候);結束時先停 HTTP、再關內建的 PostgreSQL。
 //
 // /local/… 端點(Authorization 同 /api,要伺服器管理員):
 //
 //	POST /local/orgs                {orgs: [{id, name, symbol?, color?, note?}]} 確保組織存在、更新名稱等,本機使用者是每個組織的管理員
 //	POST /local/import/{org}        {issues?, agents?, cabinetLayout?, docs?, chain?, channels?} 第一次匯入 App 的本機資料;
 //	                                每一類各自記在 <資料夾>/app-import.json,匯入過的不再匯入(回傳 skipped)
-//	                                每一類全有或全無(批次寫入、整類只存檔一次),成功後立刻記錄;
+//	                                每一類全有或全無(批次寫入、整類在同一個交易),成功後立刻記錄;
 //	                                沒有紀錄但守護服務已有這類資料時不覆蓋,回傳 existing 並補寫紀錄
 //	DELETE /local/orgs/{org}        刪除這個組織的全部資料與匯入紀錄,回傳 {deleted: true};
 //	                                預設組織(OMIXOR_LOCAL_ORG)或最後一個組織回 400,找不到回 404
@@ -46,6 +50,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +66,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"omixor-core/config"
+	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
@@ -75,20 +82,30 @@ const StandaloneDevice = "omixor 獨立守護服務"
 // LocalConfig 本機守護服務的設定
 type LocalConfig struct {
 	DataDir string
-	Token   string
-	User    string
-	Name    string
-	Org     string
+	// DatabaseURL PostgreSQL 連線網址;空的 = 在 DataDir 底下啟動內建的 PostgreSQL(EmbeddedPG)
+	DatabaseURL string
+	Token       string
+	User        string
+	Name        string
+	Org         string
 	// Device token 的裝置名稱(空的是 LocalDevice = App 模式;獨立模式用 StandaloneDevice)
 	Device string
+	// Context 取消時中止啟動內建 PostgreSQL(收到結束訊號);nil = 不取消
+	Context context.Context
 }
 
 // Local 本機守護服務(store、service、本機使用者與匯入紀錄)
 type Local struct {
-	Cfg     LocalConfig
-	Store   *store.File
-	Svc     *service.Service
-	user    model.User
+	Cfg   LocalConfig
+	Store *store.PG
+	Svc   *service.Service
+	user  model.User
+	// actor 本機使用者的 actor(Via = ViaLocal);匯入與本機流程的署名
+	actor model.ActorRef
+	// embedded 內建的 PostgreSQL(用 DatabaseURL 連外部資料庫時是 nil);Close 時關掉
+	embedded *EmbeddedPG
+	// cfg 這次執行用的設定(RunLocal 填上自己的對外網址;nil = config.Current())
+	cfg     *config.Config
 	tokenID string // 這次用的 token 的紀錄 id(獨立模式寫進 credentials.json)
 	// regenerated 獨立模式:credentials.json 的 token 沒有有效紀錄(撤銷了等),這次換了一把新的
 	regenerated bool
@@ -117,19 +134,46 @@ func OpenLocal(cfg LocalConfig) (*Local, error) {
 	if !model.ValidOrgID(cfg.Org) {
 		return nil, fmt.Errorf("OMIXOR_LOCAL_ORG 不對:%s", cfg.Org)
 	}
-	st, err := store.OpenFile(cfg.DataDir)
-	if err != nil {
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, err
 	}
-	l := &Local{Cfg: cfg, Store: st, Svc: &service.Service{Store: st}}
+	dbURL := cfg.DatabaseURL
+	var emb *EmbeddedPG
+	if dbURL == "" {
+		var err error
+		warnLegacyStore(cfg.DataDir)
+		if emb, err = StartEmbeddedPG(EmbeddedPGOptions{Dir: cfg.DataDir, Context: cfg.Context}); err != nil {
+			return nil, err
+		}
+		dbURL = emb.URL
+	}
+	// 本機使用者要在建 store 之前告訴遷移:舊資料裡的 mcp、omixor-console、ops-web 與本機使用者 handle 才會對到這位使用者的 actor
+	// (全域設定;NewPG 的遷移與之後的寬鬆解析器 ResolveLegacy 都讀它)
+	store.SetMigrationLocalUser(cfg.User)
+	st, err := store.NewPG(dbURL)
+	if err != nil {
+		if emb != nil {
+			_ = emb.Stop()
+		}
+		return nil, redactDBErr(dbURL, err) // 連線錯誤可能帶出連線網址/key=value 裡的密碼
+	}
+	l := &Local{Cfg: cfg, Store: st, Svc: &service.Service{Store: st}, embedded: emb}
 	_ = os.Remove(l.importLogPath() + ".tmp") // 上次寫匯入紀錄寫到一半留下的暫存檔(資料夾已上鎖,不會有別人在寫)
 	if err := l.ensureUser(); err != nil {
+		_ = l.Close()
 		return nil, err
 	}
 	if err := l.ensureOrg(model.Org{ID: cfg.Org, Name: map[bool]string{true: "evoleap", false: cfg.Org}[cfg.Org == "default"]}, false); err != nil {
+		_ = l.Close()
 		return nil, err
 	}
 	return l, nil
+}
+
+// Close 關掉資料庫連線,有內建的 PostgreSQL 就把它也關掉(等它把資料寫好)。要在 HTTP 停止之後呼叫;重複呼叫沒有作用
+func (l *Local) Close() error {
+	l.Store.Close()
+	return l.embedded.Stop()
 }
 
 // ensureUser 本機使用者(伺服器管理員)與這次的 token:
@@ -138,7 +182,7 @@ func OpenLocal(cfg LocalConfig) (*Local, error) {
 //     獨立模式 -rotate-token 時,這台守護服務發過的所有獨立模式 token 都作廢
 //   - 這次的 token 已經有本機使用者、同裝置名稱的有效紀錄就沿用(獨立模式重開)
 //   - 獨立模式找不到有效紀錄(被撤銷了、紀錄不見了、或換了使用者)就換一把新的,不用 credentials.json 的舊 token 重建紀錄:
-//     store.json 不存已撤銷的 token,用舊雜湊重建等於讓撤銷的 token 復活
+//     ListTokens 只列有效的 token,撤銷的紀錄不會回來,用舊雜湊重建等於讓撤銷的 token 復活
 //   - 同一個雜湊只會對到一個使用者:別的裝置或使用者剛好有同雜湊的有效紀錄,也一併作廢
 func (l *Local) ensureUser() error {
 	now := model.Now()
@@ -152,10 +196,15 @@ func (l *Local) ensureUser() error {
 	if n := strings.TrimSpace(l.Cfg.Name); n != "" {
 		u.Name = n
 	}
-	if err := l.Store.SaveUser(*u); err != nil {
+	// SaveUser 在同一個交易建立或接回 actor(email 已是「未註冊使用者」actor 的接回同一個);之後重讀取回 actor_id
+	if err := saveUserWithActor(l.Store, u); err != nil {
 		return err
 	}
-	l.user = *u
+	ref, err := l.Svc.SelfActor(&model.Principal{User: *u})
+	if err != nil {
+		return fmt.Errorf("本機使用者 %s 的 actor 不可用:%w", u.Email, err)
+	}
+	l.user, l.actor = *u, ref
 	toks, err := l.Store.ListTokens(time.Now())
 	if err != nil {
 		return err
@@ -183,8 +232,16 @@ func (l *Local) ensureUser() error {
 		hash = service.HashToken(l.Cfg.Token)
 		l.regenerated = true
 	}
-	l.tokenID = service.RandID("t_", 9)
-	return l.Store.CreateToken(model.Token{ID: l.tokenID, UserID: u.ID, Device: l.Cfg.Device, CreatedAt: now, Hash: hash})
+	id := service.RandID("t_", 9)
+	if err := l.Store.CreateToken(model.Token{ID: id, UserID: u.ID, Device: l.Cfg.Device, CreatedAt: now, Hash: hash}); err != nil {
+		if strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "duplicate key") {
+			// 資料庫留著已撤銷 token 的紀錄(雜湊是唯一的):同一把 token 不能撤銷之後又重新啟用
+			return errors.New("OMIXOR_LOCAL_TOKEN 這把 token 在資料庫裡已經有紀錄(別的使用者或裝置用過、或已經撤銷),請換一把新的")
+		}
+		return err
+	}
+	l.tokenID = id
+	return nil
 }
 
 // ensureMember 本機使用者是組織管理員
@@ -223,8 +280,29 @@ func (l *Local) ensureOrg(o model.Org, update bool) error {
 	return l.ensureMember(o.ID, l.user.ID, "admin")
 }
 
-// principal 本機使用者的身分(匯入用)
-func (l *Local) principal() *model.Principal { return &model.Principal{User: l.user} }
+// principal 本機使用者的身分(匯入用):帶使用者 actor,Via = ViaLocal,SelfActor 與建立 Issue、留言、頻道都可用
+func (l *Local) principal() *model.Principal {
+	return &model.Principal{User: l.user, Actor: l.actor, Via: model.ViaLocal}
+}
+
+// saveUserWithActor 存使用者(與 service.saveUser 同語意:Store.SaveUser 建立或接回 actor)後重讀,把 ActorID 帶回 u;
+// 重讀失敗改走 EnsureUserActor,仍然沒有 actor 就回錯誤(本機流程不接受沒有 actor 的使用者列)
+func saveUserWithActor(st store.Store, u *model.User) error {
+	if err := st.SaveUser(*u); err != nil {
+		return err
+	}
+	cur, err := st.UserByID(u.ID)
+	if err == nil && cur.ActorID != "" {
+		u.ActorID = cur.ActorID
+		return nil
+	}
+	rec, err := st.EnsureUserActor(u.ID)
+	if err != nil {
+		return fmt.Errorf("使用者 %s 已存,取 actor 失敗:%w", u.Email, err)
+	}
+	u.ActorID = rec.ID
+	return nil
+}
 
 // ---- 匯入 App 的本機資料 ----
 
@@ -326,7 +404,7 @@ func (l *Local) ensureNodeMembers(st store.Store, org string, nodes []string) er
 		u, err := st.UserByEmail(e)
 		if errors.Is(err, store.ErrNotFound) {
 			u = &model.User{ID: service.RandID("u_", 9), Email: e, Name: e, Role: "member", CreatedAt: model.Now()}
-			if err := st.SaveUser(*u); err != nil {
+			if err := saveUserWithActor(st, u); err != nil {
 				return err
 			}
 		} else if err != nil {
@@ -347,7 +425,7 @@ type importStep struct {
 	name     string
 	has      bool
 	existing func() (int, error)
-	run      func(tx *store.File, svc *service.Service) (int, error)
+	run      func(tx *store.PG, svc *service.Service) (int, error)
 }
 
 // Importing 有沒有進行中的匯入(結束時要等它做完)
@@ -355,7 +433,7 @@ func (l *Local) Importing() bool { return l.importing.Load() > 0 }
 
 // Import 第一次匯入 App 的本機資料(每一類只匯入一次;順序:Issue、角色與任務、文件櫃、組織鏈、頻道)。
 //
-// 每一類「全有或全無」:在 store 的批次裡寫入,整類成功才存檔一次,失敗就整類還原;成功後立刻寫匯入紀錄。
+// 每一類「全有或全無」:在 store 的批次(一個資料庫交易)裡寫入,整類成功才 commit,失敗就整類還原;成功後立刻寫匯入紀錄。
 // 中途被打斷(程式被砍掉)時,做完的類別已經有紀錄,沒做完的什麼都沒寫,之後重送會接著做。
 // 匯入紀錄遺失(檔案壞了、寫紀錄前被砍斷)時,守護服務已經有的資料不會被 App 的舊資料覆蓋:
 // 視為已匯入、補寫紀錄,回傳 existing。回傳的錯誤只有組織不存在或寫匯入紀錄失敗
@@ -391,7 +469,7 @@ func (l *Local) Import(org string, in AppImport) (map[string]ImportSection, erro
 		}
 		n, err := st.existing()
 		if err != nil {
-			out[st.name] = ImportSection{Status: "error", Error: err.Error()}
+			out[st.name] = ImportSection{Status: "error", Error: httperr.Report("匯入 "+org+" 的 "+st.name, err).Msg}
 			continue
 		}
 		if n > 0 {
@@ -402,13 +480,13 @@ func (l *Local) Import(org string, in AppImport) (map[string]ImportSection, erro
 			continue
 		}
 		var cnt int
-		err = l.Store.Batch(func(tx *store.File) error {
+		err = l.Store.Batch(func(tx *store.PG) error {
 			var err error
 			cnt, err = st.run(tx, &service.Service{Store: tx})
 			return err
 		})
 		if err != nil {
-			out[st.name] = ImportSection{Status: "error", Error: err.Error()}
+			out[st.name] = ImportSection{Status: "error", Error: httperr.Report("匯入 "+org+" 的 "+st.name, err).Msg}
 			log.Printf("匯入 %s 的 %s 失敗(這一類沒有寫入):%v", org, st.name, err)
 			continue
 		}
@@ -423,7 +501,7 @@ func (l *Local) importSteps(org string, in AppImport, p *model.Principal) []impo
 	return []importStep{
 		{name: "issues", has: in.Issues != nil,
 			existing: func() (int, error) { list, err := l.Store.ListIssues(org); return len(list), err },
-			run: func(tx *store.File, svc *service.Service) (int, error) {
+			run: func(tx *store.PG, svc *service.Service) (int, error) {
 				if len(*in.Issues) == 0 {
 					return 0, nil
 				}
@@ -435,7 +513,7 @@ func (l *Local) importSteps(org string, in AppImport, p *model.Principal) []impo
 			}},
 		{name: "agents", has: in.Agents != nil,
 			existing: func() (int, error) { list, err := l.Store.ListAgents(org); return len(list), err },
-			run: func(tx *store.File, svc *service.Service) (int, error) {
+			run: func(tx *store.PG, svc *service.Service) (int, error) {
 				if len(in.Agents.Agents) == 0 {
 					return 0, nil
 				}
@@ -452,14 +530,14 @@ func (l *Local) importSteps(org string, in AppImport, p *model.Principal) []impo
 					return 0, err
 				}
 				n := len(docs)
-				if _, err := l.Store.GetCabinetLayout(org, ""); err == nil { // 未分專案(搬資料只搬組織原本的文件櫃)
+				if _, _, err := l.Store.GetCabinetLayout(org, ""); err == nil { // 未分專案(搬資料只搬組織原本的文件櫃)
 					n++ // 存過的結構也算一筆
 				} else if !errors.Is(err, store.ErrNotFound) {
 					return 0, err
 				}
 				return n, nil
 			},
-			run: func(tx *store.File, svc *service.Service) (int, error) {
+			run: func(tx *store.PG, svc *service.Service) (int, error) {
 				ci := service.CabinetImport{}
 				if in.CabinetLayout != nil {
 					ci.Layout = *in.CabinetLayout
@@ -488,7 +566,7 @@ func (l *Local) importSteps(org string, in AppImport, p *model.Principal) []impo
 				}
 				return len(c.Edges), nil
 			},
-			run: func(tx *store.File, svc *service.Service) (int, error) {
+			run: func(tx *store.PG, svc *service.Service) (int, error) {
 				if len(in.Chain.Edges) == 0 {
 					return 0, nil
 				}
@@ -507,7 +585,7 @@ func (l *Local) importSteps(org string, in AppImport, p *model.Principal) []impo
 			}},
 		{name: "channels", has: in.Channels != nil,
 			existing: func() (int, error) { list, err := l.Store.ListChannels(org); return len(list), err },
-			run: func(tx *store.File, _ *service.Service) (int, error) {
+			run: func(tx *store.PG, _ *service.Service) (int, error) {
 				return l.importChannels(tx, org, *in.Channels)
 			}},
 	}
@@ -517,8 +595,8 @@ func (l *Local) importSteps(org string, in AppImport, p *model.Principal) []impo
 var importFault func(section string, n int) error
 
 // importChannels 頻道、訊息與已讀照原本的順序寫進 store(核心沒有頻道的匯入 API;編號由 store 重新指定,
-// App 的編號本來就從 1 連續,通常不變;已讀依新編號換算)。在批次裡執行(tx),整類只存檔一次
-func (l *Local) importChannels(tx *store.File, org string, in AppChannels) (int, error) {
+// App 的編號本來就從 1 連續,通常不變;已讀依新編號換算)。在批次裡執行(tx),整類同一個交易
+func (l *Local) importChannels(tx *store.PG, org string, in AppChannels) (int, error) {
 	if len(in.Channels) == 0 {
 		return 0, nil
 	}
@@ -540,13 +618,52 @@ func (l *Local) importChannels(tx *store.File, org string, in AppChannels) (int,
 	if err := l.ensureNodeMembers(tx, org, nodes); err != nil {
 		return 0, err
 	}
+	// 「誰」的欄位(成員、建立者、訊息作者、提及、已讀)都是 actor id:舊字串經寬鬆解析器 tx.ResolveLegacy 轉換
+	// (user:<x>、email、agent:<id>、mcp、本機別名、已刪角色、怪值都有對照;缺的 actor 與別名自動建立,同一個字串永遠同一個 actor)。
+	// 兩個舊字串可能對到同一個 actor(例如 user:tim 與 tim):成員、提及去重,已讀取最大的
+	memo := map[string]string{}
+	who := func(raw, emptyAs string) (string, error) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			raw = emptyAs
+		}
+		if raw == "" {
+			return "", nil
+		}
+		if id, ok := memo[raw]; ok {
+			return id, nil
+		}
+		id, err := tx.ResolveLegacy(org, raw)
+		if err == nil {
+			memo[raw] = id
+		}
+		return id, err
+	}
+	whoList := func(raws []string) ([]string, error) {
+		out, seen := []string{}, map[string]bool{}
+		for _, r := range raws {
+			id, err := who(r, "")
+			if err != nil {
+				return nil, err
+			}
+			if id != "" && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+		return out, nil
+	}
 	chs := append([]model.Channel{}, in.Channels...)
 	sort.SliceStable(chs, func(i, j int) bool { return chs[i].Number() < chs[j].Number() })
 	ids := map[string]string{} // 舊頻道 id → 新的
 	for _, c := range chs {
 		old := c.ID
-		if c.Members == nil {
-			c.Members = []string{}
+		var err error
+		if c.Members, err = whoList(c.Members); err != nil {
+			return 0, err
+		}
+		if c.CreatedBy, err = who(c.CreatedBy, ""); err != nil {
+			return 0, err
 		}
 		if c.UpdatedAt.IsZero() {
 			c.UpdatedAt = c.CreatedAt
@@ -572,8 +689,12 @@ func (l *Local) importChannels(tx *store.File, org string, in AppChannels) (int,
 		for _, m := range list {
 			n := m.Number()
 			m.ChannelID = nid
-			if m.Mentions == nil {
-				m.Mentions = []string{}
+			var err error
+			if m.Mentions, err = whoList(m.Mentions); err != nil {
+				return 0, err
+			}
+			if m.Author, err = who(m.Author, "mcp"); err != nil { // 沒署名的當舊的 mcp(本機使用者或 sys_legacy_mcp)
+				return 0, err
 			}
 			if importFault != nil {
 				if err := importFault("channels", len(nums[old])); err != nil {
@@ -587,10 +708,20 @@ func (l *Local) importChannels(tx *store.File, org string, in AppChannels) (int,
 			nums[old][n] = saved.Number()
 		}
 	}
+	type readKey struct{ ch, member string }
+	reads := map[readKey]model.ChannelRead{}
+	var readOrder []readKey
 	for _, r := range in.Reads {
 		nid, ok := ids[r.ChannelID]
 		if !ok {
 			continue
+		}
+		member, err := who(r.Member, "")
+		if err != nil {
+			return 0, err
+		}
+		if member == "" {
+			continue // 沒有成員的已讀沒有意義
 		}
 		last := 0 // 新號碼裡,原本號碼 <= lastRead 的最大值
 		for o, n := range nums[r.ChannelID] {
@@ -598,8 +729,17 @@ func (l *Local) importChannels(tx *store.File, org string, in AppChannels) (int,
 				last = n
 			}
 		}
-		r.ChannelID, r.LastRead = nid, last
-		if err := tx.SaveChannelRead(org, r); err != nil {
+		r.ChannelID, r.LastRead, r.Member = nid, last, member
+		k := readKey{nid, member}
+		if cur, ok := reads[k]; !ok {
+			readOrder = append(readOrder, k)
+			reads[k] = r
+		} else if r.LastRead > cur.LastRead {
+			reads[k] = r
+		}
+	}
+	for _, k := range readOrder {
+		if err := tx.SaveChannelRead(org, reads[k]); err != nil {
 			return 0, err
 		}
 	}
@@ -643,7 +783,11 @@ func (l *Local) DeleteOrg(org string) (int, error) {
 // Handler 核心的 Handler 加上 /local/… 端點
 func (l *Local) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/", Handler(l.Svc))
+	cfg := l.cfg
+	if cfg == nil {
+		cfg = config.Current()
+	}
+	mux.Handle("/", HandlerWith(l.Svc, cfg))
 	admin := func(h func(w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -652,7 +796,7 @@ func (l *Local) Handler() http.Handler {
 				err = errors.New("要伺服器管理員")
 			}
 			if err != nil {
-				writeLocal(w, 401, map[string]any{"error": err.Error()})
+				localFail(w, r, 401, err, nil)
 				return
 			}
 			h(w, r)
@@ -663,13 +807,13 @@ func (l *Local) Handler() http.Handler {
 			Orgs []model.Org `json:"orgs"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&in); err != nil {
-			writeLocal(w, 400, map[string]any{"error": "格式錯誤:" + err.Error()})
+			localBadFormat(w, err)
 			return
 		}
 		res := map[string]string{}
 		for _, o := range in.Orgs {
 			if err := l.ensureOrg(o, true); err != nil {
-				res[o.ID] = err.Error()
+				res[o.ID] = httperr.Report("POST /local/orgs "+o.ID, err).Msg
 			} else {
 				res[o.ID] = "ok"
 			}
@@ -681,17 +825,17 @@ func (l *Local) Handler() http.Handler {
 		defer l.importing.Add(-1)
 		var in AppImport
 		if err := json.NewDecoder(io.LimitReader(r.Body, 256<<20)).Decode(&in); err != nil {
-			writeLocal(w, 400, map[string]any{"error": "格式錯誤:" + err.Error()})
+			localBadFormat(w, err)
 			return
 		}
 		res, err := l.Import(r.PathValue("org"), in)
 		if err != nil && res == nil {
-			writeLocal(w, 400, map[string]any{"error": err.Error()})
+			localFail(w, r, 400, err, nil)
 			return
 		}
 		if err != nil {
 			// 資料已經寫進去了,只是匯入紀錄沒寫成;重送時已有資料的類別會回 existing,不會重複匯入
-			writeLocal(w, 500, map[string]any{"error": err.Error(), "result": res})
+			localFail(w, r, 500, err, map[string]any{"result": res})
 			return
 		}
 		writeLocal(w, 200, map[string]any{"result": res})
@@ -699,7 +843,7 @@ func (l *Local) Handler() http.Handler {
 	mux.HandleFunc("DELETE /local/orgs/{org}", admin(func(w http.ResponseWriter, r *http.Request) {
 		code, err := l.DeleteOrg(r.PathValue("org"))
 		if err != nil {
-			writeLocal(w, code, map[string]any{"error": err.Error()})
+			localFail(w, r, code, err, nil)
 			return
 		}
 		writeLocal(w, 200, map[string]any{"deleted": true})

@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"omixor-core/config"
 	"omixor-core/version"
 )
 
@@ -33,7 +34,7 @@ type localOptions struct {
 	ExitOnEOF  bool
 }
 
-const localUsage = `omixor-local:omixor 本機守護服務(只聽本機 127.0.0.1,資料存在資料夾的 JSON)
+const localUsage = `omixor-local:omixor 本機守護服務(只聽本機 127.0.0.1,資料存在 PostgreSQL:預設自己啟動一個內建的)
 
 用法:
   omixor-local [旗標]
@@ -52,8 +53,10 @@ const localUsage = `omixor-local:omixor 本機守護服務(只聽本機 127.0.0.
   -version         印出版本後結束
   -h               這份說明
 
-環境變數:OMIXOR_DATA_DIR、OMIXOR_ADDR、OMIXOR_LOCAL_TOKEN、OMIXOR_LOCAL_USER(預設 local)、
-          OMIXOR_LOCAL_NAME、OMIXOR_LOCAL_ORG(預設 default)、OMIXOR_EXIT_ON_STDIN_EOF=1(只在 App 模式有作用)
+資料庫:
+  預設在資料夾底下啟動內建的 PostgreSQL(資料在 <資料夾>/pgdata,只聽 127.0.0.1)。第一次啟動要連網下載
+  PostgreSQL 二進位檔(約 10–60 MB,之後離線也能啟動)。不能用 root / 系統管理員身分執行。
+  設了 OMIXOR_DATABASE_URL 就改連那個資料庫,不啟動內建的。以前的 store.json 不會遷移也不會匯入(有 store.json 而沒有 pgdata 時啟動會印警告)。
 
 用 omixor CLI 連這台(獨立模式):
   OMIXOR_SERVER=http://%s OMIXOR_CREDENTIALS=<資料夾>/credentials.json omixor orgs
@@ -63,7 +66,12 @@ const localUsage = `omixor-local:omixor 本機守護服務(只聽本機 127.0.0.
 func parseLocalArgs(args []string, getenv func(string) string, errOut io.Writer) (localOptions, error) {
 	fs := flag.NewFlagSet("omixor-local", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	fs.Usage = func() { fmt.Fprintf(errOut, localUsage, StandaloneAddr, StandaloneAddr) }
+	fs.Usage = func() {
+		fmt.Fprintf(errOut, localUsage, StandaloneAddr, StandaloneAddr)
+		// 環境變數說明由 core/config 的設定定義產生(同 docs/configuration.md)
+		fmt.Fprintln(errOut)
+		fmt.Fprint(errOut, config.Usage(config.Local))
+	}
 	var o localOptions
 	var data, addr string
 	fs.BoolVar(&o.Standalone, "standalone", false, "強制用獨立模式")
@@ -81,15 +89,20 @@ func parseLocalArgs(args []string, getenv func(string) string, errOut io.Writer)
 	if o.Version {
 		return o, nil
 	}
-	o.Cfg = LocalConfig{DataDir: getenv("OMIXOR_DATA_DIR"), Token: getenv("OMIXOR_LOCAL_TOKEN"),
-		User: getenv("OMIXOR_LOCAL_USER"), Name: getenv("OMIXOR_LOCAL_NAME"), Org: getenv("OMIXOR_LOCAL_ORG")}
+	// 環境變數集中載入並驗證(型別錯誤一次列完;錯誤訊息不含機密)
+	cfg := config.LoadFrom(getenv, config.Local)
+	if err := cfg.Validate(config.Local); err != nil {
+		return o, err
+	}
+	o.Cfg = LocalConfig{DataDir: cfg.Str(config.DataDir), DatabaseURL: cfg.Str(config.DatabaseURL), Token: cfg.Str(config.LocalToken),
+		User: cfg.Str(config.LocalUser), Name: cfg.Str(config.LocalName), Org: cfg.Str(config.LocalOrg)}
 	if o.Cfg.Token == "" {
 		o.Standalone = true
 	}
 	if data != "" {
 		o.Cfg.DataDir = data
 	}
-	o.Addr = getenv("OMIXOR_ADDR")
+	o.Addr = cfg.Str(config.Addr)
 	if addr != "" {
 		o.Addr = addr
 	}
@@ -112,7 +125,7 @@ func parseLocalArgs(args []string, getenv func(string) string, errOut io.Writer)
 		if o.Addr == "" {
 			o.Addr = "127.0.0.1:0"
 		}
-		o.ExitOnEOF = getenv("OMIXOR_EXIT_ON_STDIN_EOF") == "1"
+		o.ExitOnEOF = cfg.Bool(config.ExitOnStdinEOF)
 	}
 	if err := loopbackAddr(o.Addr); err != nil {
 		return o, err
@@ -129,13 +142,13 @@ var importWait = 30 * time.Second
 // RunLocal omixor-local 的進入點
 func RunLocal() {
 	log.SetPrefix("omixor-local ")
-	tok := os.Getenv("OMIXOR_LOCAL_TOKEN")
-	_ = os.Unsetenv("OMIXOR_LOCAL_TOKEN") // 用過就從環境拿掉(子程序不會繼承)
+	tok := config.ProcessEnv(config.LocalToken.Name)
+	_ = os.Unsetenv(config.LocalToken.Name) // 用過就從環境拿掉(子程序不會繼承)
 	getenv := func(k string) string {
-		if k == "OMIXOR_LOCAL_TOKEN" {
+		if k == config.LocalToken.Name {
 			return tok
 		}
-		return os.Getenv(k)
+		return config.ProcessEnv(k)
 	}
 	err := runLocal(os.Args[1:], getenv, os.Stdout, os.Stderr, nil)
 	if errors.Is(err, flag.ErrHelp) {
@@ -174,6 +187,46 @@ func runLocal(args []string, getenv func(string) string, stdout, stderr io.Write
 		return err
 	}
 	defer lock.Close()
+	// 結束訊號從這裡就開始接:第一次啟動內建 PostgreSQL 要下載、解壓、初始化,可能好幾分鐘,
+	// 這段時間收到結束訊號(App 關掉、Ctrl+C、關主控台)要中止啟動並把 postgres 清乾淨,不能直接被殺在中途。
+	// 啟動完成前只會取消 ctx(StartEmbeddedPG 看 ctx);啟動完成後由下面的 goroutine 走 shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var whyMu sync.Mutex
+	why := ""
+	quit := func(w string) {
+		whyMu.Lock()
+		if why == "" {
+			why = w
+		}
+		whyMu.Unlock()
+		cancel()
+	}
+	reason := func() string { whyMu.Lock(); defer whyMu.Unlock(); return why }
+	// os.Interrupt:Ctrl+C(Windows 也是);SIGTERM:kill,Windows 關閉主控台視窗、登出、關機時 Go 也送這個
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sig)
+	go func() {
+		select {
+		case s := <-sig:
+			quit(s.String())
+		case <-ctx.Done():
+		}
+	}()
+	if stop != nil {
+		go func() {
+			select {
+			case <-stop:
+				quit("要求結束")
+			case <-ctx.Done():
+			}
+		}()
+	}
+	if o.ExitOnEOF {
+		go func() { _, _ = io.Copy(io.Discard, os.Stdin); quit("App 關掉了標準輸入") }()
+	}
+	o.Cfg.Context = ctx
 	var l *Local
 	if o.Standalone {
 		l, err = OpenStandalone(o.Cfg, o.Rotate)
@@ -181,8 +234,18 @@ func runLocal(args []string, getenv func(string) string, stdout, stderr io.Write
 		l, err = OpenLocal(o.Cfg)
 	}
 	if err != nil {
+		if w := reason(); w != "" {
+			log.Printf("啟動中收到結束(%s),已中止:%v", w, err)
+			return nil
+		}
 		return err
 	}
+	// HTTP 停下來之後再關資料庫(內建的 PostgreSQL 也在這裡停);下面任何一個錯誤返回路徑都會經過
+	defer func() {
+		if err := l.Close(); err != nil {
+			log.Print(err)
+		}
+	}()
 	ln, err := net.Listen("tcp", o.Addr)
 	if err != nil {
 		if o.Standalone {
@@ -198,7 +261,7 @@ func runLocal(args []string, getenv func(string) string, stdout, stderr io.Write
 		}
 	}
 	// 領取任務時附上角色端點的網址(App 的自動執行用)
-	_ = os.Setenv("OMIXOR_PUBLIC_URL", url)
+	l.cfg = config.Current().With(config.PublicURL, url)
 	stopRoutines := l.Svc.StartRoutines(time.Minute, nil)
 	hs := &http.Server{Handler: l.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	done := make(chan struct{})
@@ -207,11 +270,12 @@ func runLocal(args []string, getenv func(string) string, stdout, stderr io.Write
 		once.Do(func() {
 			log.Printf("結束(%s)", why)
 			stopRoutines()
-			// 資料每次變更就寫進資料夾(core/store/file.go),這裡只要等進行中的請求做完;
-			// Windows 關閉主控台視窗時大約只有 5 秒,所以平常等 3 秒就好。
+			// 資料每次變更就已經寫進資料庫,這裡只要等進行中的請求做完(之後 runLocal 返回時才關資料庫與內建的 PostgreSQL);
+			// Windows 關閉主控台視窗時大約只有 5 秒,而之後還要關資料庫與內建的 PostgreSQL(pg_ctl stop -m fast,通常 1 秒內),
+			// 所以平常最多等 2 秒就好。
 			// 有匯入在跑(App 第一次搬資料,可能要好幾秒)時最多等 importWait:每一類匯入是全有或全無,
 			// 真的被砍斷也只是那一類沒寫入、之後重送,但盡量讓它做完
-			wait := 3 * time.Second
+			wait := 2 * time.Second
 			if l.Importing() {
 				wait = importWait
 				log.Printf("有匯入在進行,最多等 %s 讓它做完", wait)
@@ -222,29 +286,14 @@ func runLocal(args []string, getenv func(string) string, stdout, stderr io.Write
 			close(done)
 		})
 	}
-	// os.Interrupt:Ctrl+C(Windows 也是);SIGTERM:kill,Windows 關閉主控台視窗、登出、關機時 Go 也送這個
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sig)
+	// 啟動中已經收到結束訊號時,這裡會馬上開始 shutdown
 	go func() {
 		select {
-		case s := <-sig:
-			shutdown(s.String())
+		case <-ctx.Done():
+			shutdown(reason())
 		case <-done:
 		}
 	}()
-	if stop != nil {
-		go func() {
-			select {
-			case <-stop:
-				shutdown("要求結束")
-			case <-done:
-			}
-		}()
-	}
-	if o.ExitOnEOF {
-		go func() { _, _ = io.Copy(io.Discard, os.Stdin); shutdown("App 關掉了標準輸入") }()
-	}
 	go func() {
 		if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("HTTP:%v", err)

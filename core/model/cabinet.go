@@ -71,33 +71,22 @@ func CloneLayout(l []CabinetSection) []CabinetSection {
 
 // CabinetDoc 一份文件。Tab 是頁籤網址(nil = 放在區塊本身);Project 是所屬專案 id(空 = 未分專案,JSON 不帶)
 type CabinetDoc struct {
-	Author    string   `json:"author"`
-	Body      string   `json:"body"`
-	CreatedAt Time     `json:"createdAt"`
-	ID        string   `json:"id"`
-	Project   string   `json:"project,omitempty"`
-	Section   string   `json:"section"`
-	Tab       *string  `json:"tab,omitempty"`
-	Tags      []string `json:"tags"`
-	Title     string   `json:"title"`
-	UpdatedAt Time     `json:"updatedAt"`
+	Author string `json:"author"`
+	// AuthorActor 作者的 actor 物件(ISS-36 C-3;服務層出口補,查不到或沒有作者省略)
+	AuthorActor *ActorView `json:"authorActor,omitempty"`
+	Body        string     `json:"body"`
+	CreatedAt   Time       `json:"createdAt"`
+	ID          string     `json:"id"`
+	Project     string     `json:"project,omitempty"`
+	Section     string     `json:"section"`
+	Tab         *string    `json:"tab,omitempty"`
+	Tags        []string   `json:"tags"`
+	Title       string     `json:"title"`
+	UpdatedAt   Time       `json:"updatedAt"`
 }
 
 // Number DOC-12 → 12(格式不對回 0)
-func (d CabinetDoc) Number() int {
-	rest, ok := strings.CutPrefix(strings.ToUpper(d.ID), DocPrefix)
-	if !ok || rest == "" {
-		return 0
-	}
-	n := 0
-	for _, r := range rest {
-		if r < '0' || r > '9' {
-			return 0
-		}
-		n = n*10 + int(r-'0')
-	}
-	return n
-}
+func (d CabinetDoc) Number() int { return idNumber(d.ID, DocPrefix) }
 
 // TabPath Tab 的值(nil 是 "")
 func (d CabinetDoc) TabPath() string {
@@ -124,6 +113,8 @@ type Cabinet struct {
 	Layout      []CabinetSection `json:"layout"`
 	Docs        []CabinetDoc     `json:"docs"`
 	LayoutSaved bool             `json:"layoutSaved"`
+	// LayoutVersion 結構的版本號(沒存過是 0,每存一次 +1);存檔時帶 expectedVersion 做樂觀鎖
+	LayoutVersion int64 `json:"layoutVersion"`
 }
 
 // ---- 結構的查找(依 id、名稱、網址、代號) ----

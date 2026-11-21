@@ -15,9 +15,8 @@ import (
 func ChannelToolDefs() []any {
 	return []any{
 		coreDef("channels",
-			"列出我(或 agent 角色)看得到的訊息頻道:id、名稱、主題、綁的 Issue、成員(node 與顯示名稱)、未讀數與最後一則訊息的時間。頻道把人與虛擬角色拉進同一個對話;@ 角色只通知、不排任務。給 issue 只找綁該 Issue 的頻道。", true,
+			"列出我看得到的訊息頻道:id、名稱、主題、綁的 Issue、成員(node 與顯示名稱)、未讀數與最後一則訊息的時間。頻道把人與虛擬角色拉進同一個對話;@ 角色只通知、不排任務。給 issue 只找綁該 Issue 的頻道。", true,
 			obj(map[string]any{
-				"agent": pStr("以角色身分查看時填角色 id 或名稱(只列它是成員的頻道,未讀數是它的)"),
 				"issue": pStr("只找綁這個 Issue 的頻道,例如 ISS-3"),
 			})),
 		coreDef("channel_create",
@@ -29,43 +28,50 @@ func ChannelToolDefs() []any {
 				"members": pStrs("成員,例如 [\"agent:marketing\", \"pm@example.com\"]"),
 			}, "name")),
 		coreDef("channel_messages",
-			"讀頻道訊息(依時間由舊到新)。給 since(訊息 id M-n 或時間)回傳之後最早的 limit 筆;沒給回傳最新的 limit 筆。hasMore 表示還有更多。讀了算已讀(標到回傳的最後一則)。帶 agent 時以該角色身分讀(要是頻道成員)。", true,
+			"讀頻道訊息(依時間由舊到新)。給 since(訊息 id M-n 或時間)回傳之後最早的 limit 筆;沒給回傳最新的 limit 筆。hasMore 表示還有更多。讀了算已讀(標到回傳的最後一則)。要是頻道成員。", true,
 			obj(map[string]any{
 				"channel": pStr("頻道 id(CH-n)或名稱"),
 				"since":   pStr("訊息 id(M-n)或 ISO 8601 時間"),
 				"limit":   pInt("最多幾筆,預設 50、最多 200"),
-				"agent":   pStr("以角色身分讀時填角色 id 或名稱"),
 			}, "channel")),
 		coreDef("channel_post",
-			"在頻道發一則訊息(Markdown,最多 8000 字;要是頻道成員)。用 @角色名稱、@角色 id 或 @email 提到頻道成員:只通知對方(角色下次執行時在 agent_context 的 mentions 看得到),不會排任務。帶 agent 時以該角色署名(角色要是頻道成員)。", false,
+			"在頻道發一則訊息(Markdown,最多 8000 字;要是頻道成員)。用 @角色名稱、@角色 id 或 @email 提到頻道成員:只通知對方(角色下次執行時在 agent_context 的 mentions 看得到),不會排任務。署名是呼叫者(角色端點是憑證的角色)。", false,
 			obj(map[string]any{
 				"channel": pStr("頻道 id(CH-n)或名稱"),
 				"text":    pStr("訊息內容(Markdown)"),
-				"agent":   pStr("以角色身分發時填角色 id 或名稱"),
 			}, "channel", "text")),
 	}
 }
 
-// channelAs 以誰的身分:角色端點一律是憑證的角色;管理端點有給 agent 就是該角色(service 只認伺服器管理員給的),沒給是呼叫者
+// channelAs 以誰的身分:角色端點一律是憑證的角色;人類端點是呼叫者(空字串;帶 agent 回 400)
 func channelAs(e AgentEnv, c *Call) (string, error) {
-	agent := c.Args.Str("agent")
-	if e.Role() == nil && strings.TrimSpace(agent) == "" {
+	agent, err := identityAgent(c)
+	if err != nil {
+		return "", err
+	}
+	if e.Role() == nil {
 		return "", nil
 	}
 	return e.Author(agent)
 }
 
-func membersJSON(e AgentEnv, nodes []string) []any {
+// membersJSON 成員:node(相容字串)、name,和 actor 物件(actors 與 nodes 同順序,服務層補的;數量對不上就不放)
+func membersJSON(e AgentEnv, nodes []string, actors []model.ActorView) []any {
 	out := []any{}
-	for _, n := range nodes {
-		out = append(out, map[string]any{"node": n, "name": nodeName(e, n)})
+	for k, n := range nodes {
+		m := map[string]any{"node": n, "name": nodeName(e, n)}
+		if len(actors) == len(nodes) {
+			m["actor"] = actors[k]
+		}
+		out = append(out, m)
 	}
 	return out
 }
 
 func channelJSON(e AgentEnv, c model.ChannelSummary) map[string]any {
 	out := map[string]any{"id": c.ID, "name": c.Name, "topic": c.Topic, "issueId": c.IssueID,
-		"members": membersJSON(e, c.Members), "unread": c.Unread, "createdBy": nodeName(e, c.CreatedBy)}
+		"members": membersJSON(e, c.Members, c.MemberActors), "unread": c.Unread, "createdBy": nodeName(e, c.CreatedBy)}
+	putActor(out, "createdByActor", c.CreatedByActor)
 	if c.LastMessageAt != nil {
 		out["lastMessageAt"] = iso(c.LastMessageAt.Time)
 	} else {
@@ -79,8 +85,11 @@ func messageJSON(e AgentEnv, m model.ChannelMessage) map[string]any {
 	if mentions == nil {
 		mentions = []string{}
 	}
-	return map[string]any{"id": m.ID, "author": m.Author, "authorName": nodeName(e, m.Author), "text": m.Text,
+	out := map[string]any{"id": m.ID, "author": m.Author, "authorName": nodeName(e, m.Author), "text": m.Text,
 		"mentions": mentions, "at": iso(m.At.Time)}
+	putActor(out, "authorActor", m.AuthorActor)
+	putActors(out, "mentionActors", m.MentionActors)
+	return out
 }
 
 // findChannelArg 頻道參數:id(CH-<n>)直接用;否則在看得到的頻道裡依名稱找(不分大小寫)
@@ -109,8 +118,10 @@ func channelMentions(e AgentEnv, agentID string) map[string]any {
 	}
 	msgs := []any{}
 	for _, m := range x.Mentions {
-		msgs = append(msgs, map[string]any{"channelId": m.ChannelID, "channelName": m.ChannelName, "id": m.ID,
-			"author": m.Author, "authorName": nodeName(e, m.Author), "text": m.Text, "at": iso(m.At.Time)})
+		row := map[string]any{"channelId": m.ChannelID, "channelName": m.ChannelName, "id": m.ID,
+			"author": m.Author, "authorName": nodeName(e, m.Author), "text": m.Text, "at": iso(m.At.Time)}
+		putActor(row, "authorActor", m.AuthorActor)
+		msgs = append(msgs, row)
 	}
 	chs := []any{}
 	for _, c := range x.Channels {
@@ -203,7 +214,7 @@ func RegisterChannelTools(s *Server) {
 			_, _ = bk.MarkChannelRead(org, ch.ID, service.ReadInput{UpTo: page.Messages[n-1].ID, As: as})
 		}
 		return map[string]any{
-			"channel":  map[string]any{"id": ch.ID, "name": ch.Name, "topic": ch.Topic, "issueId": ch.IssueID, "members": membersJSON(e, ch.Members)},
+			"channel":  map[string]any{"id": ch.ID, "name": ch.Name, "topic": ch.Topic, "issueId": ch.IssueID, "members": membersJSON(e, ch.Members, ch.MemberActors)},
 			"messages": msgs, "hasMore": page.HasMore,
 		}, nil
 	})

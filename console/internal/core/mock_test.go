@@ -341,7 +341,7 @@ func TestUIActions(t *testing.T) {
 	}
 	tl := out.(map[string]any)["timeline"].([]any)
 	last := tl[len(tl)-1].(map[string]any)
-	if last["text"] != "人加的註記" || ActorFrom(last["actor"]) != Person("tim") {
+	if last["text"] != "人加的註記" || ActorFrom(last["actor"]) != Person(LocalIdentity) {
 		t.Fatal(last)
 	}
 }

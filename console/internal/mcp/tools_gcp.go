@@ -21,7 +21,13 @@ func gcpReady(c *Call) error {
 	return nil
 }
 
-func gcpFail(err error) error { return ToolError{Message: "GCP 回應錯誤:" + core.GCPExplain(err)} }
+// gcpFail GCP 的錯誤:連線錯誤(ConnError,對方回的說明)刻意給人看,附上怎麼處理;其他(資料庫、路徑)換成通用訊息
+func gcpFail(err error) error {
+	if _, ok := core.AsConnError(err); ok {
+		err = core.UserError{Message: core.GCPExplain(err)}
+	}
+	return PrefixErr("GCP 回應錯誤:", err)
+}
 
 func optArg(c *Call, k string) *string {
 	if s, ok := c.Args.String(k); ok {

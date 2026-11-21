@@ -95,6 +95,7 @@ func RegisterDispatchTools(s *Server) {
 				"status": t.Status, "links": t.Links, "claimable": !t.Locked(now)}
 			if t.ClaimedBy != "" {
 				row["claimedBy"] = t.ClaimedBy
+				putActor(row, "claimedByActor", t.ClaimedByActor)
 				row["mine"] = me != "" && t.ClaimedBy == me
 			}
 			if t.LockedUntil != nil {
@@ -125,7 +126,7 @@ func RegisterDispatchTools(s *Server) {
 		}
 		if err != nil {
 			if service.Code(err) == 409 { // 含「已被領取、處理中,鎖定到 hh:mm」:原文轉給呼叫端
-				return nil, ToolError{Message: "領取失敗:" + err.Error()}
+				return nil, prefixErr("領取失敗:", err)
 			}
 			return nil, terr(err)
 		}
@@ -248,6 +249,7 @@ func RegisterDispatchTools(s *Server) {
 		if n := len(i.Comments); n > 0 {
 			lc := i.Comments[n-1]
 			last = map[string]any{"id": lc.ID, "author": lc.Author, "at": iso(lc.At.Time)}
+			putActor(last, "authorActor", lc.AuthorActor)
 		}
 		return map[string]any{"issue": i.ID, "comments": len(i.Comments), "comment": last}, nil
 	})

@@ -24,6 +24,8 @@ type IssueInput struct {
 	Author string `json:"author"` // 伺服器管理員(app、omixor-web)可以指定;其他人一律是自己的 email
 	// Assignee 指派給的角色 id(空 = 不指派);角色必須存在(否則 400),且 active 時會自動替它排一筆任務
 	Assignee string `json:"assignee,omitempty"`
+	// Project 放進的專案 id(空 = 組織層級,key 是 ISS-<n>);專案要存在(404)而且設定了代號(400),key 是 <代號>-<n>
+	Project string `json:"project,omitempty"`
 }
 
 // IssuePatch 修改 Issue:有給的欄位整個取代(同 app 的 issue_update)
@@ -47,6 +49,79 @@ type IssuePatch struct {
 	// 作者照伺服器上的),改別人或自己已有留言的文字回 403;不認得 id 的留言附加在最後,作者一律是自己
 	Comments *[]model.Comment `json:"comments,omitempty"`
 	Author   string           `json:"author,omitempty"`
+	// Restore 還原模式(只限伺服器管理員,否則 403;CLI issues restore 用):Comments 整份取代時,伺服器上沒有的留言(被刪掉、要補回的)
+	// 的作者字串當歷史署名,用匯入的寬鬆解析器(actor_import.go)解析,不套 D9 的「不能代別的使用者」檢查;
+	// 沒有這個旗標時,整份取代裡的新留言作者只能是呼叫者本人、角色或系統(AuthorReject)。會留稽核(issue.restore)
+	Restore bool `json:"restore,omitempty"`
+	// Project 搬到這個專案(有給才處理;"" = 搬回組織層級)。在目的範圍發新的 key,舊的 key 留在別名表照樣查得到
+	Project *string `json:"project,omitempty"`
+	// Version 樂觀鎖:有給而且和目前版本不同回 409(Data.current 是目前的 Issue、currentVersion 是目前版本);沒給 = 不檢查
+	Version *int `json:"version,omitempty"`
+}
+
+// errIssueConflict 版本不符的 409:帶目前的 Issue(用戶端可以拿來合併)
+func errIssueConflict(cur *model.Issue, version int64) error {
+	data := map[string]any{"currentVersion": version}
+	if cur != nil {
+		data["current"] = cur
+	}
+	return &Error{Code: 409, Msg: "這張 Issue 已經被別人改過,請重新載入", Data: data}
+}
+
+// conflictErr errIssueConflict 的服務層版本:cur 是存放處讀到的(actor id),帶進錯誤前先轉成相容字串
+func (s *Service) conflictErr(cur *model.Issue, version int64) error {
+	if pc, err := s.presentIssue(cur); err == nil {
+		cur = pc
+	}
+	return errIssueConflict(cur, version)
+}
+
+// issueNotFound Issue 不存在(含在垃圾桶裡的)
+func issueNotFound(id string) error { return fail(404, "找不到 Issue %s", id) }
+
+// resolveIssueID Issue 編號(內部 id、目前或舊的 key,不分大小寫)→ 內部 id;找不到 404。
+// 所有收 Issue 編號的入口先呼叫它(鎖、比對都用內部 id)
+func (s *Service) resolveIssueID(org, ref string) (string, error) {
+	id, err := s.Store.ResolveIssueID(org, strings.TrimSpace(ref))
+	if errors.Is(err, store.ErrNotFound) {
+		return "", issueNotFound(ref)
+	}
+	return id, err
+}
+
+// ResolveIssueID 同 resolveIssueID(組織成員;給 api、頻道等外部入口用)
+func (s *Service) ResolveIssueID(p *model.Principal, org, ref string) (string, error) {
+	if err := s.viewer(p, org); err != nil {
+		return "", err
+	}
+	return s.resolveIssueID(org, ref)
+}
+
+// issueProject Issue 要放進的專案:空白 = 組織層級;否則要存在(404)而且有代號(400)。回傳存起來的專案 id
+func (s *Service) issueProject(org, project string) (string, error) {
+	pid, err := s.projectID(org, project)
+	if err != nil || pid == "" {
+		return pid, err
+	}
+	x, err := s.findProject(org, pid)
+	if err != nil {
+		return "", err
+	}
+	if x.Key == "" {
+		return "", fail(400, "這個專案還沒設定代號")
+	}
+	return pid, nil
+}
+
+// issueStoreErr 存放處建立、搬移 Issue 的錯誤 → 給使用者看的
+func issueStoreErr(err error) error {
+	switch {
+	case errors.Is(err, store.ErrProjectNoKey):
+		return fail(400, "這個專案還沒設定代號")
+	case errors.Is(err, store.ErrBadRef):
+		return fail(404, "找不到專案")
+	}
+	return err
 }
 
 // CommentInput 新增一則留言(POST /api/orgs/{org}/issues/{id}/comments)
@@ -80,7 +155,8 @@ func uuid() string {
 	return strings.ToUpper(fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]))
 }
 
-// author 伺服器管理員照給的(沒給是 mcp);其他人一律是自己的 email
+// author 舊的署名字串(伺服器管理員照給的、沒給是 mcp;其他人是自己的 email)。
+// Issue、留言、文件已改用 ResolveAuthor(actor id);這個只剩 agents_tasks.go、agents_routines.go(C-2b 的檔)在用,C-2b 改完後刪除
 func author(p *model.Principal, given string) string {
 	if !p.ServerAdmin() {
 		return p.User.Email
@@ -95,16 +171,36 @@ func (s *Service) ListIssues(p *model.Principal, org string) ([]model.Issue, err
 	if err := s.viewer(p, org); err != nil {
 		return nil, err
 	}
-	return s.Store.ListIssues(org)
+	list, err := s.Store.ListIssues(org)
+	if err != nil {
+		return nil, err
+	}
+	return s.presentIssues(list)
+}
+
+// ListDeletedIssues 垃圾桶裡的 Issue(組織管理員;新的在前)
+func (s *Service) ListDeletedIssues(p *model.Principal, org string) ([]model.Issue, error) {
+	if err := s.needOrgAdmin(p, org); err != nil {
+		return nil, err
+	}
+	list, err := s.Store.ListDeletedIssues(org)
+	if err != nil {
+		return nil, err
+	}
+	return s.presentIssues(list)
 }
 
 // QueryIssues 依條件篩選、排序的 Issue(GET /api/orgs/{org}/issues 的 query 參數;規則見 model.QueryIssues)。
-// 條件是零值時同 ListIssues(全部、存放處的順序,新的在前)。status、priority、sort 不認得回 400
+// 條件是零值時同 ListIssues(全部、存放處的順序,新的在前)。status、priority、sort 不認得回 400。
+// q.Deleted = 列垃圾桶(組織管理員),其他條件照樣套用
 func (s *Service) QueryIssues(p *model.Principal, org string, q model.IssueQuery) ([]model.Issue, error) {
 	if e := q.Validate(); e != "" {
 		return nil, fail(400, "%s", e)
 	}
 	list, err := s.ListIssues(p, org)
+	if q.Deleted {
+		list, err = s.ListDeletedIssues(p, org)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -144,9 +240,12 @@ func (s *Service) GetIssue(p *model.Principal, org, id string) (*model.Issue, er
 	}
 	i, err := s.Store.GetIssue(org, id)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, fail(404, "找不到 Issue %s", id)
+		return nil, issueNotFound(id)
 	}
-	return i, err
+	if err != nil {
+		return nil, err
+	}
+	return s.presentIssue(i)
 }
 
 func (s *Service) CreateIssue(p *model.Principal, org string, in IssueInput) (*model.Issue, error) {
@@ -166,27 +265,43 @@ func (s *Service) CreateIssue(p *model.Principal, org string, in IssueInput) (*m
 	if !ok {
 		return nil, repoErr()
 	}
-	assignee, err := s.resolveAssignee(org, in.Assignee)
+	by, err := s.ResolveAuthor(p, org, in.Author, AuthorIgnore)
+	if err != nil {
+		return nil, err
+	}
+	assignee, err := s.resolveIssueAssignee(p, org, in.Assignee)
+	if err != nil {
+		return nil, err
+	}
+	if assignee != "" { // 建立時指派:有設定組織鏈就不能繞過(見 checkIssueAssign)
+		if err := s.checkIssueAssign(p, org, assignee); err != nil {
+			return nil, err
+		}
+	}
+	project, err := s.issueProject(org, in.Project)
 	if err != nil {
 		return nil, err
 	}
 	now := s.mt()
-	i := model.Issue{Assignee: assignee, Title: in.Title, Body: in.Body, Status: "open", Priority: in.Priority, Labels: model.CleanLabels(in.Labels),
-		Repo: repo, Source: in.Source, Link: in.Link, CreatedBy: author(p, in.Author), CreatedAt: now, UpdatedAt: now, Comments: []model.Comment{}}
+	i := model.Issue{Project: project, Assignee: assignee, Title: in.Title, Body: in.Body, Status: "open", Priority: in.Priority, Labels: model.CleanLabels(in.Labels),
+		Repo: repo, Source: in.Source, Link: in.Link, CreatedBy: by.ID, CreatedAt: now, UpdatedAt: now, Comments: []model.Comment{}}
 	saved, err := s.Store.CreateIssue(org, i)
 	if err != nil {
-		return nil, err
+		return nil, issueStoreErr(err)
 	}
-	s.Audit(p, "issue.create", org, map[string]any{"id": saved.ID})
+	s.Audit(p, "issue.create", org, map[string]any{"id": saved.ID, "key": saved.Key, "project": saved.Project})
 	if assignee != "" {
-		s.syncAssignee(p, org, saved, "", author(p, in.Author))
+		s.syncIssueAssignee(p, org, saved, "", by.ID)
 	}
-	return &saved, nil
+	return s.presentIssue(&saved)
 }
 
 func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch) (*model.Issue, error) {
 	if err := s.viewer(p, org); err != nil {
 		return nil, err
+	}
+	if in.Restore && (p.Agent != nil || !p.ServerAdmin()) {
+		return nil, fail(403, "restore 只有伺服器管理員可以用")
 	}
 	if in.Priority != nil && !model.OneOf(*in.Priority, model.IssuePriorities) {
 		return nil, fail(400, "priority 必須是 %s 之一", strings.Join(model.IssuePriorities, "、"))
@@ -204,12 +319,27 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 		}
 		in.Repo = &r
 	}
-	if in.Assignee != nil { // 換成角色 id(角色不存在 400)
-		a, err := s.resolveAssignee(org, *in.Assignee)
+	if in.Assignee != nil { // 換成角色的 actor id(角色不存在 400)
+		a, err := s.resolveIssueAssignee(p, org, *in.Assignee)
 		if err != nil {
 			return nil, err
 		}
 		in.Assignee = &a
+	}
+	if in.Project != nil { // 換成存起來的專案 id(不存在 404、沒有代號 400)
+		pr, err := s.issueProject(org, *in.Project)
+		if err != nil {
+			return nil, err
+		}
+		in.Project = &pr
+	}
+	by, err := s.ResolveAuthor(p, org, in.Author, AuthorIgnore)
+	if err != nil {
+		return nil, err
+	}
+	id, err = s.resolveIssueID(org, id) // 鎖與存放處都用內部 id(同一張 Issue 用不同編號也是同一把鎖)
+	if err != nil {
+		return nil, err
 	}
 	mu := s.issueLock(org, id)
 	mu.Lock()
@@ -219,19 +349,44 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 		return nil, err
 	}
 	if in.Assignee != nil { // 有給 assignee:取消舊角色未領取的任務、替新角色排任務(已有未結束的不重複排);在 Issue 的鎖外(會拿 agents.mu)
-		s.syncAssignee(p, org, *n, cur.Assignee, author(p, in.Author))
+		s.syncIssueAssignee(p, org, *n, cur.Assignee, by.ID)
 	}
-	return n, nil
+	return s.presentIssue(n)
 }
 
 // patchIssue UpdateIssue 的「讀了再改」(拿著 issueLock 呼叫);回傳改好的與改之前的
 func (s *Service) patchIssue(p *model.Principal, org, id string, in IssuePatch) (*model.Issue, *model.Issue, error) {
 	cur, err := s.Store.GetIssue(org, id)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, nil, fail(404, "找不到 Issue %s", id)
+		return nil, nil, issueNotFound(id)
 	}
 	if err != nil {
 		return nil, nil, err
+	}
+	if in.Version != nil && *in.Version != cur.Version {
+		return nil, nil, s.conflictErr(cur, int64(cur.Version))
+	}
+	expected := 0 // 存放處的條件式更新用:有給版本才檢查(多個實例時 issueLock 擋不住,要靠資料庫)
+	if in.Version != nil {
+		expected = *in.Version
+	}
+	// 換指派給別的角色:有設定組織鏈時,和直接派任務(AssignTask、DelegateTask)走同一套規則,不能繞過(見 checkIssueAssign)
+	if in.Assignee != nil && *in.Assignee != "" && *in.Assignee != cur.Assignee {
+		if err := s.checkIssueAssign(p, org, *in.Assignee); err != nil {
+			return nil, nil, err
+		}
+	}
+	orig := cur
+	if in.Project != nil && *in.Project != cur.Project { // 搬專案:發新的 key,舊的留在別名表
+		moved, oldKey, err := s.Store.MoveIssue(org, cur.ID, *in.Project, expected, s.mt())
+		if err != nil {
+			return nil, nil, s.issueWriteErr(org, id, err)
+		}
+		s.Audit(p, "issue.move", org, map[string]any{"id": moved.ID, "from": oldKey, "to": moved.Key, "project": moved.Project})
+		cur = moved
+		if expected > 0 {
+			expected = moved.Version
+		}
 	}
 	n := *cur
 	if in.Assignee != nil {
@@ -261,7 +416,7 @@ func (s *Service) patchIssue(p *model.Principal, org, id string, in IssuePatch) 
 		n.Labels = model.CleanLabels(*in.Labels)
 	}
 	if in.Comments != nil {
-		cs, err := s.mergeComments(p, cur.Comments, *in.Comments)
+		cs, err := s.mergeComments(p, org, cur.Comments, *in.Comments, in.Restore)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -278,26 +433,58 @@ func (s *Service) patchIssue(p *model.Principal, org, id string, in IssuePatch) 
 	if !same(n, *cur) {
 		n.UpdatedAt = s.mt()
 		w := n
+		w.Version = expected
 		if in.Comments == nil || sameComments(n.Comments, cur.Comments) {
 			w.Comments = nil // 留言沒變:不動存放處裡的留言(不會蓋掉別的程式同時新增的留言)
 		}
 		if err := s.Store.UpdateIssue(org, w); err != nil {
-			return nil, nil, err
+			return nil, nil, s.issueWriteErr(org, id, err)
 		}
-		s.Audit(p, "issue.update", org, map[string]any{"id": n.ID})
+		// 版本號只在本體(標題、內文、狀態、優先度、標籤、來源、連結、指派、repo)有變才 +1,和 store 的條件一致;
+		// 只有留言變了(新增留言)不算修改本體,回應的 Version 要等於實際存下的
+		body := n
+		body.Comments = cur.Comments
+		if same(body, *cur) {
+			n.Version = cur.Version
+		} else {
+			n.Version = cur.Version + 1
+		}
+		act := "issue.update"
+		if in.Restore {
+			act = "issue.restore"
+		}
+		s.Audit(p, act, org, map[string]any{"id": n.ID, "key": n.Key})
 	}
-	return &n, cur, nil
+	return &n, orig, nil
+}
+
+// issueWriteErr 存放處寫入 Issue 的錯誤:版本不符 → 409(帶目前的 Issue);不存在 → 404;其他照 issueStoreErr
+func (s *Service) issueWriteErr(org, id string, err error) error {
+	var vc *store.VersionConflictError
+	if errors.As(err, &vc) {
+		cur, _ := s.Store.GetIssue(org, id)
+		return s.conflictErr(cur, vc.Current)
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return issueNotFound(id)
+	}
+	return issueStoreErr(err)
 }
 
 // mergeComments IssuePatch.Comments 的規則(見 IssuePatch):伺服器管理員整份取代;其他人只能新增
-func (s *Service) mergeComments(p *model.Principal, cur, given []model.Comment) ([]model.Comment, error) {
+func (s *Service) mergeComments(p *model.Principal, org string, cur, given []model.Comment, restore bool) ([]model.Comment, error) {
 	old := map[string]model.Comment{}
 	for _, c := range cur {
 		old[c.ID] = c
 	}
 	if p.ServerAdmin() {
-		// 既有留言的作者照伺服器上的(不能改別人的留言作者);新留言沒給作者時用 author() 的規則
+		// 既有留言的作者照伺服器上的(不能改別人的留言作者);新留言的作者字串走署名規則(ResolveAuthor:沒給是自己,
+		// 只能代角色與系統);cur 的作者是 actor id,given 的作者可能是相容字串(讀出再寫回)
 		cs := []model.Comment{}
+		var who *importWho
+		if restore {
+			who = s.newImportWho(p, org)
+		}
 		for _, c := range given {
 			if c.ID == "" {
 				c.ID = uuid()
@@ -307,8 +494,25 @@ func (s *Service) mergeComments(p *model.Principal, cur, given []model.Comment) 
 			}
 			if o, ok := old[c.ID]; ok {
 				c.Author = o.Author
-			} else if strings.TrimSpace(c.Author) == "" {
-				c.Author = author(p, c.Author)
+			} else if restore { // 還原:歷史署名(email、agent:<id>…)用寬鬆解析器;沒署名的是呼叫者本人
+				id, err := who.id(c.Author, "")
+				if err != nil {
+					return nil, err
+				}
+				if id == "" {
+					ref, err := s.SelfActor(p)
+					if err != nil {
+						return nil, err
+					}
+					id = ref.ID
+				}
+				c.Author = id
+			} else {
+				ref, err := s.ResolveAuthor(p, org, c.Author, AuthorReject)
+				if err != nil {
+					return nil, err
+				}
+				c.Author = ref.ID
 			}
 			cs = append(cs, c)
 		}
@@ -316,6 +520,7 @@ func (s *Service) mergeComments(p *model.Principal, cur, given []model.Comment) 
 	}
 	cs := append([]model.Comment{}, cur...)
 	seen := map[string]bool{}
+	var self model.ActorRef
 	for _, c := range given {
 		if o, ok := old[c.ID]; ok && c.ID != "" {
 			if c.Text != o.Text {
@@ -330,14 +535,20 @@ func (s *Service) mergeComments(p *model.Principal, cur, given []model.Comment) 
 			c.ID = uuid()
 		}
 		seen[c.ID] = true
-		c.Author, c.At = author(p, ""), s.mt()
+		if self.ID == "" {
+			var err error
+			if self, err = s.SelfActor(p); err != nil {
+				return nil, err
+			}
+		}
+		c.Author, c.At = self.ID, s.mt()
 		cs = append(cs, c)
 	}
 	return cs, nil
 }
 
 // AddIssueComment 在 Issue 留一則言(成員、角色身分都可以;權限同讀取 Issue)。只附加這一則,不會動到別人的留言,
-// 同時多則留言也不會互相蓋掉。作者一律是呼叫者(伺服器管理員可以用 in.Author 指定,沒給是 mcp)
+// 同時多則留言也不會互相蓋掉。作者一律是呼叫者(伺服器管理員可以用 in.Author 指定角色或系統署名,不能代別的使用者;沒給是自己)
 func (s *Service) AddIssueComment(p *model.Principal, org, id string, in CommentInput) (*model.Issue, error) {
 	if err := s.viewer(p, org); err != nil {
 		return nil, err
@@ -346,19 +557,28 @@ func (s *Service) AddIssueComment(p *model.Principal, org, id string, in Comment
 	if text == "" {
 		return nil, fail(400, "留言不能是空的")
 	}
-	c := model.Comment{ID: uuid(), Author: author(p, in.Author), Text: text, At: s.mt()}
+	who, err := s.ResolveAuthor(p, org, in.Author, AuthorIgnore)
+	if err != nil {
+		return nil, err
+	}
+	c := model.Comment{ID: uuid(), Author: who.ID, Text: text, At: s.mt()}
+	ref := id
+	id, err = s.resolveIssueID(org, id)
+	if err != nil {
+		return nil, err
+	}
 	mu := s.issueLock(org, id)
 	mu.Lock()
 	i, err := s.Store.AddIssueComment(org, id, c)
 	mu.Unlock()
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, fail(404, "找不到 Issue %s", id)
+		return nil, issueNotFound(ref)
 	}
 	if err != nil {
 		return nil, err
 	}
 	s.Audit(p, "issue.update", org, map[string]any{"id": i.ID})
-	return i, nil
+	return s.presentIssue(i)
 }
 
 func sameComments(a, b []model.Comment) bool {
@@ -375,174 +595,119 @@ func sameComments(a, b []model.Comment) bool {
 }
 
 func same(a, b model.Issue) bool {
-	if a.Title != b.Title || a.Body != b.Body || a.Status != b.Status || a.Priority != b.Priority || a.Source != b.Source ||
+	if a.Project != b.Project || a.Title != b.Title || a.Body != b.Body || a.Status != b.Status || a.Priority != b.Priority || a.Source != b.Source ||
 		a.Link != b.Link || a.Repo != b.Repo || a.Assignee != b.Assignee || strings.Join(a.Labels, "\x00") != strings.Join(b.Labels, "\x00") {
 		return false
 	}
 	return sameComments(a.Comments, b.Comments)
 }
 
+// DeleteIssue 丟進垃圾桶(軟刪除;組織成員都可以)。之後列表、取得、修改都當作不存在;key 與別名保留、序號不回收。
+// 指派給角色、還沒領取的任務取消(同取消指派)。永久刪除是 PurgeIssue,拿回來是 RestoreIssue(都是組織管理員)
 func (s *Service) DeleteIssue(p *model.Principal, org, id string) error {
 	if _, err := s.orgRole(p, org); err != nil {
 		return err
 	}
-	if err := s.Store.DeleteIssue(org, id); err != nil {
+	by, err := s.SelfActor(p)
+	if err != nil {
+		return err
+	}
+	iid, err := s.resolveIssueID(org, id)
+	if err != nil {
+		return err
+	}
+	mu := s.issueLock(org, iid)
+	mu.Lock()
+	i, err := s.Store.TrashIssue(org, iid, by.ID, s.mt())
+	mu.Unlock()
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return fail(404, "找不到 Issue %s", id)
+			return issueNotFound(id)
 		}
 		return err
 	}
-	s.Audit(p, "issue.delete", org, map[string]any{"id": id})
+	s.Audit(p, "issue.delete", org, map[string]any{"id": i.ID, "key": i.Key})
+	if i.Assignee != "" { // 指派的角色還沒領取的任務取消(在 Issue 的鎖外,會拿 agents.mu)
+		gone := *i
+		gone.Assignee = ""
+		s.syncIssueAssignee(p, org, gone, i.Assignee, by.ID)
+	}
 	return nil
 }
 
-// ExportIssues 整份 Issue(組織管理員)
+// RestoreIssue 從垃圾桶拿回來(組織管理員);不在垃圾桶裡 404。指派不變,但被取消的任務不會自動重排
+func (s *Service) RestoreIssue(p *model.Principal, org, id string) (*model.Issue, error) {
+	if err := s.needOrgAdmin(p, org); err != nil {
+		return nil, err
+	}
+	iid, err := s.resolveIssueID(org, id)
+	if err != nil {
+		return nil, err
+	}
+	mu := s.issueLock(org, iid)
+	mu.Lock()
+	i, err := s.Store.RestoreIssue(org, iid, s.mt())
+	mu.Unlock()
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, fail(404, "垃圾桶裡沒有 Issue %s", id)
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.Audit(p, "issue.restore", org, map[string]any{"id": i.ID, "key": i.Key})
+	return s.presentIssue(i)
+}
+
+// PurgeIssue 永久刪除(組織管理員;垃圾桶裡的或還沒刪的都可以;留言、別名一起刪,綁這張 Issue 的頻道解除綁定)。不能復原
+func (s *Service) PurgeIssue(p *model.Principal, org, id string) error {
+	if err := s.needOrgAdmin(p, org); err != nil {
+		return err
+	}
+	iid, err := s.resolveIssueID(org, id)
+	if err != nil {
+		return err
+	}
+	by, err := s.SelfActor(p)
+	if err != nil {
+		return err
+	}
+	cur, _ := s.Store.GetIssue(org, iid)
+	mu := s.issueLock(org, iid)
+	mu.Lock()
+	err = s.Store.DeleteIssue(org, iid)
+	mu.Unlock()
+	if errors.Is(err, store.ErrNotFound) {
+		return issueNotFound(id)
+	}
+	if err != nil {
+		return err
+	}
+	s.Audit(p, "issue.purge", org, map[string]any{"id": iid, "ref": id})
+	if cur != nil && cur.Assignee != "" { // 還沒丟進垃圾桶就永久刪除:任務同樣取消
+		gone := *cur
+		gone.Assignee = ""
+		s.syncIssueAssignee(p, org, gone, cur.Assignee, by.ID)
+	}
+	return nil
+}
+
+// ExportIssues 整份 Issue(組織管理員;不含垃圾桶裡的)
 func (s *Service) ExportIssues(p *model.Principal, org string) ([]model.Issue, error) {
+	return s.ExportIssuesWith(p, org, false)
+}
+
+// ExportIssuesWith 同 ExportIssues;withDeleted 時也包含垃圾桶裡的(帶 deletedAt)
+func (s *Service) ExportIssuesWith(p *model.Principal, org string, withDeleted bool) ([]model.Issue, error) {
 	if err := s.needOrgAdmin(p, org); err != nil {
 		return nil, err
 	}
 	list, err := s.Store.ListIssues(org)
-	if err == nil {
-		s.Audit(p, "issues.export", org, map[string]any{"count": len(list)})
+	if withDeleted {
+		list, err = s.Store.ListIssuesWithDeleted(org)
 	}
-	return list, err
-}
-
-// ImportIssues 第一次搬資料用(組織管理員):保留 id、作者與時間;這個組織已經有 Issue 就拒絕。
-// 之後一律單筆新增或修改,不做差異比對與同步
-func (s *Service) ImportIssues(p *model.Principal, org string, list []model.Issue) (*model.ImportResult, error) {
-	if err := s.needOrgAdmin(p, org); err != nil {
-		return nil, err
-	}
-	if len(list) == 0 {
-		return nil, fail(400, "沒有要匯入的 Issue")
-	}
-	seen := map[string]bool{}
-	for k, i := range list {
-		if i.ID == "" || strings.TrimSpace(i.Title) == "" {
-			return nil, fail(400, "每一筆都要有 id 與 title")
-		}
-		if seen[strings.ToUpper(i.ID)] {
-			return nil, fail(400, "id 重複:%s", i.ID)
-		}
-		seen[strings.ToUpper(i.ID)] = true
-		if !model.OneOf(i.Status, model.IssueStatuses) {
-			list[k].Status = "open"
-		}
-		if !model.OneOf(i.Priority, model.IssuePriorities) {
-			list[k].Priority = "normal"
-		}
-		if r, ok := model.CleanRepo(i.Repo); ok {
-			list[k].Repo = r
-		} else {
-			return nil, fail(400, "%s 的 repo 格式不對:%s", i.ID, i.Repo)
-		}
-		if i.Labels == nil {
-			list[k].Labels = []string{}
-		}
-		if i.Comments == nil {
-			list[k].Comments = []model.Comment{}
-		}
-		if i.CreatedAt.IsZero() {
-			list[k].CreatedAt = s.mt()
-		}
-		if i.UpdatedAt.IsZero() {
-			list[k].UpdatedAt = list[k].CreatedAt
-		}
-	}
-	cur, err := s.Store.ListIssues(org)
 	if err != nil {
 		return nil, err
 	}
-	if len(cur) > 0 {
-		return nil, fail(409, "伺服器上 %s 已經有 %d 筆 Issue;匯入只在第一次搬資料時用,之後請用單筆新增或修改", org, len(cur))
-	}
-	n, err := s.Store.ImportIssues(org, list)
-	if err != nil {
-		return nil, fail(409, "%v", err)
-	}
-	s.Audit(p, "issues.import", org, map[string]any{"inserted": n})
-	return &model.ImportResult{Org: org, Inserted: n}, nil
-}
-
-// IssueImportOptions ImportIssuesWith 的選項
-type IssueImportOptions struct {
-	// Merge 可以重跑的匯入(搬舊資料、omixor-web import 用):組織已經有 Issue 也照樣匯入(不回 409);
-	// 沒有 id 或 id 重複(不分大小寫,後面的)的略過、算進 Skipped(不回 400);title 可以是空的(照原資料搬)。
-	// id 已經在組織裡的看 Overwrite;沒有的保留 id、作者與時間,依 list 的順序排在既有的後面
-	Merge bool
-	// Overwrite Merge 時 id 已經有的用匯入的內容整筆取代(位置不變、留言整份取代);false 是略過(保留現有的)
-	Overwrite bool
-}
-
-// IssueImportResult ImportIssuesWith 的結果
-type IssueImportResult struct {
-	Org      string `json:"org"`
-	Inserted int    `json:"inserted"`
-	Updated  int    `json:"updated"`
-	Skipped  int    `json:"skipped"`
-}
-
-// ImportIssuesWith 匯入 Issue(組織管理員)。opt.Merge 是 false 時同 ImportIssues(第一次搬資料;組織已經有 Issue 回 409)
-func (s *Service) ImportIssuesWith(p *model.Principal, org string, list []model.Issue, opt IssueImportOptions) (*IssueImportResult, error) {
-	if !opt.Merge {
-		r, err := s.ImportIssues(p, org, list)
-		if err != nil {
-			return nil, err
-		}
-		return &IssueImportResult{Org: r.Org, Inserted: r.Inserted}, nil
-	}
-	if err := s.needOrgAdmin(p, org); err != nil {
-		return nil, err
-	}
-	res := &IssueImportResult{Org: org}
-	seen := map[string]bool{}
-	keep := []model.Issue{}
-	for _, i := range list {
-		i.ID = strings.TrimSpace(i.ID)
-		if i.ID == "" || seen[strings.ToUpper(i.ID)] {
-			res.Skipped++
-			continue
-		}
-		seen[strings.ToUpper(i.ID)] = true
-		if !model.OneOf(i.Status, model.IssueStatuses) {
-			i.Status = "open"
-		}
-		if !model.OneOf(i.Priority, model.IssuePriorities) {
-			i.Priority = "normal"
-		}
-		r, ok := model.CleanRepo(i.Repo)
-		if !ok {
-			return nil, fail(400, "%s 的 repo 格式不對:%s", i.ID, i.Repo)
-		}
-		i.Repo = r
-		i.Labels = model.CleanLabels(i.Labels)
-		if i.CreatedAt.IsZero() {
-			i.CreatedAt = s.mt()
-		}
-		if i.UpdatedAt.IsZero() {
-			i.UpdatedAt = i.CreatedAt
-		}
-		cs := make([]model.Comment, 0, len(i.Comments))
-		for _, c := range i.Comments {
-			if c.ID == "" {
-				c.ID = uuid()
-			}
-			if c.At.IsZero() {
-				c.At = i.UpdatedAt
-			}
-			cs = append(cs, c)
-		}
-		i.Comments = cs
-		keep = append(keep, i)
-	}
-	if len(keep) > 0 {
-		n, err := s.Store.MergeIssues(org, keep, opt.Overwrite)
-		if err != nil {
-			return nil, err
-		}
-		res.Inserted, res.Updated, res.Skipped = n.Inserted, n.Updated, res.Skipped+n.Skipped
-	}
-	s.Audit(p, "issues.import", org, map[string]any{"inserted": res.Inserted, "updated": res.Updated, "skipped": res.Skipped, "merge": true})
-	return res, nil
+	s.Audit(p, "issues.export", org, map[string]any{"count": len(list), "withDeleted": withDeleted})
+	return s.presentIssues(list)
 }

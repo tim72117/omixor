@@ -11,7 +11,8 @@ import (
 	"time"
 	"unicode"
 
-	"omixor-core/env"
+	"omixor-core/config"
+	"omixor-core/httperr"
 	coreinteg "omixor-core/modules/integrations"
 	"omixor-web/internal/core"
 )
@@ -607,7 +608,7 @@ func GHRefresh(a *core.App) {
 		} else if ok && e.Status == 404 {
 			errs[r] = "找不到(私有 repo 要在 GitHub 連線的 scopes 加 repo,或 OAuth App 沒有權限)"
 		} else {
-			errs[r] = err.Error()
+			errs[r] = httperr.Report("GitHub 同步 "+r, err).Msg
 		}
 	}
 	sort.SliceStable(pulls, func(i, j int) bool {
@@ -733,7 +734,7 @@ func GHRunJSON(r GHRun) map[string]any {
 
 func init() {
 	core.OnStart(func(a *core.App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		go func() {

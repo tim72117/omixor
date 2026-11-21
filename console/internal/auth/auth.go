@@ -7,6 +7,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -17,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +27,8 @@ import (
 
 	"omixor-web/internal/core"
 
-	"omixor-core/env"
+	"omixor-core/config"
+	"omixor-core/httperr"
 )
 
 // Config:auth.json
@@ -167,7 +170,7 @@ func New(secrets Secrets) *Service {
 	s := &Service{secrets: secrets, sessions: map[string]*session{}, fails: map[string][]time.Time{}, now: time.Now}
 	s.dial = s.dialLDAP
 	_ = core.ReadJSON(configPath(), &s.cfg)
-	if env.Get("OMIXOR_AUTH", "OPS_AUTH") == "off" {
+	if config.Current().Str(config.Auth) == "off" {
 		s.cfg.Mode = "off"
 	}
 	s.cfg.normalize()
@@ -222,12 +225,28 @@ const (
 	failWindow = 5 * time.Minute
 )
 
-// Login 驗證帳密,成功回傳 session token
+// LockedError 登入失敗太多次被鎖:429,帶 retryAfter(秒;web 另外放進 Retry-After 標頭)
+type LockedError struct{ RetryAfter int }
+
+func (e LockedError) Error() string {
+	return fmt.Sprintf("登入失敗太多次,請 %d 分鐘後再試", (e.RetryAfter+59)/60)
+}
+
+// HTTPError 實作 httperr.Public:429,data 帶 retryAfter(秒)
+func (e LockedError) HTTPError() (int, map[string]any) {
+	return 429, map[string]any{"retryAfter": e.RetryAfter}
+}
+
+// Login 驗證帳密,成功回傳 session token。失敗的種類(狀態碼由 web 的 authLoginStatus 依型別決定):
+//   - 帳號不存在、密碼錯誤:同一個 ErrBadLogin(401,同一句話,不洩漏帳號存不存在)
+//   - 被鎖:LockedError(429,帶 Retry-After)
+//   - LDAP 連不上、服務帳號錯誤等診斷類失敗:503,固定句子(細節進 log)
+//   - 存 session 失敗:500,固定句子(原文進 log)
 func (s *Service) Login(username, password, remote string) (string, User, error) {
 	username = strings.TrimSpace(username)
 	key := strings.ToLower(username) + "|" + remote
-	if s.lockedOut(key) {
-		return "", User{}, core.UserError{Message: "登入失敗太多次,請 5 分鐘後再試"}
+	if locked, wait := s.lockedOut(key); locked {
+		return "", User{}, LockedError{RetryAfter: int(wait.Seconds())}
 	}
 	cfg := s.Config()
 	if cfg.Mode != "ldap" {
@@ -235,6 +254,13 @@ func (s *Service) Login(username, password, remote string) (string, User, error)
 	}
 	u, err := s.Authenticate(cfg, username, password)
 	if err != nil {
+		// 連線、設定類的錯誤:一般使用者只看到固定句子(503),細節(位址、dial tcp、資料庫)進 log;
+		// 管理員診斷(測試 LDAP、存設定)走 Authenticate,照樣拿得到 diagError 的細節
+		var de diagError
+		if errors.As(err, &de) {
+			httperr.LogMasked("POST /api/auth/login LDAP", de)
+			return "", User{}, core.StatusError{Status: 503, Message: de.user}
+		}
 		var ue core.UserError
 		if errors.As(err, &ue) && ue == ErrBadLogin {
 			s.fail(key)
@@ -250,30 +276,87 @@ func (s *Service) Login(username, password, remote string) (string, User, error)
 	// 有資料庫時 session 也存進去:重開 omixor-web 不用重新登入
 	if core.DB() != nil {
 		if err := core.SessionPut(tok, u, exp); err != nil {
-			return "", User{}, core.UserError{Message: "存 session 失敗:" + err.Error()}
+			httperr.LogMasked("POST /api/auth/login 存 session", err) // 資料庫錯誤只進 log,不回給(未登入的)呼叫者
+			s.mu.Lock()
+			delete(s.sessions, tok) // 沒存起來的 session 不留在記憶體(否則這次回 500,token 卻其實可用)
+			s.mu.Unlock()
+			return "", User{}, core.StatusError{Status: 500, Message: "登入暫時失敗,請稍後再試;若持續發生請聯絡管理員"}
 		}
 	}
 	return tok, u, nil
 }
 
-func (s *Service) lockedOut(key string) bool {
+// lockedOut 這個 key 現在被鎖嗎;被鎖時回傳還要等多久才解鎖。只讀、不為沒失敗過的 key 建立紀錄(否則灌不同帳號就能讓 map 無限成長)
+func (s *Service) lockedOut(key string) (bool, time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cut := s.now().Add(-failWindow)
-	kept := s.fails[key][:0]
-	for _, t := range s.fails[key] {
+	now := s.now()
+	cut := now.Add(-failWindow)
+	list, ok := s.fails[key]
+	if !ok {
+		return false, 0
+	}
+	kept := list[:0]
+	for _, t := range list {
 		if t.After(cut) {
 			kept = append(kept, t)
 		}
 	}
+	if len(kept) == 0 {
+		delete(s.fails, key)
+		return false, 0
+	}
 	s.fails[key] = kept
-	return len(kept) >= maxFails
+	if len(kept) < maxFails {
+		return false, 0
+	}
+	// 最早要過期、讓失敗次數掉到 maxFails 以下的那一筆過期時,解鎖
+	wait := kept[len(kept)-maxFails].Add(failWindow).Sub(now)
+	if wait < time.Second {
+		wait = time.Second
+	}
+	return true, wait
 }
+
+// maxFailKeys 同時追蹤的 (帳號|來源) 上限;超過先清過期的,仍滿就淘汰最舊的一成
+const maxFailKeys = 5000
 
 func (s *Service) fail(key string) {
 	s.mu.Lock()
-	s.fails[key] = append(s.fails[key], s.now())
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	now := s.now()
+	if _, ok := s.fails[key]; !ok && len(s.fails) >= maxFailKeys {
+		s.pruneFailsLocked(now)
+	}
+	list := append(s.fails[key], now)
+	if len(list) > maxFails { // 只需要看最近 maxFails 次
+		list = list[len(list)-maxFails:]
+	}
+	s.fails[key] = list
+}
+
+func (s *Service) pruneFailsLocked(now time.Time) {
+	cut := now.Add(-failWindow)
+	for k, list := range s.fails {
+		if len(list) == 0 || !list[len(list)-1].After(cut) {
+			delete(s.fails, k)
+		}
+	}
+	if len(s.fails) < maxFailKeys {
+		return
+	}
+	type kv struct {
+		k string
+		t time.Time
+	}
+	all := make([]kv, 0, len(s.fails))
+	for k, list := range s.fails {
+		all = append(all, kv{k, list[len(list)-1]})
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
+	for _, e := range all[:len(all)/10+1] {
+		delete(s.fails, e.k)
+	}
 }
 
 // User 由 token 找登入的人(過期回 false)
@@ -327,7 +410,7 @@ func (s *Service) dialLDAP(l LDAP) (*ldap.Conn, error) {
 	if l.CACert != "" {
 		pem, err := os.ReadFile(l.CACert)
 		if err != nil {
-			return nil, core.UserError{Message: "讀不到 CA 憑證:" + err.Error()}
+			return nil, diag("讀不到 CA 憑證", "LDAP 的 CA 憑證設定有問題,請聯絡管理員", err)
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pem) {
@@ -337,13 +420,13 @@ func (s *Service) dialLDAP(l LDAP) (*ldap.Conn, error) {
 	}
 	conn, err := ldap.DialURL(l.URL, ldap.DialWithTLSConfig(tc), ldap.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}))
 	if err != nil {
-		return nil, core.UserError{Message: "連不到 LDAP 伺服器:" + err.Error()}
+		return nil, diag("連不到 LDAP 伺服器", "連不到 LDAP 伺服器,請稍後再試;若持續發生請聯絡管理員", err)
 	}
 	conn.SetTimeout(15 * time.Second)
 	if l.StartTLS && strings.HasPrefix(strings.ToLower(l.URL), "ldap://") {
 		if err := conn.StartTLS(tc); err != nil {
 			conn.Close()
-			return nil, core.UserError{Message: "StartTLS 失敗:" + err.Error()}
+			return nil, diag("StartTLS 失敗", "LDAP 伺服器的加密連線失敗,請聯絡管理員", err)
 		}
 	}
 	return conn, nil
@@ -403,7 +486,7 @@ func (s *Service) AuthenticateWith(cfg Config, bindPassword *string, username, p
 			return User{}, core.UserError{Message: "還沒有服務帳號密碼"}
 		}
 		if err := conn.Bind(l.BindDN, pw); err != nil {
-			return User{}, core.UserError{Message: "服務帳號登入 LDAP 失敗,請檢查認證設定:" + err.Error()}
+			return User{}, diag("服務帳號登入 LDAP 失敗,請檢查認證設定", "LDAP 的服務帳號設定有問題,請聯絡管理員", err)
 		}
 		filter := strings.ReplaceAll(l.UserFilter, "%s", ldap.EscapeFilter(username))
 		e, err := searchOne(conn, l.BaseDN, ldap.ScopeWholeSubtree, filter, attrs)
@@ -411,7 +494,7 @@ func (s *Service) AuthenticateWith(cfg Config, bindPassword *string, username, p
 			if errors.Is(err, errNotFound) || errors.Is(err, errMany) {
 				return User{}, ErrBadLogin
 			}
-			return User{}, core.UserError{Message: "搜尋使用者失敗:" + err.Error()}
+			return User{}, diag("搜尋使用者失敗", "查詢 LDAP 失敗,請稍後再試;若持續發生請聯絡管理員", err)
 		}
 		entry, userDN = e, e.DN
 		if err := conn.Bind(userDN, password); err != nil {
@@ -419,7 +502,7 @@ func (s *Service) AuthenticateWith(cfg Config, bindPassword *string, username, p
 		}
 		// 之後查群組用服務帳號(使用者本人可能沒有讀群組的權限)
 		if err := conn.Bind(l.BindDN, pw); err != nil {
-			return User{}, core.UserError{Message: "服務帳號登入 LDAP 失敗:" + err.Error()}
+			return User{}, diag("服務帳號登入 LDAP 失敗", "LDAP 的服務帳號設定有問題,請聯絡管理員", err)
 		}
 	}
 
@@ -456,7 +539,7 @@ func (s *Service) AuthenticateWith(cfg Config, bindPassword *string, username, p
 }
 
 func (s *Service) bindPassword() (string, bool) {
-	if p := env.Get("OMIXOR_LDAP_BIND_PASSWORD", "OPS_LDAP_BIND_PASSWORD"); p != "" {
+	if p := config.Current().Str(config.LDAPBindPassword); p != "" {
 		return p, true
 	}
 	if s.secrets == nil {
@@ -494,7 +577,7 @@ func bindError(err error) error {
 	if ldap.IsErrorWithCode(err, ldap.LDAPResultInvalidCredentials) {
 		return ErrBadLogin
 	}
-	return core.UserError{Message: "LDAP 驗證失敗:" + err.Error()}
+	return diag("LDAP 驗證失敗", "LDAP 驗證失敗,請稍後再試;若持續發生請聯絡管理員", err)
 }
 
 // fillTemplate:DN 形式(有 =)時依 RFC 4514 跳脫帳號;UPN 形式只擋特殊字元
@@ -544,4 +627,40 @@ func normalizeDN(dn string) string {
 		return strings.Join(parts, ",")
 	}
 	return strings.ToLower(strings.ReplaceAll(dn, " ", ""))
+}
+
+// diagError LDAP 連線 / 設定類的錯誤:Error() 是給管理員診斷的完整說明(prefix + 原因,含位址、dial tcp),
+// 實作 httperr.Public 讓「測試 LDAP」「存設定」照樣顯示;Login(未登入就能呼叫)不能回這些,
+// 會換成 user 這句固定的話、原文進 log。
+type diagError struct {
+	prefix string // 管理員診斷的開頭
+	user   string // 一般使用者(登入)看到的固定句子
+	cause  error
+}
+
+func diag(prefix, user string, cause error) error {
+	return diagError{prefix: prefix, user: user, cause: cause}
+}
+
+func (e diagError) Error() string                    { return e.prefix + ":" + e.cause.Error() }
+func (e diagError) Unwrap() error                    { return e.cause }
+func (e diagError) HTTPError() (int, map[string]any) { return 0, nil }
+
+// StatusOf 管理員診斷(測試 LDAP、存設定)失敗的 HTTP 狀態碼:輸入有問題(設定驗證不過、帳密不對)400;
+// 連不上 LDAP 等外部服務 502,逾時 504;其餘(內部錯誤)500
+func StatusOf(err error) int {
+	var de diagError
+	if errors.As(err, &de) {
+		var ne net.Error
+		if errors.Is(de.cause, context.DeadlineExceeded) || (errors.As(de.cause, &ne) && ne.Timeout()) ||
+			strings.Contains(strings.ToLower(de.cause.Error()), "timeout") {
+			return 504
+		}
+		return 502
+	}
+	var ue core.UserError
+	if errors.As(err, &ue) {
+		return 400
+	}
+	return 500
 }

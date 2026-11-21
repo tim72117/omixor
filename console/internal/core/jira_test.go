@@ -197,7 +197,7 @@ func TestJiraCloudImport(t *testing.T) {
 		t.Fatalf("再匯入不該重下載圖片:%d 次", jiraDownloads)
 	}
 	is2 := issueByLink(a, link)
-	if is2.ID != is.ID || is2.Title != summary || len(is2.Comments) != 4 || is2.Comments[3].Text != "本機留言" || is2.Comments[3].Author != "tim" {
+	if is2.ID != is.ID || is2.Title != summary || len(is2.Comments) != 4 || is2.Comments[3].Text != "本機留言" || is2.Comments[3].Author != LocalIdentity {
 		t.Fatalf("更新不對:%+v", is2)
 	}
 	done := issueByLink(a, "https://your-team.atlassian.net/browse/EDU-2")

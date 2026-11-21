@@ -280,5 +280,15 @@ func (a *Authenticator) Authenticate(username, password string) (*Identity, erro
 		}
 		return nil, fmt.Errorf("LDAP 驗證密碼時出錯:%w", err)
 	}
-	return &Identity{ID: id, Name: name, Email: strings.ToLower(strings.TrimSpace(mail)), DN: dn}, nil
+	return &Identity{ID: id, Name: name, Email: cleanMail(mail), DN: dn}, nil
+}
+
+// cleanMail 目錄的 mail 屬性:要像 email(含 @)才算;沒有 @ 的值(例如被填成保留的本機身分 omixor-console)視為沒有 mail,
+// 呼叫端會退回「帳號@網域」的規則,仍然沒有就不能建立使用者
+func cleanMail(mail string) string {
+	m := strings.ToLower(strings.TrimSpace(mail))
+	if i := strings.Index(m, "@"); i <= 0 || i == len(m)-1 || strings.Count(m, "@") != 1 {
+		return ""
+	}
+	return m
 }

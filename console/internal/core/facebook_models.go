@@ -504,3 +504,6 @@ func fbInsightsJSON(r FBPageInsights) map[string]any {
 	}
 	return map[string]any{"pageId": r.PageID, "period": r.Period, "since": ISO(r.Since), "until": ISO(r.Until), "metrics": ms}
 }
+
+// HTTPError 實作 httperr.Public:Graph API 回的錯誤說明(權杖過期、權限不足…)是刻意給使用者 / agent 看的;狀態碼 0 = 讓出口決定
+func (e FBError) HTTPError() (int, map[string]any) { return 0, nil }

@@ -5,7 +5,7 @@ omixor 的核心後端模組(Go)。目前有:
 | 套件 | 內容 |
 |---|---|
 | `model` | 共用的資料型別(Issue、組織、成員、使用者、token、操作紀錄、虛擬角色、文件櫃、組織鏈、訊息頻道),JSON 格式和 app、omixor-web 相同 |
-| `store` | 存放介面,實作有 PostgreSQL(`store.NewPG`)與記憶體(`store.NewMem`,測試用) |
+| `store` | 存放介面,正式實作是 PostgreSQL(`store.NewPG`);測試一律用 PostgreSQL(`storetest.New(t)`,見 `storetest/storetest.go` 檔頭說明) |
 | `service` | 商業邏輯與權限:授權(用 evoleap 證明身分,發 omixor 自己的 token)、組織與成員、Issue、虛擬角色與任務、文件櫃、組織鏈、訊息頻道 |
 | `api` | HTTP 路由(`api.New(svc).Handler()`) |
 | `client` | 連線上 omixor server 的用戶端,提供和 `service` 一樣的 Issue/組織操作 |
@@ -116,6 +116,16 @@ MCP:
 - 角色端點:`agent_task_delegate`(`to`、`title`、`instructions?`、`priority?`;來源任務一律是憑證綁定的那筆);`agent_context` 多 `chain: {upstream, downstream}`(每筆 `{node, name, label}`:上游 = 回報給誰,下游 = 可以派給誰)
 - 執行者端點:`dispatch_delegate`;`dispatch_claim` 的 `nextSteps` 會列出這個角色依鏈可以委派給誰
 
+## 組織的 actor 名冊
+
+`GET /api/orgs/{org}/actors?kind=&q=&status=`(成員、伺服器管理員;角色憑證不開放;ISS-36 B-4,規格 DOC-13 §3.2)列出組織看得到的 actor(使用者、角色、系統),給選人、@ 提及、署名選單用,不必再各自拼 `members` 與 `agents`。回傳 `[{id, kind, handle, name, email?, status}]`:
+
+- `kind`:`user`、`agent`、`system`;排序依 kind(user、agent、system)再依 handle。`handle`:使用者 = email(小寫)、角色 = 角色 id、系統 = 名稱(`omixor`、`routine`、`chain`…);`name` 是顯示名稱;`email` 只有使用者有
+- `status`:`active`;使用者帳號停用 = `disabled`;角色暫停 = `suspended`、角色已刪 = `retired`(舊紀錄仍指向它,預設不列)
+- 範圍(同 `ResolveActor`):使用者只列這個組織的成員,而且要有使用者列(未註冊使用者的 actor 不會出現,也不能被探測);角色只列這個組織的;其他組織的人與角色不會出現。非成員 403
+- 篩選:`kind=`(不認得的 400);`q=` handle 或顯示名稱的前綴(不分大小寫,可帶前導 `@`);`status=`(空 = 不含退役,`all` = 全部,或指定單一狀態,例如 `retired`)
+- 程式:`service.ListOrgActors`(`service/actors_list.go`)、`client.ListActors`。MCP 沒有新增工具:要看組織的人與角色用既有的 `agents`、`orgs`
+
 ## 訊息頻道
 
 把需要合作的人(組織成員)與虛擬角色拉進同一個頻道對話。頻道可以自由建立,也可以綁一個 Issue。**@ 一個角色只通知、不排任務**:角色下次執行時,`agent_context` 的 `mentions` 看得到提到它的未讀訊息,自己決定要不要回。資料模型在 `model/channel.go`,規則在 `service/channel.go`。
@@ -134,7 +144,7 @@ MCP:
 - 綁 Issue:`issueId` 要存在(404);同一個 Issue 只能有一個頻道 —— 已有而且呼叫者看得到就**回傳那個頻道**(200,不新建),看不到 409(訊息帶既有頻道 id,請成員把你加進去)
 - 訊息:去頭尾空白後不能空白(400),最多 8000 字
 - @ 解析(`model.ParseMentions`):`@` 前面是開頭或非英數時,後面依序比對頻道成員的角色名稱、角色 id、email、完整節點(不分大小寫,取最長的);角色 id、email、節點比對到之後下一個字元是英數或 `-_`(或後面接英數的句點)就不算。**只算頻道成員,不是成員的 @ 直接忽略(不報錯)**,作者自己不算、去重
-- 以別人身分(`as`;發訊息也接受 `author`、標已讀也接受 `member`):只有伺服器管理員給的算數(同 Issue 的 `author`,例如 omixor-web 內建核心、本機 MCP 帶 agent);以角色身分時套用角色的規則。其他人給的忽略
+- 以別人身分(`as`;發訊息也接受 `author`、標已讀也接受 `member`):只有伺服器管理員給的算數(同 Issue 的 `author`,例如 omixor-web 內建核心;MCP 的人類端點已不接受 agent 參數);以角色身分時套用角色的規則。其他人給的忽略
 - 刪角色、從組織移除成員:從所有頻道成員拿掉(訊息與作者保留)
 
 API(都在 `/api/orgs/{org}` 底下;角色憑證 `Bearer <agentId>:<secret>` 也可以):

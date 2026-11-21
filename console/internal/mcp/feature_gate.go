@@ -94,10 +94,13 @@ func (h *Handler) handleOne(data []byte, hooks coremcp.Hooks) []byte {
 	if peek.Method == "tools/list" {
 		hooks.Allow = func(name string) bool {
 			_, closed := closedFeature(a, name)
-			return !closed
+			return !closed && !coremcp.HumanHiddenTools[name] // 委派者只能由角色憑證決定,本機 /mcp 不列
 		}
 	}
-	hooks.Guard = func(name string, _ map[string]any) error {
+	hooks.Guard = func(name string, args map[string]any) error {
+		if err := rejectIdentity(name, args); err != nil { // 不能指定角色身分:400,不執行、不寫入
+			return err
+		}
 		if f, closed := closedFeature(a, name); closed {
 			return featureClosedError(name, f)
 		}

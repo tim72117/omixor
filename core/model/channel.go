@@ -1,14 +1,14 @@
 package model
 
 import (
-	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
 
 // 訊息頻道:把需要合作的人(組織成員)與虛擬角色拉進同一個頻道對話。頻道可以自由建立,也可以綁一個 Issue。
-// 成員是節點(同組織鏈):"agent:<角色 id>" 或 "user:<email 小寫>"。@ 一個角色只通知、不排任務:
+// 成員是 actor id(同組織鏈;對外輸出才轉成相容的 "agent:<角色 id>" 或 "user:<email>"),Channel.Members、CreatedBy、ChannelMessage.Author、Mentions、
+// ChannelRead.Member 在 store 與 service 內部都是 actor id。@ 一個角色只通知、不排任務:
 // 角色下次執行(agent_context)時看得到提到它的未讀訊息。規則(權限、@ 解析、未讀)在 service/channel.go。
 
 // ChannelPrefix 頻道 id 的前綴(CH-<n>,一個組織一起編號)
@@ -30,8 +30,11 @@ type Channel struct {
 	IssueID   string   `json:"issueId"` // 沒綁是 ""
 	Members   []string `json:"members"`
 	CreatedBy string   `json:"createdBy"`
-	CreatedAt Time     `json:"createdAt"`
-	UpdatedAt Time     `json:"updatedAt"`
+	// MemberActors、CreatedByActor 成員與建立者的 actor 物件(ISS-36 C-3;服務層出口補,和相容的節點字串 members、createdBy 並存;順序同 members)
+	MemberActors   []ActorView `json:"memberActors,omitempty"`
+	CreatedByActor *ActorView  `json:"createdByActor,omitempty"`
+	CreatedAt      Time        `json:"createdAt"`
+	UpdatedAt      Time        `json:"updatedAt"`
 }
 
 // Clone 深拷貝
@@ -66,7 +69,10 @@ type ChannelMessage struct {
 	Author    string   `json:"author"` // 節點
 	Text      string   `json:"text"`   // Markdown
 	Mentions  []string `json:"mentions"`
-	At        Time     `json:"at"`
+	// AuthorActor、MentionActors 作者與被提及者的 actor 物件(ISS-36 C-3;服務層出口補;順序同 mentions)
+	AuthorActor   *ActorView  `json:"authorActor,omitempty"`
+	MentionActors []ActorView `json:"mentionActors,omitempty"`
+	At            Time        `json:"at"`
 }
 
 // Clone 深拷貝
@@ -92,8 +98,10 @@ func (m ChannelMessage) Mentioned(node string) bool {
 type ChannelRead struct {
 	ChannelID string `json:"channelId"`
 	Member    string `json:"member"`
-	LastRead  int    `json:"lastRead"`
-	At        Time   `json:"at"`
+	// MemberActor 成員的 actor 物件(ISS-36 C-3;服務層出口補)
+	MemberActor *ActorView `json:"memberActor,omitempty"`
+	LastRead    int        `json:"lastRead"`
+	At          Time       `json:"at"`
 }
 
 // MessageQuery 列訊息的條件(號碼):After > 0 只要號碼大於它的、Before > 0 只要號碼小於它的;
@@ -104,13 +112,21 @@ type MessageQuery struct {
 	Latest        bool
 }
 
+// idNumber 取出 id 的流水號:前綴不分大小寫比對,後面只能是數字(不收 +/-)、不超過 MaxNumber;格式不對回 0。
+// 前後空白不處理(要容忍空白的呼叫端自己先 TrimSpace)
 func idNumber(id, prefix string) int {
 	if len(id) <= len(prefix) || !strings.EqualFold(id[:len(prefix)], prefix) {
 		return 0
 	}
-	n, err := strconv.Atoi(id[len(prefix):])
-	if err != nil || n < 0 {
-		return 0
+	n := 0
+	for _, r := range id[len(prefix):] {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		n = n*10 + int(r-'0')
+		if n > MaxNumber {
+			return 0
+		}
 	}
 	return n
 }

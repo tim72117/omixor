@@ -1,15 +1,17 @@
 // AI 自動化 › 虛擬角色:角色設定、例行任務、指派任務、看任務進度(Swift 的 AutoAgentsView)
 import { Fragment, useEffect, useState } from "react";
-import { action, tool, useRun, useView } from "../../api";
+import { ApiError, action, tool, useRun, useView } from "../../api";
 import { AgentAvatar, Markdown, go, useCopied, useDirectory } from "../../components/bits";
 import { Icon } from "../../components/Icon";
 import {
   DOC_ACCESS_LABEL, PRIORITIES, PRIORITY_COLOR, PRIORITY_LABEL, ROUTINE_KIND_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, leaseLabel, tabTitle, taskOpen,
-  type Agent, type AgentRoutine, type AgentTask, type CabinetSection, type CabinetView, type DocAccess, type Priority, type RoutineKind,
+  type Agent, type AgentRoutine, type AgentTask, type AgentTaskStatus, type CabinetSection, type CabinetView, type DocAccess, type Priority, type RoutineKind,
 } from "../../components/models";
 import { Card, EmptyState, ErrorText, Modal, Pill, color } from "../../components/ui";
 import { relative } from "../../fmt";
 import { AgentAutoRunCard } from "./AutoRunner";
+import { useIssueLabel, useIsIssueRef } from "../development/issueApi";
+import { TransferTasksModal } from "./TransferTasks";
 import { useAuto } from "./autoShared";
 import { canGo, useFeatures } from "../../features";
 
@@ -83,11 +85,15 @@ export function AutoAgents({ selection, setSelection }: { selection?: string; se
 function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[]; edit: () => void }) {
   const runnerOn = useFeatures().enabled("automation.runner"); // 系統設定 › AI 自動化 › 自動執行
   const [cab] = useView<CabinetView>("cabinet");
+  const issueLabel = useIssueLabel(), isIssueRef = useIsIssueRef();
   const dir = useDirectory();
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [priority, setPriority] = useState<Priority>("normal");
   const [selectedTask, setSelectedTask] = useState<string>();
+  const [transferring, setTransferring] = useState(false);
+  const allAgents = useAuto().agents?.agents ?? [];
+  const taskCounts = tasks.reduce<Partial<Record<AgentTaskStatus, number>>>((m, x) => ({ ...m, [x.status]: (m[x.status] ?? 0) + 1 }), {});
   const [copied, copy] = useCopied();
   const { busy, error, run } = useRun();
   const layout = Array.isArray(cab?.layout) ? cab!.layout : [];
@@ -122,8 +128,10 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
         <button className="btn" title="複製一段話,貼到 Claude Code 就會以這個角色領取所有待領取任務" onClick={() => copyPrompt("all")}>
           <Icon name="doc.on.clipboard" size={12} />{copied === "all" ? "已複製" : "複製給 Claude Code"}
         </button>
+        <button className="btn" disabled={tasks.length === 0} title={tasks.length === 0 ? "這個角色名下沒有任務" : "把名下的任務轉給另一個角色(不刪角色)"} onClick={() => setTransferring(true)}>轉移任務…</button>
         <button className="btn" onClick={edit}>編輯…</button>
       </div>
+      {transferring && <TransferTasksModal mode="transfer" from={agent} agents={allAgents} counts={taskCounts} onClose={() => setTransferring(false)} onDone={() => setTransferring(false)} />}
       <ErrorText>{error}</ErrorText>
       <Card title="角色設定" subtitle="AI 領取任務時會一起拿到這段">
         {agent.instructions ? <Markdown text={agent.instructions} /> : <span className="muted">還沒寫角色設定</span>}
@@ -192,7 +200,7 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
                 )}
                 {(tk.links ?? []).length > 0 && (
                   <div className="row gap8 wrap">
-                    {tk.links.map((l) => /^ISS-\d+$/i.test(l) ? <button key={l} className="btn link" onClick={canGo("development") ? () => go("development", l) : undefined}>{l}</button> : <span key={l} className="caption" style={{ userSelect: "text" }}>{l}</span>)}
+                    {tk.links.map((l) => isIssueRef(l) ? <button key={l} className="btn link" onClick={canGo("development") ? () => go("development", l) : undefined}>{issueLabel(l)}</button> : <span key={l} className="caption" style={{ userSelect: "text" }}>{l}</span>)}
                   </div>
                 )}
                 <div className="row gap8">
@@ -218,6 +226,8 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
 function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: () => void; onSaved: (id?: string) => void }) {
   const [draft, setDraft] = useState<Agent>({ ...original, routines: original.routines.map((r) => ({ ...r })), docAccess: { ...(original.docAccess ?? {}) } });
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [needTransfer, setNeedTransfer] = useState<Partial<Record<AgentTaskStatus, number>>>(); // 刪角色 409:名下有任務,要先轉移
+  const allAgents = useAuto().agents?.agents ?? [];
   const [cab] = useView<CabinetView>("cabinet");
   const { busy, error, run } = useRun();
   const isNew = !original.id;
@@ -229,7 +239,19 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
     onSaved((r as { id?: string })?.id ?? a.id);
     onClose();
   });
-  const del = () => run(async () => { await action("agent_delete", { id: original.id }); onClose(); });
+  const del = () => run(async () => {
+    try {
+      await action("agent_delete", { id: original.id });
+      onClose();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && e.data?.code === "agentHasTasks") { // 名下有任務:跳出「轉移給…」再重送
+        setConfirmDelete(false);
+        setNeedTransfer((e.data.taskCounts ?? {}) as Partial<Record<AgentTaskStatus, number>>);
+        return;
+      }
+      throw e;
+    }
+  });
   return (
     <Modal open onClose={onClose} width={640}>
       <span className="modal-title">{isNew ? "新增角色" : `編輯「${original.name}」`}</span>
@@ -293,7 +315,8 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
         <button className="btn" onClick={onClose}>取消</button>
         <button className="btn primary" disabled={!draft.name.trim() || busy} onClick={save}>儲存</button>
       </div>
-      <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)} width={400} title={`刪除「${original.name}」?未完成的任務會被取消。`}>
+      {needTransfer && <TransferTasksModal mode="delete" from={original} agents={allAgents} counts={needTransfer} onClose={() => setNeedTransfer(undefined)} onDone={() => { setNeedTransfer(undefined); onClose(); }} />}
+      <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)} width={400} title={`刪除「${original.name}」?名下有任務時要先轉移給其他角色。`}>
         <div className="row gap8" style={{ justifyContent: "flex-end" }}>
           <button className="btn" onClick={() => setConfirmDelete(false)}>取消</button>
           <button className="btn red" disabled={busy} onClick={del}>刪除</button>

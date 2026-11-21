@@ -1,0 +1,146 @@
+# 設定(環境變數)
+
+<!-- 這份文件由 core/config 的設定定義產生,不要手改。重新產生:UPDATE_CONFIG_DOC=1 go test ./config -run TestDocFresh(在 core/ 底下) -->
+
+omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(型別、範圍、必填、互斥),有問題會用中文一次列出;機密(密碼、token、金鑰、資料庫網址裡的密碼)不會出現在日誌或錯誤訊息裡。
+
+- 舊名稱(`OPS_*`):新名稱沒設才讀舊名稱,讀到時記一次 log 提醒改名;新名稱優先。舊名稱之後會拿掉。
+- 布林值:`1`、`true`、`yes`、`on` 為開;`0`、`false`、`no`、`off` 或空白為關;其他值啟動時報錯。
+- 程式欄:`server` = omixor-server、`local` = omixor-local、`web` = omixor-web(console)、`cli` = omixor、`mcp` = omixor-mcp。
+- 每個程式的 `-h`(或不給參數時的說明)也列出它用到的變數,內容同這份文件。
+
+## 共用
+
+| 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
+|---|---|---|---|---|---|---|---|
+| `OMIXOR_DATABASE_URL` | `OPS_DATABASE_URL` | 網址或 key=value(postgres/postgresql) |  | server | 是 | server、local、web | PostgreSQL 連線設定,網址形式(postgres://使用者:密碼@主機/資料庫,可有多個主機、unix socket)或 key=value 形式(host=/cloudsql/專案:區域:執行個體 user=… password=… dbname=…,Cloud SQL 常用);密碼(網址的密碼、query 的 password/sslpassword、key=value 的 password=)會被遮蔽。server 必填;local 沒設就啟動內建的 PostgreSQL;web 沒設就存資料夾裡的 JSON 檔。獨立模式的 omixor-local 也會使用它(例如開發用的 docker-compose 為 omixor-web 設的) |
+| `OMIXOR_ADDR` |  | 字串 | server: :$PORT(沒有 PORT 就 :8080);local:獨立模式 127.0.0.1:8770、App 模式 127.0.0.1:0 |  |  | server、local | HTTP 監聽位址。local 只接受本機位址 |
+| `OMIXOR_SERVER` | `OPS_ISSUE_SERVER` | 網址(http/https) | cli:上次登入的、舊版登入資料的、正式站 |  |  | cli、web | 連哪一台 omixor server。cli:--server 旗標優先於它;web:設了就是遠端模式,授權、組織、Issue 交給那台 |
+
+## 伺服器(omixor-server)
+
+| 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
+|---|---|---|---|---|---|---|---|
+| `OMIXOR_PUBLIC_URL` |  | 網址(http/https) |  |  |  | server | 對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent。local 啟動時自己填上 |
+| `OMIXOR_SITE_DIR` |  | 路徑 |  |  |  | server | 形象網站檔案所在的資料夾(Docker 映像裡是 /site);沒設或不存在就不提供網站 |
+| `OMIXOR_TOKEN_DAYS` |  | 整數(0–36500) | `90` |  |  | server | 使用者 token 的有效天數 |
+| `OMIXOR_ADMIN_BOOTSTRAP_EMAIL` |  | 字串 |  |  |  | server | 第一位管理員的 email(資料庫還沒有管理員時,這個 email 登入就成為管理員) |
+| `OMIXOR_AGENT_CRED_HOURS` |  | 小數 | 服務內建的預設 |  |  | server | 領取任務時發給角色的憑證有效小時數(要大於 0,否則用預設) |
+| `PORT` |  | 整數(1–65535) | `8080` |  |  | server | Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴) |
+| `OMIXOR_MIGRATE_MAX_AUTO_REWRITE_MB` |  | 整數(0–100000000) | `1024` |  |  | server | 啟動遷移會重寫整張表的 ALTER(新增 stored 產生欄位 project_ref:omixor_docs、omixor_cabinet_sections、ops_issues),表(含索引)超過這個大小(MB)就不自動做、只警告,要在維護窗口先跑 core/store/sql/premigrate.sql(必須用與服務相同的資料庫角色)再重啟;0 = 不限制(一律自動做,重寫期間該表讀寫全被擋) |
+| `OMIXOR_MIGRATE_BUDGET_MINUTES` |  | 整數(1–1440) | `10` |  |  | server | 啟動遷移(在開始監聽之前同步執行)所有階段共用的總預算(分鐘);用完就略過剩下的、只警告,下次啟動接著做。要小於平台的啟動探測時限(Cloud Run 要設定足夠長的 startup probe) |
+| `EVOLEAP_URL` |  | 網址(http/https) | `https://evoleap.io` |  |  | server | evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名) |
+
+## LDAP 登入(omixor-server)
+
+| 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
+|---|---|---|---|---|---|---|---|
+| `OMIXOR_LDAP_BIND_PASSWORD` | `OPS_LDAP_BIND_PASSWORD` | 字串 |  |  | 是 | server、web | LDAP 服務帳號密碼。server 用在 OMIXOR_LDAP_BIND_DN;web 不想用鑰匙圈/資料庫保存時改從這裡讀 |
+| `OMIXOR_LDAP_URL` |  | 網址(ldap/ldaps) |  |  |  | server | LDAP / Active Directory 位址,ldap://主機:389 或 ldaps://主機:636。沒設 = 不啟用 LDAP 登入;設了就必須設 BIND_DN 或 USER_DN_TEMPLATE 其中一個 |
+| `OMIXOR_LDAP_START_TLS` |  | 布林 |  |  |  | server | ldap:// 連線升級成 StartTLS(ldaps:// 不用) |
+| `OMIXOR_LDAP_CA_CERT` |  | 路徑 |  |  |  | server | 驗證 LDAP 伺服器憑證用的 CA 憑證檔(PEM) |
+| `OMIXOR_LDAP_INSECURE_SKIP_VERIFY` |  | 布林 |  |  |  | server | 不驗證 LDAP 伺服器憑證(只建議測試用) |
+| `OMIXOR_LDAP_BIND_DN` |  | 字串 |  |  |  | server | 服務帳號 DN(用服務帳號搜尋使用者的方式);要同時給密碼與 OMIXOR_LDAP_BASE_DN |
+| `OMIXOR_LDAP_BIND_PASSWORD_FILE` |  | 路徑 |  |  |  | server | 服務帳號密碼存在這個檔案(Docker secret);OMIXOR_LDAP_BIND_PASSWORD 有設時以它為準 |
+| `OMIXOR_LDAP_BASE_DN` |  | 字串 |  |  |  | server | 搜尋使用者的起點 DN(用服務帳號搜尋時必填) |
+| `OMIXOR_LDAP_USER_FILTER` |  | 字串 | (<ID_ATTR>=%s) |  |  | server | 搜尋使用者的過濾條件,要剛好有一個 %s(換成帳號) |
+| `OMIXOR_LDAP_USER_DN_TEMPLATE` |  | 字串 |  |  |  | server | 直接用使用者身分 bind 的 DN 樣板,要剛好有一個 %s(換成帳號) |
+| `OMIXOR_LDAP_ID_ATTR` |  | 字串 | sAMAccountName |  |  | server | 帳號對應的屬性 |
+| `OMIXOR_LDAP_NAME_ATTR` |  | 字串 | displayName |  |  | server | 顯示名稱對應的屬性 |
+| `OMIXOR_LDAP_MAIL_ATTR` |  | 字串 | mail |  |  | server | email 對應的屬性 |
+| `OMIXOR_LDAP_TIMEOUT_SECONDS` |  | 整數(≥1) | `10` |  |  | server | LDAP 連線與查詢的逾時秒數 |
+| `OMIXOR_LDAP_ADMINS` |  | 字串 |  |  |  | server | 伺服器管理員的帳號(逗號分隔),每次登入都確認 |
+| `OMIXOR_LDAP_EMAIL_DOMAIN` |  | 字串 |  |  |  | server | 目錄沒有 mail 時,用 帳號@這個網域 當 email;只要網域(例如 corp.example.com) |
+| `OMIXOR_LDAP_TRUST_MAIL` |  | 布林 |  |  |  | server | 信任目錄的 mail:預先加入的同 email 使用者登入時自動對上 |
+
+## 本機守護服務(omixor-local)
+
+| 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
+|---|---|---|---|---|---|---|---|
+| `OMIXOR_DATA_DIR` |  | 路徑 | 獨立模式:<使用者設定資料夾>/omixor/core;App 模式必填 |  |  | local | 資料夾(PostgreSQL 資料、credentials.json 等)。-data 旗標優先 |
+| `OMIXOR_LOCAL_TOKEN` |  | 字串 |  |  | 是 | local | macOS App 給的 token(omx_ 開頭,每次啟動換一把);有設就是 App 模式,沒設是獨立模式。讀取後立刻從環境移除,子程序不會繼承 |
+| `OMIXOR_LOCAL_USER` |  | 字串 | local |  |  | local | 本機使用者的 email 或 id |
+| `OMIXOR_LOCAL_NAME` |  | 字串 | 同 OMIXOR_LOCAL_USER |  |  | local | 本機使用者的顯示名稱 |
+| `OMIXOR_LOCAL_ORG` |  | 字串 | default |  |  | local | 確保存在的預設組織 id(不能刪) |
+| `OMIXOR_EXIT_ON_STDIN_EOF` |  | 布林 |  |  |  | local | 標準輸入關掉就結束(App 結束或當掉時守護服務跟著結束;只在 App 模式有作用) |
+| `PGCTLTIMEOUT` |  | 整數(1–86400) | 依啟動逾時推算(至少 60) |  |  | local | pg_ctl 啟動內建 PostgreSQL 的等待秒數(pg_ctl 自己認的變數;自己設了就用你的) |
+
+## 畫面與 API(omixor-web)
+
+| 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
+|---|---|---|---|---|---|---|---|
+| `OMIXOR_SECRET_KEY` | `OPS_SECRET_KEY` | 字串 |  |  | 是 | web | 用資料庫時必填:base64 的 32 bytes(openssl rand -base64 32),加密 token 與密碼;換掉後已存的會解不開 |
+| `OMIXOR_SERVER_TOKEN` | `OPS_ISSUE_SERVER_TOKEN` | 字串 |  |  | 是 | web | 遠端模式連 OMIXOR_SERVER 用的固定 token(沒設就用存著的登入、401 時走 evoleap 換) |
+| `OMIXOR_SERVERS` |  | 字串 |  |  | 是 | web | 可以連的遠端 omixor 清單:JSON 陣列,或指向 JSON 檔的路徑(內容可能含 token,視為機密) |
+| `OMIXOR_EVOLEAP` |  | 網址(http/https) | 內建的 evoleap 連線 |  |  | web | 遠端模式登入用的 evoleap 網址 |
+| `OMIXOR_EVOLEAP_CONSOLE` |  | 網址(http/https) |  |  |  | web | evoleap 核准頁網址(沒設用 evoleap 回傳的) |
+| `OMIXOR_NO_TIMERS` | `OPS_NO_TIMERS` | 布林 |  |  |  | web | 不開背景計時器(例行任務、輪詢;測試用) |
+| `OMIXOR_NO_BROWSER` | `OPS_NO_BROWSER` | 旗標(有設就算) |  |  |  | web | 啟動時不自動開瀏覽器(Docker 映像預設開著)。有設就不開:任何非空值都算,包含 0、false |
+| `OMIXOR_CONSOLE_DATA_DIR` | `OPS_DATA_DIR` | 路徑 | ~/Library/Application Support/omixor-console(依系統) |  |  | web、mcp | 資料夾(範例資料、設定、auth.json 等);測試一律指到暫存資料夾 |
+| `OMIXOR_AUTH` | `OPS_AUTH` | 選項:off |  |  |  | web | off(不分大小寫)= 強制不用登入(設定錯了進不去時用它回到本機模式);其他值只在啟動時警告、一律忽略 |
+| `OMIXOR_API_TOKEN` | `OPS_API_TOKEN` | 字串 |  |  | 是 | web | /api/issues/ 可以用的 Bearer token(至少 16 字元,不夠長視為沒設) |
+| `OMIXOR_SHUTTLE_PATH` | `OPS_SHUTTLE_PATH` | 路徑 |  |  |  | web | 語音 shuttle 資料夾(優先於畫面裡的設定) |
+| `OMIXOR_CLAUDE_BIN` |  | 路徑 | 常見安裝位置,再找 PATH |  |  | web | claude 執行檔路徑(自動執行角色任務用) |
+| `OMIXOR_OFFICE_DIR` |  | 路徑 | <執行檔>/../../office3d、<執行檔>/../office3d、<執行檔>/office3d |  |  | web | 3D 辦公室(office3d)資料夾,裡面要有 places.json |
+| `OMIXOR_TEMPLATES` |  | 字串 | 不載入範本 |  |  | web | 範本資料:1/on/true/yes/auto = 自動找 templates/;0/off/false/no = 不載入;其他值 = 範本資料夾路徑 |
+| `OMIXOR_MCP_PORT` | `OPS_MCP_PORT` | 整數(1–65535) | `3765` |  |  | web、mcp | MCP 連接埠(和 macOS App 相同;兩個同時開時給其中一個換埠);omixor-mcp 用它組出轉接位址 |
+| `OMIXOR_MCP_ADDR` | `OPS_MCP_ADDR` | 字串 | `127.0.0.1` |  |  | web | MCP 聽的位址(Docker 裡設 0.0.0.0,連接埠只發布到主機的 127.0.0.1) |
+| `OMIXOR_CONSOLE_MCP_TOKEN` |  | 字串 |  |  | 是 | web、mcp | console 的 MCP 連接埠要求的 Bearer 權杖(至少 32 字元,不能含空白或換行;結尾換行會先去掉);有設但無效時 console 與 omixor-mcp 拒絕啟動;沒設時 console 自己產生並保存(omixor-mcp 也先讀這個,再讀 console 資料夾裡的 mcp_token) |
+| `OMIXOR_WEB_PORT` | `OPS_WEB_PORT` | 整數(1–65535) | `5191` |  |  | web | 畫面與 API 的連接埠(沒設 OMIXOR_WEB_ADDR 時聽 127.0.0.1:<連接埠>) |
+| `OMIXOR_WEB_ADDR` | `OPS_WEB_ADDR` | 字串 | 127.0.0.1:<OMIXOR_WEB_PORT> |  |  | web | 畫面聽的位址,例如 0.0.0.0:5191;不是本機位址時必須先啟用 LDAP 登入(或設 OMIXOR_WEB_LOCAL_ONLY_PUBLISH) |
+| `OMIXOR_WEB_HOSTS` | `OPS_WEB_HOSTS` | 字串 |  |  |  | web | 允許的主機名稱(逗號分隔);反向代理的網域要列在這裡 |
+| `OMIXOR_WEB_LOCAL_ONLY_PUBLISH` | `OPS_WEB_LOCAL_ONLY_PUBLISH` | 閘門(只認 1) |  |  |  | web | 安全閘門:在 Docker 裡聽 0.0.0.0、但連接埠只發布到主機的 127.0.0.1 時設 1,可略過「不是本機位址必須啟用 LDAP」的檢查。只認精確的 1,其他值(true、yes、on…)一律視為沒設 |
+
+## 命令列(omixor)
+
+| 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
+|---|---|---|---|---|---|---|---|
+| `OMIXOR_CREDENTIALS` |  | 路徑 | <設定資料夾>/credentials/<伺服器>.json |  |  | cli | 登入資料檔(指定單一檔案時只用那個檔,不記「上次登入的伺服器」) |
+| `OMIXOR_CONFIG_DIR` |  | 路徑 | ~/.config/omixor |  |  | cli | CLI 設定資料夾(登入資料、目前的伺服器) |
+
+## MCP 轉接(omixor-mcp)
+
+| 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
+|---|---|---|---|---|---|---|---|
+| `OMIXOR_MCP_URL` | `OPS_MCP_URL` | 網址(http/https) | http://127.0.0.1:<OMIXOR_MCP_PORT>/mcp |  |  | mcp | 要轉接到的 MCP 位址 |
+
+## 與舊版行為不同的啟動驗證
+
+設定集中之後,下列情形在程式啟動時就報錯(舊版是靜默忽略,或到用到時才失敗)。升級前先確認部署的環境變數沒有這些值;其他的值(包含 `OMIXOR_AUTH` 的任何值、`OMIXOR_NO_BROWSER` 的任何值)維持舊版行為,不會讓啟動失敗。
+
+| 設定 | 以前 | 現在 |
+|---|---|---|
+| `PORT`(server) | 不檢查,原樣當成監聽位址(0 = 隨機埠、不合法的值到監聽時才失敗) | 要是 1–65535 的整數,否則啟動失敗 |
+| `OMIXOR_MCP_PORT`(web、mcp) | 不合法的值靜默改用預設 3765 | 要是 1–65535 的整數(0 與超出範圍都拒絕),否則啟動失敗 |
+| `OMIXOR_WEB_PORT`(web) | 不合法的值靜默改用預設 5191 | 要是 1–65535 的整數,否則啟動失敗 |
+| `OMIXOR_TOKEN_DAYS`(server) | 非整數當 0(token 不到期),負數照用 | 要是 0–36500 的整數(0 仍是不到期),負數、非整數啟動失敗 |
+| `OMIXOR_AGENT_CRED_HOURS`(server) | 不是數字就忽略、用預設 | 不是數字啟動失敗(0 或負數仍是「用預設」) |
+| `OMIXOR_SERVER`(cli、web)、`OMIXOR_PUBLIC_URL`、`EVOLEAP_URL`、`OMIXOR_MCP_URL`、`OMIXOR_LDAP_URL` | 不檢查,沒有 scheme 的值到連線時才失敗(或被當成別的意思) | 一定要是含 scheme 的網址(`http`/`https`;LDAP 是 `ldap`/`ldaps`),否則啟動失敗 |
+| `OMIXOR_DATABASE_URL` | 不檢查,連線時才由資料庫驅動程式報錯 | 網址形式(含 `://`)的 scheme 要是 `postgres`/`postgresql`;key=value 形式要有 `=`;否則啟動失敗。兩種形式都接受 |
+| LDAP 部分設定(server) | 沒設 `OMIXOR_LDAP_URL` 時,其他 LDAP 設定被靜默忽略、LDAP 不啟用 | 設了其他 LDAP 項目卻沒設 `OMIXOR_LDAP_URL`(`OMIXOR_LDAP_BIND_PASSWORD` 除外)啟動失敗,避免漏設 |
+| `OMIXOR_LDAP_START_TLS`、`OMIXOR_LDAP_INSECURE_SKIP_VERIFY`、`OMIXOR_LDAP_TRUST_MAIL` | 不認得的值當成「關」 | 要是 1/true/yes/on 或 0/false/no/off,否則啟動失敗 |
+| `OMIXOR_WEB_ADDR` 與 `OMIXOR_WEB_PORT`(web) | 兩個都設而連接埠不同時,靜默以 `OMIXOR_WEB_ADDR` 為準 | 連接埠不同啟動失敗(只設其中一個,或讓兩者一致) |
+| `OMIXOR_NO_TIMERS` 等布林設定 | 不認得的值當成「關」(各程式略有不同) | 要是 1/true/yes/on 或 0/false/no/off,否則啟動失敗 |
+| 整數型設定(`PGCTLTIMEOUT`、`OMIXOR_MIGRATE_*` 等) | 不檢查,由使用它的程式或 pg_ctl 處理 | 非整數或超出範圍啟動失敗 |
+
+## 測試/開發用變數
+
+這些只給測試與開發流程用,不是正式設定:不進上面的表、不經過 `core/config`,測試程式碼直接讀。
+
+| 名稱 | 說明 |
+|---|---|
+| `OMIXOR_TEST_DATABASE_URL` | 測試用 PostgreSQL 連線網址;沒設就自動起內建 PostgreSQL(core/storetest/testdb) |
+| `OMIXOR_TEST_NO_EMBEDDED_PG` | 設 1:需要 PostgreSQL 的測試略過(不自動起內建的) |
+| `OPS_TEST_DATABASE_URL` | OMIXOR_TEST_DATABASE_URL 的舊名稱(測試輔助仍支援) |
+| `OPS_TEST_NO_EMBEDDED_PG` | OMIXOR_TEST_NO_EMBEDDED_PG 的舊名稱(測試輔助仍支援) |
+| `FAKE_CLAUDE` | 設 1:測試用的假 claude 程序(core/claude) |
+| `UPDATE_CONTRACT` | 設 1:重寫 core/model 的契約範例檔 |
+| `UPDATE_CONFIG_DOC` | 設 1:重寫 docs/configuration.md(core/config 的測試) |
+| `OMIXOR_KEYCHAIN_TEST` | 設 1:用暫存鑰匙圈檔案測 macOS /usr/bin/security(console) |
+| `OMIXOR_STRICT` | 設 1:還沒實作的 MCP 工具會讓測試失敗(console/internal/mcp) |
+| `FLOWCHART_OUT` | 指定資料夾:流程圖測試把圖存下來看 |
+| `WIREFRAME_OUT` | 指定資料夾:線框圖測試把圖存下來看 |
+
+## 系統變數
+
+`PATH`、`SHELL` 是作業系統的變數,不屬於 omixor 設定,程式直接讀(找 claude 執行檔、取得登入 shell 的 PATH)。

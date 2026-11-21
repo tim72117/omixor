@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"omixor-core/client"
-	"omixor-core/env"
+	"omixor-core/config"
 	"omixor-core/model"
 )
 
@@ -48,7 +48,7 @@ var (
 func modePath() string { return filepath.Join(DataRoot(), "mode.json") }
 
 func envServer() string {
-	return strings.TrimRight(strings.TrimSpace(env.Get("OMIXOR_SERVER", "OPS_ISSUE_SERVER")), "/")
+	return strings.TrimRight(strings.TrimSpace(config.Current().Str(config.ServerURL)), "/")
 }
 
 // ---- 啟動設定:可以連哪些遠端 omixor ----
@@ -96,7 +96,7 @@ func parseServers(b []byte) []serverFileEntry {
 // ConfiguredServers 啟動設定裡的遠端 omixor(沒設定回傳空陣列)
 func ConfiguredServers() []ServerConf {
 	var raw []serverFileEntry
-	if v := strings.TrimSpace(os.Getenv("OMIXOR_SERVERS")); v != "" {
+	if v := strings.TrimSpace(config.Current().Str(config.Servers)); v != "" {
 		if strings.HasPrefix(v, "[") {
 			raw = append(raw, parseServers([]byte(v))...)
 		} else if b, err := os.ReadFile(v); err == nil {
@@ -382,11 +382,11 @@ func remoteLogin(server, method string) (*model.User, error) {
 			return u, nil
 		}
 	}
-	evoBase := strings.TrimRight(os.Getenv("OMIXOR_EVOLEAP"), "/")
+	evoBase := strings.TrimRight(config.Current().Str(config.Evoleap), "/")
 	if evoBase == "" {
 		evoBase = DefaultConnections()[0].BaseURL
 	}
-	evoToken, err := EvoleapLogin(evoBase, os.Getenv("OMIXOR_EVOLEAP_CONSOLE"))
+	evoToken, err := EvoleapLogin(evoBase, config.Current().Str(config.EvoleapConsole))
 	if err != nil {
 		return nil, fmt.Errorf("evoleap 登入失敗:%v", err)
 	}
@@ -570,7 +570,7 @@ func (a *App) accountView() AccountView {
 			v.LoggedIn, v.Email, v.Name, v.Role = true, u.Email, u.Name, u.Role
 		}
 		v.Error = errText
-		if e := a.issueSt().remoteErr; e != "" && v.Error == "" { // 畫面函式已拿著 Mu
+		if e := a.issueConnErr(); e != "" && v.Error == "" { // 畫面函式已拿著 Mu;使用者操作的錯誤(409…)不算連線錯誤
 			v.Error = e
 		}
 	}
@@ -602,7 +602,7 @@ func init() {
 
 	// 遠端模式:啟動時問一次我是誰;之後每 30 秒更新帳號與組織清單(連網都在鎖外)
 	OnStart(func(a *App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		go func() {

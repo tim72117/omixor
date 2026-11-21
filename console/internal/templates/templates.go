@@ -18,6 +18,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"log"
+	"omixor-core/config"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,7 +30,7 @@ var warnOnce sync.Once
 
 // Enabled 有沒有開範本(預設沒有)
 func Enabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("OMIXOR_TEMPLATES"))) {
+	switch strings.ToLower(strings.TrimSpace(config.Current().Str(config.Templates))) {
 	case "", "0", "off", "false", "no":
 		return false
 	}
@@ -41,7 +42,7 @@ func Dir() string {
 	if !Enabled() {
 		return ""
 	}
-	switch v := strings.TrimSpace(os.Getenv("OMIXOR_TEMPLATES")); strings.ToLower(v) {
+	switch v := strings.TrimSpace(config.Current().Str(config.Templates)); strings.ToLower(v) {
 	case "1", "on", "true", "yes", "auto":
 	default:
 		return v

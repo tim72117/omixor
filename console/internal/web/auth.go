@@ -4,10 +4,13 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"omixor-web/internal/auth"
 	"omixor-web/internal/core"
+
+	"omixor-core/httperr"
 )
 
 // 登入相關的 API:
@@ -87,12 +90,18 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Username, Password string }
 		if err := readInto(r, &in); err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		tok, u, err := au.Login(in.Username, in.Password, remoteIP(r))
 		if err != nil {
-			writeJSON(w, 200, map[string]any{"error": err.Error()})
+			status := authLoginStatus(err)
+			if status == 429 { // 被鎖:告訴用戶端多久後再試
+				if sec, ok := httperr.Classify(err).Data["retryAfter"].(int); ok && sec > 0 {
+					w.Header().Set("Retry-After", strconv.Itoa(sec))
+				}
+			}
+			writeErr(w, r, status, err)
 			return
 		}
 		http.SetCookie(w, &http.Cookie{
@@ -150,12 +159,12 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 		}
 		var in configIn
 		if err := readInto(r, &in); err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		u, err := test(in, in.Username, in.Password)
 		if err != nil {
-			writeJSON(w, 200, map[string]any{"error": err.Error()})
+			writeErrDetail(w, r, auth.StatusOf(err), err)
 			return
 		}
 		writeJSON(w, 200, map[string]any{"result": u})
@@ -167,22 +176,22 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 		}
 		var in configIn
 		if err := readInto(r, &in); err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			badRequest(w, err)
 			return
 		}
 		if in.Config.Mode == "ldap" {
 			u, err := test(in, in.TestUsername, in.TestPassword)
 			if err != nil {
-				writeJSON(w, 200, map[string]any{"error": "用測試帳號登入失敗,設定沒有存:" + err.Error()})
+				writeErrPrefix(w, r, auth.StatusOf(err), "用測試帳號登入失敗,設定沒有存:", err, true)
 				return
 			}
 			if !u.Admin {
-				writeJSON(w, 200, map[string]any{"error": "測試帳號不在管理員群組,存了之後就沒有人能改設定,所以沒有存"})
+				writeJSON(w, 400, map[string]any{"error": "測試帳號不在管理員群組,存了之後就沒有人能改設定,所以沒有存"})
 				return
 			}
 		}
 		if err := au.Save(in.Config, in.BindPassword); err != nil {
-			writeJSON(w, 200, map[string]any{"error": err.Error()})
+			writeErr(w, r, failStatus(err), err)
 			return
 		}
 		u, _ := currentUser(r, app, au)

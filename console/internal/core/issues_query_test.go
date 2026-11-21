@@ -22,7 +22,7 @@ func TestIssueQueryAndBoardActions(t *testing.T) {
 	ids := func(l []model.Issue) string {
 		out := []string{}
 		for _, i := range l {
-			out = append(out, i.ID)
+			out = append(out, i.Key)
 		}
 		return strings.Join(out, ",")
 	}

@@ -7,7 +7,7 @@ import SwiftUI
 // MCP 核心工具轉送)。連哪台、用哪把 token 只在 IssueServerConfig.current 決定(遠端 → 設定裡的伺服器;本機 → 這個守護服務)。
 //
 //   執行檔:omixor.app/Contents/MacOS/omixor-local(scripts/build-app.sh 編進去);開發時可用 OMIXOR_LOCAL_BIN 指定
-//   資料夾:<App 資料夾>/core(store.json、附件、app-import.json)
+//   資料夾:<App 資料夾>/core(pgdata 內建 PostgreSQL 資料、附件、app-import.json)
 //   位址:127.0.0.1 的隨機埠(守護服務自己挑,印在標準輸出的 OMIXOR_LOCAL_READY 那一行),不會撞到 8080、3765、3767
 //   token:每次啟動用亂數產生一把 omx_…,只放在記憶體、用環境變數傳給守護服務(不進命令列、不寫檔);守護服務會作廢上一把
 //   使用者:本機使用者的 email 是 App 的使用者 id(app.me,例如 tim),頻道與組織鏈的節點才會和原本的本機資料一樣是 user:tim
@@ -101,11 +101,15 @@ final class LocalCore: @unchecked Sendable {
         lock.lock(); _state = s; _config = c; lock.unlock()
     }
 
+    /// 啟動守護服務最多等多久(秒)。守護服務預設自己起內建的 PostgreSQL:第一次要下載二進位檔、解壓、initdb,
+    /// 可能要數十秒到數分鐘,所以給 10 分鐘(太短會把它殺在初始化中途)
+    static let startTimeout: TimeInterval = 600
+
     /// 啟動守護服務並等它可用(會擋住呼叫的執行緒,不要在主執行緒呼叫)。已經在跑就直接回傳。
     /// org:守護服務的預設組織(OMIXOR_LOCAL_ORG;nil = 守護服務的預設 default)。App 不給;測試共用一個守護服務時
     /// 給別的 id,讓 default 可以在每個測試前刪掉重建
     func start(binary: URL? = LocalCore.binary(), dataDir: URL = LocalCore.dataDir, user: String, name: String = "",
-               org: String? = nil, timeout: TimeInterval = 20) throws -> IssueServerConfig {
+               org: String? = nil, timeout: TimeInterval = LocalCore.startTimeout) throws -> IssueServerConfig {
         lock.lock()
         if let c = _config, process?.isRunning == true { lock.unlock(); return c }
         _state = .starting; _config = nil
@@ -495,7 +499,7 @@ struct LocalCoreGate: View {
                     Button("重試") { app.retryLocalCore() }.buttonStyle(.borderedProminent)
                 } else {
                     ProgressView()
-                    Text(app.localCoreNotice ?? "正在啟動本機服務…").font(.callout).foregroundStyle(.secondary)
+                    Text(app.localCoreNotice ?? "正在啟動本機服務…\n第一次使用要準備資料庫(下載並初始化),可能需要幾分鐘,請耐心等候").font(.callout).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
             }

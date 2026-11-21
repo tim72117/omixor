@@ -7,12 +7,12 @@ import (
 
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 func pairEnv(t *testing.T) (*service.Service, *model.Principal, *time.Time) {
 	t.Helper()
-	st := store.NewMem()
+	st := storetest.New(t)
 	now := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
 	svc := &service.Service{Store: st, TTL: 90 * 24 * time.Hour, LoginPerIP: 1000, LoginTotal: 1000, Now: func() time.Time { return now }}
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: model.Now()})

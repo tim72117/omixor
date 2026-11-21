@@ -16,12 +16,14 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"omixor-core/env"
+	"omixor-core/config"
 )
 
 // PostgreSQL 存放處(設了 OMIXOR_DATABASE_URL 才用)。
@@ -36,13 +38,83 @@ import (
 // 這個版本只支援一台 omixor-web 連同一個資料庫(畫面即時通知與記憶體裡的狀態不跨主機)。
 
 var (
-	pgPool *pgxpool.Pool
+	// pgPoolPtr 目前的連線池;用 atomic 讀寫(CloseDB 設 nil 時,別的 goroutine 可能正在讀)。要用請走 pgPool() 與 pgExec / pgQuery / pgQueryRow
+	pgPoolPtr atomic.Pointer[pgxpool.Pool]
 	// 密鑰加密用的金鑰(32 bytes)
 	pgKey []byte
 )
 
+// pgPool 目前的連線池;沒開資料庫或已關閉是 nil
+func pgPool() *pgxpool.Pool { return pgPoolPtr.Load() }
+
+// pgExec、pgQuery、pgQueryRow 同 pool 的同名方法,但連線池是 nil(沒開或已 CloseDB)時回 errPGClosed 而不是當機
+func pgExec(ctx context.Context, q string, args ...any) (pgconn.CommandTag, error) {
+	p := pgPool()
+	if p == nil {
+		return pgconn.CommandTag{}, errPGClosed
+	}
+	return p.Exec(ctx, q, args...)
+}
+
+func pgQuery(ctx context.Context, q string, args ...any) (pgx.Rows, error) {
+	p := pgPool()
+	if p == nil {
+		return nil, errPGClosed
+	}
+	return p.Query(ctx, q, args...)
+}
+
+type errRow struct{ err error }
+
+func (r errRow) Scan(...any) error { return r.err }
+
+func pgQueryRow(ctx context.Context, q string, args ...any) pgx.Row {
+	p := pgPool()
+	if p == nil {
+		return errRow{errPGClosed}
+	}
+	return p.QueryRow(ctx, q, args...)
+}
+
+// 背景寫入(動態牆、範例資料、刪組織時清資料)用 pgGo 開,CloseDB 關連線池前會等它們做完(有上限),不會在關閉後碰到 nil 的連線池。
+var pgBg struct {
+	sync.Mutex
+	closing bool
+	wg      sync.WaitGroup
+}
+
+// pgGo 在背景跑 f 並登記;CloseDB 進行中(或已關閉)不再接新的,直接略過
+func pgGo(f func()) {
+	pgBg.Lock()
+	if pgBg.closing {
+		pgBg.Unlock()
+		return
+	}
+	pgBg.wg.Add(1)
+	pgBg.Unlock()
+	go func() {
+		defer pgBg.wg.Done()
+		f()
+	}()
+}
+
+// waitPGBackground 等登記的背景寫入結束,最多 d;回傳是否都結束了
+func waitPGBackground(d time.Duration) bool {
+	done := make(chan struct{})
+	go func() { pgBg.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+// errPGClosed 資料庫已關閉(CloseDB 之後)還要寫
+var errPGClosed = errors.New("資料庫連線已關閉")
+
 // DB 目前的資料庫連線;沒用資料庫時是 nil
-func DB() *pgxpool.Pool { return pgPool }
+func DB() *pgxpool.Pool { return pgPool() }
 
 const pgSchema = `
 create table if not exists ops_documents (
@@ -107,19 +179,31 @@ func OpenDB(url, key string) error {
 			return fmt.Errorf("建表失敗:%w", err)
 		}
 	}
-	pgPool, pgKey = pool, k
+	pgKey = k
+	pgPoolPtr.Store(pool)
 	Store = pgBackend{}
 	Vault = pgVault{}
 	return nil
 }
 
-// CloseDB 測試用
+// CloseDB 測試用(正式程式不呼叫)。順序:停計時器並等它們結束 → 不再接新的背景寫入並等已登記的做完(最多 10 秒)→ 關連線池。
+// 不可以在持有 a.Mu 時呼叫(背景寫入與計時器的最後一輪可能要拿 a.Mu)。
 func CloseDB() {
-	if pgPool != nil {
-		pgPool.Close()
+	stopPGTimers() // 先停背景計時器(它們會用連線池),再關連線池
+	pgBg.Lock()
+	pgBg.closing = true
+	pgBg.Unlock()
+	if !waitPGBackground(10 * time.Second) {
+		log.Printf("CloseDB:背景寫入 10 秒內沒結束,仍關閉連線池")
 	}
-	pgPool, pgKey = nil, nil
+	if p := pgPoolPtr.Swap(nil); p != nil {
+		p.Close()
+	}
+	pgKey = nil
 	Store = fileBackend{}
+	pgBg.Lock()
+	pgBg.closing = false
+	pgBg.Unlock()
 }
 
 func pgCtx() (context.Context, context.CancelFunc) {
@@ -136,7 +220,7 @@ func (pgBackend) Read(key string) ([]byte, error) {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var b []byte
-	err := pgPool.QueryRow(ctx, `select data::text from ops_documents where path = $1`, key).Scan(&b)
+	err := pgQueryRow(ctx, `select data::text from ops_documents where path = $1`, key).Scan(&b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fs.ErrNotExist
 	}
@@ -149,7 +233,7 @@ func (pgBackend) Write(key string, data []byte) error {
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgPool.Exec(ctx, `insert into ops_documents (path, data, updated_at) values ($1, $2::jsonb, now())
+	_, err := pgExec(ctx, `insert into ops_documents (path, data, updated_at) values ($1, $2::jsonb, now())
 		on conflict (path) do update set data = excluded.data, updated_at = now()`, key, string(data))
 	if err != nil {
 		log.Printf("存 %s 失敗:%v", key, err)
@@ -161,14 +245,14 @@ func (pgBackend) Exists(key string) bool {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var n int
-	_ = pgPool.QueryRow(ctx, `select count(*) from ops_documents where path = $1`, key).Scan(&n)
+	_ = pgQueryRow(ctx, `select count(*) from ops_documents where path = $1`, key).Scan(&n)
 	return n > 0
 }
 
 func (pgBackend) Rename(oldKey, newKey string) error {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgPool.Exec(ctx, `update ops_documents set path = $2, updated_at = now() where path = $1`, oldKey, newKey)
+	_, err := pgExec(ctx, `update ops_documents set path = $2, updated_at = now() where path = $1`, oldKey, newKey)
 	return err
 }
 
@@ -177,7 +261,7 @@ func (pgBackend) MoveDir(oldPrefix, newPrefix string) error {
 	defer cancel()
 	old := strings.TrimSuffix(oldPrefix, "/") + "/"
 	nw := strings.TrimSuffix(newPrefix, "/") + "/"
-	_, err := pgPool.Exec(ctx, `update ops_documents set path = $2 || substr(path, length($1) + 1), updated_at = now()
+	_, err := pgExec(ctx, `update ops_documents set path = $2 || substr(path, length($1) + 1), updated_at = now()
 		where starts_with(path, $1)`, old, nw)
 	return err
 }
@@ -185,7 +269,7 @@ func (pgBackend) MoveDir(oldPrefix, newPrefix string) error {
 func (pgBackend) RemoveDir(prefix string) error {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgPool.Exec(ctx, `delete from ops_documents where starts_with(path, $1)`, strings.TrimSuffix(prefix, "/")+"/")
+	_, err := pgExec(ctx, `delete from ops_documents where starts_with(path, $1)`, strings.TrimSuffix(prefix, "/")+"/")
 	return err
 }
 
@@ -193,13 +277,13 @@ func (pgBackend) DirExists(prefix string) bool {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var n int
-	_ = pgPool.QueryRow(ctx, `select count(*) from ops_documents where starts_with(path, $1)`, strings.TrimSuffix(prefix, "/")+"/").Scan(&n)
+	_ = pgQueryRow(ctx, `select count(*) from ops_documents where starts_with(path, $1)`, strings.TrimSuffix(prefix, "/")+"/").Scan(&n)
 	return n > 0
 }
 
 // ImportDir 把資料夾裡的 JSON 檔匯入資料庫(已存在的會覆蓋);回傳匯入的路徑
 func ImportDir(dir string) ([]string, error) {
-	if pgPool == nil {
+	if pgPool() == nil {
 		return nil, errors.New("沒有連資料庫")
 	}
 	var done []string
@@ -261,7 +345,7 @@ func (pgVault) Get(account string) ([]byte, bool) {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var nonce, ct []byte
-	if err := pgPool.QueryRow(ctx, `select nonce, ciphertext from ops_secrets where account = $1`, account).Scan(&nonce, &ct); err != nil {
+	if err := pgQueryRow(ctx, `select nonce, ciphertext from ops_secrets where account = $1`, account).Scan(&nonce, &ct); err != nil {
 		return nil, false
 	}
 	pt, err := secretOpen(account, nonce, ct)
@@ -279,7 +363,7 @@ func (pgVault) Set(account string, data []byte) error {
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err = pgPool.Exec(ctx, `insert into ops_secrets (account, nonce, ciphertext, updated_at) values ($1, $2, $3, now())
+	_, err = pgExec(ctx, `insert into ops_secrets (account, nonce, ciphertext, updated_at) values ($1, $2, $3, now())
 		on conflict (account) do update set nonce = excluded.nonce, ciphertext = excluded.ciphertext, updated_at = now()`, account, nonce, ct)
 	return err
 }
@@ -287,7 +371,7 @@ func (pgVault) Set(account string, data []byte) error {
 func (pgVault) Delete(account string) error {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgPool.Exec(ctx, `delete from ops_secrets where account = $1`, account)
+	_, err := pgExec(ctx, `delete from ops_secrets where account = $1`, account)
 	return err
 }
 
@@ -334,7 +418,7 @@ func tokenHash(tok string) string {
 func SessionPut(tok string, user any, expires time.Time) error {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgPool.Exec(ctx, `insert into ops_sessions (token_hash, user_json, expires_at) values ($1, $2, $3)
+	_, err := pgExec(ctx, `insert into ops_sessions (token_hash, user_json, expires_at) values ($1, $2, $3)
 		on conflict (token_hash) do update set user_json = excluded.user_json, expires_at = excluded.expires_at`,
 		tokenHash(tok), string(Marshal(user)), expires)
 	return err
@@ -345,7 +429,7 @@ func SessionGet(tok string, user any) (time.Time, bool) {
 	defer cancel()
 	var b []byte
 	var exp time.Time
-	if err := pgPool.QueryRow(ctx, `select user_json::text, expires_at from ops_sessions where token_hash = $1`, tokenHash(tok)).Scan(&b, &exp); err != nil {
+	if err := pgQueryRow(ctx, `select user_json::text, expires_at from ops_sessions where token_hash = $1`, tokenHash(tok)).Scan(&b, &exp); err != nil {
 		return time.Time{}, false
 	}
 	if json.Unmarshal(b, user) != nil {
@@ -357,20 +441,24 @@ func SessionGet(tok string, user any) (time.Time, bool) {
 func SessionDelete(tok string) {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, _ = pgPool.Exec(ctx, `delete from ops_sessions where token_hash = $1`, tokenHash(tok))
+	_, _ = pgExec(ctx, `delete from ops_sessions where token_hash = $1`, tokenHash(tok))
 }
 
 // SessionClear 刪掉全部 session(認證設定改了,所有人要重新登入);順便清過期的
 func SessionClear() {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, _ = pgPool.Exec(ctx, `delete from ops_sessions`)
+	_, _ = pgExec(ctx, `delete from ops_sessions`)
 }
 
 func sessionSweep() {
+	pool := pgPool()
+	if pool == nil {
+		return
+	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, _ = pgPool.Exec(ctx, `delete from ops_sessions where expires_at < now()`)
+	_, _ = pool.Exec(ctx, `delete from ops_sessions where expires_at < now()`)
 }
 
 // MARK: 動態牆與範例資料的變更
@@ -393,7 +481,7 @@ var pgSt = &pgState{dirty: map[string]bool{}}
 func (a *App) loadPersisted() {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	rows, err := pgPool.Query(ctx, `select name, data::text from ops_state`)
+	rows, err := pgQuery(ctx, `select name, data::text from ops_state`)
 	if err != nil {
 		log.Printf("讀範例資料失敗:%v", err)
 		return
@@ -431,7 +519,7 @@ func (a *App) loadPersisted() {
 	}
 
 	// 動態牆:最新的 activityKeep 筆
-	arows, err := pgPool.Query(ctx, `select item::text from ops_activity where coalesce(item->>'org', '') = '' order by at desc, seq desc limit $1`, activityKeep)
+	arows, err := pgQuery(ctx, `select item::text from ops_activity where coalesce(item->>'org', '') = '' order by at desc, seq desc limit $1`, activityKeep)
 	if err == nil {
 		var items []map[string]any
 		for arows.Next() {
@@ -463,15 +551,15 @@ func activityInsert(item map[string]any) {
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	if _, err := pgPool.Exec(ctx, `insert into ops_activity (id, at, item) values ($1, $2, $3::jsonb) on conflict (id) do nothing`,
-		id, at, string(Marshal(item))); err != nil {
+	if _, err := pgExec(ctx, `insert into ops_activity (id, at, item) values ($1, $2, $3::jsonb) on conflict (id) do nothing`,
+		id, at, string(Marshal(item))); err != nil && !errors.Is(err, errPGClosed) {
 		log.Printf("存動態失敗:%v", err)
 	}
 }
 
 // markDirty Changed 的主題是範例資料集合時,標記要存
 func markDirty(topics []string) {
-	if pgPool == nil {
+	if pgPool() == nil {
 		return
 	}
 	pgSt.mu.Lock()
@@ -513,22 +601,36 @@ func (a *App) saveDirty() {
 		}
 	}
 	a.Mu.Unlock()
-	pgWriteState(data)
+	if err := pgWriteState(data); err != nil {
+		// 寫失敗(連線暫時有問題…):把這些名稱標回 dirty,下一輪再試(已關閉的資料庫也標,無害)
+		pgSt.mu.Lock()
+		for _, n := range names {
+			pgSt.dirty[n] = true
+		}
+		pgSt.mu.Unlock()
+	}
 }
 
-// pgWriteState 寫入 ops_state(key 已含組織前綴)
-func pgWriteState(data map[string][]byte) {
+// pgWriteState 寫入 ops_state(key 已含組織前綴);資料庫已關閉回 errPGClosed,寫入失敗會記 log 並回最後一個錯誤
+func pgWriteState(data map[string][]byte) error {
 	if len(data) == 0 {
-		return
+		return nil
+	}
+	pool := pgPool()
+	if pool == nil {
+		return errPGClosed
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
+	var last error
 	for n, b := range data {
-		if _, err := pgPool.Exec(ctx, `insert into ops_state (name, data, updated_at) values ($1, $2::jsonb, now())
+		if _, err := pool.Exec(ctx, `insert into ops_state (name, data, updated_at) values ($1, $2::jsonb, now())
 			on conflict (name) do update set data = excluded.data, updated_at = now()`, n, string(b)); err != nil {
 			log.Printf("存範例資料 %s 失敗:%v", n, err)
+			last = err
 		}
 	}
+	return last
 }
 
 // ActivityHistory 動態牆歷史(before 之前、最多 limit 筆);沒有資料庫時從記憶體拿
@@ -536,7 +638,7 @@ func ActivityHistory(a *App, before time.Time, limit int) []map[string]any {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	if pgPool == nil {
+	if pgPool() == nil {
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
 		var out []map[string]any
@@ -555,7 +657,7 @@ func ActivityHistory(a *App, before time.Time, limit int) []map[string]any {
 	a.Mu.Unlock()
 	ctx, cancel := pgCtx()
 	defer cancel()
-	rows, err := pgPool.Query(ctx, `select item::text from ops_activity where at < $1 and coalesce(item->>'org', '') = $3 order by at desc, seq desc limit $2`, before, limit, org)
+	rows, err := pgQuery(ctx, `select item::text from ops_activity where at < $1 and coalesce(item->>'org', '') = $3 order by at desc, seq desc limit $2`, before, limit, org)
 	if err != nil {
 		return nil
 	}
@@ -571,22 +673,64 @@ func ActivityHistory(a *App, before time.Time, limit int) []map[string]any {
 	return out
 }
 
+// pgTimer 背景計時器(每個 App 一個):定時存有變的範例資料、清過期 session。
+// CloseDB 會先停掉所有計時器並等它們結束,才關連線池,所以計時器不會碰到已關閉(nil)的連線池。
+type pgTimer struct {
+	stop chan struct{}
+	done chan struct{}
+}
+
+var (
+	pgTimersMu sync.Mutex
+	pgTimers   []*pgTimer
+)
+
+// startPGTimer 啟動計時器;every 是間隔
+func startPGTimer(a *App, every time.Duration) {
+	t := &pgTimer{stop: make(chan struct{}), done: make(chan struct{})}
+	pgTimersMu.Lock()
+	pgTimers = append(pgTimers, t)
+	pgTimersMu.Unlock()
+	go func() {
+		defer close(t.done)
+		tk := time.NewTicker(every)
+		defer tk.Stop()
+		n := 0
+		for {
+			select {
+			case <-t.stop:
+				return
+			case <-tk.C:
+			}
+			a.saveDirty()
+			if n++; n%60 == 0 {
+				sessionSweep()
+			}
+		}
+	}()
+}
+
+// stopPGTimers 停掉所有計時器並等它們結束(正在跑的那一輪會先做完)
+func stopPGTimers() {
+	pgTimersMu.Lock()
+	ts := pgTimers
+	pgTimers = nil
+	pgTimersMu.Unlock()
+	for _, t := range ts {
+		close(t.stop)
+	}
+	for _, t := range ts {
+		<-t.done
+	}
+}
+
 func init() {
 	// 每 10 秒存一次有變的範例資料、清過期 session
 	OnStart(func(a *App) {
-		if pgPool == nil || env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") != "" {
+		if pgPool() == nil || config.Current().Bool(config.NoTimers) {
 			return
 		}
-		go func() {
-			t := time.NewTicker(10 * time.Second)
-			n := 0
-			for range t.C {
-				a.saveDirty()
-				if n++; n%60 == 0 {
-					sessionSweep()
-				}
-			}
-		}()
+		startPGTimer(a, 10*time.Second)
 	})
 	RegisterAction("activity_history", func(a *App, args map[string]any) (any, error) {
 		before := time.Now().Add(time.Minute)
@@ -605,7 +749,7 @@ func init() {
 
 // SaveNow 立刻存(結束程式前、測試用)
 func (a *App) SaveNow() {
-	if pgPool != nil {
+	if pgPool() != nil {
 		a.saveDirty()
 	}
 }
@@ -628,6 +772,6 @@ func OpenIssueDB(url string) error {
 			return fmt.Errorf("建表失敗:%w", err)
 		}
 	}
-	pgPool = pool
+	pgPoolPtr.Store(pool)
 	return nil
 }

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"omixor-core/env"
+	"omixor-core/config"
 )
 
 // 模擬即時資料,對應 Swift AppState 的 startLiveUpdates / tick:
@@ -15,7 +15,7 @@ const liveInterval = 3 * time.Second
 
 func init() {
 	OnStart(func(a *App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		go func() {

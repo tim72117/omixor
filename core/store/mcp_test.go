@@ -7,7 +7,7 @@ import (
 	"omixor-core/model"
 )
 
-// 外部 MCP 登記:讀寫(深拷貝)、File 重開讀得回來、刪組織一併刪除(一致性測試的一項,見 conformance_test.go)
+// 外部 MCP 登記:讀寫(深拷貝)、刪組織一併刪除(一致性測試的一項,見 conformance_test.go)
 func suiteMCPConfig(t *testing.T, impl storeImpl) {
 	f := impl.open(t)
 	at := mt("2026-11-13T01:02:03Z")
@@ -21,7 +21,7 @@ func suiteMCPConfig(t *testing.T, impl storeImpl) {
 		Servers: []model.MCPServerReg{{ID: "fs", Name: "檔案", Transport: "stdio", Command: "x", Args: []string{"a"}, EnvNames: []string{"K"},
 			Enabled: true, Tools: []model.MCPToolRule{{Name: "read", Enabled: true}}}},
 		Grants:    map[string][]model.MCPGrant{"cto": {{Server: "fs", Tools: []string{"read"}}}},
-		UpdatedAt: &at, UpdatedBy: "boss@x",
+		UpdatedAt: &at, UpdatedBy: emailActor(t, f, "boss@x"),
 	}
 	if err := f.SaveMCPConfig("o", c); err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func suiteMCPConfig(t *testing.T, impl storeImpl) {
 	c.Servers[0].Args[0] = "a"
 	f2 := impl.reopen(t, f)
 	g, err := f2.GetMCPConfig("o")
-	if err != nil || len(g.Servers) != 1 || g.Servers[0].Args[0] != "a" || g.Grants["cto"][0].Tools[0] != "read" || g.UpdatedBy != "boss@x" {
+	if err != nil || len(g.Servers) != 1 || g.Servers[0].Args[0] != "a" || g.Grants["cto"][0].Tools[0] != "read" || g.UpdatedBy != emailActor(t, f2, "boss@x") {
 		t.Fatalf("重開讀回:%+v %v", g, err)
 	}
 	sameJSON(t, "GetMCPConfig", g, c.Clone())

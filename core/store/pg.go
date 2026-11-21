@@ -1,3 +1,5 @@
+// pg.go PG 結構與連線、建表語句 pgSchema(含資料表說明)和跨領域共用的輔助函式
+
 package store
 
 import (
@@ -5,10 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"omixor-core/model"
@@ -18,26 +20,43 @@ import (
 //
 //	omixor_users / omixor_tokens / omixor_audit   使用者、token(只存雜湊)、操作紀錄
 //	omixor_orgs / omixor_org_members              組織與成員(角色 admin、member)
-//	ops_issues / ops_issue_comments               Issue 與留言(主鍵 (org, id);pos 大的在前)
+//	ops_issues / ops_issue_comments               Issue 與留言(主鍵 (org, id),id 是 UUIDv7;pos 大的在前;key 是顯示編號 ISS-<n> / <專案代號>-<n>,
+//	                                              (org, upper(key)) 唯一;number 是 key 在所屬範圍(project,'' = 組織層級)內的號碼;project_ref 產生欄位外鍵指向專案(restrict);
+//	                                              version 樂觀鎖版本號;deleted_at 不是 NULL = 在垃圾桶(軟刪除);見 pg_issue.go、pg_issue_keys.go)
+//	omixor_issue_keys                             Issue 目前與過去用過的 key(主鍵 (org, key),key 一律存大寫;issue_id 外鍵 cascade)
 //	omixor_attachments                            Issue 的圖片附件(主鍵 (org, id),id 是內容雜湊)
-//	omixor_agents                                 虛擬角色(主鍵 (org, id);docAccess、routines 是 jsonb)
-//	omixor_agent_tasks                            角色任務(主鍵 (org, id) = T-<n>;links、notes 是 jsonb)
+//	omixor_agents                                 虛擬角色(主鍵 (org, id);docAccess、routines 在 omixor_agent_doc_access、omixor_agent_routines;舊 jsonb 欄位與 split_at 已不再寫,下一版 drop;見 pg_split_docs_agents.go)
+//	omixor_agent_tasks                            角色任務(主鍵 (org, id) = T-<n>;備註、連結在子表 omixor_agent_task_notes / _links,見 pg_split_incidents_tasks.go;舊的 links、notes jsonb 欄位不再寫)
 //	omixor_agent_credentials                      任務綁定的角色憑證(只存 SHA-256 雜湊與到期時間;token_hash 是主鍵)
 //	ops_issues.assignee                           指派給的角色 id(空字串 = 未指派)
 //	ops_issues.repo                               Issue 所屬的程式碼倉庫(owner/name 或 group/sub/project,可帶 github:/gitlab:;空字串 = 未標記)
-//	omixor_cabinet_layouts                        文件櫃結構(主鍵 (org, project);project 空字串 = 未分專案;layout 是 jsonb,區塊與頁籤)
+//	omixor_cabinet_layouts                        文件櫃結構的「存過」標記與版本號(主鍵 (org, project);project 空字串 = 未分專案;version 是樂觀鎖的版本號,每存一次 +1;
+//	                                              layout(jsonb)與 split_at 是舊格式遺留,已不再寫,下一版 drop;見 pg_cabinet.go)
+//	omixor_cabinet_sections                       文件櫃的區塊(主鍵 (org, project, id);pos 是順序;文件的 section 欄位以字串指向 id,不加外鍵)
+//	omixor_cabinet_tabs                           文件櫃的頁籤(主鍵 (org, project, path),網址在同一份結構內不重複;section_id 是所屬區塊,pos 是區塊內順序;
+//	                                              code、grp 可以是 null;文件的 tab 欄位以字串指向 path)
 //	omixor_docs                                   文件櫃的文件(主鍵 (org, id) = DOC-<n>,在組織內唯一;project 是所屬專案,空字串 = 未分專案;
-//	                                              pos 大的在前;tags 是 jsonb;tab 可以是 null)
-//	omixor_projects                               專案(主鍵 (org, id) = PRJ-<n>;依 number 排序;方法在 pg_project.go)
+//	                                              pos 大的在前;tags 在 omixor_doc_tags(舊 jsonb 欄位已不再寫,下一版 drop);tab 可以是 null)
+//	omixor_projects                               專案(主鍵 (org, id) = PRJ-<n>;依 number 排序;key 是專案代號,(org, upper(key)) where key <> '' 唯一;方法在 pg_project.go)
 //	omixor_project_seq                            專案最後發出去的號碼(主鍵 org;刪掉的號碼不再使用)
-//	omixor_org_chains                             組織鏈(主鍵 org;edges 是 jsonb)
-//	omixor_channels                               訊息頻道(主鍵 (org, id) = CH-<n>;members 是 jsonb 節點;同組織的 issue_id 不重複)
-//	omixor_channel_messages                       頻道訊息(主鍵 (org, channel_id, id) = M-<n>,每個頻道各自編號;mentions 是 jsonb)
+//	omixor_seq                                    Issue、任務、文件、頻道、事件、頻道訊息(scope msg:<頻道 id>)最後發出去的號碼(主鍵 (org, scope);見 pg_seq.go)
+//	omixor_org_chains                             組織鏈(主鍵 org;邊在 omixor_org_chain_edges;edges(jsonb)、split_at 是舊格式遺留,不再寫,下一版 drop;見 pg_split_channels.go)
+//	omixor_channels                               訊息頻道(主鍵 (org, id) = CH-<n>;成員在 omixor_channel_members(舊 members jsonb 已不再寫,見 pg_split_channels.go);issue_id 沒綁是 NULL,同組織的 issue_id 不重複)
+//	omixor_channel_messages                       頻道訊息(主鍵 (org, channel_id, id) = M-<n>,每個頻道各自編號;@ 的人在 omixor_channel_mentions(舊 mentions jsonb 已不再寫))
 //	omixor_channel_reads                          已讀(主鍵 (org, channel_id, member);last_read 是讀到的訊息號碼)
-//	omixor_incidents                              事件(主鍵 (org, id) = INC-<n>;pos 大的在前;整筆事件存在 data jsonb,方法在 pg_incident.go)
+//	omixor_incidents                              事件(主鍵 (org, id) = INC-<n>;pos 大的在前;純量欄位在本表、服務/後續工作/告警/時間軸在 omixor_incident_* 子表,見 pg_split_incidents_tasks.go;舊的 data jsonb 不再寫;方法在 pg_incident.go)
 //	omixor_org_integrations                       組織設定文件(選用模組的設定,例如 GitHub、GitLab 模組的 github、gitlab)與外部 MCP 登記(主鍵 (org, kind),kind 是 github、gitlab、mcp;設定存在 data jsonb,方法在 pg_integration.go、pg_mcp.go)
 //	omixor_org_system                             組織的系統設定(功能開關;主鍵 org;有改過的開關存在 features jsonb,方法在 pg_system.go)
 //	omixor_server_features                        系統層的功能設定(整台伺服器一列,主鍵 id 固定是 'server';有改過的開關存在 features jsonb,方法在 pg_system.go)
+//
+// 「誰」欄位(22 個:created_by、author、assignee、member、from_actor/to_actor、commander、updated_by、事件的 actor、稽核的 actor…)在這份建表語句裡已經是
+// 「最終結構」:存 actor id(text,可否 NULL 見 identity_fields.go:ActorColumns)。它們的外鍵(references omixor_actors(id))與完成標記由啟動遷移的最後一步
+// (pg_actor_columns.go)補上 —— 全新資料庫在同一次啟動內補完(空表,瞬間),舊結構的資料庫由同一個引擎原地轉換成一樣的結構。欄位契約見 ACTOR_CONTRACT.md。
+//
+// 這份建表語句只有 create table if not exists(表已存在時不碰表鎖);後來加的欄位與索引由 bootstrapSchema(pg_schema_boot.go)先查 catalog、缺才補(帶 lock_timeout 與重試)。
+//
+// 外鍵與刪除規則(角色→任務 restrict、頻道→Issue set null、各表的 org cascade 等)不在這份建表語句裡,而是啟動時由 migrateForeignKeys(pg_fk.go)
+// 用 not valid 補上再 validate;頻道的 issue_id 沒綁是 NULL、文件與區塊的 project 另有產生欄位 project_ref,細節見 pg_fk.go 檔頭
 const pgSchema = `
 create table if not exists omixor_users (
   id text primary key,
@@ -62,21 +81,18 @@ create table if not exists omixor_tokens (
 create table if not exists omixor_audit (
   id bigserial primary key,
   at timestamptz not null default now(),
-  user_id text not null default '',
+  actor text,
   email text not null default '',
+  source text not null default '',
   action text not null,
   org text not null default '',
   detail jsonb
 );
-create index if not exists omixor_audit_at on omixor_audit (at desc);
 create table if not exists omixor_orgs (
   id text primary key,
   name text not null,
   created_at timestamptz not null default now()
 );
-alter table omixor_orgs add column if not exists symbol text not null default '';
-alter table omixor_orgs add column if not exists color text not null default '';
-alter table omixor_orgs add column if not exists note text not null default '';
 create table if not exists omixor_org_members (
   org text not null references omixor_orgs(id),
   user_id text not null references omixor_users(id),
@@ -102,9 +118,6 @@ create table if not exists ops_issues (
   closed_at timestamptz,
   primary key (org, id)
 );
-alter table ops_issues add column if not exists assignee text not null default '';
-alter table ops_issues add column if not exists repo text not null default '';
-create index if not exists ops_issues_org_pos on ops_issues (org, pos desc);
 create table if not exists ops_issue_comments (
   org text not null,
   issue_id text not null,
@@ -114,6 +127,14 @@ create table if not exists ops_issue_comments (
   text text not null,
   at timestamptz not null,
   primary key (org, issue_id, pos),
+  foreign key (org, issue_id) references ops_issues (org, id) on delete cascade on update cascade
+);
+create table if not exists omixor_issue_keys (
+  org text not null,
+  key text not null,
+  issue_id text not null,
+  created_at timestamptz not null default now(),
+  primary key (org, key),
   foreign key (org, issue_id) references ops_issues (org, id) on delete cascade on update cascade
 );
 create table if not exists omixor_attachments (
@@ -150,16 +171,13 @@ create table if not exists omixor_agent_tasks (
   links jsonb not null default '[]',
   notes jsonb not null default '[]',
   routine_id text,
-  created_by text not null default '',
+  created_by text,
   created_at timestamptz not null,
   updated_at timestamptz not null,
   claimed_at timestamptz,
   completed_at timestamptz,
   primary key (org, id)
 );
-alter table omixor_agent_tasks add column if not exists locked_until timestamptz;
-alter table omixor_agent_tasks add column if not exists claimed_by text not null default '';
-create index if not exists omixor_agent_tasks_agent on omixor_agent_tasks (org, agent_id, status);
 create table if not exists omixor_agent_credentials (
   token_hash bytea primary key,
   org text not null,
@@ -168,7 +186,6 @@ create table if not exists omixor_agent_credentials (
   issued_at timestamptz not null,
   expires_at timestamptz not null
 );
-create unique index if not exists omixor_agent_credentials_task on omixor_agent_credentials (org, task_id);
 create table if not exists omixor_cabinet_layouts (
   org text primary key,
   layout jsonb not null default '[]',
@@ -184,22 +201,66 @@ create table if not exists omixor_docs (
   section text not null,
   tab text,
   tags jsonb not null default '[]',
-  author text not null default '',
+  author text,
   created_at timestamptz not null,
   updated_at timestamptz not null,
   primary key (org, id)
 );
-create index if not exists omixor_docs_org_pos on omixor_docs (org, pos desc);
-alter table omixor_docs add column if not exists project text not null default '';
-alter table omixor_cabinet_layouts add column if not exists project text not null default '';
-do $$
-begin
-  -- 文件櫃結構改成每個專案一份:主鍵從 (org) 換成 (org, project)(已經換過就不動;舊資料 project 是空字串 = 未分專案)
-  if not exists (select 1 from pg_index where indrelid = 'omixor_cabinet_layouts'::regclass and indisprimary and indnatts = 2) then
-    alter table omixor_cabinet_layouts drop constraint if exists omixor_cabinet_layouts_pkey;
-    alter table omixor_cabinet_layouts add constraint omixor_cabinet_layouts_pkey primary key (org, project);
-  end if;
-end $$;
+create table if not exists omixor_doc_tags (
+  org text not null,
+  doc_id text not null,
+  tag text not null,
+  pos int not null,
+  primary key (org, doc_id, tag),
+  foreign key (org, doc_id) references omixor_docs (org, id) on delete cascade on update cascade
+);
+create table if not exists omixor_agent_doc_access (
+  org text not null,
+  agent_id text not null,
+  access_key text not null,
+  level text not null,
+  primary key (org, agent_id, access_key),
+  foreign key (org, agent_id) references omixor_agents (org, id) on delete cascade on update cascade
+);
+create table if not exists omixor_agent_routines (
+  org text not null,
+  agent_id text not null,
+  id text not null,
+  pos int not null,
+  title text not null default '',
+  instructions text not null default '',
+  kind text not null default '',
+  enabled boolean not null default false,
+  every_hours int not null default 0,
+  hour int not null default 0,
+  minute int not null default 0,
+  weekday int not null default 0,
+  priority text not null default '',
+  created_at timestamptz,
+  last_run_at timestamptz,
+  primary key (org, agent_id, id),
+  foreign key (org, agent_id) references omixor_agents (org, id) on delete cascade on update cascade
+);
+create table if not exists omixor_cabinet_sections (
+  org text not null,
+  project text not null default '',
+  id text not null,
+  pos int not null,
+  label text not null,
+  path text not null default '',
+  primary key (org, project, id)
+);
+create table if not exists omixor_cabinet_tabs (
+  org text not null,
+  project text not null default '',
+  section_id text not null,
+  path text not null,
+  pos int not null,
+  code text,
+  grp text,
+  label text not null,
+  primary key (org, project, path)
+);
 create table if not exists omixor_projects (
   org text not null,
   id text not null,
@@ -225,14 +286,13 @@ create table if not exists omixor_channels (
   number integer not null,
   name text not null,
   topic text not null default '',
-  issue_id text not null default '',
+  issue_id text,
   members jsonb not null default '[]',
-  created_by text not null default '',
+  created_by text,
   created_at timestamptz not null,
   updated_at timestamptz not null,
   primary key (org, id)
 );
-create unique index if not exists omixor_channels_issue on omixor_channels (org, issue_id) where issue_id <> '';
 create table if not exists omixor_channel_messages (
   org text not null,
   channel_id text not null,
@@ -244,7 +304,6 @@ create table if not exists omixor_channel_messages (
   at timestamptz not null,
   primary key (org, channel_id, id)
 );
-create index if not exists omixor_channel_messages_num on omixor_channel_messages (org, channel_id, number);
 create table if not exists omixor_channel_reads (
   org text not null,
   channel_id text not null,
@@ -252,6 +311,32 @@ create table if not exists omixor_channel_reads (
   last_read integer not null default 0,
   at timestamptz not null,
   primary key (org, channel_id, member)
+);
+create table if not exists omixor_channel_members (
+  org text not null,
+  channel_id text not null,
+  member text not null,
+  pos integer not null,
+  primary key (org, channel_id, member),
+  foreign key (org, channel_id) references omixor_channels (org, id) on delete cascade on update cascade
+);
+create table if not exists omixor_channel_mentions (
+  org text not null,
+  channel_id text not null,
+  message_id text not null,
+  member text not null,
+  pos integer not null,
+  primary key (org, channel_id, message_id, member),
+  foreign key (org, channel_id, message_id) references omixor_channel_messages (org, channel_id, id) on delete cascade on update cascade
+);
+create table if not exists omixor_org_chain_edges (
+  org text not null,
+  pos integer not null,
+  from_actor text not null,
+  to_actor text not null,
+  label text not null default '',
+  primary key (org, pos),
+  foreign key (org) references omixor_org_chains (org) on delete cascade on update cascade
 );
 create table if not exists omixor_incidents (
   org text not null,
@@ -263,30 +348,81 @@ create table if not exists omixor_incidents (
   data jsonb not null,
   primary key (org, id)
 );
-create index if not exists omixor_incidents_org_pos on omixor_incidents (org, pos desc);
 create table if not exists omixor_org_integrations (
   org text not null,
   kind text not null,
   data jsonb not null,
   updated_at timestamptz not null,
-  updated_by text not null default '',
+  updated_by text,
   primary key (org, kind)
 );
 create table if not exists omixor_org_system (
   org text primary key,
   features jsonb not null,
   updated_at timestamptz not null,
-  updated_by text not null default ''
+  updated_by text
 );
 create table if not exists omixor_server_features (
   id text primary key check (id = 'server'),
   features jsonb not null,
   updated_at timestamptz not null,
-  updated_by text not null default ''
+  updated_by text
 );
 `
 
-type PG struct{ pool *pgxpool.Pool }
+// pgConn PG 用的資料庫連線:連線池(一般)或批次裡的交易(Batch)。交易的 Begin 是 savepoint,
+// 所以方法裡自己開的交易在批次裡就是巢狀交易,批次失敗時一起還原
+type pgConn interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+type PG struct {
+	pool pgConn
+	root *pgxpool.Pool // 連線池本身(Close 用;批次裡的 PG 是 nil)
+	// 背景工作(外鍵 validate,見 pg_fk.go):Close 時取消並等它結束
+	bg *pgBackground
+	// 啟動流程(NewPG)還沒跑完以前,外鍵 validate 先記著、不開跑(免得和後面的遷移 DDL 互等死鎖);ready 之後才在背景跑
+	fkPending []fkSpec
+	ready     bool
+	// 還有沒有未展開(split_at 為 NULL)的列;見 pg_split_migrate.go
+	mig *migState
+	// 啟動遷移期間的整體預算(見 pg_migrate_guard.go 的 migNotes)
+	note migNotes
+}
+
+// txConn 批次裡的交易:BeginTx 在交易裡只能開 savepoint(隔離等級沿用批次的)
+type txConn struct{ pgx.Tx }
+
+func (t txConn) BeginTx(ctx context.Context, _ pgx.TxOptions) (pgx.Tx, error) { return t.Tx.Begin(ctx) }
+
+// Batch 批次寫入(全有或全無):fn 用 tx 做的寫入在同一個資料庫交易裡,fn 成功才一起 commit,
+// 回傳錯誤(或 panic)就整批還原。fn 裡只能用 tx(用 p 的寫入不在這個交易裡)。批次以外的讀寫不受影響
+// (讀不到批次沒 commit 的資料;同一個組織的 Issue、任務編號用 advisory lock,會等到批次結束)
+func (p *PG) Batch(fn func(tx *PG) error) error {
+	if p.root == nil { // 已經在批次裡:直接用同一個交易
+		return fn(p)
+	}
+	c, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	tx, err := p.root.Begin(c)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(c) }() // commit 之後是 no-op
+	if err := fn(&PG{pool: txConn{tx}, mig: p.mig}); err != nil {
+		return err
+	}
+	return tx.Commit(c)
+}
+
+// newPG 用連線池組出 *PG(NewPG、NewPGFromPool、AttachMigratedPG 共用這一處;PG 日後加欄位只改這裡)
+func newPG(pool *pgxpool.Pool) *PG {
+	return &PG{pool: pool, root: pool, mig: &migState{}}
+}
 
 // NewPG 連資料庫並建表(已經有就不動)
 func NewPG(url string) (*PG, error) {
@@ -300,24 +436,38 @@ func NewPG(url string) (*PG, error) {
 		pool.Close()
 		return nil, fmt.Errorf("連不到資料庫:%w", err)
 	}
-	if _, err := pool.Exec(c, pgSchema); err != nil {
+	if err := bootstrapSchema(c, pool); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("建表失敗:%w", err)
+		return nil, err
 	}
-	return &PG{pool: pool}, nil
+	p := newPG(pool)
+	if err := p.startupMigrations(); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return p, nil
 }
 
 // NewPGFromPool 用已經連好的連線池(omixor-web 內建模式和它自己的資料共用一個)
 func NewPGFromPool(pool *pgxpool.Pool) (*PG, error) {
 	c, cancel := ctx()
 	defer cancel()
-	if _, err := pool.Exec(c, pgSchema); err != nil {
-		return nil, fmt.Errorf("建表失敗:%w", err)
+	if err := bootstrapSchema(c, pool); err != nil {
+		return nil, err
 	}
-	return &PG{pool: pool}, nil
+	p := newPG(pool)
+	if err := p.startupMigrations(); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
-func (p *PG) Close() { p.pool.Close() }
+func (p *PG) Close() {
+	p.stopBackground()
+	if p.root != nil {
+		p.root.Close()
+	}
+}
 
 func ctx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 15*time.Second)
@@ -325,11 +475,24 @@ func ctx() (context.Context, context.CancelFunc) {
 
 func secs(t time.Time) time.Time { return t.UTC().Truncate(time.Second) }
 
+// utcTime 資料庫讀出的時間 → model.Time(UTC)
+func utcTime(t time.Time) model.Time { return model.Time{Time: t.UTC()} }
+
+// fromNull 可為 NULL 的時間 → model.Time(NULL 是零值)
+func fromNull(t *time.Time) model.Time {
+	if t == nil {
+		return model.Time{}
+	}
+	return utcTime(*t)
+}
+
+// tp 可為 NULL 的時間 → *model.Time(NULL 是 nil)
 func tp(t *time.Time) *model.Time {
 	if t == nil {
 		return nil
 	}
-	return &model.Time{Time: t.UTC()}
+	x := utcTime(*t)
+	return &x
 }
 
 func notFound(err error) error {
@@ -339,834 +502,7 @@ func notFound(err error) error {
 	return err
 }
 
-// ---- 使用者、token、操作紀錄 ----
-
-const userCols = `id, coalesce(evoleap_id,''), email, name, role, disabled, created_at, last_login_at`
-
-func scanUser(row pgx.Row) (*model.User, error) {
-	var u model.User
-	var created time.Time
-	var last *time.Time
-	if err := row.Scan(&u.ID, &u.EvoleapID, &u.Email, &u.Name, &u.Role, &u.Disabled, &created, &last); err != nil {
-		return nil, notFound(err)
-	}
-	u.CreatedAt, u.LastLoginAt = model.Time{Time: created.UTC()}, tp(last)
-	return &u, nil
-}
-
-func (p *PG) CountUsers() (int, error) {
-	c, cancel := ctx()
-	defer cancel()
-	var n int
-	err := p.pool.QueryRow(c, `select count(*) from omixor_users`).Scan(&n)
-	return n, err
-}
-
-func (p *PG) ListUsers() ([]model.User, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select `+userCols+` from omixor_users order by created_at`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.User{}
-	for rows.Next() {
-		u, err := scanUser(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *u)
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) userBy(col, v string) (*model.User, error) {
-	c, cancel := ctx()
-	defer cancel()
-	return scanUser(p.pool.QueryRow(c, `select `+userCols+` from omixor_users where `+col+` = $1`, v))
-}
-
-func (p *PG) UserByID(id string) (*model.User, error)        { return p.userBy("id", id) }
-func (p *PG) UserByEvoleapID(id string) (*model.User, error) { return p.userBy("evoleap_id", id) }
-func (p *PG) UserByEmail(e string) (*model.User, error)      { return p.userBy("email", e) }
-
-func (p *PG) SaveUser(u model.User) error {
-	c, cancel := ctx()
-	defer cancel()
-	var evo any
-	if u.EvoleapID != "" {
-		evo = u.EvoleapID
-	}
-	var last *time.Time
-	if u.LastLoginAt != nil {
-		t := u.LastLoginAt.Time
-		last = &t
-	}
-	_, err := p.pool.Exec(c, `insert into omixor_users (id, evoleap_id, email, name, role, disabled, created_at, last_login_at)
-values ($1,$2,$3,$4,$5,$6,$7,$8)
-on conflict (id) do update set evoleap_id = excluded.evoleap_id, email = excluded.email, name = excluded.name,
-  role = excluded.role, disabled = excluded.disabled, last_login_at = excluded.last_login_at`,
-		u.ID, evo, u.Email, u.Name, u.Role, u.Disabled, u.CreatedAt.Time, last)
-	return err
-}
-
-func (p *PG) CreateToken(t model.Token) error {
-	c, cancel := ctx()
-	defer cancel()
-	var exp *time.Time
-	if t.ExpiresAt != nil {
-		e := t.ExpiresAt.Time
-		exp = &e
-	}
-	_, err := p.pool.Exec(c, `insert into omixor_tokens (id, token_hash, user_id, device, created_at, expires_at) values ($1,$2,$3,$4,$5,$6)`,
-		t.ID, t.Hash, t.UserID, t.Device, t.CreatedAt.Time, exp)
-	return err
-}
-
-func (p *PG) TokenByHash(h []byte, now time.Time) (*model.Token, *model.User, error) {
-	c, cancel := ctx()
-	defer cancel()
-	var t model.Token
-	var tCreated time.Time
-	var tUsed, tExp *time.Time
-	var u model.User
-	var uCreated time.Time
-	var uLast *time.Time
-	err := p.pool.QueryRow(c, `select t.id, t.user_id, t.device, t.created_at, t.last_used_at, t.expires_at,
-  u.id, coalesce(u.evoleap_id,''), u.email, u.name, u.role, u.disabled, u.created_at, u.last_login_at
-from omixor_tokens t join omixor_users u on u.id = t.user_id
-where t.token_hash = $1 and t.revoked_at is null and (t.expires_at is null or t.expires_at > $2)`, h, now).
-		Scan(&t.ID, &t.UserID, &t.Device, &tCreated, &tUsed, &tExp,
-			&u.ID, &u.EvoleapID, &u.Email, &u.Name, &u.Role, &u.Disabled, &uCreated, &uLast)
-	if err != nil {
-		return nil, nil, notFound(err)
-	}
-	t.CreatedAt, t.LastUsedAt, t.ExpiresAt, t.Email = model.Time{Time: tCreated.UTC()}, tp(tUsed), tp(tExp), u.Email
-	u.CreatedAt, u.LastLoginAt = model.Time{Time: uCreated.UTC()}, tp(uLast)
-	return &t, &u, nil
-}
-
-func (p *PG) TouchToken(id string, at time.Time) error {
-	c, cancel := ctx()
-	defer cancel()
-	_, err := p.pool.Exec(c, `update omixor_tokens set last_used_at = $2 where id = $1`, id, at)
-	return err
-}
-
-func (p *PG) RevokeToken(id string, at time.Time) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, `update omixor_tokens set revoked_at = $2 where id = $1 and revoked_at is null`, id, at)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return err
-}
-
-func (p *PG) ListTokens(now time.Time) ([]model.Token, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select t.id, t.user_id, u.email, t.device, t.created_at, t.last_used_at, t.expires_at
-from omixor_tokens t join omixor_users u on u.id = t.user_id
-where t.revoked_at is null and (t.expires_at is null or t.expires_at > $1) order by t.created_at desc`, now)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.Token{}
-	for rows.Next() {
-		var t model.Token
-		var created time.Time
-		var used, exp *time.Time
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Email, &t.Device, &created, &used, &exp); err != nil {
-			return nil, err
-		}
-		t.CreatedAt, t.LastUsedAt, t.ExpiresAt = model.Time{Time: created.UTC()}, tp(used), tp(exp)
-		out = append(out, t)
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) AddAudit(e model.AuditEntry) error {
-	c, cancel := ctx()
-	defer cancel()
-	var detail any
-	if e.Detail != nil {
-		b, _ := json.Marshal(e.Detail)
-		detail = string(b)
-	}
-	_, err := p.pool.Exec(c, `insert into omixor_audit (at, user_id, email, action, org, detail) values ($1,$2,$3,$4,$5,$6::jsonb)`,
-		e.At.Time, e.UserID, e.Email, e.Action, e.Org, detail)
-	return err
-}
-
-func (p *PG) ListAudit(limit int) ([]model.AuditEntry, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select id, at, user_id, email, action, org, coalesce(detail::text,'') from omixor_audit order by id desc limit $1`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.AuditEntry{}
-	for rows.Next() {
-		var e model.AuditEntry
-		var at time.Time
-		var d string
-		if err := rows.Scan(&e.ID, &at, &e.UserID, &e.Email, &e.Action, &e.Org, &d); err != nil {
-			return nil, err
-		}
-		e.At = model.Time{Time: at.UTC()}
-		if d != "" {
-			_ = json.Unmarshal([]byte(d), &e.Detail)
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
-// ---- 組織與成員 ----
-
-func (p *PG) ListOrgs() ([]model.Org, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select id, name, symbol, color, note, created_at from omixor_orgs order by created_at, id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.Org{}
-	for rows.Next() {
-		var o model.Org
-		var created time.Time
-		if err := rows.Scan(&o.ID, &o.Name, &o.Symbol, &o.Color, &o.Note, &created); err != nil {
-			return nil, err
-		}
-		o.CreatedAt = model.Time{Time: created.UTC()}
-		out = append(out, o)
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) GetOrg(id string) (*model.Org, error) {
-	c, cancel := ctx()
-	defer cancel()
-	var o model.Org
-	var created time.Time
-	if err := p.pool.QueryRow(c, `select id, name, symbol, color, note, created_at from omixor_orgs where id = $1`, id).Scan(&o.ID, &o.Name, &o.Symbol, &o.Color, &o.Note, &created); err != nil {
-		return nil, notFound(err)
-	}
-	o.CreatedAt = model.Time{Time: created.UTC()}
-	return &o, nil
-}
-
-func (p *PG) CreateOrg(o model.Org) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, `insert into omixor_orgs (id, name, symbol, color, note, created_at) values ($1,$2,$3,$4,$5,$6) on conflict (id) do nothing`, o.ID, o.Name, o.Symbol, o.Color, o.Note, o.CreatedAt.Time)
-	if err == nil && tag.RowsAffected() == 0 {
-		return fmt.Errorf("組織 %s 已經存在", o.ID)
-	}
-	return err
-}
-
-func (p *PG) UpdateOrg(o model.Org) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, `update omixor_orgs set name = $2, symbol = $3, color = $4, note = $5 where id = $1`, o.ID, o.Name, o.Symbol, o.Color, o.Note)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return err
-}
-
-func (p *PG) DeleteOrg(id string) error {
-	c, cancel := ctx()
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(c)
-	for _, q := range []string{
-		`delete from ops_issues where org = $1`, // 留言跟著刪(on delete cascade)
-		`delete from omixor_attachments where org = $1`,
-		`delete from omixor_agent_credentials where org = $1`,
-		`delete from omixor_agent_tasks where org = $1`,
-		`delete from omixor_agents where org = $1`,
-		`delete from omixor_docs where org = $1`,
-		`delete from omixor_cabinet_layouts where org = $1`,
-		`delete from omixor_projects where org = $1`,
-		`delete from omixor_project_seq where org = $1`,
-		`delete from omixor_org_chains where org = $1`,
-		`delete from omixor_channel_reads where org = $1`,
-		`delete from omixor_channel_messages where org = $1`,
-		`delete from omixor_channels where org = $1`,
-		`delete from omixor_incidents where org = $1`,
-		`delete from omixor_org_integrations where org = $1`,
-		`delete from omixor_org_system where org = $1`,
-		`delete from omixor_org_members where org = $1`,
-	} {
-		if _, err := tx.Exec(c, q, id); err != nil {
-			return err
-		}
-	}
-	tag, err := tx.Exec(c, `delete from omixor_orgs where id = $1`, id)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return tx.Commit(c)
-}
-
-func (p *PG) MemberRole(org, userID string) (string, error) {
-	c, cancel := ctx()
-	defer cancel()
-	var r string
-	err := p.pool.QueryRow(c, `select role from omixor_org_members where org = $1 and user_id = $2`, org, userID).Scan(&r)
-	return r, notFound(err)
-}
-
-func (p *PG) ListMembers(org string) ([]model.Member, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select m.org, m.user_id, u.email, u.name, m.role, m.added_at
-from omixor_org_members m join omixor_users u on u.id = m.user_id where m.org = $1 order by u.email`, org)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.Member{}
-	for rows.Next() {
-		var m model.Member
-		var added time.Time
-		if err := rows.Scan(&m.Org, &m.UserID, &m.Email, &m.Name, &m.Role, &added); err != nil {
-			return nil, err
-		}
-		m.AddedAt = model.Time{Time: added.UTC()}
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) SaveMember(m model.Member) error {
-	c, cancel := ctx()
-	defer cancel()
-	_, err := p.pool.Exec(c, `insert into omixor_org_members (org, user_id, role, added_at) values ($1,$2,$3,$4)
-on conflict (org, user_id) do update set role = excluded.role`, m.Org, m.UserID, m.Role, m.AddedAt.Time)
-	return err
-}
-
-func (p *PG) RemoveMember(org, userID string) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, `delete from omixor_org_members where org = $1 and user_id = $2`, org, userID)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return err
-}
-
-func (p *PG) OrgsOfUser(userID string) ([]model.Org, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select o.id, o.name, o.symbol, o.color, o.note, o.created_at, m.role
-from omixor_org_members m join omixor_orgs o on o.id = m.org where m.user_id = $1 order by o.created_at, o.id`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.Org{}
-	for rows.Next() {
-		var o model.Org
-		var created time.Time
-		if err := rows.Scan(&o.ID, &o.Name, &o.Symbol, &o.Color, &o.Note, &created, &o.MyRole); err != nil {
-			return nil, err
-		}
-		o.CreatedAt = model.Time{Time: created.UTC()}
-		out = append(out, o)
-	}
-	return out, rows.Err()
-}
-
-// ---- Issue ----
-
-func (p *PG) ListIssues(org string) ([]model.Issue, error) {
-	c, cancel := ctx()
-	defer cancel()
-	return listIssues(c, p.pool, org, "")
-}
-
-type querier interface {
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}
-
-func listIssues(c context.Context, q querier, org, onlyID string) ([]model.Issue, error) {
-	where, args := `org = $1`, []any{org}
-	if onlyID != "" {
-		where, args = `org = $1 and lower(id) = lower($2)`, []any{org, onlyID}
-	}
-	rows, err := q.Query(c, `select id, title, body, status, priority, labels, source, link, created_by,
-		created_at, updated_at, closed_at, assignee, repo from ops_issues where `+where+` order by pos desc, number desc`, args...)
-	if err != nil {
-		return nil, err
-	}
-	list := []model.Issue{}
-	idx := map[string]int{}
-	for rows.Next() {
-		var i model.Issue
-		var created, updated time.Time
-		var closed *time.Time
-		if err := rows.Scan(&i.ID, &i.Title, &i.Body, &i.Status, &i.Priority, &i.Labels, &i.Source, &i.Link, &i.CreatedBy,
-			&created, &updated, &closed, &i.Assignee, &i.Repo); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		i.CreatedAt, i.UpdatedAt, i.ClosedAt = model.Time{Time: created.UTC()}, model.Time{Time: updated.UTC()}, tp(closed)
-		if i.Labels == nil {
-			i.Labels = []string{}
-		}
-		i.Comments = []model.Comment{}
-		idx[i.ID] = len(list)
-		list = append(list, i)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	cw, cargs := `org = $1`, []any{org}
-	if onlyID != "" && len(list) == 1 {
-		cw, cargs = `org = $1 and issue_id = $2`, []any{org, list[0].ID}
-	}
-	crows, err := q.Query(c, `select issue_id, id, author, text, at from ops_issue_comments where `+cw+` order by issue_id, pos`, cargs...)
-	if err != nil {
-		return nil, err
-	}
-	defer crows.Close()
-	for crows.Next() {
-		var iid string
-		var cm model.Comment
-		var at time.Time
-		if err := crows.Scan(&iid, &cm.ID, &cm.Author, &cm.Text, &at); err != nil {
-			return nil, err
-		}
-		cm.At = model.Time{Time: at.UTC()}
-		if k, ok := idx[iid]; ok {
-			list[k].Comments = append(list[k].Comments, cm)
-		}
-	}
-	return list, crows.Err()
-}
-
-func (p *PG) GetIssue(org, id string) (*model.Issue, error) {
-	c, cancel := ctx()
-	defer cancel()
-	l, err := listIssues(c, p.pool, org, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(l) == 0 {
-		return nil, ErrNotFound
-	}
-	return &l[0], nil
-}
-
-func writeIssue(c context.Context, tx pgx.Tx, org string, i model.Issue, pos int64, insert bool) error {
-	var closed *time.Time
-	if i.ClosedAt != nil && !i.ClosedAt.IsZero() {
-		t := secs(i.ClosedAt.Time)
-		closed = &t
-	}
-	labels := i.Labels
-	if labels == nil {
-		labels = []string{}
-	}
-	if insert {
-		if _, err := tx.Exec(c, `insert into ops_issues (org, id, number, pos, title, body, status, priority, labels, source, link,
-			created_by, created_at, updated_at, closed_at, assignee, repo) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-			org, i.ID, i.Number(), pos, i.Title, i.Body, i.Status, i.Priority, labels, i.Source, i.Link,
-			i.CreatedBy, secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee, i.Repo); err != nil {
-			return err
-		}
-	} else {
-		// id 不分大小寫(同 GetIssue);這一列的鎖一直拿到交易結束,和 AddIssueComment 互斥
-		var id string
-		err := tx.QueryRow(c, `update ops_issues set title = $3, body = $4, status = $5, priority = $6, labels = $7, source = $8,
-			link = $9, created_by = $10, created_at = $11, updated_at = $12, closed_at = $13, assignee = $14, repo = $15
-			where org = $1 and lower(id) = lower($2) returning id`,
-			org, i.ID, i.Title, i.Body, i.Status, i.Priority, labels, i.Source, i.Link, i.CreatedBy,
-			secs(i.CreatedAt.Time), secs(i.UpdatedAt.Time), closed, i.Assignee, i.Repo).Scan(&id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		i.ID = id
-		if i.Comments == nil { // nil = 留言不動(見 Store.UpdateIssue)
-			return nil
-		}
-		if _, err := tx.Exec(c, `delete from ops_issue_comments where org = $1 and issue_id = $2`, org, i.ID); err != nil {
-			return err
-		}
-	}
-	for k, cm := range i.Comments {
-		if _, err := tx.Exec(c, `insert into ops_issue_comments (org, issue_id, pos, id, author, text, at) values ($1,$2,$3,$4,$5,$6,$7)`,
-			org, i.ID, k, cm.ID, cm.Author, cm.Text, secs(cm.At.Time)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (p *PG) CreateIssue(org string, i model.Issue) (model.Issue, error) {
-	c, cancel := ctx()
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return i, err
-	}
-	defer tx.Rollback(c)
-	// 同一個組織同時只建一筆,號碼才不會撞
-	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-issues:' || $1))`, org); err != nil {
-		return i, err
-	}
-	var num int
-	var pos int64
-	if err := tx.QueryRow(c, `select coalesce(max(number),0), coalesce(max(pos),0) from ops_issues where org = $1`, org).Scan(&num, &pos); err != nil {
-		return i, err
-	}
-	i.ID = fmt.Sprintf("ISS-%d", num+1)
-	if err := writeIssue(c, tx, org, i, pos+1, true); err != nil {
-		return i, err
-	}
-	return i, tx.Commit(c)
-}
-
-func (p *PG) UpdateIssue(org string, i model.Issue) error {
-	c, cancel := ctx()
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(c)
-	if err := writeIssue(c, tx, org, i, 0, false); err != nil {
-		return err
-	}
-	return tx.Commit(c)
-}
-
-// AddIssueComment 單筆 insert:先更新 Issue 的 updated_at(同時鎖住這一列,同一個 Issue 的留言在這裡排隊),
-// 再取 pos = max + 1 插入;READ COMMITTED 下每個語句看得到前一筆已提交的留言,所以 pos 不會撞
-func (p *PG) AddIssueComment(org, issueID string, cm model.Comment) (*model.Issue, error) {
-	c, cancel := ctx()
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(c)
-	var id string
-	err = tx.QueryRow(c, `update ops_issues set updated_at = $3 where org = $1 and lower(id) = lower($2) returning id`,
-		org, issueID, secs(cm.At.Time)).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(c, `insert into ops_issue_comments (org, issue_id, pos, id, author, text, at)
-		select $1, $2, coalesce(max(pos), -1) + 1, $3, $4, $5, $6 from ops_issue_comments where org = $1 and issue_id = $2`,
-		org, id, cm.ID, cm.Author, cm.Text, secs(cm.At.Time)); err != nil {
-		return nil, err
-	}
-	l, err := listIssues(c, tx, org, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(l) == 0 {
-		return nil, ErrNotFound
-	}
-	if err := tx.Commit(c); err != nil {
-		return nil, err
-	}
-	return &l[0], nil
-}
-
-func (p *PG) DeleteIssue(org, id string) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, `delete from ops_issues where org = $1 and lower(id) = lower($2)`, org, id)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return err
-}
-
-func (p *PG) ImportIssues(org string, list []model.Issue) (int, error) {
-	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback(c)
-	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-issues:' || $1))`, org); err != nil {
-		return 0, err
-	}
-	var n int
-	if err := tx.QueryRow(c, `select count(*) from ops_issues where org = $1`, org).Scan(&n); err != nil {
-		return 0, err
-	}
-	if n > 0 {
-		return 0, fmt.Errorf("組織 %s 已經有 %d 筆 Issue", org, n)
-	}
-	for k, i := range list {
-		if err := writeIssue(c, tx, org, i, int64(len(list)-k), true); err != nil {
-			return 0, fmt.Errorf("%s:%w", i.ID, err)
-		}
-	}
-	return len(list), tx.Commit(c)
-}
-
-func (p *PG) MergeIssues(org string, list []model.Issue, overwrite bool) (MergeCounts, error) {
-	var res MergeCounts
-	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return res, err
-	}
-	defer tx.Rollback(c)
-	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-issues:' || $1))`, org); err != nil {
-		return res, err
-	}
-	existing := map[string]bool{}
-	var minPos int64
-	rows, err := tx.Query(c, `select id, pos from ops_issues where org = $1`, org)
-	if err != nil {
-		return res, err
-	}
-	for rows.Next() {
-		var id string
-		var pos int64
-		if err := rows.Scan(&id, &pos); err != nil {
-			rows.Close()
-			return res, err
-		}
-		if len(existing) == 0 || pos < minPos {
-			minPos = pos
-		}
-		existing[strings.ToLower(id)] = true
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return res, err
-	}
-	if len(existing) == 0 {
-		minPos = int64(len(list)) + 1
-	}
-	k := int64(0)
-	for _, i := range list {
-		if existing[strings.ToLower(i.ID)] {
-			if !overwrite {
-				res.Skipped++
-				continue
-			}
-			if i.Comments == nil {
-				i.Comments = []model.Comment{}
-			}
-			if err := writeIssue(c, tx, org, i, 0, false); err != nil {
-				return res, fmt.Errorf("%s:%w", i.ID, err)
-			}
-			res.Updated++
-			continue
-		}
-		k++
-		if err := writeIssue(c, tx, org, i, minPos-k, true); err != nil {
-			return res, fmt.Errorf("%s:%w", i.ID, err)
-		}
-		existing[strings.ToLower(i.ID)] = true
-		res.Inserted++
-	}
-	return res, tx.Commit(c)
-}
-
-func (p *PG) IssueOrgs() ([]string, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select distinct org from ops_issues where org not like 'deleted-orgs/%' order by org`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []string{}
-	for rows.Next() {
-		var o string
-		if err := rows.Scan(&o); err != nil {
-			return nil, err
-		}
-		out = append(out, o)
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) PutAttachment(org, id string, data []byte) error {
-	c, cancel := ctx()
-	defer cancel()
-	_, err := p.pool.Exec(c, `insert into omixor_attachments (org, id, data) values ($1, $2, $3) on conflict (org, id) do nothing`, org, id, data)
-	return err
-}
-
-func (p *PG) GetAttachment(org, id string) ([]byte, error) {
-	c, cancel := ctx()
-	defer cancel()
-	var b []byte
-	err := p.pool.QueryRow(c, `select data from omixor_attachments where org = $1 and id = $2`, org, id).Scan(&b)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return b, err
-}
-
-// ---- 虛擬角色、任務與憑證 ----
-
 func jb(v any) []byte { b, _ := json.Marshal(v); return b }
-
-const agentCols = `id, name, role, instructions, active, symbol, color, doc_access, routines, created_at`
-
-func (p *PG) ListAgents(org string) ([]model.Agent, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select `+agentCols+` from omixor_agents where org = $1 order by created_at, id`, org)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.Agent{}
-	for rows.Next() {
-		g, err := scanAgent(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *g)
-	}
-	return out, rows.Err()
-}
-
-func scanAgent(row pgx.Row) (*model.Agent, error) {
-	var g model.Agent
-	var acc, rts []byte
-	var created time.Time
-	if err := row.Scan(&g.ID, &g.Name, &g.Role, &g.Instructions, &g.Active, &g.Symbol, &g.Color, &acc, &rts, &created); err != nil {
-		return nil, err
-	}
-	g.CreatedAt = model.Time{Time: created.UTC()}
-	_ = json.Unmarshal(acc, &g.DocAccess)
-	_ = json.Unmarshal(rts, &g.Routines)
-	if g.DocAccess == nil {
-		g.DocAccess = map[string]string{}
-	}
-	if g.Routines == nil {
-		g.Routines = []model.AgentRoutine{}
-	}
-	return &g, nil
-}
-
-func (p *PG) GetAgent(org, id string) (*model.Agent, error) {
-	c, cancel := ctx()
-	defer cancel()
-	g, err := scanAgent(p.pool.QueryRow(c, `select `+agentCols+` from omixor_agents where org = $1 and id = $2`, org, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return g, err
-}
-
-func (p *PG) SaveAgent(org string, a model.Agent) error {
-	c, cancel := ctx()
-	defer cancel()
-	if a.DocAccess == nil {
-		a.DocAccess = map[string]string{}
-	}
-	if a.Routines == nil {
-		a.Routines = []model.AgentRoutine{}
-	}
-	_, err := p.pool.Exec(c, `insert into omixor_agents (org, id, name, role, instructions, active, symbol, color, doc_access, routines, created_at)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		on conflict (org, id) do update set name = $3, role = $4, instructions = $5, active = $6, symbol = $7, color = $8,
-		doc_access = $9, routines = $10`,
-		org, a.ID, a.Name, a.Role, a.Instructions, a.Active, a.Symbol, a.Color, jb(a.DocAccess), jb(a.Routines), secs(a.CreatedAt.Time))
-	return err
-}
-
-func (p *PG) DeleteAgent(org, id string) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, `delete from omixor_agents where org = $1 and id = $2`, org, id)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return err
-}
-
-const taskCols = `id, agent_id, title, instructions, priority, status, result, links, notes, routine_id, created_by,
-	created_at, updated_at, claimed_at, completed_at, locked_until, claimed_by`
-
-func scanTask(row pgx.Row) (*model.AgentTask, error) {
-	var t model.AgentTask
-	var links, notes []byte
-	var created, updated time.Time
-	var claimed, completed, locked *time.Time
-	if err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.Instructions, &t.Priority, &t.Status, &t.Result, &links, &notes,
-		&t.RoutineID, &t.CreatedBy, &created, &updated, &claimed, &completed, &locked, &t.ClaimedBy); err != nil {
-		return nil, err
-	}
-	t.CreatedAt, t.UpdatedAt = model.Time{Time: created.UTC()}, model.Time{Time: updated.UTC()}
-	t.ClaimedAt, t.CompletedAt, t.LockedUntil = tp(claimed), tp(completed), tp(locked)
-	_ = json.Unmarshal(links, &t.Links)
-	_ = json.Unmarshal(notes, &t.Notes)
-	if t.Links == nil {
-		t.Links = []string{}
-	}
-	if t.Notes == nil {
-		t.Notes = []model.AgentTaskNote{}
-	}
-	return &t, nil
-}
-
-func (p *PG) ListAgentTasks(org string) ([]model.AgentTask, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select `+taskCols+` from omixor_agent_tasks where org = $1 order by number desc`, org)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.AgentTask{}
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *t)
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) GetAgentTask(org, id string) (*model.AgentTask, error) {
-	c, cancel := ctx()
-	defer cancel()
-	t, err := scanTask(p.pool.QueryRow(c, `select `+taskCols+` from omixor_agent_tasks where org = $1 and id = $2`, org, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return t, err
-}
 
 func optSecs(t *model.Time) *time.Time {
 	if t == nil || t.IsZero() {
@@ -1176,677 +512,12 @@ func optSecs(t *model.Time) *time.Time {
 	return &x
 }
 
-func linksOrEmpty(l []string) []string {
-	if l == nil {
-		return []string{}
-	}
-	return l
-}
-
-func notesOrEmpty(l []model.AgentTaskNote) []model.AgentTaskNote {
-	if l == nil {
-		return []model.AgentTaskNote{}
-	}
-	return l
-}
-
-func (p *PG) CreateAgentTask(org string, t model.AgentTask) (model.AgentTask, error) {
-	c, cancel := ctx()
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return t, err
-	}
-	defer tx.Rollback(c)
-	// 同一個組織同時只建一筆,號碼才不會撞
-	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-agent-tasks:' || $1))`, org); err != nil {
-		return t, err
-	}
-	var num int
-	if err := tx.QueryRow(c, `select coalesce(max(number),0) from omixor_agent_tasks where org = $1`, org).Scan(&num); err != nil {
-		return t, err
-	}
-	t.ID = fmt.Sprintf("T-%d", num+1)
-	_, err = tx.Exec(c, `insert into omixor_agent_tasks (org, id, number, agent_id, title, instructions, priority, status, result, links, notes,
-		routine_id, created_by, created_at, updated_at, claimed_at, completed_at, locked_until, claimed_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
-		org, t.ID, num+1, t.AgentID, t.Title, t.Instructions, t.Priority, t.Status, t.Result, jb(linksOrEmpty(t.Links)), jb(notesOrEmpty(t.Notes)),
-		t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt), optSecs(t.LockedUntil), t.ClaimedBy)
-	if err != nil {
-		return t, err
-	}
-	return t, tx.Commit(c)
-}
-
-func (p *PG) ImportAgents(org string, agents []model.Agent, tasks []model.AgentTask) error {
-	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(c)
-	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-agent-tasks:' || $1))`, org); err != nil {
-		return err
-	}
-	var na, nt int
-	if err := tx.QueryRow(c, `select (select count(*) from omixor_agents where org = $1), (select count(*) from omixor_agent_tasks where org = $1)`, org).Scan(&na, &nt); err != nil {
-		return err
-	}
-	if na > 0 || nt > 0 {
-		return fmt.Errorf("組織 %s 已經有 %d 個角色、%d 筆任務", org, na, nt)
-	}
-	for _, a := range agents {
-		if a.DocAccess == nil {
-			a.DocAccess = map[string]string{}
-		}
-		if a.Routines == nil {
-			a.Routines = []model.AgentRoutine{}
-		}
-		if _, err := tx.Exec(c, `insert into omixor_agents (org, id, name, role, instructions, active, symbol, color, doc_access, routines, created_at)
-			values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-			org, a.ID, a.Name, a.Role, a.Instructions, a.Active, a.Symbol, a.Color, jb(a.DocAccess), jb(a.Routines), secs(a.CreatedAt.Time)); err != nil {
-			return fmt.Errorf("角色 %s:%w", a.ID, err)
-		}
-	}
-	for _, t := range tasks {
-		if _, err := tx.Exec(c, `insert into omixor_agent_tasks (org, id, number, agent_id, title, instructions, priority, status, result, links, notes,
-			routine_id, created_by, created_at, updated_at, claimed_at, completed_at, locked_until, claimed_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
-			org, t.ID, t.Number(), t.AgentID, t.Title, t.Instructions, t.Priority, t.Status, t.Result, jb(linksOrEmpty(t.Links)), jb(notesOrEmpty(t.Notes)),
-			t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt), optSecs(t.LockedUntil), t.ClaimedBy); err != nil {
-			return fmt.Errorf("任務 %s:%w", t.ID, err)
-		}
-	}
-	return tx.Commit(c)
-}
-
-const updateTaskSQL = `update omixor_agent_tasks set agent_id = $3, title = $4, instructions = $5, priority = $6, status = $7,
-		result = $8, links = $9, notes = $10, routine_id = $11, created_by = $12, created_at = $13, updated_at = $14, claimed_at = $15,
-		completed_at = $16, locked_until = $17, claimed_by = $18 where org = $1 and id = $2`
-
-func taskArgs(org string, t model.AgentTask) []any {
-	return []any{org, t.ID, t.AgentID, t.Title, t.Instructions, t.Priority, t.Status, t.Result, jb(linksOrEmpty(t.Links)), jb(notesOrEmpty(t.Notes)),
-		t.RoutineID, t.CreatedBy, secs(t.CreatedAt.Time), secs(t.UpdatedAt.Time), optSecs(t.ClaimedAt), optSecs(t.CompletedAt), optSecs(t.LockedUntil), t.ClaimedBy}
-}
-
-func (p *PG) UpdateAgentTask(org string, t model.AgentTask) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, updateTaskSQL, taskArgs(org, t)...)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return err
-}
-
-// ClaimAgentTask 條件式更新:只有任務「不是進行中、或沒有鎖、或鎖已到期」才寫入;
-// 影響 0 列時再查一次,任務還在就是被別的程式搶先領取(ErrLocked),不在就是 ErrNotFound
-func (p *PG) ClaimAgentTask(org string, t model.AgentTask, now time.Time) error {
-	c, cancel := ctx()
-	defer cancel()
-	args := append(taskArgs(org, t), now)
-	tag, err := p.pool.Exec(c, updateTaskSQL+` and (status <> 'inProgress' or locked_until is null or locked_until <= $19)`, args...)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		var one int
-		err := p.pool.QueryRow(c, `select 1 from omixor_agent_tasks where org = $1 and id = $2`, org, t.ID).Scan(&one)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		return ErrLocked
-	}
-	return nil
-}
-
-func (p *PG) ExtendAgentCredential(org, taskID string, expires time.Time) error {
-	c, cancel := ctx()
-	defer cancel()
-	_, err := p.pool.Exec(c, `update omixor_agent_credentials set expires_at = $3 where org = $1 and task_id = $2`, org, taskID, secs(expires))
-	return err
-}
-
-func (p *PG) SaveAgentCredential(cr model.AgentCredential) error {
-	c, cancel := ctx()
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(c)
-	if _, err := tx.Exec(c, `delete from omixor_agent_credentials where org = $1 and task_id = $2`, cr.Org, cr.TaskID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(c, `insert into omixor_agent_credentials (token_hash, org, agent_id, task_id, issued_at, expires_at)
-		values ($1,$2,$3,$4,$5,$6)`, cr.Hash, cr.Org, cr.AgentID, cr.TaskID, secs(cr.IssuedAt.Time), secs(cr.ExpiresAt.Time)); err != nil {
-		return err
-	}
-	return tx.Commit(c)
-}
-
-func (p *PG) AgentCredentialForTask(org, taskID string) (*model.AgentCredential, error) {
-	c, cancel := ctx()
-	defer cancel()
-	var cr model.AgentCredential
-	var issued, exp time.Time
-	err := p.pool.QueryRow(c, `select token_hash, org, agent_id, task_id, issued_at, expires_at from omixor_agent_credentials
-		where org = $1 and task_id = $2`, org, taskID).Scan(&cr.Hash, &cr.Org, &cr.AgentID, &cr.TaskID, &issued, &exp)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	cr.IssuedAt, cr.ExpiresAt = model.Time{Time: issued.UTC()}, model.Time{Time: exp.UTC()}
-	return &cr, nil
-}
-
-func (p *PG) AgentCredentialByHash(h []byte) (*model.AgentCredential, error) {
-	c, cancel := ctx()
-	defer cancel()
-	var cr model.AgentCredential
-	var issued, exp time.Time
-	err := p.pool.QueryRow(c, `select token_hash, org, agent_id, task_id, issued_at, expires_at from omixor_agent_credentials
-		where token_hash = $1`, h).Scan(&cr.Hash, &cr.Org, &cr.AgentID, &cr.TaskID, &issued, &exp)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	cr.IssuedAt, cr.ExpiresAt = model.Time{Time: issued.UTC()}, model.Time{Time: exp.UTC()}
-	return &cr, nil
-}
-
-func (p *PG) DeleteAgentCredentials(org, taskID, agentID string) error {
-	c, cancel := ctx()
-	defer cancel()
-	_, err := p.pool.Exec(c, `delete from omixor_agent_credentials where org = $1 and (($2 <> '' and task_id = $2) or ($3 <> '' and agent_id = $3))`,
-		org, taskID, agentID)
-	return err
-}
-
-func (p *PG) PruneAgentCredentials(now time.Time) error {
-	c, cancel := ctx()
-	defer cancel()
-	_, err := p.pool.Exec(c, `delete from omixor_agent_credentials where expires_at <= $1`, now)
-	return err
-}
-
-// ---- 文件櫃 ----
-
-func (p *PG) GetCabinetLayout(org, project string) ([]model.CabinetSection, error) {
-	c, cancel := ctx()
-	defer cancel()
-	var b []byte
-	if err := p.pool.QueryRow(c, `select layout from omixor_cabinet_layouts where org = $1 and project = $2`, org, project).Scan(&b); err != nil {
-		return nil, notFound(err)
-	}
-	l := []model.CabinetSection{}
-	if err := json.Unmarshal(b, &l); err != nil {
-		return nil, err
-	}
-	return l, nil
-}
-
-func (p *PG) SaveCabinetLayout(org, project string, layout []model.CabinetSection) error {
-	c, cancel := ctx()
-	defer cancel()
-	if layout == nil {
-		layout = []model.CabinetSection{}
-	}
-	_, err := p.pool.Exec(c, `insert into omixor_cabinet_layouts (org, project, layout, updated_at) values ($1, $2, $3, now())
-		on conflict (org, project) do update set layout = $3, updated_at = now()`, org, project, jb(layout))
-	return err
-}
-
-const docCols = `id, project, title, body, section, tab, tags, author, created_at, updated_at`
-
-func scanDoc(row pgx.Row) (*model.CabinetDoc, error) {
-	var d model.CabinetDoc
-	var tags []byte
-	var created, updated time.Time
-	if err := row.Scan(&d.ID, &d.Project, &d.Title, &d.Body, &d.Section, &d.Tab, &tags, &d.Author, &created, &updated); err != nil {
-		return nil, err
-	}
-	d.CreatedAt, d.UpdatedAt = model.Time{Time: created.UTC()}, model.Time{Time: updated.UTC()}
-	_ = json.Unmarshal(tags, &d.Tags)
-	if d.Tags == nil {
-		d.Tags = []string{}
-	}
-	return &d, nil
-}
+// nullSecs 零值時間存 NULL(其餘截到秒、UTC)
+func nullSecs(t model.Time) *time.Time { return optSecs(&t) }
 
 func tagsOrEmpty(l []string) []string {
 	if l == nil {
 		return []string{}
 	}
 	return l
-}
-
-func (p *PG) ListDocs(org string) ([]model.CabinetDoc, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select `+docCols+` from omixor_docs where org = $1 order by pos desc`, org)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.CabinetDoc{}
-	for rows.Next() {
-		d, err := scanDoc(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *d)
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) GetDoc(org, id string) (*model.CabinetDoc, error) {
-	c, cancel := ctx()
-	defer cancel()
-	d, err := scanDoc(p.pool.QueryRow(c, `select `+docCols+` from omixor_docs where org = $1 and id = $2`, org, id))
-	if err != nil {
-		return nil, notFound(err)
-	}
-	return d, nil
-}
-
-func insertDoc(c context.Context, tx pgx.Tx, org string, d model.CabinetDoc, pos int64) error {
-	_, err := tx.Exec(c, `insert into omixor_docs (org, id, number, pos, title, body, section, tab, tags, author, created_at, updated_at, project)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		org, d.ID, d.Number(), pos, d.Title, d.Body, d.Section, d.Tab, jb(tagsOrEmpty(d.Tags)), d.Author, secs(d.CreatedAt.Time), secs(d.UpdatedAt.Time), d.Project)
-	return err
-}
-
-func (p *PG) CreateDoc(org string, d model.CabinetDoc) (model.CabinetDoc, error) {
-	c, cancel := ctx()
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return d, err
-	}
-	defer tx.Rollback(c)
-	// 同一個組織同時只建一份,號碼才不會撞
-	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-docs:' || $1))`, org); err != nil {
-		return d, err
-	}
-	var num int
-	var pos int64
-	if err := tx.QueryRow(c, `select coalesce(max(number),0), coalesce(max(pos),0) from omixor_docs where org = $1`, org).Scan(&num, &pos); err != nil {
-		return d, err
-	}
-	d.ID = fmt.Sprintf("%s%d", model.DocPrefix, num+1)
-	if err := insertDoc(c, tx, org, d, pos+1); err != nil {
-		return d, err
-	}
-	return d, tx.Commit(c)
-}
-
-func (p *PG) UpdateDoc(org string, d model.CabinetDoc) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, `update omixor_docs set title = $3, body = $4, section = $5, tab = $6, tags = $7, author = $8, updated_at = $9, project = $10
-		where org = $1 and id = $2`, org, d.ID, d.Title, d.Body, d.Section, d.Tab, jb(tagsOrEmpty(d.Tags)), d.Author, secs(d.UpdatedAt.Time), d.Project)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (p *PG) DeleteDoc(org, id string) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, `delete from omixor_docs where org = $1 and id = $2`, org, id)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (p *PG) ImportDocs(org string, list []model.CabinetDoc) (int, error) {
-	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback(c)
-	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-docs:' || $1))`, org); err != nil {
-		return 0, err
-	}
-	var n int
-	if err := tx.QueryRow(c, `select count(*) from omixor_docs where org = $1`, org).Scan(&n); err != nil {
-		return 0, err
-	}
-	if n > 0 {
-		return 0, fmt.Errorf("組織 %s 已經有 %d 份文件", org, n)
-	}
-	for k, d := range list {
-		if err := insertDoc(c, tx, org, d, int64(len(list)-k)); err != nil {
-			return 0, fmt.Errorf("%s:%w", d.ID, err)
-		}
-	}
-	return len(list), tx.Commit(c)
-}
-
-// ---- 組織鏈 ----
-
-func (p *PG) GetOrgChain(org string) (*model.OrgChain, error) {
-	c, cancel := ctx()
-	defer cancel()
-	var b []byte
-	var at time.Time
-	if err := p.pool.QueryRow(c, `select edges, updated_at from omixor_org_chains where org = $1`, org).Scan(&b, &at); err != nil {
-		return nil, notFound(err)
-	}
-	out := model.OrgChain{Edges: []model.ChainEdge{}}
-	if err := json.Unmarshal(b, &out.Edges); err != nil {
-		return nil, err
-	}
-	out.UpdatedAt = &model.Time{Time: secs(at)}
-	return &out, nil
-}
-
-func (p *PG) SaveOrgChain(org string, ch model.OrgChain) error {
-	c, cancel := ctx()
-	defer cancel()
-	edges := ch.Edges
-	if edges == nil {
-		edges = []model.ChainEdge{}
-	}
-	at := time.Now()
-	if ch.UpdatedAt != nil {
-		at = ch.UpdatedAt.Time
-	}
-	_, err := p.pool.Exec(c, `insert into omixor_org_chains (org, edges, updated_at) values ($1, $2, $3)
-		on conflict (org) do update set edges = $2, updated_at = $3`, org, jb(edges), secs(at))
-	return err
-}
-
-// ---- 訊息頻道 ----
-
-const channelCols = `id, name, topic, issue_id, members, created_by, created_at, updated_at`
-
-func scanChannel(row pgx.Row) (*model.Channel, error) {
-	var ch model.Channel
-	var members []byte
-	var created, updated time.Time
-	if err := row.Scan(&ch.ID, &ch.Name, &ch.Topic, &ch.IssueID, &members, &ch.CreatedBy, &created, &updated); err != nil {
-		return nil, err
-	}
-	ch.Members = []string{}
-	if err := json.Unmarshal(members, &ch.Members); err != nil {
-		return nil, err
-	}
-	ch.CreatedAt, ch.UpdatedAt = model.Time{Time: secs(created)}, model.Time{Time: secs(updated)}
-	return &ch, nil
-}
-
-func membersOrEmpty(l []string) []string {
-	if l == nil {
-		return []string{}
-	}
-	return l
-}
-
-func (p *PG) ListChannels(org string) ([]model.Channel, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select `+channelCols+` from omixor_channels where org = $1 order by number`, org)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []model.Channel{}
-	for rows.Next() {
-		ch, err := scanChannel(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *ch)
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) GetChannel(org, id string) (*model.Channel, error) {
-	c, cancel := ctx()
-	defer cancel()
-	ch, err := scanChannel(p.pool.QueryRow(c, `select `+channelCols+` from omixor_channels where org = $1 and id = $2`, org, id))
-	return ch, notFound(err)
-}
-
-func (p *PG) CreateChannel(org string, ch model.Channel) (model.Channel, error) {
-	c, cancel := ctx()
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return ch, err
-	}
-	defer tx.Rollback(c)
-	// 同一個組織同時只建一個,號碼才不會撞
-	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-channels:' || $1))`, org); err != nil {
-		return ch, err
-	}
-	var num int
-	if err := tx.QueryRow(c, `select coalesce(max(number),0) from omixor_channels where org = $1`, org).Scan(&num); err != nil {
-		return ch, err
-	}
-	ch.ID = fmt.Sprintf("%s%d", model.ChannelPrefix, num+1)
-	if _, err := tx.Exec(c, `insert into omixor_channels (org, id, number, name, topic, issue_id, members, created_by, created_at, updated_at)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, org, ch.ID, num+1, ch.Name, ch.Topic, ch.IssueID, jb(membersOrEmpty(ch.Members)),
-		ch.CreatedBy, secs(ch.CreatedAt.Time), secs(ch.UpdatedAt.Time)); err != nil {
-		return ch, err
-	}
-	return ch, tx.Commit(c)
-}
-
-func (p *PG) UpdateChannel(org string, ch model.Channel) error {
-	c, cancel := ctx()
-	defer cancel()
-	tag, err := p.pool.Exec(c, `update omixor_channels set name = $3, topic = $4, issue_id = $5, members = $6, updated_at = $7
-		where org = $1 and id = $2`, org, ch.ID, ch.Name, ch.Topic, ch.IssueID, jb(membersOrEmpty(ch.Members)), secs(ch.UpdatedAt.Time))
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-const messageCols = `channel_id, id, author, text, mentions, at`
-
-func scanMessage(row pgx.Row) (*model.ChannelMessage, error) {
-	var m model.ChannelMessage
-	var mentions []byte
-	var at time.Time
-	if err := row.Scan(&m.ChannelID, &m.ID, &m.Author, &m.Text, &mentions, &at); err != nil {
-		return nil, err
-	}
-	m.Mentions = []string{}
-	if err := json.Unmarshal(mentions, &m.Mentions); err != nil {
-		return nil, err
-	}
-	m.At = model.Time{Time: secs(at)}
-	return &m, nil
-}
-
-func (p *PG) CreateChannelMessage(org string, m model.ChannelMessage) (model.ChannelMessage, error) {
-	c, cancel := ctx()
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return m, err
-	}
-	defer tx.Rollback(c)
-	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext('omixor-channel-messages:' || $1 || ':' || $2))`, org, m.ChannelID); err != nil {
-		return m, err
-	}
-	var num int
-	if err := tx.QueryRow(c, `select coalesce(max(number),0) from omixor_channel_messages where org = $1 and channel_id = $2`, org, m.ChannelID).Scan(&num); err != nil {
-		return m, err
-	}
-	m.ID = fmt.Sprintf("%s%d", model.MessagePrefix, num+1)
-	if _, err := tx.Exec(c, `insert into omixor_channel_messages (org, channel_id, id, number, author, text, mentions, at)
-		values ($1,$2,$3,$4,$5,$6,$7,$8)`, org, m.ChannelID, m.ID, num+1, m.Author, m.Text, jb(membersOrEmpty(m.Mentions)), secs(m.At.Time)); err != nil {
-		return m, err
-	}
-	return m, tx.Commit(c)
-}
-
-func (p *PG) ListChannelMessages(org, channelID string, q model.MessageQuery) ([]model.ChannelMessage, bool, error) {
-	c, cancel := ctx()
-	defer cancel()
-	order := "asc"
-	if q.Latest {
-		order = "desc"
-	}
-	sql := `select ` + messageCols + ` from omixor_channel_messages where org = $1 and channel_id = $2
-		and ($3 <= 0 or number > $3) and ($4 <= 0 or number < $4) order by number ` + order
-	args := []any{org, channelID, q.After, q.Before}
-	if q.Limit > 0 {
-		sql += ` limit $5`
-		args = append(args, q.Limit+1)
-	}
-	rows, err := p.pool.Query(c, sql, args...)
-	if err != nil {
-		return nil, false, err
-	}
-	defer rows.Close()
-	out := []model.ChannelMessage{}
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			return nil, false, err
-		}
-		out = append(out, *m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, false, err
-	}
-	more := false
-	if q.Limit > 0 && len(out) > q.Limit {
-		more, out = true, out[:q.Limit]
-	}
-	if q.Latest { // 換回由舊到新
-		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-			out[i], out[j] = out[j], out[i]
-		}
-	}
-	return out, more, nil
-}
-
-func (p *PG) LastChannelMessages(org string) (map[string]model.ChannelMessage, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select distinct on (channel_id) `+messageCols+` from omixor_channel_messages
-		where org = $1 order by channel_id, number desc`, org)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]model.ChannelMessage{}
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		out[m.ChannelID] = *m
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) ChannelReads(org, member string) (map[string]model.ChannelRead, error) {
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select channel_id, last_read, at from omixor_channel_reads where org = $1 and member = $2`, org, member)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]model.ChannelRead{}
-	for rows.Next() {
-		r := model.ChannelRead{Member: member}
-		var at time.Time
-		if err := rows.Scan(&r.ChannelID, &r.LastRead, &at); err != nil {
-			return nil, err
-		}
-		r.At = model.Time{Time: secs(at)}
-		out[r.ChannelID] = r
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) SaveChannelRead(org string, r model.ChannelRead) error {
-	c, cancel := ctx()
-	defer cancel()
-	_, err := p.pool.Exec(c, `insert into omixor_channel_reads (org, channel_id, member, last_read, at) values ($1,$2,$3,$4,$5)
-		on conflict (org, channel_id, member) do update set last_read = $4, at = $5`, org, r.ChannelID, r.Member, r.LastRead, secs(r.At.Time))
-	return err
-}
-
-func (p *PG) UnreadCounts(org, member string, channelIDs []string) (map[string]int, error) {
-	out := map[string]int{}
-	if len(channelIDs) == 0 {
-		return out, nil
-	}
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select m.channel_id, count(*) from omixor_channel_messages m
-		left join omixor_channel_reads r on r.org = m.org and r.channel_id = m.channel_id and r.member = $2
-		where m.org = $1 and m.channel_id = any($3) and m.author <> $2 and m.number > coalesce(r.last_read, 0)
-		group by m.channel_id`, org, member, channelIDs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		var n int
-		if err := rows.Scan(&id, &n); err != nil {
-			return nil, err
-		}
-		out[id] = n
-	}
-	return out, rows.Err()
-}
-
-func (p *PG) UnreadMentions(org, member string, channelIDs []string, limit int) ([]model.ChannelMessage, error) {
-	out := []model.ChannelMessage{}
-	if len(channelIDs) == 0 {
-		return out, nil
-	}
-	if limit <= 0 {
-		limit = 1000
-	}
-	c, cancel := ctx()
-	defer cancel()
-	rows, err := p.pool.Query(c, `select m.channel_id, m.id, m.author, m.text, m.mentions, m.at from omixor_channel_messages m
-		left join omixor_channel_reads r on r.org = m.org and r.channel_id = m.channel_id and r.member = $2
-		where m.org = $1 and m.channel_id = any($3) and m.author <> $2 and m.number > coalesce(r.last_read, 0)
-		and m.mentions ? $2
-		order by m.at desc, m.number desc limit $4`, org, member, channelIDs, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *m)
-	}
-	return out, rows.Err()
 }

@@ -40,6 +40,7 @@ var CoreTools = []CoreTool{
 	{Name: "agent_task_report", Title: "回報任務", Group: "角色與任務", Admin: true, Agent: true},
 	{Name: "agent_upsert", Title: "新增或修改角色", Group: "角色與任務", Admin: true},
 	{Name: "agent_task_create", Title: "指派任務給角色", Group: "角色與任務", Admin: true},
+	{Name: "agent_task_transfer", Title: "轉移角色的任務", Group: "角色與任務", Admin: true},
 	{Name: "agent_task_delegate", Title: "依組織鏈委派任務", Group: "角色與任務", Agent: true, Needs: NeedDownstream},
 
 	{Name: "projects", Title: "列出專案", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead},

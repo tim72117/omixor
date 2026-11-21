@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"omixor-core/env"
+	"omixor-core/config"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -552,7 +552,7 @@ func init() {
 		if !testing.Testing() {
 			go a.SystemRefresh() // 啟動時讀一次(還沒有組織時也要把原因放上畫面)
 		}
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		// 每 15 秒重讀(App、別台機器的管理員改了才看得到;請求都在鎖外)

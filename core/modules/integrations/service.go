@@ -150,18 +150,19 @@ func importList(in []string, norm func(string) (string, bool)) (out, skipped []s
 // ---- 存放(store 的通用組織設定文件) ----
 
 // getDoc 讀一份設定到 out;沒存過回 (false, nil)。回傳 updatedAt、updatedBy
-func (s *Service) getDoc(org, kind string, out any) (bool, *model.Time, string, error) {
+func (s *Service) getDoc(org, kind string, out any) (bool, *model.Time, string, *model.ActorView, error) {
 	d, err := s.Svc.Store.GetOrgDoc(org, kind)
 	if errors.Is(err, store.ErrNotFound) {
-		return false, nil, "", nil
+		return false, nil, "", nil, nil
 	}
 	if err != nil {
-		return false, nil, "", err
+		return false, nil, "", nil, err
 	}
 	if err := json.Unmarshal(d.Data, out); err != nil {
-		return false, nil, "", err
+		return false, nil, "", nil, err
 	}
-	return true, d.UpdatedAt, d.UpdatedBy, nil
+	by, who := s.Svc.WhoPresent(d.UpdatedBy)
+	return true, d.UpdatedAt, by, who, nil
 }
 
 // saveDoc data 是設定本身(Saved = false、UpdatedAt = nil、UpdatedBy = "",和以前 PG 存的一樣)
@@ -177,7 +178,7 @@ func (s *Service) saveDoc(org, kind string, data any, at *model.Time, by string)
 
 func (s *Service) loadGitHub(org string) (GitHubSettings, error) {
 	var x GitHubSettings
-	ok, at, by, err := s.getDoc(org, kindGitHub, &x)
+	ok, at, by, who, err := s.getDoc(org, kindGitHub, &x)
 	if err != nil {
 		return GitHubSettings{}, err
 	}
@@ -187,13 +188,13 @@ func (s *Service) loadGitHub(org string) (GitHubSettings, error) {
 	if x.Repos == nil {
 		x.Repos = []string{}
 	}
-	x.Saved, x.UpdatedAt, x.UpdatedBy = true, at, by
+	x.Saved, x.UpdatedAt, x.UpdatedBy, x.UpdatedByActor = true, at, by, who
 	return x, nil
 }
 
 func (s *Service) storeGitHub(org string, x GitHubSettings) error {
 	d := x.Clone()
-	d.Saved, d.UpdatedAt, d.UpdatedBy = false, nil, ""
+	d.Saved, d.UpdatedAt, d.UpdatedBy, d.UpdatedByActor = false, nil, "", nil
 	return s.saveDoc(org, kindGitHub, d, x.UpdatedAt, x.UpdatedBy)
 }
 
@@ -224,10 +225,11 @@ func (s *Service) SaveGitHubSettings(p *model.Principal, org string, in GitHubSe
 		return nil, err
 	}
 	now := s.Svc.NowTime()
-	x := GitHubSettings{Repos: repos, Saved: true, UpdatedAt: &now, UpdatedBy: service.WhoName(p)}
+	x := GitHubSettings{Repos: repos, Saved: true, UpdatedAt: &now, UpdatedBy: s.Svc.WhoActor(p)}
 	if err := s.storeGitHub(org, x); err != nil {
 		return nil, err
 	}
+	x.UpdatedBy, x.UpdatedByActor = s.Svc.WhoPresent(x.UpdatedBy) // 存的是 actor id,回給呼叫端的是相容字串
 	s.Svc.Audit(p, "integration.github.save", org, map[string]any{"repos": len(repos)})
 	return &x, nil
 }
@@ -247,10 +249,11 @@ func (s *Service) ImportGitHubSettings(p *model.Principal, org string, in GitHub
 		return &GitHubImportResult{Skipped: skipped, Settings: cur}, nil
 	}
 	now := s.Svc.NowTime()
-	x := GitHubSettings{Repos: repos, Saved: true, UpdatedAt: &now, UpdatedBy: service.WhoName(p)}
+	x := GitHubSettings{Repos: repos, Saved: true, UpdatedAt: &now, UpdatedBy: s.Svc.WhoActor(p)}
 	if err := s.storeGitHub(org, x); err != nil {
 		return nil, err
 	}
+	x.UpdatedBy, x.UpdatedByActor = s.Svc.WhoPresent(x.UpdatedBy) // 存的是 actor id,回給呼叫端的是相容字串
 	s.Svc.Audit(p, "integration.github.import", org, map[string]any{"repos": len(repos), "skipped": len(skipped)})
 	return &GitHubImportResult{Imported: true, Skipped: skipped, Settings: x}, nil
 }
@@ -259,7 +262,7 @@ func (s *Service) ImportGitHubSettings(p *model.Principal, org string, in GitHub
 
 func (s *Service) loadGitLab(org string) (GitLabSettings, error) {
 	var x GitLabSettings
-	ok, at, by, err := s.getDoc(org, kindGitLab, &x)
+	ok, at, by, who, err := s.getDoc(org, kindGitLab, &x)
 	if err != nil {
 		return GitLabSettings{}, err
 	}
@@ -269,13 +272,13 @@ func (s *Service) loadGitLab(org string) (GitLabSettings, error) {
 	if x.Projects == nil {
 		x.Projects = []string{}
 	}
-	x.Saved, x.UpdatedAt, x.UpdatedBy = true, at, by
+	x.Saved, x.UpdatedAt, x.UpdatedBy, x.UpdatedByActor = true, at, by, who
 	return x, nil
 }
 
 func (s *Service) storeGitLab(org string, x GitLabSettings) error {
 	d := x.Clone()
-	d.Saved, d.UpdatedAt, d.UpdatedBy = false, nil, ""
+	d.Saved, d.UpdatedAt, d.UpdatedBy, d.UpdatedByActor = false, nil, "", nil
 	return s.saveDoc(org, kindGitLab, d, x.UpdatedAt, x.UpdatedBy)
 }
 
@@ -324,10 +327,11 @@ func (s *Service) SaveGitLabSettings(p *model.Principal, org string, in GitLabSe
 		return nil, err
 	}
 	now := s.Svc.NowTime()
-	x := GitLabSettings{BaseURL: base, Projects: projects, Saved: true, UpdatedAt: &now, UpdatedBy: service.WhoName(p)}
+	x := GitLabSettings{BaseURL: base, Projects: projects, Saved: true, UpdatedAt: &now, UpdatedBy: s.Svc.WhoActor(p)}
 	if err := s.storeGitLab(org, x); err != nil {
 		return nil, err
 	}
+	x.UpdatedBy, x.UpdatedByActor = s.Svc.WhoPresent(x.UpdatedBy) // 存的是 actor id,回給呼叫端的是相容字串
 	s.Svc.Audit(p, "integration.gitlab.save", org, map[string]any{"baseUrl": base, "projects": len(projects)})
 	return &x, nil
 }
@@ -354,10 +358,11 @@ func (s *Service) ImportGitLabSettings(p *model.Principal, org string, in GitLab
 		return &GitLabImportResult{Skipped: skipped, Settings: cur}, nil
 	}
 	now := s.Svc.NowTime()
-	x := GitLabSettings{BaseURL: base, Projects: projects, Saved: true, UpdatedAt: &now, UpdatedBy: service.WhoName(p)}
+	x := GitLabSettings{BaseURL: base, Projects: projects, Saved: true, UpdatedAt: &now, UpdatedBy: s.Svc.WhoActor(p)}
 	if err := s.storeGitLab(org, x); err != nil {
 		return nil, err
 	}
+	x.UpdatedBy, x.UpdatedByActor = s.Svc.WhoPresent(x.UpdatedBy) // 存的是 actor id,回給呼叫端的是相容字串
 	s.Svc.Audit(p, "integration.gitlab.import", org, map[string]any{"baseUrl": base, "projects": len(projects), "skipped": len(skipped)})
 	return &GitLabImportResult{Imported: true, Skipped: skipped, Settings: x}, nil
 }

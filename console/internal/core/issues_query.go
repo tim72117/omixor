@@ -5,11 +5,12 @@ import "omixor-core/model"
 // Issue 分頁的列表與看板:篩選、排序、搜尋、分欄規則只在核心(omixor-core/model 的 issue_query.go),
 // 這裡拿快取的 a.Issues()(不連網)套核心的函式,畫面只顯示結果。
 //
-//	POST /api/action/issue_query  {q?, status?, priority?, label?, repo?, assignee?, sort?}
+//	POST /api/action/issue_query  {q?, status?, priority?, label?, repo?, assignee?, project?, sort?}
 //	     → {issues, total, counts:{open, closed, all}}(counts、total 是全部 Issue 的,不受篩選影響)
-//	POST /api/action/issue_board  {q?, priority?, label?, repo?, assignee?}
+//	POST /api/action/issue_board  {q?, priority?, label?, repo?, assignee?, project?}
 //	     → 同核心 GET /api/orgs/{org}/issues/board:{columns:[{key,title,dropStatus,issues}], labels, total, matched}
 //
+// project 參數:"" = 全部、"-" = 只看組織層級(沒放專案)、PRJ-n = 那個專案;counts、total 以這個範圍計算。
 // 參數意義同核心 GET /api/orgs/{org}/issues 的 query 參數(repo、assignee 給 "(none)" = 沒標記/沒指派的)。
 // 畫面在收到 "issues" 通知時重新呼叫。
 
@@ -24,7 +25,7 @@ type IssueQueryResult struct {
 func issueQueryArgs(args map[string]any) model.IssueQuery {
 	s := func(k string) string { v, _ := args[k].(string); return v }
 	return model.IssueQuery{Q: s("q"), Status: s("status"), Priority: s("priority"), Label: s("label"),
-		Repo: s("repo"), Assignee: s("assignee"), Sort: s("sort")}
+		Repo: s("repo"), Assignee: s("assignee"), Project: s("project"), Sort: s("sort")}
 }
 
 // QueryIssues 目前組織快取的 Issue 依條件篩選、排序(呼叫時要拿著 Mu)
@@ -33,6 +34,9 @@ func (a *App) QueryIssues(q model.IssueQuery) (IssueQueryResult, error) {
 		return IssueQueryResult{}, UserError{e}
 	}
 	all := a.Issues()
+	if q.Project != "" { // counts、total 以專案範圍為準(其他條件不影響)
+		all = model.FilterIssues(all, model.IssueQuery{Project: q.Project})
+	}
 	counts := map[string]int{"all": len(all)}
 	for _, st := range model.IssueStatuses {
 		counts[st] = len(model.FilterIssues(all, model.IssueQuery{Status: st}))

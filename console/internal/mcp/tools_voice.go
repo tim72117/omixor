@@ -45,7 +45,7 @@ func init() {
 		if dry, ok := rawBool(c.Args.Raw, "dry_run"); ok && dry {
 			out, err := voice.DryRun(scripts, all, limit)
 			if err != nil {
-				return nil, ToolError{Message: err.Error()}
+				return nil, ToolErr(err)
 			}
 			return map[string]any{"dryRun": out}, nil
 		}
@@ -53,7 +53,7 @@ func init() {
 		defer c.App.Mu.Unlock()
 		job, err := voice.Submit(scripts, all, limit, c.Actor)
 		if err != nil {
-			return nil, ToolError{Message: err.Error()}
+			return nil, ToolErr(err)
 		}
 		ahead := 0
 		for _, j := range voice.Jobs {

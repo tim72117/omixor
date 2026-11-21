@@ -238,3 +238,12 @@ func TestAuthenticateDNTemplate(t *testing.T) {
 		t.Fatalf("密碼錯:%v", err)
 	}
 }
+
+// mail 屬性沒有 @(例如被填成保留的本機身分 omixor-console)視為沒有 mail
+func TestCleanMail(t *testing.T) {
+	for in, want := range map[string]string{" Amy@Corp.Test ": "amy@corp.test", "omixor-console": "", "tim": "", "": "", "a@": "", "@b": "", "a@b@c": ""} {
+		if got := cleanMail(in); got != want {
+			t.Errorf("cleanMail(%q) = %q,要 %q", in, got, want)
+		}
+	}
+}

@@ -7,12 +7,12 @@ import (
 
 	"omixor-core/mcp"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 健康檢查與 API 都在
 func TestServesCoreHandler(t *testing.T) {
-	h := Handler(&service.Service{Store: store.NewMem()})
+	h := Handler(&service.Service{Store: storetest.New(t)})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/health", nil))
 	if rec.Code != 200 || rec.Body.String() != "ok" {

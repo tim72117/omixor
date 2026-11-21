@@ -21,9 +21,19 @@ import (
 type Error struct {
 	Status int
 	Msg    string
+	// Data 伺服器回應裡 error 以外的欄位(例如刪角色 409 的 code、taskCounts、total);沒有是 nil
+	Data map[string]any
+	// cause 連不上時的原始錯誤(含後端位址、dial tcp 資訊):只進 log,不對外(見 Cause、httperr.Causer)
+	cause error
 }
 
 func (e *Error) Error() string { return e.Msg }
+
+// Cause 連不上時的原始錯誤(httperr.Causer:對外只給固定句子,原文進 log);伺服器回的錯誤沒有
+func (e *Error) Cause() error { return e.cause }
+
+// HTTPError 伺服器回的錯誤是給使用者看的訊息(httperr.Public):狀態碼是伺服器回的(0 = 連不上)、Data 是 error 以外的欄位
+func (e *Error) HTTPError() (int, map[string]any) { return e.Status, e.Data }
 
 // Status 錯誤的 HTTP 狀態碼(連不上或不是伺服器的錯誤是 0)
 func Status(err error) int {
@@ -77,7 +87,7 @@ func (c *Client) Do(method, path string, body, out any) error {
 		}
 		resp, err := hc.Do(req)
 		if err != nil {
-			return 0, nil, &Error{Msg: fmt.Sprintf("連不到 omixor server(%s):%v", c.Base, err)}
+			return 0, nil, &Error{Msg: "連不到 omixor server,請確認網路與伺服器位址", cause: fmt.Errorf("連不到 omixor server(%s):%w", c.Base, err)}
 		}
 		defer resp.Body.Close()
 		b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
@@ -113,7 +123,16 @@ func (c *Client) Do(method, path string, body, out any) error {
 	}
 	_ = json.Unmarshal(b, &env)
 	if env.Error != "" {
-		return &Error{Status: status, Msg: env.Error}
+		e := &Error{Status: status, Msg: env.Error}
+		var all map[string]any
+		if json.Unmarshal(b, &all) == nil {
+			delete(all, "error")
+			delete(all, "result")
+			if len(all) > 0 {
+				e.Data = all
+			}
+		}
+		return e
 	}
 	if status/100 != 2 {
 		return &Error{Status: status, Msg: fmt.Sprintf("omixor server 回應不對(HTTP %d)", status)}
@@ -194,6 +213,22 @@ func (c *Client) ListMembers(org string) ([]model.Member, error) {
 	return l, c.Do("GET", "/api/orgs/"+esc(org)+"/members", nil, &l)
 }
 
+// ListActors 組織看得到的 actor(使用者、角色、系統);kind、q(handle 或名稱前綴)、status 都可空
+func (c *Client) ListActors(org, kind, q, status string) ([]service.ActorListItem, error) {
+	v := url.Values{}
+	for k, x := range map[string]string{"kind": kind, "q": q, "status": status} {
+		if x != "" {
+			v.Set(k, x)
+		}
+	}
+	path := "/api/orgs/" + esc(org) + "/actors"
+	if len(v) > 0 {
+		path += "?" + v.Encode()
+	}
+	var l []service.ActorListItem
+	return l, c.Do("GET", path, nil, &l)
+}
+
 func (c *Client) SaveMember(org, email, role string) (*model.Member, error) {
 	var m model.Member
 	return &m, c.Do("POST", "/api/orgs/"+esc(org)+"/members", map[string]any{"email": email, "role": role}, &m)
@@ -267,8 +302,20 @@ func (c *Client) AddIssueComment(org, id string, in service.CommentInput) (*mode
 	return &i, c.Do("POST", c.issues(org)+"/"+esc(id)+"/comments", in, &i)
 }
 
+// DeleteIssue 丟進垃圾桶(軟刪除)
 func (c *Client) DeleteIssue(org, id string) error {
 	return c.Do("POST", c.issues(org)+"/"+esc(id)+"/delete", map[string]any{}, nil)
+}
+
+// RestoreIssue 從垃圾桶拿回來(組織管理員)
+func (c *Client) RestoreIssue(org, id string) (*model.Issue, error) {
+	var i model.Issue
+	return &i, c.Do("POST", c.issues(org)+"/"+esc(id)+"/restore", map[string]any{}, &i)
+}
+
+// PurgeIssue 永久刪除(組織管理員)
+func (c *Client) PurgeIssue(org, id string) error {
+	return c.Do("POST", c.issues(org)+"/"+esc(id)+"/purge", map[string]any{}, nil)
 }
 
 func (c *Client) ExportIssues(org string) ([]model.Issue, error) {

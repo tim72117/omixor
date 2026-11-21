@@ -37,7 +37,8 @@ func localReq(t *testing.T, h http.Handler, method, path, tok string, body any) 
 // 啟動:本機使用者、預設組織、這次的 token 可以用;重開換 token 後舊的作廢,資料還在
 func TestLocalOpenAndReopen(t *testing.T) {
 	dir := t.TempDir()
-	l, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok, User: "Tim"})
+	db := testDB(t)
+	l, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok, User: "Tim"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestLocalOpenAndReopen(t *testing.T) {
 		t.Fatal("錯的 token 要 401", code)
 	}
 	tok2 := testTok + "2"
-	l2, err := OpenLocal(LocalConfig{DataDir: dir, Token: tok2, User: "tim"})
+	l2, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: tok2, User: "tim"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +83,7 @@ func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 // 匯入 App 的本機資料:只匯入一次;頻道與組織鏈的 user 節點補成組織成員
 func TestLocalImport(t *testing.T) {
-	l, err := OpenLocal(LocalConfig{DataDir: t.TempDir(), Token: testTok, User: "tim"})
+	l, err := OpenLocal(LocalConfig{DataDir: t.TempDir(), DatabaseURL: testDB(t), Token: testTok, User: "tim"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func TestLocalImport(t *testing.T) {
 		t.Fatal("第二次不能再匯入", mustJSON(out))
 	}
 	for path, want := range map[string]string{
-		"/api/orgs/default/issues":                 `"id":"ISS-3"`,
+		"/api/orgs/default/issues":                 `"key":"ISS-3"`, // 匯入的舊 id ISS-3 變成 key(內部 id 是新的 UUIDv7)
 		"/api/orgs/default/agent-tasks":            `"id":"T-2"`,
 		"/api/orgs/default/docs":                   `"id":"DOC-4"`,
 		"/api/orgs/default/chain":                  `"from":"user:alice"`,

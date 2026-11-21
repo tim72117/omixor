@@ -150,7 +150,7 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
           : <EmptyState title="選一份文件" icon="doc.text" message={`${projectLabel(shown, projects)}的文件櫃依區塊與頁籤分類(左下「編輯結構」可調整)。每個角色可以在「AI 自動化 › 虛擬角色 › 編輯」設定能讀寫哪些區塊。`} />}
       </div>
       {creating && section && <NewDocSheet project={shown} projects={projects} section={section} tab={tab} onClose={() => setCreating(false)} onCreated={setSelectedDoc} />}
-      {editingLayout && <CabinetLayoutEditor project={shown} projectName={shown ? projectLabel(shown, projects) : undefined} layout={layout} docs={docs} onClose={() => setEditingLayout(false)} />}
+      {editingLayout && <CabinetLayoutEditor project={shown} projectName={shown ? projectLabel(shown, projects) : undefined} layout={layout} layoutVersion={data?.layoutVersion ?? 0} docs={docs} onClose={() => setEditingLayout(false)} />}
     </div>
   );
 }

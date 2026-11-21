@@ -31,6 +31,8 @@ type MCPView struct {
 	CanEdit   bool        `json:"canEdit"`
 	UpdatedAt *model.Time `json:"updatedAt,omitempty"`
 	UpdatedBy string      `json:"updatedBy,omitempty"`
+	// UpdatedByActor 最後修改者的 actor 物件(ISS-36 C-3)
+	UpdatedByActor *model.ActorView `json:"updatedByActor,omitempty"`
 }
 
 // MCPServerInput 新增或修改一台伺服器(id 已存在就是修改;沒給的指標欄位不動)
@@ -159,9 +161,10 @@ func (s *Service) GetMCP(p *model.Principal, org string) (*MCPView, error) {
 	if err != nil {
 		return nil, err
 	}
-	v.Enabled, v.UpdatedAt, v.UpdatedBy = true, c.UpdatedAt, c.UpdatedBy
+	v.Enabled, v.UpdatedAt = true, c.UpdatedAt
+	v.UpdatedBy, v.UpdatedByActor = s.WhoPresent(c.UpdatedBy)
 	if p.Agent == nil {
-		v.Servers, v.Grants = c.Servers, c.Grants
+		v.Servers, v.Grants = s.mcpServersOut(c.Servers), c.Grants
 		return v, nil
 	}
 	// 角色憑證:只有自己的權限、有權限的伺服器,而且拿掉連線細節
@@ -178,6 +181,29 @@ func (s *Service) GetMCP(p *model.Principal, org string) (*MCPView, error) {
 		}
 	}
 	return v, nil
+}
+
+// mcpServerOut 一台伺服器登記的輸出:updatedBy(存的是 actor id;舊資料可能是 email 或名稱)轉成相容字串。回傳副本
+func (s *Service) mcpServerOut(x model.MCPServerReg) model.MCPServerReg {
+	x.UpdatedBy, x.UpdatedByActor = s.WhoPresent(x.UpdatedBy)
+	return x
+}
+
+// mcpServersOut 一批伺服器登記的輸出(一次批次查詢)。回傳副本,不改輸入
+func (s *Service) mcpServersOut(l []model.MCPServerReg) []model.MCPServerReg {
+	ids := make([]string, 0, len(l))
+	for _, x := range l {
+		ids = append(ids, x.UpdatedBy)
+	}
+	names := s.whoLegacyAll(ids...)
+	views := s.whoViewAll(ids...)
+	out := make([]model.MCPServerReg, len(l))
+	for i, x := range l {
+		x.UpdatedByActor = views[x.UpdatedBy]
+		x.UpdatedBy = names[x.UpdatedBy]
+		out[i] = x
+	}
+	return out
 }
 
 // mcpAgentView 給角色看的伺服器:只有名稱、說明、啟用與工具規則(只留權限內的工具),沒有任何連線細節
@@ -313,19 +339,20 @@ func (s *Service) SaveMCPServer(p *model.Principal, org string, in MCPServerInpu
 		return nil, fail(400, "傳輸方式要是 stdio 或 http")
 	}
 	now := s.mt()
-	x.UpdatedAt, x.UpdatedBy = &now, whoName(p)
+	x.UpdatedAt, x.UpdatedBy = &now, s.whoActor(p)
 	if exists {
 		c.Servers[idx] = x
 	} else {
 		c.Servers = append(c.Servers, x)
 	}
-	c.UpdatedAt, c.UpdatedBy = &now, whoName(p)
+	c.UpdatedAt, c.UpdatedBy = &now, s.whoActor(p)
 	if err := s.Store.SaveMCPConfig(org, c); err != nil {
 		return nil, err
 	}
 	// 稽核只記非機密的摘要
 	s.Audit(p, "mcp.server.save", org, map[string]any{"id": id, "transport": x.Transport, "enabled": x.Enabled, "new": !exists})
-	return &x, nil
+	out := s.mcpServerOut(x)
+	return &out, nil
 }
 
 // DeleteMCPServer 刪除一台伺服器(組織管理員;角色權限裡的這台一併拿掉)
@@ -358,7 +385,7 @@ func (s *Service) DeleteMCPServer(p *model.Principal, org, id string) error {
 		}
 	}
 	now := s.mt()
-	c.UpdatedAt, c.UpdatedBy = &now, whoName(p)
+	c.UpdatedAt, c.UpdatedBy = &now, s.whoActor(p)
 	if err := s.Store.SaveMCPConfig(org, c); err != nil {
 		return err
 	}
@@ -438,14 +465,15 @@ func (s *Service) SaveMCPTools(p *model.Principal, org, id string, in MCPToolsIn
 		return nil, fail(400, "一台伺服器最多記 %d 個工具", model.MaxMCPTools)
 	}
 	now := s.mt()
-	x.UpdatedAt, x.UpdatedBy = &now, whoName(p)
+	x.UpdatedAt, x.UpdatedBy = &now, s.whoActor(p)
 	c.Servers[idx] = x
-	c.UpdatedAt, c.UpdatedBy = &now, whoName(p)
+	c.UpdatedAt, c.UpdatedBy = &now, s.whoActor(p)
 	if err := s.Store.SaveMCPConfig(org, c); err != nil {
 		return nil, err
 	}
 	s.Audit(p, "mcp.tools.save", org, map[string]any{"id": x.ID, "tools": len(x.Tools), "rules": len(in.Rules)})
-	return &x, nil
+	out := s.mcpServerOut(x)
+	return &out, nil
 }
 
 // SaveMCPGrants 整份取代一個角色的權限(組織管理員;伺服器要已登記、角色要存在)
@@ -513,7 +541,7 @@ func (s *Service) SaveMCPGrants(p *model.Principal, org string, in MCPGrantsInpu
 		c.Grants[g.ID] = out
 	}
 	now := s.mt()
-	c.UpdatedAt, c.UpdatedBy = &now, whoName(p)
+	c.UpdatedAt, c.UpdatedBy = &now, s.whoActor(p)
 	if err := s.Store.SaveMCPConfig(org, c); err != nil {
 		return nil, err
 	}
@@ -536,18 +564,29 @@ func dropAgentGrants(c *model.OrgMCPConfig, agentID string) bool {
 // pruneAgentMCPGrants 刪除角色時清掉它的外部 MCP 權限(不管功能開關;避免同 id 重建的角色繼承)。
 // 呼叫端要拿著 s.agents.mu(DeleteAgent)
 func (s *Service) pruneAgentMCPGrants(org, agentID string) error {
+	return s.pruneAgentMCPGrantsOn(s.Store, org, agentID)
+}
+
+// pruneAgentMCPGrantsOn 同 pruneAgentMCPGrants,但在指定的 store(例如 Atomic 的 tx)上做
+func (s *Service) pruneAgentMCPGrantsOn(st store.Store, org, agentID string) error {
 	s.mcpMu.Lock()
 	defer s.mcpMu.Unlock()
-	c, err := s.loadMCP(org)
-	if err != nil {
+	var c model.OrgMCPConfig
+	x, err := st.GetMCPConfig(org)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		c = model.OrgMCPConfig{Servers: []model.MCPServerReg{}, Grants: map[string][]model.MCPGrant{}}
+	case err != nil:
 		return err
+	default:
+		c = x.Clone()
 	}
 	if !dropAgentGrants(&c, agentID) {
 		return nil
 	}
 	now := s.mt()
 	c.UpdatedAt = &now
-	return s.Store.SaveMCPConfig(org, c)
+	return st.SaveMCPConfig(org, c)
 }
 
 // grantsOf 角色的權限(key 不分大小寫)

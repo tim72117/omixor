@@ -64,7 +64,7 @@ func (s *Service) AgentToolSet(org, agentID string) map[string]bool {
 func (s *Service) AgentToolsOf(org string, g model.Agent) []AgentTool { return s.agentTools(org, g) }
 
 func (s *Service) agentTools(org string, g model.Agent) []AgentTool {
-	node := model.AgentPrefix + g.ID
+	actorID := g.ActorID // 組織鏈與頻道成員都是 actor id
 	// 文件櫃:docAccess 有任何位置才能讀;有 write 才能寫
 	read, write := len(g.DocAccess) > 0, false
 	for _, v := range g.DocAccess {
@@ -74,9 +74,9 @@ func (s *Service) agentTools(org string, g model.Agent) []AgentTool {
 	}
 	// 組織鏈:有下游角色才能委派
 	delegate := false
-	if c, _, err := s.liveChain(org); err == nil {
-		for _, e := range c.Downstream(node) {
-			if strings.HasPrefix(e.To, model.AgentPrefix) {
+	if c, n, err := s.liveChain(org); err == nil {
+		for _, e := range c.Downstream(actorID) {
+			if n.isAgent(e.To) {
 				delegate = true
 				break
 			}
@@ -88,7 +88,7 @@ func (s *Service) agentTools(org string, g model.Agent) []AgentTool {
 	outer:
 		for _, c := range l {
 			for _, m := range c.Members {
-				if strings.EqualFold(m, node) {
+				if actorID != "" && m == actorID {
 					member = true
 					break outer
 				}

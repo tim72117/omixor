@@ -37,6 +37,20 @@ func env(c *Call) Env {
 	return e
 }
 
+// putActor 輸出物件加上 actor 物件欄位(ISS-36 C-3):沒有(查不到、沒有這個人)就不加欄位。相容字串欄位照舊,物件是另外並存的
+func putActor(m map[string]any, key string, a *model.ActorView) {
+	if a != nil {
+		m[key] = a
+	}
+}
+
+// putActors 同 putActor,一串(沒有就不加)
+func putActors(m map[string]any, key string, l []model.ActorView) {
+	if len(l) > 0 {
+		m[key] = l
+	}
+}
+
 // issueJSON Issue 的輸出:createdBy 與留言作者換成顯示名稱
 func issueJSON(e Env, i model.Issue) any {
 	b, _ := json.Marshal(i)
@@ -45,7 +59,9 @@ func issueJSON(e Env, i model.Issue) any {
 	d["createdBy"] = e.AuthorName(i.CreatedBy)
 	comments := []any{}
 	for _, c := range i.Comments {
-		comments = append(comments, map[string]any{"author": e.AuthorName(c.Author), "text": c.Text, "at": iso(c.At.Time)})
+		cm := map[string]any{"author": e.AuthorName(c.Author), "text": c.Text, "at": iso(c.At.Time)}
+		putActor(cm, "authorActor", c.AuthorActor)
+		comments = append(comments, cm)
 	}
 	d["comments"] = comments
 	return d

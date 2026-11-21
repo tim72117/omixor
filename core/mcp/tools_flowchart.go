@@ -19,7 +19,7 @@ const flowchartDesc = "畫流程圖:給節點與連線,自動分層排版(有環
 	"edges: [{from, to, label?, style?: solid|dashed|thick, arrow?: end|none|both}], groups?: [{id, label, parent?}]}。" +
 	"上限:節點 300、邊 600、描述 256KB。" +
 	"範例:flowchart TD\\n  A([開始]) --> B[/輸入帳密/] --> C{驗證通過?}\\n  C -->|是| D([進入首頁])\\n  C -->|否| E[失敗次數+1] --> B。" +
-	"不給 spec 而給 doc 時,讀那份文件的第一個 ```flowchart(或 flowchart 語法的 ```mermaid)區塊重畫。以角色身分工作時帶 agent;存文件時只能寫到該角色可寫的位置。"
+	"不給 spec 而給 doc 時,讀那份文件的第一個 ```flowchart(或 flowchart 語法的 ```mermaid)區塊重畫。存文件時依呼叫者(角色端點是憑證的角色)的文件權限。"
 
 // FlowchartToolDefs 流程圖工具的規格
 func FlowchartToolDefs() []any { return []any{flowchartDef()} }
@@ -31,7 +31,6 @@ func flowchartDef() map[string]any {
 			"anyOf":       []any{map[string]any{"type": "object"}, map[string]any{"type": "string"}},
 		},
 		"doc":   pStr("文件 id:不給 spec 時讀這份文件裡第一個 ```flowchart(或 flowchart 語法的 ```mermaid)區塊重畫"),
-		"agent": pStr("以虛擬角色身分工作時填角色 id 或名稱(讀寫文件依該角色的文件權限)"),
 		"svg":   pBool("回傳 SVG 原始碼,預設 true;只想存文件時可設 false 省上下文"),
 		"save":  diagramSaveParam(flowchart.Lang),
 	}))

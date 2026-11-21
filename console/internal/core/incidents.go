@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"omixor-core/backend"
-	"omixor-core/env"
+	"omixor-core/config"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -41,11 +41,11 @@ func (a *App) IncidentsError() string {
 }
 
 // actorOf 核心的執行者 → web 的
-func actorOf(x model.Actor) Actor { return Actor{Kind: x.Kind, ID: x.ID} }
+func actorOf(x model.IncidentActor) Actor { return Actor{Kind: x.Kind, ID: x.ID} }
 
 // coreActor web 的執行者 → 核心的
-func coreActor(x Actor) *model.Actor {
-	m := model.Actor{Kind: x.Kind, ID: x.ID}
+func coreActor(x Actor) *model.IncidentActor {
+	m := model.IncidentActor{Kind: x.Kind, ID: x.ID}
 	if !m.Valid() {
 		return nil
 	}
@@ -203,7 +203,7 @@ func init() {
 		}()
 	})
 	OnStart(func(a *App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		// 每 5 秒重讀目前組織的事件(App、MCP 用戶端或別台機器改了才看得到;網路與資料庫請求都在鎖外)
@@ -226,7 +226,7 @@ func init() {
 		a.Mu.Unlock()
 		inc, err := a.UpdateIncidentCore(org, id, service.IncidentPatch{Note: &text, Actor: coreActor(who), Author: ActorAuthor(who)})
 		if err != nil {
-			return nil, UserError{err.Error()}
+			return nil, facing(err)
 		}
 		return Object(inc), nil
 	})

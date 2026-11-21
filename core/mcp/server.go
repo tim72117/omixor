@@ -14,16 +14,63 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"omixor-core/httperr"
 )
 
 var SupportedVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
 
 // ToolError 工具執行失敗:回 isError = true 的結果(不是 JSON-RPC 錯誤),同 Swift 的 MCPToolError
-type ToolError struct{ Message string }
+type ToolError struct {
+	Message string
+	// Status、Data 錯誤原本的 HTTP 狀態碼與額外欄位(例如 409 版本衝突的 currentVersion、刪角色的 taskCounts);
+	// 有的話隨結果的 structuredContent 一起回給呼叫端(沒有是 0 / nil)
+	Status int
+	Data   map[string]any
+	// cause 訊息被換成通用訊息時的原文(只進 log,不對外;見 toolFailure)
+	cause error
+}
 
 func (e ToolError) Error() string { return e.Message }
 
-func Errorf(format string, a ...any) error { return ToolError{fmt.Sprintf(format, a...)} }
+// HTTPError 實作 httperr.Public:工具錯誤的訊息是刻意給 agent 看的,照給
+func (e ToolError) HTTPError() (int, map[string]any) { return e.Status, e.Data }
+
+// Unwrap 讓 errors.Is / As 找得到被遮蔽的原始錯誤(訊息不含它)
+func (e ToolError) Unwrap() error { return e.cause }
+
+// Cause 訊息被換成通用訊息時的原文(httperr.Causer:只進 log)
+func (e ToolError) Cause() error { return e.cause }
+
+func Errorf(format string, a ...any) error { return ToolError{Message: fmt.Sprintf(format, a...)} }
+
+// toolFailure 工具執行失敗的結果:訊息一律經過 httperr(資料庫錯誤等內部細節換成通用訊息,原文連同工具名稱 name 進 log);
+// ToolError 是刻意給 agent 看的,訊息照給(它的 cause 進 log)。
+// 有狀態碼或 data(例如 409 的 currentVersion)放進 structuredContent,同時把 data 以一行緊湊 JSON 附在 text 末尾
+// (Claude Code 只顯示 content 的 text,agent 才看得到 currentVersion、taskCounts 這些欄位)。
+func toolFailure(name string, err error) map[string]any {
+	in := httperr.Report("mcp 工具 "+name, err)
+	data := map[string]any{}
+	for k, v := range in.Data {
+		if k != "error" && k != "status" {
+			data[k] = v
+		}
+	}
+	text := in.Msg
+	if len(data) > 0 {
+		text += "\n" + compactData(data)
+	}
+	res := map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": true}
+	if in.Status > 0 || len(data) > 0 {
+		sc := map[string]any{"error": in.Msg}
+		if in.Status > 0 {
+			sc["status"] = in.Status
+		}
+		maps.Copy(sc, data)
+		res["structuredContent"] = sc
+	}
+	return res
+}
 
 // Call 一次工具呼叫。Ctx 由使用的程式決定(例如 web 放 App 與呼叫者),
 // 核心的工具透過 Env 介面從 Ctx 取得 Backend。
@@ -52,6 +99,8 @@ type Hooks struct {
 	// Guard tools/call 通過 Allow 之後、執行前呼叫;可以改 args(例如角色端點強制帶上憑證的角色)。
 	// 回傳錯誤就不執行,回 isError 結果(角色端點的權限檢查用)
 	Guard func(name string, args map[string]any) error
+	// Defs 不是 nil 時改寫 tools/list 的規格(Allow 過濾之後;人類端點拿掉身分假冒型的 agent 參數用)
+	Defs func(defs []any) []any
 }
 
 // Server 協定處理器:規格 + 工具登記表
@@ -127,6 +176,9 @@ func (s *Server) InSpec(name string) bool { return slices.Contains(s.toolNames, 
 // listed 這個工具列不列在 tools/list(HideMissing 時沒實作的不列)
 func (s *Server) listed(name string) bool { return !s.HideMissing || s.registry[name] != nil }
 
+// Has 這個名稱有註冊工具嗎(沒有 = 不存在或還沒實作;給 HTTP 出口回 404 用)
+func (s *Server) Has(name string) bool { return s.registry[name] != nil }
+
 // ToolNames 全部工具名稱(依 tools/list 的順序;HideMissing 時不含沒實作的)
 func (s *Server) ToolNames() []string {
 	if !s.HideMissing {
@@ -196,9 +248,9 @@ func (s *Server) run(name string, args map[string]any, ctx any, h *Hooks) (out a
 	f := s.registry[name]
 	if f == nil {
 		if s.HideMissing {
-			return nil, ToolError{"這台伺服器沒有編進 " + name + " 工具(它屬於沒有編進來的選用模組)"}
+			return nil, ToolError{Message: "這台伺服器沒有編進 " + name + " 工具(它屬於沒有編進來的選用模組)"}
 		}
-		return nil, ToolError{"這個工具在 Go 版還沒實作:" + name}
+		return nil, ToolError{Message: "這個工具在 Go 版還沒實作:" + name}
 	}
 	if args == nil {
 		args = map[string]any{}
@@ -291,6 +343,9 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 				}
 			}
 		}
+		if h.Defs != nil {
+			defs = h.Defs(defs)
+		}
 		return result(id, map[string]any{"tools": defs})
 	case "tools/call":
 		name, ok := params["name"].(string)
@@ -307,7 +362,7 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		}
 		if h.Guard != nil {
 			if err := h.Guard(name, args); err != nil {
-				return result(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": err.Error()}}, "isError": true})
+				return result(id, toolFailure(name, err))
 			}
 		}
 		if h.Tool != nil {
@@ -315,7 +370,7 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		}
 		out, err := s.run(name, args, h.Ctx, &h)
 		if err != nil {
-			return result(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": err.Error()}}, "isError": true})
+			return result(id, toolFailure(name, err))
 		}
 		return result(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": string(s.Marshal(out))}}, "isError": false})
 	case "resources/list":
@@ -368,4 +423,26 @@ func LegacyToolName(name string, names []string) string {
 		return n
 	}
 	return name
+}
+
+// textValueMax 附在 text 末尾的 data 裡,單一欄位的 JSON 最長的長度
+const textValueMax = 300
+
+// compactData 把 data 精簡成附在 text 末尾的一行 JSON:純量與短的欄位(currentVersion、taskCounts)留下,
+// 太長的(例如 409 版本衝突的 current 是整張 Issue)和 current 不放(完整內容仍在 structuredContent)
+func compactData(data map[string]any) string {
+	small := map[string]any{}
+	for k, v := range data {
+		if k == "current" {
+			continue
+		}
+		if b, err := json.Marshal(v); err == nil && len(b) <= textValueMax {
+			small[k] = v
+		}
+	}
+	if len(small) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(small)
+	return string(b)
 }

@@ -1,11 +1,11 @@
 package store
 
-// 三種實作(Mem、File、PG)共用的一致性測試:同一組測試函式對每一種 store 都跑一次,斷言行為一樣。
-// PG 有設 OMIXOR_TEST_DATABASE_URL 就連它,沒設就自動起 embedded PostgreSQL(-short 或 OMIXOR_TEST_NO_EMBEDDED_PG=1 時略過;見 pg_embedded_test.go);
-// 每個測試建一個暫時的 schema,測完刪掉(見 issue_comment_test.go 的 testPG)。
-// File 在讀回之前會重開同一個資料夾(impl.reopen),確認寫進 store.json 再讀回來也一樣;Mem、PG 的 reopen 原樣回傳。
+// Store 的一致性測試(只跑 PostgreSQL)。
+// 有設 OMIXOR_TEST_DATABASE_URL 就連它,沒設就自動起內建 PostgreSQL(-short 或 OMIXOR_TEST_NO_EMBEDDED_PG=1 時略過;見 main_test.go、storetest/testdb);
+// 每個測試用自己的 database(從遷移好的範本複製,見 main_test.go 的 testPG)。
+// impl.reopen 在讀回之前「重開」store(關掉連線池再 NewPG 開同一個資料庫,像程序重啟)。
 //
-// 時間一律用到秒的 UTC(PG 存到秒,File 的 JSON 也到秒);比對整筆資料用 sameJSON(model.Time 編成到秒的字串,nil 與空陣列會不同)。
+// 時間一律用到秒的 UTC(PG 存到秒);比對整筆資料用 sameJSON(model.Time 編成到秒的字串,nil 與空陣列會不同)。
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,35 +25,16 @@ type storeImpl struct {
 	name string
 	// open 開一個新的空 store
 	open func(t *testing.T) Store
-	// reopen File 重開同一個資料夾(讀回 store.json);其他原樣回傳
+	// reopen 關掉 store 再重開同一個資料庫(PG:NewPG,見 main_test.go 的 reopenPG)
 	reopen func(t *testing.T, s Store) Store
 }
 
-const pgEnv = "OMIXOR_TEST_DATABASE_URL"
-
 func storeImpls() []storeImpl {
-	same := func(_ *testing.T, s Store) Store { return s }
 	return []storeImpl{
-		{name: "mem", open: func(*testing.T) Store { return NewMem() }, reopen: same},
-		{name: "file", open: func(t *testing.T) Store {
-			t.Helper()
-			f, err := OpenFile(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			return f
-		}, reopen: func(t *testing.T, s Store) Store {
-			t.Helper()
-			g, err := OpenFile(s.(*File).Dir())
-			if err != nil {
-				t.Fatal("重開", err)
-			}
-			return g
-		}},
 		{name: "pg", open: func(t *testing.T) Store {
 			t.Helper()
-			return testPG(t, testPGURL(t))
-		}, reopen: same},
+			return testPG(t)
+		}, reopen: reopenPG},
 	}
 }
 
@@ -74,6 +56,7 @@ var storeSuite = []struct {
 	{"AgentCredentials", suiteAgentCredentials},
 	{"OrgChain", suiteOrgChain},
 	{"Cabinet", suiteCabinet},
+	{"CabinetVersion", suiteCabinetVersion},
 	{"Projects", suiteProjects},
 	{"ProjectCabinet", suiteProjectCabinet},
 	{"Channels", suiteChannels},
@@ -84,15 +67,15 @@ var storeSuite = []struct {
 	{"ServerFeatures", suiteServerFeatures},
 	{"DeleteOrgCascade", suiteDeleteOrgCascade},
 	{"ConcurrentCreate", suiteConcurrentCreate},
+	{"NumberNoReuse", suiteNumberNoReuse},
+	{"ConcurrentIssueNumbers", suiteConcurrentIssueNumbers},
+	{"ImportNonNumericIDs", suiteImportNonNumericIDs},
 	{"ConcurrentClaim", suiteConcurrentClaim},
 }
 
 func TestStoreSuite(t *testing.T) {
 	for _, impl := range storeImpls() {
 		t.Run(impl.name, func(t *testing.T) {
-			if impl.name == "pg" {
-				testPGURL(t) // 沒有可用的 PG 就整組略過(見 pg_embedded_test.go)
-			}
 			runStoreSuite(t, impl)
 		})
 	}
@@ -153,7 +136,7 @@ func newOrg(t *testing.T, s Store, ids ...string) {
 func issueIDs(l []model.Issue) []string {
 	out := []string{}
 	for _, i := range l {
-		out = append(out, i.ID)
+		out = append(out, i.Display()) // 顯示編號(key)
 	}
 	return out
 }
@@ -224,7 +207,7 @@ func suiteUsers(t *testing.T, impl storeImpl) {
 func suiteTokens(t *testing.T, impl storeImpl) {
 	s := impl.open(t)
 	chk(t, s.SaveUser(model.User{ID: "u1", Email: "a@x", Role: "member", CreatedAt: mt("2026-01-01T00:00:00Z")}))
-	// File 存檔時用真的現在時間丟掉過期的 token,所以這裡的「現在」放在很後面
+	// 過期的 token 以真的現在時間判斷,所以這裡的「現在」放在很後面
 	now := mt("2099-03-01T12:00:00Z").Time
 	t1 := model.Token{ID: "t1", UserID: "u1", Device: "mac", CreatedAt: mt("2099-03-01T00:00:00Z"), Hash: []byte{1}}
 	t2 := model.Token{ID: "t2", UserID: "u1", Device: "ios", CreatedAt: mt("2099-03-01T01:00:00Z"), Hash: []byte{2},
@@ -254,6 +237,10 @@ func suiteTokens(t *testing.T, impl storeImpl) {
 	w2, w1 := t2, t1
 	w2.Email, w1.Email = "a@x", "a@x"
 	sameJSON(t, "ListTokens(新的在前、不含過期)", l, []model.Token{w2, w1})
+	// 雜湊也要回(本機守護服務靠它認出這次的 token 有沒有有效紀錄;JSON 不輸出)
+	if len(l) != 2 || !bytes.Equal(l[0].Hash, []byte{2}) || !bytes.Equal(l[1].Hash, []byte{1}) {
+		t.Fatalf("ListTokens 要含 Hash:%+v", l)
+	}
 
 	used := mt("2099-03-01T11:00:00Z")
 	chk(t, s.TouchToken("t1", used.Time))
@@ -284,19 +271,26 @@ func suiteAudit(t *testing.T, impl storeImpl) {
 		t.Fatalf("空的要是 []:%#v %v", l, err)
 	}
 	at := mt("2026-01-02T03:04:05Z")
-	chk(t, s.AddAudit(model.AuditEntry{At: at, UserID: "u1", Email: "a@x", Action: "login"}))
-	chk(t, s.AddAudit(model.AuditEntry{At: at, UserID: "u1", Email: "a@x", Action: "org.create", Org: "o", Detail: map[string]any{"name": "O"}}))
+	u1 := emailActor(t, s, "a@x")
+	chk(t, s.AddAudit(model.AuditEntry{At: at, Actor: u1, Email: "a@x", Source: "login", Action: "login"}))
+	chk(t, s.AddAudit(model.AuditEntry{At: at, Actor: u1, Email: "a@x", Action: "org.create", Org: "o", Detail: map[string]any{"name": "O"}}))
 	chk(t, s.AddAudit(model.AuditEntry{At: mt("2026-01-02T03:04:06Z"), Action: "x"}))
 	s = impl.reopen(t, s)
 	l, err := s.ListAudit(2)
 	chk(t, err)
 	sameJSON(t, "ListAudit(新的在前、限筆數)", l, []model.AuditEntry{
 		{ID: 3, At: mt("2026-01-02T03:04:06Z"), Action: "x"},
-		{ID: 2, At: at, UserID: "u1", Email: "a@x", Action: "org.create", Org: "o", Detail: map[string]any{"name": "O"}},
+		{ID: 2, At: at, Actor: u1, Email: "a@x", Action: "org.create", Org: "o", Detail: map[string]any{"name": "O"}},
 	})
+	if l[1].Actor != u1 || l[0].Actor != "" {
+		t.Fatalf("actor 要原樣讀回、沒有的是空:%+v", l)
+	}
 	chk(t, s.AddAudit(model.AuditEntry{At: at, Action: "y"}))
-	if l, _ := s.ListAudit(10); len(l) != 4 || l[0].ID != 4 || l[3].ID != 1 {
-		t.Fatal("id 要接續", l)
+	if l, _ := s.ListAudit(10); len(l) != 4 || l[0].ID != 4 || l[3].ID != 1 || l[3].Source != "login" {
+		t.Fatal("id 要接續、source 讀回", l)
+	}
+	if err := s.AddAudit(model.AuditEntry{At: at, Actor: "usr_00000000-0000-7000-8000-000000000000", Action: "z"}); !errors.Is(err, ErrBadRef) {
+		t.Fatal("不存在的 actor 要 ErrBadRef", err)
 	}
 }
 
@@ -394,19 +388,19 @@ func suiteIssues(t *testing.T, impl storeImpl) {
 	s := impl.open(t)
 	newOrg(t, s, "o", "p")
 	at := mt("2026-01-02T03:04:05Z")
-	base := model.Issue{Title: "一", Status: "open", Priority: "normal", CreatedBy: "a@x", CreatedAt: at, UpdatedAt: at}
+	base := model.Issue{Title: "一", Status: "open", Priority: "normal", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at}
 	i1, err := s.CreateIssue("o", base) // Labels、Comments 是 nil
 	chk(t, err)
 	full := model.Issue{Title: "二", Body: "內文", Status: "closed", Priority: "urgent", Labels: []string{"bug", "ui"}, Source: "app",
-		Link: "https://x", CreatedBy: "b@x", CreatedAt: at, UpdatedAt: mt("2026-01-02T04:04:05Z"), ClosedAt: mtp("2026-01-02T05:04:05Z"),
-		Assignee: "dev", Repo: "github:a/b", Comments: []model.Comment{{ID: "c1", Author: "a@x", Text: "hi", At: at}}}
+		Link: "https://x", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: mt("2026-01-02T04:04:05Z"), ClosedAt: mtp("2026-01-02T05:04:05Z"),
+		Assignee: "sys_chain", Repo: "github:a/b", Comments: []model.Comment{{ID: "c1", Author: "sys_omixor", Text: "hi", At: at}}}
 	i2, err := s.CreateIssue("o", full)
 	chk(t, err)
 	b3 := base
 	b3.Title = "三"
 	i3, err := s.CreateIssue("o", b3)
 	chk(t, err)
-	if i1.ID != "ISS-1" || i2.ID != "ISS-2" || i3.ID != "ISS-3" {
+	if i1.Key != "ISS-1" || i2.Key != "ISS-2" || i3.Key != "ISS-3" {
 		t.Fatal("建號要連號", i1.ID, i2.ID, i3.ID)
 	}
 	s = impl.reopen(t, s)
@@ -416,13 +410,12 @@ func suiteIssues(t *testing.T, impl storeImpl) {
 	if l, err := s.ListIssues("zz"); err != nil || l == nil || len(l) != 0 {
 		t.Fatalf("沒有 Issue 要是 []:%#v %v", l, err)
 	}
-	w1 := base
-	w1.ID, w1.Labels, w1.Comments = "ISS-1", []string{}, []model.Comment{}
+	w1 := i1
+	w1.Labels, w1.Comments = []string{}, []model.Comment{}
 	g, err := s.GetIssue("o", "ISS-1")
 	chk(t, err)
 	sameJSON(t, "nil 的 labels、留言讀回是 []", g, w1)
-	w2 := full
-	w2.ID = "ISS-2"
+	w2 := i2
 	g, err = s.GetIssue("o", "iss-2")
 	chk(t, err)
 	sameJSON(t, "所有欄位(labels、repo、assignee、closedAt、留言)", g, w2)
@@ -438,26 +431,26 @@ func suiteIssues(t *testing.T, impl storeImpl) {
 	wantNotFound(t, "UpdateIssue 沒有的", s.UpdateIssue("o", model.Issue{ID: "ISS-9", Title: "x", Status: "open", Priority: "normal"}))
 	s = impl.reopen(t, s)
 	wu := u
-	wu.ID, wu.Labels, wu.Comments = "ISS-2", []string{}, w2.Comments
+	wu.ID, wu.Labels, wu.Comments, wu.Version = i2.ID, []string{}, w2.Comments, 2
 	g, err = s.GetIssue("o", "ISS-2")
 	chk(t, err)
 	sameJSON(t, "UpdateIssue 後", g, wu)
 	l, _ = s.ListIssues("o")
 	sameJSON(t, "UpdateIssue 位置不變", issueIDs(l), []string{"ISS-3", "ISS-2", "ISS-1"})
 
-	// 刪掉最大號後再建:號碼 = 剩下的最大號 + 1
+	// 刪掉最大號後再建:號碼不重用(序號表記著最後發出去的號碼)
 	chk(t, s.DeleteIssue("o", "iss-3"))
 	i4, err := s.CreateIssue("o", base)
 	chk(t, err)
-	if i4.ID != "ISS-3" {
+	if i4.Key != "ISS-4" {
 		t.Fatal("刪掉後建號", i4.ID)
 	}
 
 	// 匯入:保留 id、作者、時間、留言順序;已經有 Issue 的組織拒絕;之後建號接續
 	imp := []model.Issue{
-		{ID: "ISS-10", Title: "十", Status: "open", Priority: "high", CreatedBy: "c@x", CreatedAt: at, UpdatedAt: at, Labels: []string{"x"},
-			Comments: []model.Comment{{ID: "k1", Author: "c@x", Text: "1", At: at}, {ID: "k2", Author: "d@x", Text: "2", At: mt("2026-01-03T00:00:00Z")}}},
-		{ID: "ISS-7", Title: "七", Status: "closed", Priority: "low", CreatedBy: "c@x", CreatedAt: at, UpdatedAt: at, ClosedAt: mtp("2026-01-04T00:00:00Z"),
+		{ID: "ISS-10", Title: "十", Status: "open", Priority: "high", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at, Labels: []string{"x"},
+			Comments: []model.Comment{{ID: "k1", Author: "sys_omixor", Text: "1", At: at}, {ID: "k2", Author: "sys_routine", Text: "2", At: mt("2026-01-03T00:00:00Z")}}},
+		{ID: "ISS-7", Title: "七", Status: "closed", Priority: "low", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at, ClosedAt: mtp("2026-01-04T00:00:00Z"),
 			Labels: []string{}, Comments: []model.Comment{}},
 	}
 	if n, err := s.ImportIssues("p", imp); err != nil || n != 2 {
@@ -471,19 +464,24 @@ func suiteIssues(t *testing.T, impl storeImpl) {
 	}
 	i5, err := s.CreateIssue("p", base)
 	chk(t, err)
-	if i5.ID != "ISS-11" {
+	if i5.Key != "ISS-11" {
 		t.Fatal("匯入後建號", i5.ID)
 	}
 	s = impl.reopen(t, s)
 	l, _ = s.ListIssues("p")
 	sameJSON(t, "匯入後的順序", issueIDs(l), []string{"ISS-11", "ISS-10", "ISS-7"})
-	sameJSON(t, "匯入的資料", l[1:], imp)
+	wimp := []model.Issue{}
+	for k, x := range imp { // 舊格式 id 換成新的 UUID、原 id 變成 key
+		x.ID, x.Key, x.Num, x.Version = l[k+1].ID, x.ID, model.IssueKeyNumber(x.ID), 1
+		wimp = append(wimp, x)
+	}
+	sameJSON(t, "匯入的資料", l[1:], wimp)
 
 	// 可以重跑的匯入:已經有的 id(不分大小寫)略過或整筆取代(位置不變),新的依順序排在既有的後面
 	m1 := []model.Issue{
-		{ID: "ISS-10", Title: "十改", Status: "open", Priority: "high", CreatedBy: "c@x", CreatedAt: at, UpdatedAt: at, Labels: []string{}, Comments: []model.Comment{}},
-		{ID: "ISS-20", Title: "二十", Status: "open", Priority: "normal", CreatedBy: "c@x", CreatedAt: at, UpdatedAt: at, Labels: []string{}, Comments: []model.Comment{}},
-		{ID: "ISS-21", Title: "二一", Status: "open", Priority: "low", CreatedBy: "c@x", CreatedAt: at, UpdatedAt: at, Labels: []string{}, Comments: []model.Comment{}},
+		{ID: "ISS-10", Title: "十改", Status: "open", Priority: "high", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at, Labels: []string{}, Comments: []model.Comment{}},
+		{ID: "ISS-20", Title: "二十", Status: "open", Priority: "normal", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at, Labels: []string{}, Comments: []model.Comment{}},
+		{ID: "ISS-21", Title: "二一", Status: "open", Priority: "low", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at, Labels: []string{}, Comments: []model.Comment{}},
 	}
 	if n, err := s.MergeIssues("p", m1, false); err != nil || n != (MergeCounts{Inserted: 2, Skipped: 1}) {
 		t.Fatal("MergeIssues", n, err)
@@ -552,6 +550,10 @@ func suiteAgents(t *testing.T, impl storeImpl) {
 	wdev.DocAccess, wdev.Routines = map[string]string{}, []model.AgentRoutine{}
 	l, err := s.ListAgents("o")
 	chk(t, err)
+	for i := range l { // 讀回的角色帶 actor id(ISS-36 B-2c);其餘欄位照比
+		wantActorID(t, l[i])
+	}
+	wdev.ActorID, ops.ActorID = l[0].ActorID, l[1].ActorID
 	sameJSON(t, "ListAgents(依建立時間;nil 讀回是 {}、[])", l, []model.Agent{wdev, ops})
 	g, err := s.GetAgent("o", "ops")
 	chk(t, err)
@@ -580,12 +582,12 @@ func suiteAgentTasks(t *testing.T, impl storeImpl) {
 		t.Fatalf("空的要是 []:%#v %v", l, err)
 	}
 	at := mt("2026-01-02T03:04:05Z")
-	base := model.AgentTask{AgentID: "dev", Title: "一", Priority: "normal", Status: "queued", CreatedBy: "a@x", CreatedAt: at, UpdatedAt: at}
+	base := model.AgentTask{AgentID: "dev", Title: "一", Priority: "normal", Status: "queued", CreatedBy: whoID(t, s, "o", "a@x"), CreatedAt: at, UpdatedAt: at}
 	a, err := s.CreateAgentTask("o", base)
 	chk(t, err)
 	full := base
 	full.Title, full.Instructions, full.Links, full.RoutineID = "二", "做事", []string{"ISS-1"}, strp("r1")
-	full.Notes = []model.AgentTaskNote{{ID: "n1", Author: "dev", Text: "開始", At: at}}
+	full.Notes = []model.AgentTaskNote{{ID: "n1", Author: whoID(t, s, "o", "agent:dev"), Text: "開始", At: at}}
 	b, err := s.CreateAgentTask("o", full)
 	chk(t, err)
 	c, err := s.CreateAgentTask("o", base)
@@ -613,7 +615,7 @@ func suiteAgentTasks(t *testing.T, impl storeImpl) {
 	// 整筆取代
 	u := w2
 	u.Status, u.Result, u.CompletedAt, u.UpdatedAt = "done", "完成", mtp("2026-01-02T05:00:00Z"), mt("2026-01-02T05:00:00Z")
-	u.Notes = append(u.Notes, model.AgentTaskNote{ID: "n2", Author: "dev", Text: "好了", At: u.UpdatedAt})
+	u.Notes = append(u.Notes, model.AgentTaskNote{ID: "n2", Author: whoID(t, s, "o", "agent:dev"), Text: "好了", At: u.UpdatedAt})
 	chk(t, s.UpdateAgentTask("o", u))
 	wantNotFound(t, "UpdateAgentTask 沒有的", s.UpdateAgentTask("o", model.AgentTask{ID: "T-9", AgentID: "dev", Title: "x", Status: "queued", CreatedAt: at, UpdatedAt: at}))
 	// 選填時間給零值 = 沒有
@@ -632,14 +634,14 @@ func suiteAgentTasks(t *testing.T, impl storeImpl) {
 	now := mt("2026-02-01T00:00:00Z").Time
 	lock := func(t time.Time) *model.Time { x := model.Time{Time: t}; return &x }
 	cl := w1
-	cl.Status, cl.ClaimedBy, cl.ClaimedAt, cl.LockedUntil, cl.UpdatedAt = "inProgress", "w1", lock(now), lock(now.Add(10*time.Minute)), model.Time{Time: now}
+	cl.Status, cl.ClaimedBy, cl.ClaimedAt, cl.LockedUntil, cl.UpdatedAt = "inProgress", whoID(t, s, "o", "w1"), lock(now), lock(now.Add(10*time.Minute)), model.Time{Time: now}
 	chk(t, s.ClaimAgentTask("o", cl, now))
 	cl2 := cl
-	cl2.ClaimedBy, cl2.LockedUntil = "w2", lock(now.Add(20*time.Minute))
+	cl2.ClaimedBy, cl2.LockedUntil = whoID(t, s, "o", "w2"), lock(now.Add(20*time.Minute))
 	if err := s.ClaimAgentTask("o", cl2, now.Add(5*time.Minute)); !errors.Is(err, ErrLocked) {
 		t.Fatal("鎖住時要 ErrLocked", err)
 	}
-	if g, _ := s.GetAgentTask("o", "T-1"); g.ClaimedBy != "w1" {
+	if g, _ := s.GetAgentTask("o", "T-1"); g.ClaimedBy != whoID(t, s, "o", "w1") {
 		t.Fatal("被擋下的領取不能改到任務", g.ClaimedBy)
 	}
 	chk(t, s.ClaimAgentTask("o", cl2, now.Add(10*time.Minute)))
@@ -648,12 +650,12 @@ func suiteAgentTasks(t *testing.T, impl storeImpl) {
 	bl := wz
 	bl.Status, bl.LockedUntil = "blocked", lock(now.Add(time.Hour))
 	chk(t, s.UpdateAgentTask("o", bl))
-	bl.Status, bl.ClaimedBy = "inProgress", "w3"
+	bl.Status, bl.ClaimedBy = "inProgress", whoID(t, s, "o", "w3")
 	chk(t, s.ClaimAgentTask("o", bl, now))
 	s = impl.reopen(t, s)
 	g, _ = s.GetAgentTask("o", "T-1")
 	sameJSON(t, "領取後", g, cl2)
-	if g, _ := s.GetAgentTask("o", "T-3"); g.ClaimedBy != "w3" {
+	if g, _ := s.GetAgentTask("o", "T-3"); g.ClaimedBy != whoID(t, s, "o", "w3") {
 		t.Fatal("blocked 的任務要能領", g.ClaimedBy)
 	}
 
@@ -688,6 +690,8 @@ func suiteAgentTasks(t *testing.T, impl storeImpl) {
 func suiteAgentCredentials(t *testing.T, impl storeImpl) {
 	s := impl.open(t)
 	newOrg(t, s, "o", "p")
+	makeTasks(t, s, "o", 12) // 憑證的任務要存在(外鍵)
+	makeTasks(t, s, "p", 1)
 	at := mt("2026-01-02T03:04:05Z")
 	far := mt("2099-01-01T00:00:00Z")
 	c1 := model.AgentCredential{Org: "o", AgentID: "dev", TaskID: "T-1", Hash: []byte{1}, IssuedAt: at, ExpiresAt: far}
@@ -778,7 +782,8 @@ func suiteOrgChain(t *testing.T, impl storeImpl) {
 	newOrg(t, s, "o", "p")
 	_, err := s.GetOrgChain("o")
 	wantNotFound(t, "沒存過", err)
-	c := model.OrgChain{Edges: []model.ChainEdge{{From: "user:a@x", To: "agent:dev", Label: "派工"}, {From: "agent:dev", To: "agent:ops"}},
+	ua, dev, ops := lid(t, s, "o", "user:a@x"), lid(t, s, "o", "agent:dev"), lid(t, s, "o", "agent:ops")
+	c := model.OrgChain{Edges: []model.ChainEdge{{From: ua, To: dev, Label: "派工"}, {From: dev, To: ops}},
 		UpdatedAt: mtp("2026-01-02T03:04:05Z")}
 	chk(t, s.SaveOrgChain("o", c))
 	s = impl.reopen(t, s)
@@ -796,25 +801,158 @@ func suiteOrgChain(t *testing.T, impl storeImpl) {
 
 // ---- 文件櫃 ----
 
+// saveLay、getLay 文件櫃結構的存取(略過版本號;不鎖)
+func saveLay(s Store, org, project string, l []model.CabinetSection) error {
+	_, err := s.SaveCabinetLayout(org, project, l, nil)
+	return err
+}
+
+func getLay(s Store, org, project string) ([]model.CabinetSection, error) {
+	l, _, err := s.GetCabinetLayout(org, project)
+	return l, err
+}
+
+func i64(n int64) *int64 { return &n }
+
+// 版本號(樂觀鎖):PG
+func suiteCabinetVersion(t *testing.T, impl storeImpl) {
+	s := impl.open(t)
+	newOrg(t, s, "o")
+	for range 9 { // 下面用到 PRJ-1、PRJ-9:專案要存在(區塊對專案有外鍵)
+		makeProject(t, s, "o")
+	}
+	one := []model.CabinetSection{{ID: "a", Label: "甲", Tabs: []model.CabinetTab{}}}
+	two := []model.CabinetSection{{ID: "b", Label: "乙", Tabs: []model.CabinetTab{}}}
+	three := []model.CabinetSection{{ID: "c", Label: "丙", Tabs: []model.CabinetTab{}}}
+	// 沒存過:ErrNotFound、版本 0
+	if _, v, err := s.GetCabinetLayout("o", ""); !errors.Is(err, ErrNotFound) || v != 0 {
+		t.Fatalf("沒存過:%d %v", v, err)
+	}
+	// 版本不符:沒存過卻說自己是 1
+	_, err := s.SaveCabinetLayout("o", "", one, i64(1))
+	var vc *VersionConflictError
+	if !errors.Is(err, ErrVersionConflict) || !errors.As(err, &vc) || vc.Current != 0 {
+		t.Fatalf("沒存過帶 1 要衝突、目前 0:%v", err)
+	}
+	if _, _, err := s.GetCabinetLayout("o", ""); !errors.Is(err, ErrNotFound) {
+		t.Fatal("衝突不能寫入")
+	}
+	// 沒存過帶 0:成功,版本 1
+	if v, err := s.SaveCabinetLayout("o", "", one, i64(0)); err != nil || v != 1 {
+		t.Fatalf("第一次存 %d %v", v, err)
+	}
+	if _, v, err := s.GetCabinetLayout("o", ""); err != nil || v != 1 {
+		t.Fatalf("讀回版本 %d %v", v, err)
+	}
+	s = impl.reopen(t, s)
+	// 帶對的版本:成功並 +1;帶舊版本:被擋,內容不變、帶目前版本
+	if v, err := s.SaveCabinetLayout("o", "", two, i64(1)); err != nil || v != 2 {
+		t.Fatalf("帶 1 存 %d %v", v, err)
+	}
+	_, err = s.SaveCabinetLayout("o", "", three, i64(1))
+	if !errors.As(err, &vc) || vc.Current != 2 {
+		t.Fatalf("舊版本要衝突、目前 2:%v", err)
+	}
+	if g, v, _ := s.GetCabinetLayout("o", ""); v != 2 || len(g) != 1 || g[0].ID != "b" {
+		t.Fatalf("衝突後內容不變:%d %+v", v, g)
+	}
+	// 不帶 expected:無條件覆蓋,版本照樣 +1
+	if v, err := s.SaveCabinetLayout("o", "", three, nil); err != nil || v != 3 {
+		t.Fatalf("不鎖覆蓋 %d %v", v, err)
+	}
+	if _, err := s.SaveCabinetLayout("o", "", one, i64(2)); !errors.Is(err, ErrVersionConflict) {
+		t.Fatal("不鎖覆蓋後,舊版本的要被擋")
+	}
+	// 專案各自一個版本
+	if v, err := s.SaveCabinetLayout("o", "PRJ-1", one, i64(0)); err != nil || v != 1 {
+		t.Fatalf("專案版本獨立 %d %v", v, err)
+	}
+	if _, v, _ := s.GetCabinetLayout("o", ""); v != 3 {
+		t.Fatal("未分專案的版本不受專案影響", v)
+	}
+	// 並發:同一個版本四個人同時存,只有一個成功
+	for round := 0; round < 5; round++ {
+		_, cur, err := s.GetCabinetLayout("o", "")
+		chk(t, err)
+		var wg sync.WaitGroup
+		var ok, conflict atomic.Int32
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := s.SaveCabinetLayout("o", "", []model.CabinetSection{{ID: fmt.Sprintf("r%d", i), Label: "x", Tabs: []model.CabinetTab{}}}, i64(cur))
+				switch {
+				case err == nil:
+					ok.Add(1)
+				case errors.Is(err, ErrVersionConflict):
+					conflict.Add(1)
+				default:
+					t.Error(err)
+				}
+			}()
+		}
+		wg.Wait()
+		if ok.Load() != 1 || conflict.Load() != 3 {
+			t.Fatalf("並發存檔:成功 %d 衝突 %d(要 1 與 3)", ok.Load(), conflict.Load())
+		}
+		if _, v, _ := s.GetCabinetLayout("o", ""); v != cur+1 {
+			t.Fatalf("版本要 +1:%d → %d", cur, v)
+		}
+	}
+	// 並發:沒存過的結構,四個人都帶 0,只有一個成功
+	var wg sync.WaitGroup
+	var ok atomic.Int32
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := s.SaveCabinetLayout("o", "PRJ-9", one, i64(0)); err == nil {
+				ok.Add(1)
+			} else if !errors.Is(err, ErrVersionConflict) {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if ok.Load() != 1 {
+		t.Fatalf("第一次存檔的並發:成功 %d(要 1)", ok.Load())
+	}
+	// 刪專案後版本歸零
+	at := mt("2026-01-01T00:00:00Z")
+	prj, err := s.CreateProject("o", model.Project{Name: "p", CreatedAt: at, UpdatedAt: at})
+	chk(t, err)
+	if v, err := s.SaveCabinetLayout("o", prj.ID, one, nil); err != nil || v != 1 {
+		t.Fatal(v, err)
+	}
+	chk(t, s.DeleteProject("o", prj.ID))
+	if _, v, err := s.GetCabinetLayout("o", prj.ID); !errors.Is(err, ErrNotFound) || v != 0 {
+		t.Fatalf("刪除專案後版本歸零:%d %v", v, err)
+	}
+	// 專案不存在時存結構:區塊對專案有外鍵,PG 要拒絕
+	if _, err := s.SaveCabinetLayout("o", prj.ID, one, nil); !errors.Is(err, ErrBadRef) {
+		t.Fatal("已刪除的專案不能再存結構", err)
+	}
+}
+
 func suiteCabinet(t *testing.T, impl storeImpl) {
 	s := impl.open(t)
 	newOrg(t, s, "o", "p")
-	_, err := s.GetCabinetLayout("o", "")
+	_, err := getLay(s, "o", "")
 	wantNotFound(t, "沒存過結構", err)
 	layout := []model.CabinetSection{
 		{ID: "s1", Label: "一", Path: "/s1", Tabs: []model.CabinetTab{{Label: "介紹", Path: "/s1/a", Code: strp("L0")}, {Label: "群組", Path: "/s1/b", Group: strp("g")}}},
 		{ID: "s2", Label: "二", Path: "/s2"}, // Tabs 是 nil
 	}
-	chk(t, s.SaveCabinetLayout("o", "", layout))
+	chk(t, saveLay(s, "o", "", layout))
 	s = impl.reopen(t, s)
 	want := model.CloneLayout(layout)
 	want[1].Tabs = []model.CabinetTab{}
-	g, err := s.GetCabinetLayout("o", "")
+	g, err := getLay(s, "o", "")
 	chk(t, err)
 	sameJSON(t, "GetCabinetLayout(nil 的 tabs 讀回是 [])", g, want)
-	chk(t, s.SaveCabinetLayout("p", "", nil))
+	chk(t, saveLay(s, "p", "", nil))
 	s = impl.reopen(t, s)
-	if g, err := s.GetCabinetLayout("p", ""); err != nil || g == nil || len(g) != 0 {
+	if g, err := getLay(s, "p", ""); err != nil || g == nil || len(g) != 0 {
 		t.Fatalf("存 nil 讀回是 []:%#v %v", g, err)
 	}
 
@@ -822,8 +960,8 @@ func suiteCabinet(t *testing.T, impl storeImpl) {
 		t.Fatalf("空的要是 []:%#v %v", l, err)
 	}
 	at := mt("2026-01-02T03:04:05Z")
-	d1 := model.CabinetDoc{Title: "一", Body: "內文", Section: "s1", Author: "a@x", CreatedAt: at, UpdatedAt: at} // Tab、Tags 是 nil
-	d2 := model.CabinetDoc{Title: "二", Section: "s1", Tab: strp("/s1/a"), Tags: []string{"a", "b"}, Author: "b@x", CreatedAt: at, UpdatedAt: at}
+	d1 := model.CabinetDoc{Title: "一", Body: "內文", Section: "s1", Author: "sys_omixor", CreatedAt: at, UpdatedAt: at} // Tab、Tags 是 nil
+	d2 := model.CabinetDoc{Title: "二", Section: "s1", Tab: strp("/s1/a"), Tags: []string{"a", "b"}, Author: "sys_routine", CreatedAt: at, UpdatedAt: at}
 	x1, err := s.CreateDoc("o", d1)
 	chk(t, err)
 	x2, err := s.CreateDoc("o", d2)
@@ -857,13 +995,13 @@ func suiteCabinet(t *testing.T, impl storeImpl) {
 	wantNotFound(t, "DeleteDoc 兩次", s.DeleteDoc("o", "DOC-2"))
 	x3, err := s.CreateDoc("o", d1)
 	chk(t, err)
-	if x3.ID != "DOC-2" {
+	if x3.ID != "DOC-3" { // 號碼不重用:DOC-2 刪掉了,新的是 DOC-3
 		t.Fatal("刪掉後建號", x3.ID)
 	}
 	// 匯入
 	imp := []model.CabinetDoc{
-		{ID: "DOC-8", Title: "八", Section: "s1", Tags: []string{}, Author: "c@x", CreatedAt: at, UpdatedAt: at},
-		{ID: "DOC-3", Title: "三", Section: "s2", Tab: strp("/s2/x"), Tags: []string{"t"}, Author: "c@x", CreatedAt: at, UpdatedAt: at},
+		{ID: "DOC-8", Title: "八", Section: "s1", Tags: []string{}, Author: "sys_omixor", CreatedAt: at, UpdatedAt: at},
+		{ID: "DOC-3", Title: "三", Section: "s2", Tab: strp("/s2/x"), Tags: []string{"t"}, Author: "sys_omixor", CreatedAt: at, UpdatedAt: at},
 	}
 	if n, err := s.ImportDocs("p", imp); err != nil || n != 2 {
 		t.Fatal("ImportDocs", n, err)
@@ -929,18 +1067,18 @@ func suiteProjects(t *testing.T, impl storeImpl) {
 	sameJSON(t, "UpdateProject 後", g, want)
 
 	// 刪除:連同這個專案的結構;別的專案、未分專案的結構與文件不動
-	chk(t, s.SaveCabinetLayout("o", "", []model.CabinetSection{{ID: "u", Label: "未分", Tabs: []model.CabinetTab{}}}))
-	chk(t, s.SaveCabinetLayout("o", "PRJ-1", []model.CabinetSection{{ID: "x", Label: "一", Tabs: []model.CabinetTab{}}}))
-	chk(t, s.SaveCabinetLayout("o", "PRJ-2", []model.CabinetSection{{ID: "y", Label: "二", Tabs: []model.CabinetTab{}}}))
+	chk(t, saveLay(s, "o", "", []model.CabinetSection{{ID: "u", Label: "未分", Tabs: []model.CabinetTab{}}}))
+	chk(t, saveLay(s, "o", "PRJ-1", []model.CabinetSection{{ID: "x", Label: "一", Tabs: []model.CabinetTab{}}}))
+	chk(t, saveLay(s, "o", "PRJ-2", []model.CabinetSection{{ID: "y", Label: "二", Tabs: []model.CabinetTab{}}}))
 	chk(t, s.DeleteProject("o", "PRJ-2"))
 	wantNotFound(t, "DeleteProject 兩次", s.DeleteProject("o", "PRJ-2"))
 	s = impl.reopen(t, s)
-	_, err = s.GetCabinetLayout("o", "PRJ-2")
+	_, err = getLay(s, "o", "PRJ-2")
 	wantNotFound(t, "刪掉的專案的結構", err)
-	if l, err := s.GetCabinetLayout("o", "PRJ-1"); err != nil || len(l) != 1 || l[0].ID != "x" {
+	if l, err := getLay(s, "o", "PRJ-1"); err != nil || len(l) != 1 || l[0].ID != "x" {
 		t.Fatal("別的專案的結構不動", l, err)
 	}
-	if l, err := s.GetCabinetLayout("o", ""); err != nil || len(l) != 1 || l[0].ID != "u" {
+	if l, err := getLay(s, "o", ""); err != nil || len(l) != 1 || l[0].ID != "u" {
 		t.Fatal("未分專案的結構不動", l, err)
 	}
 	l, _ = s.ListProjects("o")
@@ -951,7 +1089,7 @@ func suiteProjects(t *testing.T, impl storeImpl) {
 	if d.ID != "PRJ-3" {
 		t.Fatal("刪掉後建號不可重複使用", d.ID)
 	}
-	if _, err := s.GetCabinetLayout("o", d.ID); !errors.Is(err, ErrNotFound) {
+	if _, err := getLay(s, "o", d.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatal("新專案沒有結構", err)
 	}
 	if l, _ := s.ListProjects("p"); len(l) != 1 {
@@ -969,30 +1107,30 @@ func suiteProjectCabinet(t *testing.T, impl storeImpl) {
 	chk(t, err)
 	base := []model.CabinetSection{{ID: "docs", Label: "文件", Tabs: []model.CabinetTab{}}}
 	pl := []model.CabinetSection{{ID: "spec", Label: "規格", Tabs: []model.CabinetTab{{Label: "API", Path: "/spec/api"}}}}
-	chk(t, s.SaveCabinetLayout("o", "", base))
-	_, err = s.GetCabinetLayout("o", prj.ID)
+	chk(t, saveLay(s, "o", "", base))
+	_, err = getLay(s, "o", prj.ID)
 	wantNotFound(t, "專案沒存過結構", err)
-	chk(t, s.SaveCabinetLayout("o", prj.ID, pl))
+	chk(t, saveLay(s, "o", prj.ID, pl))
 	s = impl.reopen(t, s)
-	g, err := s.GetCabinetLayout("o", "")
+	g, err := getLay(s, "o", "")
 	chk(t, err)
 	sameJSON(t, "未分專案的結構", g, base)
-	g, err = s.GetCabinetLayout("o", prj.ID)
+	g, err = getLay(s, "o", prj.ID)
 	chk(t, err)
 	sameJSON(t, "專案的結構", g, pl)
 	// 再存一次是取代(不會多一份)
 	pl2 := append(model.CloneLayout(pl), model.CabinetSection{ID: "more", Label: "更多", Tabs: []model.CabinetTab{}})
-	chk(t, s.SaveCabinetLayout("o", prj.ID, pl2))
+	chk(t, saveLay(s, "o", prj.ID, pl2))
 	s = impl.reopen(t, s)
-	g, _ = s.GetCabinetLayout("o", prj.ID)
+	g, _ = getLay(s, "o", prj.ID)
 	sameJSON(t, "專案的結構取代", g, pl2)
-	g, _ = s.GetCabinetLayout("o", "")
+	g, _ = getLay(s, "o", "")
 	sameJSON(t, "未分專案的結構不受影響", g, base)
 
 	// 文件:號碼在組織內連號(不分專案);Project 存得進去、讀得回來
-	d1, err := s.CreateDoc("o", model.CabinetDoc{Title: "未分", Section: "docs", Tags: []string{}, Author: "a@x", CreatedAt: at, UpdatedAt: at})
+	d1, err := s.CreateDoc("o", model.CabinetDoc{Title: "未分", Section: "docs", Tags: []string{}, Author: "sys_omixor", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
-	d2, err := s.CreateDoc("o", model.CabinetDoc{Project: prj.ID, Title: "API 規格", Section: "spec", Tab: strp("/spec/api"), Tags: []string{"api"}, Author: "a@x", CreatedAt: at, UpdatedAt: at})
+	d2, err := s.CreateDoc("o", model.CabinetDoc{Project: prj.ID, Title: "API 規格", Section: "spec", Tab: strp("/spec/api"), Tags: []string{"api"}, Author: "sys_omixor", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
 	if d1.ID != "DOC-1" || d2.ID != "DOC-2" {
 		t.Fatal("文件號碼在組織內連號", d1.ID, d2.ID)
@@ -1016,17 +1154,29 @@ func suiteProjectCabinet(t *testing.T, impl storeImpl) {
 	s = impl.reopen(t, s)
 	l, _ = s.ListDocs("o")
 	sameJSON(t, "移動後(位置不變)", l, []model.CabinetDoc{back, m})
-	// 刪掉專案:文件不動(service 先檢查),結構拿掉
+	// 專案裡還有文件:不能刪(外鍵 restrict;service 先檢查,這是最後一道防線)
+	if err := s.DeleteProject("o", prj.ID); !errors.Is(err, ErrInUse) {
+		t.Fatal("專案裡還有文件應該 ErrInUse", err)
+	}
+	if _, err := s.GetProject("o", prj.ID); err != nil {
+		t.Fatal("被擋下的專案還在", err)
+	}
+	// 文件搬出專案後才能刪;刪掉專案:文件不動,結構拿掉
+	m.Project = ""
+	chk(t, s.UpdateDoc("o", m))
 	chk(t, s.DeleteProject("o", prj.ID))
 	s = impl.reopen(t, s)
 	if l, _ := s.ListDocs("o"); len(l) != 2 {
 		t.Fatal("DeleteProject 不動文件", l)
 	}
-	_, err = s.GetCabinetLayout("o", prj.ID)
+	_, err = getLay(s, "o", prj.ID)
 	wantNotFound(t, "刪掉的專案的結構", err)
 	// 匯入保留 Project
 	newOrg(t, s, "q")
-	imp := []model.CabinetDoc{{ID: "DOC-5", Project: "PRJ-3", Title: "五", Section: "s", Tags: []string{}, Author: "c@x", CreatedAt: at, UpdatedAt: at}}
+	for range 3 { // 匯入的文件指向 PRJ-3,專案要存在(外鍵)
+		makeProject(t, s, "q")
+	}
+	imp := []model.CabinetDoc{{ID: "DOC-5", Project: "PRJ-3", Title: "五", Section: "s", Tags: []string{}, Author: "sys_omixor", CreatedAt: at, UpdatedAt: at}}
 	if _, err := s.ImportDocs("q", imp); err != nil {
 		t.Fatal(err)
 	}
@@ -1048,9 +1198,9 @@ func suiteChannels(t *testing.T, impl storeImpl) {
 		t.Fatalf("空的要是 []:%#v %v", l, err)
 	}
 	at := mt("2026-01-02T03:04:05Z")
-	c1, err := s.CreateChannel("o", model.Channel{Name: "一般", Topic: "閒聊", Members: []string{"user:a", "user:b"}, CreatedBy: "user:a", CreatedAt: at, UpdatedAt: at})
+	c1, err := s.CreateChannel("o", model.Channel{Name: "一般", Topic: "閒聊", Members: []string{lid(t, s, "o", "user:a"), lid(t, s, "o", "user:b")}, CreatedBy: lid(t, s, "o", "user:a"), CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
-	c2, err := s.CreateChannel("o", model.Channel{Name: "空", CreatedBy: "user:a", CreatedAt: at, UpdatedAt: at}) // Members 是 nil
+	c2, err := s.CreateChannel("o", model.Channel{Name: "空", CreatedBy: lid(t, s, "o", "user:a"), CreatedAt: at, UpdatedAt: at}) // Members 是 nil
 	chk(t, err)
 	if c1.ID != "CH-1" || c2.ID != "CH-2" {
 		t.Fatal("建號要連號", c1.ID, c2.ID)
@@ -1065,8 +1215,10 @@ func suiteChannels(t *testing.T, impl storeImpl) {
 	wantNotFound(t, "頻道 id 大小寫要一致", err)
 	_, err = s.GetChannel("p", "CH-1")
 	wantNotFound(t, "別的組織", err)
+	iss1, err := s.CreateIssue("o", model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at, Labels: []string{}, Comments: []model.Comment{}}) // 頻道綁的 Issue 要存在(外鍵)
+	chk(t, err)
 	u := c1
-	u.Name, u.Topic, u.IssueID, u.Members, u.UpdatedAt = "一般2", "新主題", "ISS-1", []string{"user:a", "user:b", "agent:dev"}, mt("2026-01-03T00:00:00Z")
+	u.Name, u.Topic, u.IssueID, u.Members, u.UpdatedAt = "一般2", "新主題", iss1.ID, []string{lid(t, s, "o", "user:a"), lid(t, s, "o", "user:b"), lid(t, s, "o", "agent:dev")}, mt("2026-01-03T00:00:00Z")
 	chk(t, s.UpdateChannel("o", u))
 	wantNotFound(t, "UpdateChannel 沒有的", s.UpdateChannel("o", model.Channel{ID: "CH-9", Name: "x", CreatedAt: at, UpdatedAt: at}))
 
@@ -1077,12 +1229,12 @@ func suiteChannels(t *testing.T, impl storeImpl) {
 		at         string
 	}
 	for _, m := range []in{
-		{"CH-1", "user:a", nil, "2026-01-05T00:00:01Z"},
-		{"CH-1", "user:b", []string{"user:a"}, "2026-01-05T00:00:02Z"},
-		{"CH-1", "user:b", []string{"user:a"}, "2026-01-05T00:00:03Z"},
-		{"CH-1", "user:b", []string{"user:a", "user:c"}, "2026-01-05T00:00:03Z"},
-		{"CH-1", "user:a", []string{"user:b"}, "2026-01-05T00:00:04Z"},
-		{"CH-2", "user:c", []string{"user:a"}, "2026-01-05T00:00:10Z"},
+		{"CH-1", lid(t, s, "o", "user:a"), nil, "2026-01-05T00:00:01Z"},
+		{"CH-1", lid(t, s, "o", "user:b"), []string{lid(t, s, "o", "user:a")}, "2026-01-05T00:00:02Z"},
+		{"CH-1", lid(t, s, "o", "user:b"), []string{lid(t, s, "o", "user:a")}, "2026-01-05T00:00:03Z"},
+		{"CH-1", lid(t, s, "o", "user:b"), []string{lid(t, s, "o", "user:a"), lid(t, s, "o", "user:c")}, "2026-01-05T00:00:03Z"},
+		{"CH-1", lid(t, s, "o", "user:a"), []string{lid(t, s, "o", "user:b")}, "2026-01-05T00:00:04Z"},
+		{"CH-2", lid(t, s, "o", "user:c"), []string{lid(t, s, "o", "user:a")}, "2026-01-05T00:00:10Z"},
 	} {
 		_, err := s.CreateChannelMessage("o", model.ChannelMessage{ChannelID: m.ch, Author: m.author, Text: "hi " + m.at, Mentions: m.mentions, At: mt(m.at)})
 		chk(t, err)
@@ -1096,10 +1248,10 @@ func suiteChannels(t *testing.T, impl storeImpl) {
 	if more || len(all) != 5 {
 		t.Fatal("全部", len(all), more)
 	}
-	if all[0].Mentions == nil || len(all[0].Mentions) != 0 || all[0].Author != "user:a" || !all[0].At.Equal(mt("2026-01-05T00:00:01Z").Time) {
+	if all[0].Mentions == nil || len(all[0].Mentions) != 0 || all[0].Author != lid(t, s, "o", "user:a") || !all[0].At.Equal(mt("2026-01-05T00:00:01Z").Time) {
 		t.Fatalf("第一則(nil 的提及讀回是 []):%#v", all[0])
 	}
-	if len(all[3].Mentions) != 2 || all[3].Mentions[1] != "user:c" {
+	if len(all[3].Mentions) != 2 || all[3].Mentions[1] != lid(t, s, "o", "user:c") {
 		t.Fatal("提及", all[3].Mentions)
 	}
 	for _, c := range []struct {
@@ -1138,16 +1290,16 @@ func suiteChannels(t *testing.T, impl storeImpl) {
 	}
 
 	// 已讀
-	if r, err := s.ChannelReads("o", "user:a"); err != nil || r == nil || len(r) != 0 {
+	if r, err := s.ChannelReads("o", lid(t, s, "o", "user:a")); err != nil || r == nil || len(r) != 0 {
 		t.Fatalf("沒有已讀要是 {}:%#v %v", r, err)
 	}
-	chk(t, s.SaveChannelRead("o", model.ChannelRead{ChannelID: "CH-1", Member: "user:a", LastRead: 1, At: at}))
-	chk(t, s.SaveChannelRead("o", model.ChannelRead{ChannelID: "CH-1", Member: "user:a", LastRead: 2, At: mt("2026-01-06T00:00:00Z")}))
-	chk(t, s.SaveChannelRead("o", model.ChannelRead{ChannelID: "CH-1", Member: "user:b", LastRead: 5, At: at}))
+	chk(t, s.SaveChannelRead("o", model.ChannelRead{ChannelID: "CH-1", Member: lid(t, s, "o", "user:a"), LastRead: 1, At: at}))
+	chk(t, s.SaveChannelRead("o", model.ChannelRead{ChannelID: "CH-1", Member: lid(t, s, "o", "user:a"), LastRead: 2, At: mt("2026-01-06T00:00:00Z")}))
+	chk(t, s.SaveChannelRead("o", model.ChannelRead{ChannelID: "CH-1", Member: lid(t, s, "o", "user:b"), LastRead: 5, At: at}))
 	s = impl.reopen(t, s)
-	r, err := s.ChannelReads("o", "user:a")
+	r, err := s.ChannelReads("o", lid(t, s, "o", "user:a"))
 	chk(t, err)
-	sameJSON(t, "ChannelReads(取代)", r, map[string]model.ChannelRead{"CH-1": {ChannelID: "CH-1", Member: "user:a", LastRead: 2, At: mt("2026-01-06T00:00:00Z")}})
+	sameJSON(t, "ChannelReads(取代)", r, map[string]model.ChannelRead{"CH-1": {ChannelID: "CH-1", Member: lid(t, s, "o", "user:a"), LastRead: 2, At: mt("2026-01-06T00:00:00Z")}})
 
 	// 未讀數:號碼 > 已讀、作者不是自己(0 的不一定在裡面)
 	nonzero := func(m map[string]int) map[string]int {
@@ -1159,25 +1311,25 @@ func suiteChannels(t *testing.T, impl storeImpl) {
 		}
 		return out
 	}
-	uc, err := s.UnreadCounts("o", "user:a", []string{"CH-1", "CH-2"})
+	uc, err := s.UnreadCounts("o", lid(t, s, "o", "user:a"), []string{"CH-1", "CH-2"})
 	chk(t, err)
 	sameJSON(t, "UnreadCounts user:a", nonzero(uc), map[string]int{"CH-1": 2, "CH-2": 1})
-	uc, _ = s.UnreadCounts("o", "user:b", []string{"CH-1"})
+	uc, _ = s.UnreadCounts("o", lid(t, s, "o", "user:b"), []string{"CH-1"})
 	sameJSON(t, "UnreadCounts user:b(都讀了)", nonzero(uc), map[string]int{})
-	uc, _ = s.UnreadCounts("o", "user:c", []string{"CH-1"})
+	uc, _ = s.UnreadCounts("o", lid(t, s, "o", "user:c"), []string{"CH-1"})
 	sameJSON(t, "UnreadCounts user:c(沒有已讀)", nonzero(uc), map[string]int{"CH-1": 5})
-	if uc, err := s.UnreadCounts("o", "user:a", nil); err != nil || uc == nil || len(uc) != 0 {
+	if uc, err := s.UnreadCounts("o", lid(t, s, "o", "user:a"), nil); err != nil || uc == nil || len(uc) != 0 {
 		t.Fatal("沒給頻道要是 {}", uc, err)
 	}
 	// 提及:時間新的在前,同一秒號碼大的在前;limit
-	um, err := s.UnreadMentions("o", "user:a", []string{"CH-1", "CH-2"}, 10)
+	um, err := s.UnreadMentions("o", lid(t, s, "o", "user:a"), []string{"CH-1", "CH-2"}, 10)
 	chk(t, err)
 	sameJSON(t, "UnreadMentions", msgIDs(um), []string{"CH-2/M-1", "CH-1/M-4", "CH-1/M-3"})
-	um, _ = s.UnreadMentions("o", "user:a", []string{"CH-1", "CH-2"}, 2)
+	um, _ = s.UnreadMentions("o", lid(t, s, "o", "user:a"), []string{"CH-1", "CH-2"}, 2)
 	sameJSON(t, "UnreadMentions limit", msgIDs(um), []string{"CH-2/M-1", "CH-1/M-4"})
-	um, _ = s.UnreadMentions("o", "user:c", []string{"CH-1"}, 10)
+	um, _ = s.UnreadMentions("o", lid(t, s, "o", "user:c"), []string{"CH-1"}, 10)
 	sameJSON(t, "UnreadMentions user:c", msgIDs(um), []string{"CH-1/M-4"})
-	if um, err := s.UnreadMentions("o", "user:a", nil, 10); err != nil || um == nil || len(um) != 0 {
+	if um, err := s.UnreadMentions("o", lid(t, s, "o", "user:a"), nil, 10); err != nil || um == nil || len(um) != 0 {
 		t.Fatal("沒給頻道要是 []", um, err)
 	}
 }
@@ -1189,29 +1341,29 @@ func fillOrg(t *testing.T, s Store, org string, hash byte) {
 	at := mt("2026-01-02T03:04:05Z")
 	newOrg(t, s, org)
 	chk(t, s.SaveMember(model.Member{Org: org, UserID: "u1", Role: "admin", AddedAt: at}))
-	iss, err := s.CreateIssue(org, model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "a@x", CreatedAt: at, UpdatedAt: at})
+	iss, err := s.CreateIssue(org, model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
-	_, err = s.AddIssueComment(org, iss.ID, model.Comment{ID: "c1", Author: "a@x", Text: "hi", At: at})
+	_, err = s.AddIssueComment(org, iss.ID, model.Comment{ID: "c1", Author: "sys_omixor", Text: "hi", At: at})
 	chk(t, err)
 	chk(t, s.PutAttachment(org, "h", []byte("png")))
 	chk(t, s.SaveAgent(org, model.Agent{ID: "dev", Name: "Dev", CreatedAt: at}))
 	tk, err := s.CreateAgentTask(org, model.AgentTask{AgentID: "dev", Title: "t", Priority: "normal", Status: "queued", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
 	chk(t, s.SaveAgentCredential(model.AgentCredential{Org: org, AgentID: "dev", TaskID: tk.ID, Hash: []byte{hash}, IssuedAt: at, ExpiresAt: mt("2099-01-01T00:00:00Z")}))
-	chk(t, s.SaveCabinetLayout(org, "", []model.CabinetSection{{ID: "s", Tabs: []model.CabinetTab{}}}))
+	chk(t, saveLay(s, org, "", []model.CabinetSection{{ID: "s", Tabs: []model.CabinetTab{}}}))
 	_, err = s.CreateDoc(org, model.CabinetDoc{Title: "d", Section: "s", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
 	prj, err := s.CreateProject(org, model.Project{Name: "p", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
-	chk(t, s.SaveCabinetLayout(org, prj.ID, []model.CabinetSection{{ID: "ps", Tabs: []model.CabinetTab{}}}))
+	chk(t, saveLay(s, org, prj.ID, []model.CabinetSection{{ID: "ps", Tabs: []model.CabinetTab{}}}))
 	_, err = s.CreateDoc(org, model.CabinetDoc{Project: prj.ID, Title: "pd", Section: "ps", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
-	chk(t, s.SaveOrgChain(org, model.OrgChain{Edges: []model.ChainEdge{{From: "a", To: "b"}}, UpdatedAt: &at}))
+	chk(t, s.SaveOrgChain(org, model.OrgChain{Edges: []model.ChainEdge{{From: lid(t, s, org, "user:a"), To: lid(t, s, org, "user:b")}}, UpdatedAt: &at}))
 	ch, err := s.CreateChannel(org, model.Channel{Name: "c", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
-	_, err = s.CreateChannelMessage(org, model.ChannelMessage{ChannelID: ch.ID, Author: "user:a", Text: "hi", At: at})
+	_, err = s.CreateChannelMessage(org, model.ChannelMessage{ChannelID: ch.ID, Author: lid(t, s, org, "user:a"), Text: "hi", At: at})
 	chk(t, err)
-	chk(t, s.SaveChannelRead(org, model.ChannelRead{ChannelID: ch.ID, Member: "user:a", LastRead: 1, At: at}))
+	chk(t, s.SaveChannelRead(org, model.ChannelRead{ChannelID: ch.ID, Member: lid(t, s, org, "user:a"), LastRead: 1, At: at}))
 	_, err = s.CreateIncident(org, model.Incident{Title: "i", Sev: 2, Status: "investigating", StartedAt: at})
 	chk(t, err)
 	chk(t, s.SaveOrgDoc(org, "github", OrgDoc{Data: json.RawMessage(`{"repos":["a/b"]}`), UpdatedAt: &at}))
@@ -1220,7 +1372,7 @@ func fillOrg(t *testing.T, s Store, org string, hash byte) {
 }
 
 // orgEmpty 這個組織(連組織本身)沒有任何資料
-func orgEmpty(t *testing.T, s Store, org string, hash byte, keepsAttachments bool) {
+func orgEmpty(t *testing.T, s Store, org string, hash byte) {
 	t.Helper()
 	_, err := s.GetOrg(org)
 	wantNotFound(t, "GetOrg", err)
@@ -1236,19 +1388,17 @@ func orgEmpty(t *testing.T, s Store, org string, hash byte, keepsAttachments boo
 	empty("ListMembers", len(ms), err)
 	is, err := s.ListIssues(org)
 	empty("ListIssues", len(is), err)
-	// File 刪組織時附件檔留在磁碟上(見 File 的說明;有意的差異)
-	if _, err = s.GetAttachment(org, "h"); !keepsAttachments {
-		wantNotFound(t, "GetAttachment", err)
-	}
+	_, err = s.GetAttachment(org, "h")
+	wantNotFound(t, "GetAttachment", err)
 	as, err := s.ListAgents(org)
 	empty("ListAgents", len(as), err)
 	ts, err := s.ListAgentTasks(org)
 	empty("ListAgentTasks", len(ts), err)
 	_, err = s.AgentCredentialByHash([]byte{hash})
 	wantNotFound(t, "AgentCredentialByHash", err)
-	_, err = s.GetCabinetLayout(org, "")
+	_, err = getLay(s, org, "")
 	wantNotFound(t, "GetCabinetLayout", err)
-	_, err = s.GetCabinetLayout(org, "PRJ-1")
+	_, err = getLay(s, org, "PRJ-1")
 	wantNotFound(t, "GetCabinetLayout 專案", err)
 	pl, err := s.ListProjects(org)
 	empty("ListProjects", len(pl), err)
@@ -1260,7 +1410,7 @@ func orgEmpty(t *testing.T, s Store, org string, hash byte, keepsAttachments boo
 	empty("ListChannels", len(cs), err)
 	ml, _, err := s.ListChannelMessages(org, "CH-1", model.MessageQuery{})
 	empty("ListChannelMessages", len(ml), err)
-	rs, err := s.ChannelReads(org, "user:a")
+	rs, err := s.ChannelReads(org, lid(t, s, org, "user:a"))
 	empty("ChannelReads", len(rs), err)
 	ins, err := s.ListIncidents(org)
 	empty("ListIncidents", len(ins), err)
@@ -1280,7 +1430,7 @@ func suiteDeleteOrgCascade(t *testing.T, impl storeImpl) {
 	fillOrg(t, s, "p", 2)
 	chk(t, s.DeleteOrg("o"))
 	s = impl.reopen(t, s)
-	orgEmpty(t, s, "o", 1, impl.name == "file")
+	orgEmpty(t, s, "o", 1)
 	if o, _ := s.IssueOrgs(); len(o) != 1 || o[0] != "p" {
 		t.Fatal("IssueOrgs", o)
 	}
@@ -1302,7 +1452,7 @@ func suiteDeleteOrgCascade(t *testing.T, impl storeImpl) {
 	}
 	// 同 id 重建:是空的,號碼從頭開始
 	newOrg(t, s, "o")
-	if i, err := s.CreateIssue("o", model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "a@x", CreatedAt: mt("2026-01-01T00:00:00Z"), UpdatedAt: mt("2026-01-01T00:00:00Z")}); err != nil || i.ID != "ISS-1" {
+	if i, err := s.CreateIssue("o", model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "sys_omixor", CreatedAt: mt("2026-01-01T00:00:00Z"), UpdatedAt: mt("2026-01-01T00:00:00Z")}); err != nil || i.Key != "ISS-1" {
 		t.Fatal("重建後的 Issue", i.ID, err)
 	}
 	if x, err := s.CreateProject("o", model.Project{Name: "p", CreatedAt: mt("2026-01-01T00:00:00Z"), UpdatedAt: mt("2026-01-01T00:00:00Z")}); err != nil || x.ID != "PRJ-1" {
@@ -1315,6 +1465,7 @@ func suiteDeleteOrgCascade(t *testing.T, impl storeImpl) {
 func suiteConcurrentCreate(t *testing.T, impl storeImpl) {
 	s := impl.open(t)
 	newOrg(t, s, "o")
+	makeAgent(t, s, "o", "dev")
 	at := mt("2026-01-02T03:04:05Z")
 	ch, err := s.CreateChannel("o", model.Channel{Name: "c", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
@@ -1336,8 +1487,8 @@ func suiteConcurrentCreate(t *testing.T, impl storeImpl) {
 		wg.Add(6)
 		go func() {
 			defer wg.Done()
-			x, err := s.CreateIssue("o", model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "a@x", CreatedAt: at, UpdatedAt: at})
-			add("issue", x.ID, err)
+			x, err := s.CreateIssue("o", model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at})
+			add("issue", x.Key, err)
 		}()
 		go func() {
 			defer wg.Done()
@@ -1356,7 +1507,7 @@ func suiteConcurrentCreate(t *testing.T, impl storeImpl) {
 		}()
 		go func() {
 			defer wg.Done()
-			x, err := s.CreateChannelMessage("o", model.ChannelMessage{ChannelID: ch.ID, Author: "user:a", Text: "hi", At: at})
+			x, err := s.CreateChannelMessage("o", model.ChannelMessage{ChannelID: ch.ID, Author: lid(t, s, "o", "user:a"), Text: "hi", At: at})
 			add("message", x.ID, err)
 		}()
 		go func() {
@@ -1401,12 +1552,17 @@ func suiteConcurrentCreate(t *testing.T, impl storeImpl) {
 func suiteConcurrentClaim(t *testing.T, impl storeImpl) {
 	s := impl.open(t)
 	newOrg(t, s, "o")
+	makeAgent(t, s, "o", "dev")
 	at := mt("2026-01-02T03:04:05Z")
 	tk, err := s.CreateAgentTask("o", model.AgentTask{AgentID: "dev", Title: "t", Priority: "normal", Status: "queued", CreatedAt: at, UpdatedAt: at})
 	chk(t, err)
 	now := mt("2026-02-01T00:00:00Z").Time
 	until := model.Time{Time: now.Add(10 * time.Minute)}
 	const n = 20
+	who := make([]string, n)
+	for k := range who {
+		who[k] = whoID(t, s, "o", fmt.Sprintf("w%d", k))
+	}
 	var wg sync.WaitGroup
 	res := make(chan string, n)
 	errs := make(chan error, n)
@@ -1415,7 +1571,7 @@ func suiteConcurrentClaim(t *testing.T, impl storeImpl) {
 		go func() {
 			defer wg.Done()
 			c := tk
-			c.Status, c.ClaimedBy, c.LockedUntil = "inProgress", fmt.Sprintf("w%d", k), &until
+			c.Status, c.ClaimedBy, c.LockedUntil = "inProgress", who[k], &until
 			err := s.ClaimAgentTask("o", c, now)
 			switch {
 			case err == nil:
@@ -1442,4 +1598,9 @@ func suiteConcurrentClaim(t *testing.T, impl storeImpl) {
 	if g, _ := s.GetAgentTask("o", tk.ID); g.ClaimedBy != winners[0] || g.Status != "inProgress" {
 		t.Fatal("領到的人", g.ClaimedBy, winners)
 	}
+}
+
+func mt(s string) model.Time {
+	t, _ := time.Parse(time.RFC3339, s)
+	return model.Time{Time: t}
 }

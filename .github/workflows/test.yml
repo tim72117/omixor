@@ -6,9 +6,9 @@
 # apple:macOS App(mac/,SwiftPM)swift build && swift test;App 測試要連真的 omixor-local(見 mac/Tests/OmixorTests/TestCore.swift),
 #     先編好放進 OMIXOR_LOCAL_BIN;最小版(-tags omixor_minimal)由測試自己用 go build 編,所以這個 job 也要裝 Go。
 #     iOS(ios/,xcodegen 從 project.yml 產生專案,專案檔不進版控)只編模擬器版(build-for-testing,測試也編)、不簽章,不跑模擬器。
-# PostgreSQL:core 那格開一個 postgres service(版本同 console/docker-compose.yml、console/scripts/test-pg.sh 的 postgres:17.2-alpine),
-#     設 OMIXOR_TEST_DATABASE_URL,core/store 的一致性測試(conformance_test.go)就會連 PG 實跑(每個測試用自己的暫時 schema)。
-#     其他格的 image 與 OMIXOR_TEST_DATABASE_URL 是空字串:不開 service,PG 測試照舊略過(web 的 PG 測試另外要 OMIXOR_CONSOLE_DATA_DIR 等,之後再接)。
+# PostgreSQL:測試統一走 PostgreSQL(不再有記憶體版 store)。每格(core、server、console)都開一個 postgres service(版本同 console/docker-compose.yml、
+#     console/scripts/test-pg.sh 的 postgres:17.2-alpine),設 OMIXOR_TEST_DATABASE_URL;core/storetest 的輔助會用這個帳號(superuser,有 CREATEDB)
+#     為每個測試建獨立的 database(從遷移好的範本複製)。沒設的機器(本機)會自己下載並啟動 embedded PostgreSQL,不需要 Docker。
 name: Test
 
 on:
@@ -36,11 +36,12 @@ jobs:
         working-directory: ${{ matrix.module }}
     services:
       postgres:
-        # 只有 core 那格開(image 是空字串時不開 service)
-        image: ${{ matrix.module == 'core' && 'postgres:17.2-alpine' || '' }}
+        image: postgres:17.2-alpine
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: omixor_test
+          # 平行的測試套件各開連線池,預設 max_connections=100 會逼近上限(postgres 官方映像把這個傳給 initdb)
+          POSTGRES_INITDB_ARGS: "-c max_connections=300"
         ports:
           - 5432:5432
         options: >-
@@ -49,7 +50,9 @@ jobs:
           --health-timeout 5s
           --health-retries 30
     env:
-      OMIXOR_TEST_DATABASE_URL: ${{ matrix.module == 'core' && 'postgres://postgres:test@localhost:5432/omixor_test?sslmode=disable' || '' }}
+      OMIXOR_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/omixor_test?sslmode=disable
+      # 沒有可用的 PostgreSQL 時測試要失敗,不可以略過後顯示通過
+      OMIXOR_TEST_REQUIRE_PG: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -65,7 +68,7 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./...
-      - name: go test -race(store;core 這格會連 PG 跑一致性測試)
+      - name: go test -race(store;連 PG 跑一致性測試)
         if: matrix.module == 'core'
         run: go test -race -count=1 ./store/...
       - name: go build(omixor_minimal)

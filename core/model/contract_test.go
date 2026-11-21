@@ -37,26 +37,46 @@ func ct(s string) model.Time {
 func ctp(s string) *model.Time { t := ct(s); return &t }
 func sp(s string) *string      { return &s }
 
+// 範例用的 actor 物件(ISS-36 C-3;和相容字串並存)
+var (
+	avTim = &model.ActorView{ID: "usr_019a3f2c-0000-7000-8000-000000000001", Kind: model.ActorKindUser, Handle: "tim@example.com", Name: "Tim", Email: "tim@example.com", Status: model.ActorStatusActive}
+	avEng = &model.ActorView{ID: "agt_019a3f2c-0000-7000-8000-000000000002", Kind: model.ActorKindAgent, Handle: "eng", Name: "工程師", Status: model.ActorStatusActive}
+	avPM  = &model.ActorView{ID: "agt_019a3f2c-0000-7000-8000-000000000003", Kind: model.ActorKindAgent, Handle: "pm", Name: "產品經理", Status: model.ActorStatusSuspended}
+	avMCP = &model.ActorView{ID: "sys_legacy_mcp", Kind: model.ActorKindSystem, Handle: "legacy_mcp", Name: "mcp", Status: model.ActorStatusActive}
+	avSys = &model.ActorView{ID: "sys_omixor", Kind: model.ActorKindSystem, Handle: "omixor", Name: "omixor 系統", Status: model.ActorStatusActive}
+	avRtn = &model.ActorView{ID: "sys_routine", Kind: model.ActorKindSystem, Handle: "routine", Name: "例行排程", Status: model.ActorStatusActive}
+	avOld = &model.ActorView{ID: "usr_019a3f2c-0000-7000-8000-000000000004", Kind: model.ActorKindUser, Handle: "old@example.com", Name: "Old", Email: "old@example.com", Status: model.ActorStatusDisabled}
+)
+
+func views(l ...*model.ActorView) []model.ActorView {
+	out := make([]model.ActorView, 0, len(l))
+	for _, v := range l {
+		out = append(out, *v)
+	}
+	return out
+}
+
 // 範例資料:欄位盡量填滿(含選填欄位、時間、巢狀);列表另外放一筆只有必填欄位的,確認省略的欄位各邊也讀得出來
 
 func sampleIssue() model.Issue {
 	return model.Issue{
-		ID: "ISS-12", Title: "登入頁在 Safari 白畫面", Body: "## 重現步驟\n\n1. 開 Safari\n2. 進 /login\n\n![截圖](/api/attachments/att-1)",
+		ID: "019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8d", Key: "APP-12", Project: "PRJ-1", Num: 12, Version: 3,
+		Title: "登入頁在 Safari 白畫面", Body: "## 重現步驟\n\n1. 開 Safari\n2. 進 /login\n\n![截圖](/api/attachments/att-1)",
 		Status: "closed", Priority: "high", Labels: []string{"bug", "前端"},
-		Source: "網站訪客 7d", Link: "https://example.com/login", Repo: "github:acme/web", Assignee: "eng",
-		CreatedBy: "tim@example.com", CreatedAt: ct("2026-11-01T08:30:00Z"), UpdatedAt: ct("2026-11-03T10:00:05Z"),
+		Source: "網站訪客 7d", Link: "https://example.com/login", Repo: "github:acme/web", Assignee: "eng", AssigneeActor: avEng,
+		CreatedBy: "tim@example.com", CreatedByActor: avTim, DeletedBy: "old@example.com", DeletedByActor: avOld, CreatedAt: ct("2026-11-01T08:30:00Z"), UpdatedAt: ct("2026-11-03T10:00:05Z"),
 		ClosedAt: ctp("2026-11-03T10:00:05Z"),
 		Comments: []model.Comment{
-			{ID: "5f0c6c1e-7a52-4d0b-9a3e-2a1c2b3d4e5f", Author: "tim@example.com", Text: "我這邊也遇到", At: ct("2026-11-01T09:00:00Z")},
-			{ID: "jira-10023", Author: "agent:eng", Text: "已修正,見 PR #42", At: ct("2026-11-03T09:59:00Z")},
+			{ID: "5f0c6c1e-7a52-4d0b-9a3e-2a1c2b3d4e5f", Author: "tim@example.com", AuthorActor: avTim, Text: "我這邊也遇到", At: ct("2026-11-01T09:00:00Z")},
+			{ID: "jira-10023", Author: "agent:eng", AuthorActor: avEng, Text: "已修正,見 PR #42", At: ct("2026-11-03T09:59:00Z")},
 		},
 	}
 }
 
 func minimalIssue() model.Issue {
 	return model.Issue{
-		ID: "ISS-3", Title: "最少欄位的 Issue", Status: "open", Priority: "normal", Labels: []string{}, Comments: []model.Comment{},
-		CreatedBy: "mcp", CreatedAt: ct("2026-10-20T00:00:00Z"), UpdatedAt: ct("2026-10-20T00:00:00Z"),
+		ID: "0199f8a0-0000-7000-8000-000000000003", Key: "ISS-3", Num: 3, Version: 1, Title: "最少欄位的 Issue", Status: "open", Priority: "normal", Labels: []string{}, Comments: []model.Comment{},
+		CreatedBy: "mcp", CreatedByActor: avMCP, CreatedAt: ct("2026-10-20T00:00:00Z"), UpdatedAt: ct("2026-10-20T00:00:00Z"),
 	}
 }
 
@@ -77,20 +97,20 @@ func sampleAgent() model.Agent {
 func sampleTask() model.AgentTask {
 	return model.AgentTask{
 		ID: "T-7", AgentID: "eng", Title: "修 ISS-12", Instructions: "看 **ISS-12**,修好後回報", Priority: "high", Status: "inProgress",
-		CreatedBy: "tim@example.com", CreatedAt: ct("2026-11-02T00:00:00Z"), UpdatedAt: ct("2026-11-02T01:00:00Z"),
-		ClaimedAt: ctp("2026-11-02T00:50:00Z"), ClaimedBy: "tim@example.com", LockedUntil: ctp("2026-11-02T01:50:00Z"),
+		CreatedBy: "tim@example.com", CreatedByActor: avTim, CreatedAt: ct("2026-11-02T00:00:00Z"), UpdatedAt: ct("2026-11-02T01:00:00Z"),
+		ClaimedAt: ctp("2026-11-02T00:50:00Z"), ClaimedBy: "tim@example.com", ClaimedByActor: avTim, LockedUntil: ctp("2026-11-02T01:50:00Z"),
 		CompletedAt: ctp("2026-11-02T02:00:00Z"), RoutineID: sp("r-daily"),
 		Result: "已修正", Links: []string{"ISS-12", "https://github.com/acme/web/pull/42"},
 		Notes: []model.AgentTaskNote{
-			{ID: "n-1", Author: "agent:eng", Text: "開始處理", At: ct("2026-11-02T00:51:00Z")},
-			{ID: "8d6a4e0b-1c2d-4e5f-8a9b-0c1d2e3f4a5b", Author: "omixor", Text: "領取逾時,退回待領取", At: ct("2026-11-02T00:55:00Z")},
+			{ID: "n-1", Author: "agent:eng", AuthorActor: avEng, Text: "開始處理", At: ct("2026-11-02T00:51:00Z")},
+			{ID: "8d6a4e0b-1c2d-4e5f-8a9b-0c1d2e3f4a5b", Author: "omixor", AuthorActor: avSys, Text: "領取逾時,退回待領取", At: ct("2026-11-02T00:55:00Z")},
 		},
 	}
 }
 
 func minimalTask() model.AgentTask {
 	return model.AgentTask{
-		ID: "T-8", AgentID: "pm", Title: "寫規格", Priority: "normal", Status: "queued", CreatedBy: "routine",
+		ID: "T-8", AgentID: "pm", Title: "寫規格", Priority: "normal", Status: "queued", CreatedBy: "routine", CreatedByActor: avRtn,
 		CreatedAt: ct("2026-11-03T00:00:00Z"), UpdatedAt: ct("2026-11-03T00:00:00Z"), Links: []string{}, Notes: []model.AgentTaskNote{},
 	}
 }
@@ -98,9 +118,9 @@ func minimalTask() model.AgentTask {
 func sampleChannel() model.ChannelSummary {
 	return model.ChannelSummary{
 		Channel: model.Channel{
-			ID: "CH-2", Name: "登入頁改版", Topic: "討論 Safari 白畫面", IssueID: "ISS-12",
-			Members:   []string{"user:tim@example.com", "agent:eng"},
-			CreatedBy: "user:tim@example.com", CreatedAt: ct("2026-11-01T10:00:00Z"), UpdatedAt: ct("2026-11-02T10:00:00Z"),
+			ID: "CH-2", Name: "登入頁改版", Topic: "討論 Safari 白畫面", IssueID: "019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8d",
+			Members: []string{"user:tim@example.com", "agent:eng"}, MemberActors: views(avTim, avEng),
+			CreatedBy: "user:tim@example.com", CreatedByActor: avTim, CreatedAt: ct("2026-11-01T10:00:00Z"), UpdatedAt: ct("2026-11-02T10:00:00Z"),
 		},
 		Unread: 3, LastMessageAt: ctp("2026-11-03T08:00:00Z"),
 	}
@@ -108,28 +128,28 @@ func sampleChannel() model.ChannelSummary {
 
 func minimalChannel() model.ChannelSummary {
 	return model.ChannelSummary{Channel: model.Channel{
-		ID: "CH-1", Name: "閒聊", Members: []string{"user:tim@example.com"}, CreatedBy: "user:tim@example.com",
+		ID: "CH-1", Name: "閒聊", Members: []string{"user:tim@example.com"}, MemberActors: views(avTim), CreatedBy: "user:tim@example.com", CreatedByActor: avTim,
 		CreatedAt: ct("2026-10-01T00:00:00Z"), UpdatedAt: ct("2026-10-01T00:00:00Z"),
 	}}
 }
 
 func sampleMessage() model.ChannelMessage {
 	return model.ChannelMessage{
-		ID: "M-5", ChannelID: "CH-2", Author: "user:tim@example.com", Text: "@工程師 可以看一下 **ISS-12** 嗎?",
-		Mentions: []string{"agent:eng"}, At: ct("2026-11-03T08:00:00Z"),
+		ID: "M-5", ChannelID: "CH-2", Author: "user:tim@example.com", AuthorActor: avTim, Text: "@工程師 可以看一下 **ISS-12** 嗎?",
+		Mentions: []string{"agent:eng"}, MentionActors: views(avEng), At: ct("2026-11-03T08:00:00Z"),
 	}
 }
 
 func sampleIncident() model.Incident {
 	return model.Incident{
 		ID: "INC-2041", Title: "API 延遲飆高", Sev: 2, Status: "resolved", Services: []string{"api", "db"},
-		Commander: "tim@example.com", StartedAt: ct("2026-11-05T03:00:00Z"), ResolvedAt: ctp("2026-11-05T04:30:00Z"),
+		Commander: "tim@example.com", CommanderActor: avTim, StartedAt: ct("2026-11-05T03:00:00Z"), ResolvedAt: ctp("2026-11-05T04:30:00Z"),
 		Impact: "約 20% 請求逾時", AISummary: sp("資料庫連線池耗盡,調大後恢復"), FollowUps: []string{"ISS-13", "WI-7"},
-		AlertIDs: []string{"alert-cpu-1"}, CreatedBy: "mcp",
+		AlertIDs: []string{"alert-cpu-1"}, CreatedBy: "mcp", CreatedByActor: avMCP,
 		Timeline: []model.IncidentEvent{
-			{ID: "0b8f2a8e-3c4d-4e5f-9a0b-1c2d3e4f5a6b", Date: ct("2026-11-05T03:00:00Z"), Actor: model.SystemActor(), Kind: "alert", Text: "p95 延遲 > 2s"},
-			{ID: "1c9f3b9f-4d5e-4f60-8b1c-2d3e4f5a6b7c", Date: ct("2026-11-05T03:10:00Z"), Actor: model.PersonActor("tim@example.com"), Kind: "status", Text: "狀態改為「已找到原因」"},
-			{ID: "evt-legacy-1", Date: ct("2026-11-05T03:20:00Z"), Actor: model.AIActor("mcp"), Kind: "aiFinding", Text: "連線池用滿"},
+			{ID: "0b8f2a8e-3c4d-4e5f-9a0b-1c2d3e4f5a6b", Date: ct("2026-11-05T03:00:00Z"), Actor: model.SystemActor(), ActorRef: avSys, Kind: "alert", Text: "p95 延遲 > 2s"},
+			{ID: "1c9f3b9f-4d5e-4f60-8b1c-2d3e4f5a6b7c", Date: ct("2026-11-05T03:10:00Z"), Actor: model.PersonActor("tim@example.com"), ActorRef: avTim, Kind: "status", Text: "狀態改為「已找到原因」"},
+			{ID: "evt-legacy-1", Date: ct("2026-11-05T03:20:00Z"), Actor: model.AIActor("mcp"), ActorRef: avMCP, Kind: "aiFinding", Text: "連線池用滿"},
 		},
 	}
 }
@@ -144,7 +164,7 @@ func minimalIncident() model.Incident {
 func sampleDoc() model.CabinetDoc {
 	return model.CabinetDoc{
 		ID: "DOC-4", Title: "AI 工具介紹", Body: "# AI 工具\n\n- Claude\n- Codex", Section: "levels", Tab: sp("/studio/tools"),
-		Tags: []string{"課程", "L0"}, Author: "agent:pm", CreatedAt: ct("2026-10-10T00:00:00Z"), UpdatedAt: ct("2026-10-11T00:00:00Z"),
+		Tags: []string{"課程", "L0"}, Author: "agent:pm", AuthorActor: avPM, CreatedAt: ct("2026-10-10T00:00:00Z"), UpdatedAt: ct("2026-10-11T00:00:00Z"),
 	}
 }
 
@@ -159,10 +179,11 @@ func sampleCabinet() model.Cabinet {
 		},
 		Docs: []model.CabinetDoc{
 			sampleDoc(),
-			{ID: "DOC-1", Title: "放在區塊本身的文件", Body: "", Section: "overview", Tags: []string{}, Author: "tim@example.com",
+			{ID: "DOC-1", Title: "放在區塊本身的文件", Body: "", Section: "overview", Tags: []string{}, Author: "tim@example.com", AuthorActor: avTim,
 				CreatedAt: ct("2026-10-01T00:00:00Z"), UpdatedAt: ct("2026-10-01T00:00:00Z")},
 		},
-		LayoutSaved: true,
+		LayoutSaved:   true,
+		LayoutVersion: 3,
 	}
 }
 
@@ -174,7 +195,7 @@ func sampleProject() model.Project {
 func sampleProjectDoc() model.CabinetDoc {
 	return model.CabinetDoc{
 		ID: "DOC-9", Project: "PRJ-2", Title: "首頁規格", Body: "# 首頁\n\n- Hero\n- 案例", Section: "spec", Tab: sp("/spec/home"),
-		Tags: []string{"規格"}, Author: "agent:pm", CreatedAt: ct("2026-11-02T00:00:00Z"), UpdatedAt: ct("2026-11-03T00:00:00Z"),
+		Tags: []string{"規格"}, Author: "agent:pm", AuthorActor: avPM, CreatedAt: ct("2026-11-02T00:00:00Z"), UpdatedAt: ct("2026-11-03T00:00:00Z"),
 	}
 }
 
@@ -210,17 +231,17 @@ func contractFixtures() map[string]any {
 		// GET /api/orgs/{org}/channels/{id}/messages
 		"channel_messages.json": service.MessagePage{
 			Messages: []model.ChannelMessage{
-				{ID: "M-4", ChannelID: "CH-2", Author: "agent:eng", Text: "收到", Mentions: []string{}, At: ct("2026-11-03T07:00:00Z")},
+				{ID: "M-4", ChannelID: "CH-2", Author: "agent:eng", AuthorActor: avEng, Text: "收到", Mentions: []string{}, At: ct("2026-11-03T07:00:00Z")},
 				sampleMessage(),
 			},
 			HasMore: true,
 		},
 		// POST /api/orgs/{org}/channels/{id}/read
-		"channel_read.json": model.ChannelRead{ChannelID: "CH-2", Member: "user:tim@example.com", LastRead: 5, At: ct("2026-11-03T08:01:00Z")},
+		"channel_read.json": model.ChannelRead{ChannelID: "CH-2", Member: "user:tim@example.com", MemberActor: avTim, LastRead: 5, At: ct("2026-11-03T08:01:00Z")},
 		// GET /api/orgs/{org}/channels/inbox?for=
 		"channel_inbox.json": service.ChannelInbox{
-			Node: "agent:eng",
-			Mentions: []service.InboxMention{{ChannelID: "CH-2", ChannelName: "登入頁改版", ID: "M-5", Author: "user:tim@example.com",
+			Node: "agent:eng", NodeActor: avEng,
+			Mentions: []service.InboxMention{{ChannelID: "CH-2", ChannelName: "登入頁改版", ID: "M-5", Author: "user:tim@example.com", AuthorActor: avTim,
 				Text: "@工程師 可以看一下 **ISS-12** 嗎?", At: ct("2026-11-03T08:00:00Z")}},
 			Channels: []service.InboxChannel{{ID: "CH-2", Name: "登入頁改版", Unread: 3}},
 		},
@@ -247,16 +268,26 @@ func contractFixtures() map[string]any {
 			Layout: []model.CabinetSection{
 				{ID: "spec", Label: "規格", Path: "", Tabs: []model.CabinetTab{{Path: "/spec/home", Label: "首頁", Code: sp("P1")}}},
 			},
-			Docs:        []model.CabinetDoc{sampleProjectDoc()},
-			LayoutSaved: true,
+			Docs:          []model.CabinetDoc{sampleProjectDoc()},
+			LayoutSaved:   true,
+			LayoutVersion: 1,
 		},
 		// GET /api/orgs/{org}/chain、POST(整份取代)
 		"org_chain.json": model.OrgChain{
 			Edges: []model.ChainEdge{
-				{From: "user:tim@example.com", To: "agent:pm", Label: "目標"},
-				{From: "agent:pm", To: "agent:eng", Label: ""},
+				{From: "user:tim@example.com", To: "agent:pm", Label: "目標", FromActor: avTim, ToActor: avPM},
+				{From: "agent:pm", To: "agent:eng", Label: "", FromActor: avPM, ToActor: avEng},
 			},
 			UpdatedAt: ctp("2026-11-01T00:00:00Z"),
+		},
+		// GET /api/orgs/{org}/actors(ISS-36 B-4;也是各資料「誰」欄位旁邊 xxxActor 物件的型別)
+		"actor_list.json": []service.ActorListItem{*avTim, *avOld, *avEng, *avPM, *avSys},
+		// GET /api/orgs/{org}/members
+		"member_list.json": []model.Member{{Org: "acme", UserID: "u_tim", Email: "tim@example.com", Name: "Tim", Role: "admin", AddedAt: ct("2026-09-01T00:00:00Z"), ActorRef: avTim}},
+		// GET /api/admin/audit?limit=(操作者:userId、email 是相容欄位,actorRef 是 actor 物件;沒有操作者的項目沒有 actorRef)
+		"audit_list.json": []model.AuditEntry{
+			{ID: 2, At: ct("2026-11-05T03:00:00Z"), UserID: "u_tim", Email: "tim@example.com", Source: "login", ActorRef: avTim, Action: "issue.create", Org: "acme", Detail: map[string]any{"id": "ISS-12"}},
+			{ID: 1, At: ct("2026-11-05T02:00:00Z"), UserID: "", Email: "", Action: "login.denied"},
 		},
 		// PUT /api/orgs/{org}、POST /api/orgs(單一組織)
 		"org.json": model.Org{ID: "acme", Name: "Acme 研發", CreatedAt: ct("2026-09-01T00:00:00Z"), Symbol: "building.2", Color: "teal",

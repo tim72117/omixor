@@ -11,7 +11,7 @@ import {
 } from "../../components/omixorKit";
 import { relative } from "../../fmt";
 import type { SectionProps } from "..";
-import { canGo } from "../../features";
+import { canGo, useCanGo } from "../../features";
 
 export default function OverviewView(_: SectionProps) {
   return <OmixorProvider><Overview /></OmixorProvider>;
@@ -22,7 +22,11 @@ type Data = {
   runs: PipelineRun[]; aiRuns: AutomationRun[]; work: WorkItem[]; sprint?: Sprint; prs: PullRequest[]; onCall: OnCallShift[];
   activity: ActivityItem[]; env: EnvKey;
   firing: Alert[]; open: Incident[]; pending: ApprovalRequest[];
+  show: Show;
 };
+
+// 總覽的區塊跟著對應頁面的功能開關:頁面關了,它的卡片與 KPI 也不顯示(資料也不算進狀態橫幅)
+type Show = { monitoring: boolean; infrastructure: boolean; pipelines: boolean; incidents: boolean; automation: boolean; development: boolean };
 
 const sevColor = (sev: number) => (sev === 1 ? "red" : sev === 2 ? "orange" : sev === 3 ? "yellow" : "blue");
 
@@ -43,13 +47,43 @@ function Overview() {
   const env = (o.nav?.env ?? "production") as EnvKey;
   const tr = TIME_RANGE[o.nav?.timeRange ?? "24h"]?.label ?? o.nav?.timeRange;
   const [ref, w] = useWidth<HTMLDivElement>();
-  const d: Data = {
-    services, alerts, incidents, approvals, deployments, runs, aiRuns, work, sprint: sprint && "name" in sprint ? sprint : undefined, prs, onCall, activity, env,
-    firing: alerts.filter((a) => a.state === "firing").sort((a, b) => SEVERITY[a.severity].rank - SEVERITY[b.severity].rank),
-    open: incidents.filter((i) => i.status !== "resolved"),
-    pending: approvals.filter((a) => a.state === "pending"),
+  const can = useCanGo();
+  const show: Show = {
+    monitoring: can("monitoring"), infrastructure: can("infrastructure"), pipelines: can("pipelines"),
+    incidents: can("incidents"), automation: can("automation"), development: can("development"),
   };
-  const two = w - 40 >= 940;
+  // 關掉的功能,它的資料不算進狀態橫幅與 KPI
+  const svc = show.monitoring || show.infrastructure ? services : [];
+  const al = show.monitoring ? alerts : [];
+  const inc = show.incidents ? incidents : [];
+  const ap = show.automation ? approvals : [];
+  const d: Data = {
+    services: svc, alerts: al, incidents: inc, approvals: ap, deployments, runs, aiRuns, work, sprint: sprint && "name" in sprint ? sprint : undefined, prs, onCall, activity, env,
+    firing: al.filter((a) => a.state === "firing").sort((a, b) => SEVERITY[a.severity].rank - SEVERITY[b.severity].rank),
+    open: inc.filter((i) => i.status !== "resolved"),
+    pending: ap.filter((a) => a.state === "pending"),
+    show,
+  };
+  const banner = show.monitoring || show.infrastructure || show.incidents;
+  const left = [
+    show.infrastructure && <ServicesCard key="svc" d={d} />,
+    show.pipelines && <DeliveryCard key="cd" d={d} />,
+    (show.development || show.monitoring) && (
+      <div key="pair" className="row" style={{ gap: 16, alignItems: "flex-start" }}>
+        {show.development && <div className="grow"><SprintCard d={d} /></div>}
+        {show.monitoring && <div className="grow"><ErrorBudgetCard d={d} /></div>}
+      </div>
+    ),
+    <ActivityCard key="act" d={d} />,
+  ].filter(Boolean);
+  // 值班跟著事件(輪值是事件處理用的)
+  const right = [
+    show.automation && <ApprovalsCard key="ap" d={d} />,
+    show.monitoring && <AlertsCard key="al" d={d} />,
+    show.incidents && <IncidentsCard key="inc" d={d} />,
+    show.incidents && <OnCallCard key="oc" d={d} />,
+  ].filter(Boolean);
+  const two = w - 40 >= 940 && right.length > 0;
   const side = Math.min(420, Math.max(320, (w - 40) * 0.32));
   return (
     <div className="page-scroll" ref={ref}>
@@ -65,38 +99,27 @@ function Overview() {
             <button className="btn" title="開啟指令面板" onClick={() => window.dispatchEvent(new CustomEvent("omixor-command-palette"))}><SIcon name="magnifyingglass" /> 搜尋</button>
           </div>
         </div>
-        <StatusBanner d={d} />
+        {banner && <StatusBanner d={d} />}
         <KPIRow d={d} />
         {two ? (
           <div className="row gap12" style={{ alignItems: "flex-start", gap: 16 }}>
-            <div className="col grow" style={{ gap: 16 }}>
-              <ServicesCard d={d} />
-              <DeliveryCard d={d} />
-              <div className="row" style={{ gap: 16, alignItems: "flex-start" }}>
-                <div className="grow"><SprintCard d={d} /></div>
-                <div className="grow"><ErrorBudgetCard d={d} /></div>
-              </div>
-              <ActivityCard d={d} />
-            </div>
-            <div className="col" style={{ gap: 16, width: side, flex: "none" }}>
-              <ApprovalsCard d={d} />
-              <AlertsCard d={d} />
-              <IncidentsCard d={d} />
-              <OnCallCard d={d} />
-            </div>
+            <div className="col grow" style={{ gap: 16 }}>{left}</div>
+            <div className="col" style={{ gap: 16, width: side, flex: "none" }}>{right}</div>
           </div>
         ) : (
           <>
-            <AlertsCard d={d} />
-            <ApprovalsCard d={d} />
-            <IncidentsCard d={d} />
-            <ServicesCard d={d} />
-            <DeliveryCard d={d} />
-            <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
-              <SprintCard d={d} />
-              <ErrorBudgetCard d={d} />
-            </div>
-            <OnCallCard d={d} />
+            {show.monitoring && <AlertsCard d={d} />}
+            {show.automation && <ApprovalsCard d={d} />}
+            {show.incidents && <IncidentsCard d={d} />}
+            {show.infrastructure && <ServicesCard d={d} />}
+            {show.pipelines && <DeliveryCard d={d} />}
+            {(show.development || show.monitoring) && (
+              <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+                {show.development && <SprintCard d={d} />}
+                {show.monitoring && <ErrorBudgetCard d={d} />}
+              </div>
+            )}
+            {show.incidents && <OnCallCard d={d} />}
             <ActivityCard d={d} />
           </>
         )}
@@ -172,14 +195,18 @@ function KPIRow({ d }: { d: Data }) {
   const running = deploysToday.filter((x) => x.status === "running").length;
   const deployCaption = failed ? `${failed} 次失敗` : running ? `${running} 個進行中` : deploysToday.length ? "全部成功" : "今天還沒有部署";
   const minSev = d.open.length ? Math.min(...d.open.map((i) => i.sev)) : undefined;
+  const sh = d.show;
+  if (!sh.monitoring && !sh.pipelines && !sh.incidents && !sh.automation) return null;
   return (
     <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
+      {sh.monitoring && <>
       <KPITile title="可用性(30 天)" value={avgUptime != null ? pct(avgUptime, 2) : "—"} caption={`SLO ${pct(slo, 2)}`} captionColor={(avgUptime ?? 100) >= slo ? "green" : "red"} icon="checkmark.shield" tint="green" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
       <KPITile title="p95 延遲" value={p95 != null ? `${Math.round(p95)} ms` : "—"} caption={p95 != null ? (p95 > 500 ? "高於 500 ms 目標" : "在 500 ms 目標內") : "尚無資料"} captionColor={(p95 ?? 0) > 500 ? "orange" : "secondary"} icon="speedometer" tint="blue" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
       <KPITile title="錯誤率" value={err != null ? pct(err, 2) : "—"} caption={err != null ? (err > 1 ? "超過 1% 警戒" : "低於 1% 警戒") : "尚無資料"} captionColor={(err ?? 0) > 1 ? "red" : "secondary"} icon="exclamationmark.bubble" tint="orange" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
-      <KPITile title="今日部署" value={String(deploysToday.length)} caption={deployCaption} captionColor={failed ? "red" : "secondary"} icon="shippingbox" tint="indigo" onClick={canGo("pipelines") ? () => o.go("pipelines") : undefined} />
-      <KPITile title="進行中事件" value={String(d.open.length)} caption={minSev != null ? `最高 SEV${minSev}` : "目前沒有事件"} captionColor={d.open.length ? "red" : "secondary"} icon="flame" tint={d.open.length ? "red" : "secondary"} onClick={canGo("incidents") ? () => o.go("incidents", d.open[0]?.id) : undefined} />
-      <KPITile title="AI 今日動作" value={String(aiToday.length)} caption={aiHours > 0 ? `約省下 ${aiHours.toFixed(1)} 小時` : `${d.pending.length} 項等你決定`} captionColor="purple" icon="sparkles" tint="purple" onClick={canGo("automation") ? () => o.go("automation") : undefined} />
+      </>}
+      {sh.pipelines && <KPITile title="今日部署" value={String(deploysToday.length)} caption={deployCaption} captionColor={failed ? "red" : "secondary"} icon="shippingbox" tint="indigo" onClick={canGo("pipelines") ? () => o.go("pipelines") : undefined} />}
+      {sh.incidents && <KPITile title="進行中事件" value={String(d.open.length)} caption={minSev != null ? `最高 SEV${minSev}` : "目前沒有事件"} captionColor={d.open.length ? "red" : "secondary"} icon="flame" tint={d.open.length ? "red" : "secondary"} onClick={canGo("incidents") ? () => o.go("incidents", d.open[0]?.id) : undefined} />}
+      {sh.automation && <KPITile title="AI 今日動作" value={String(aiToday.length)} caption={aiHours > 0 ? `約省下 ${aiHours.toFixed(1)} 小時` : `${d.pending.length} 項等你決定`} captionColor="purple" icon="sparkles" tint="purple" onClick={canGo("automation") ? () => o.go("automation") : undefined} />}
     </div>
   );
 }

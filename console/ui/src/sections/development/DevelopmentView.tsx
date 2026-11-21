@@ -8,6 +8,8 @@ import { DEV_TABS, DevCtx, type DevModel, type DevTab } from "./devShared";
 import { DevOverviewTab } from "./DevOverviewTab";
 import { DevBoardTab } from "./DevBoardTab";
 import { DevIssuesTab, type Issue } from "./DevIssuesTab";
+import { findIssue, KEY_RE, UUID_RE } from "./issueModel";
+import { resolveIssueRef } from "./issueApi";
 import { DevPullRequestsTab } from "./DevPullRequestsTab";
 import { DevReposTab } from "./DevReposTab";
 import { useFeatures, useFeatureTabs } from "../../features";
@@ -49,7 +51,7 @@ function Development({ focusId, clearFocus }: SectionProps) {
     if (!focusId || !(prsReady && issuesReady && workReady && reposReady)) return;
     const trimmed = focusId.startsWith("#") ? focusId.slice(1) : focusId;
     const n = Number(trimmed);
-    const issue = issues.find((i) => i.id.toLowerCase() === focusId.toLowerCase());
+    const issue = findIssue(issues, focusId); // id、目前的 key 都找得到
     if (Number.isInteger(n) && trimmed !== "" && prs.some((p) => p.id === n)) { setPrRepoFilter(undefined); model.showPR(n); }
     else if (issue) model.showIssue(issue.id);
     else if (focusId === "issues") setTab("issues");
@@ -57,8 +59,12 @@ function Development({ focusId, clearFocus }: SectionProps) {
     else if (/^(github|gitlab):./.test(focusId)) model.showRepo(focusId);
     else if (work.some((w) => w.id === focusId)) model.showItem(focusId);
     else if (repos.some((r) => r.id === focusId)) { if (flags.enabled("development.pulls")) model.showRepoPRs(focusId); else model.showRepo(); }
-    else return;
-    clearFocus();
+    else if (UUID_RE.test(focusId) || KEY_RE.test(focusId)) {
+      // 清單裡沒有:可能是舊的 key(搬過專案)或垃圾桶裡的;請後端解析。解析得到才選中,不管結果都要清掉 focus,免得一直卡著
+      resolveIssueRef(focusId).then((r) => { if (!r.deleted) model.showIssue(r.id); }).catch(() => undefined).finally(clearFocus);
+      return;
+    }
+    clearFocus(); // 什麼都對不上:清掉,不要一直留著
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId, prsReady, issuesReady, workReady, reposReady]);
 

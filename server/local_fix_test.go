@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -43,7 +42,8 @@ func countMessages(t *testing.T, l *Local, org string) int {
 // 匯入做到一半出錯(等同被砍斷):這一類什麼都沒寫進磁碟,做完的類別有紀錄;重送後完整匯入
 func TestLocalImportInterruptedRetry(t *testing.T) {
 	dir := t.TempDir()
-	l, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok, User: "tim"})
+	db := testDB(t)
+	l, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok, User: "tim"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestLocalImportInterruptedRetry(t *testing.T) {
 		t.Fatalf("%v %+v", err, res)
 	}
 	// 重開(等同重啟):磁碟上的頻道是全無,Issue 已記錄
-	l2, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok + "2", User: "tim"})
+	l2, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok + "2", User: "tim"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,22 +82,20 @@ func TestLocalImportInterruptedRetry(t *testing.T) {
 	if n := countMessages(t, l2, "default"); n != 3000 {
 		t.Fatalf("要 3000 則,有 %d", n)
 	}
-	l3, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok + "3", User: "tim"})
+	l3, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok + "3", User: "tim"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n := countMessages(t, l3, "default"); n != 3000 {
 		t.Fatalf("重開後要 3000 則,有 %d", n)
 	}
-	if list, _ := filepath.Glob(filepath.Join(dir, ".store.json.tmp-*")); len(list) != 0 {
-		t.Fatal("不能留下暫存檔", list)
-	}
 }
 
 // 匯入紀錄遺失或損毀後重送:守護服務已有的資料不被 App 的舊資料覆蓋(組織鏈不整份取代、Issue 不回 409)
 func TestLocalImportLogLost(t *testing.T) {
 	dir := t.TempDir()
-	l, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok, User: "tim"})
+	db := testDB(t)
+	l, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok, User: "tim"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +144,8 @@ func TestLocalImportLogLost(t *testing.T) {
 // DELETE /local/orgs/{org}:刪資料與匯入紀錄;同名重建是空的,可以再匯入;預設組織 400、找不到 404、沒登入 401
 func TestLocalDeleteOrg(t *testing.T) {
 	dir := t.TempDir()
-	l, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok, User: "tim"})
+	db := testDB(t)
+	l, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok, User: "tim"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +193,7 @@ func TestLocalDeleteOrg(t *testing.T) {
 		t.Fatal(code, out)
 	}
 	// 重開後刪除仍有效
-	l2, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok + "2", User: "tim"})
+	l2, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok + "2", User: "tim"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +201,7 @@ func TestLocalDeleteOrg(t *testing.T) {
 		t.Fatal(code, mustJSON(out))
 	}
 	// 最後一個組織:預設組織換成 acme 後,只剩 acme 時不能刪
-	l3, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok + "3", User: "tim", Org: "acme"})
+	l3, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok + "3", User: "tim", Org: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +218,8 @@ func TestLocalDeleteOrg(t *testing.T) {
 // 撤銷的獨立模式 token 重啟後不能復活;credentials.json 換成新的一把
 func TestStandaloneRevokedSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
-	l, err := OpenStandalone(LocalConfig{DataDir: dir}, false)
+	db := testDB(t)
+	l, err := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestStandaloneRevokedSurvivesRestart(t *testing.T) {
 	if code, _ := localReq(t, l.Handler(), "GET", "/api/orgs", c1.Token, nil); code != 401 {
 		t.Fatal("撤銷後要 401", code)
 	}
-	l2, err := OpenStandalone(LocalConfig{DataDir: dir}, false)
+	l2, err := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,11 +249,12 @@ func TestStandaloneRevokedSurvivesRestart(t *testing.T) {
 // 換本機使用者:舊使用者在同裝置名稱下的 token 作廢;rotate 作廢所有獨立模式 token;同雜湊不會對到兩個使用者
 func TestLocalUserSwitchAndRotate(t *testing.T) {
 	dir := t.TempDir()
+	db := testDB(t)
 	// App 模式換使用者
-	if _, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok, User: "tim"}); err != nil {
+	if _, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok, User: "tim"}); err != nil {
 		t.Fatal(err)
 	}
-	lb, err := OpenLocal(LocalConfig{DataDir: dir, Token: testTok + "b", User: "bob"})
+	lb, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: testTok + "b", User: "bob"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,11 +262,11 @@ func TestLocalUserSwitchAndRotate(t *testing.T) {
 		t.Fatal("換使用者後 tim 的 App token 要作廢", code)
 	}
 	// 獨立模式換使用者
-	if _, err := OpenStandalone(LocalConfig{DataDir: dir, User: "tim"}, false); err != nil {
+	if _, err := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir, User: "tim"}, false); err != nil {
 		t.Fatal(err)
 	}
 	c1 := ReadStandaloneCred(dir)
-	ls, err := OpenStandalone(LocalConfig{DataDir: dir, User: "bob"}, false)
+	ls, err := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir, User: "bob"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +286,7 @@ func TestLocalUserSwitchAndRotate(t *testing.T) {
 	_ = ls.Store.SaveUser(alice)
 	aliceTok := testTok + "alice"
 	_ = ls.Store.CreateToken(model.Token{ID: "t_alice", UserID: alice.ID, Device: StandaloneDevice, CreatedAt: model.Now(), Hash: service.HashToken(aliceTok)})
-	lr, err := OpenStandalone(LocalConfig{DataDir: dir, User: "bob"}, true)
+	lr, err := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir, User: "bob"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,24 +299,24 @@ func TestLocalUserSwitchAndRotate(t *testing.T) {
 	if code, _ := localReq(t, lr.Handler(), "GET", "/api/orgs", c3.Token, nil); code != 200 {
 		t.Fatal(code)
 	}
-	// 同一個雜湊:別的使用者(別的裝置名稱)剛好有同一把的有效紀錄 → 作廢,只對到這次的使用者
+	// 同一個雜湊:別的使用者(別的裝置名稱)剛好有同一把的有效紀錄 → 作廢;而且同一把不能重新啟用
 	shared := testTok + "shared"
 	_ = lr.Store.CreateToken(model.Token{ID: "t_shared", UserID: alice.ID, Device: "cli", CreatedAt: model.Now(), Hash: service.HashToken(shared)})
-	lt, err := OpenLocal(LocalConfig{DataDir: dir, Token: shared, User: "tim"})
-	if err != nil {
-		t.Fatal(err)
+	// PG 留著已撤銷的紀錄(雜湊唯一),所以同一把 token 不能重新啟用:啟動失敗,而且別人那筆已經作廢
+	if _, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: shared, User: "tim"}); err == nil {
+		t.Fatal("同雜湊已有別人的紀錄時要拒絕啟動")
 	}
-	toks, _ := lt.Store.ListTokens(model.Now().Time)
+	if code, _ := localReq(t, lr.Handler(), "GET", "/api/orgs", shared, nil); code != 401 {
+		t.Fatal("別人的同雜湊 token 要作廢", code)
+	}
+	toks, _ := lr.Store.ListTokens(model.Now().Time)
 	n := 0
 	for _, tk := range toks {
 		if string(tk.Hash) == string(service.HashToken(shared)) {
 			n++
 		}
 	}
-	if n != 1 {
-		t.Fatal("同一個雜湊只能有一筆有效紀錄", n)
-	}
-	if code, out := localReq(t, lt.Handler(), "GET", "/api/auth/me", shared, nil); code != 200 || !strings.Contains(mustJSON(out), `"tim"`) {
-		t.Fatal(code, out)
+	if n != 0 {
+		t.Fatal("作廢後不該還有有效紀錄", n)
 	}
 }

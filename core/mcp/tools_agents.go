@@ -2,12 +2,14 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"omixor-core/backend"
+	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -63,13 +65,34 @@ func taskJSON(e AgentEnv, t model.AgentTask) map[string]any {
 	d["createdBy"] = e.AuthorName(t.CreatedBy)
 	notes := []any{}
 	for _, n := range t.Notes {
-		notes = append(notes, map[string]any{"author": e.AuthorName(n.Author), "text": n.Text, "at": iso(n.At.Time)})
+		nm := map[string]any{"author": e.AuthorName(n.Author), "text": n.Text, "at": iso(n.At.Time)}
+		putActor(nm, "authorActor", n.AuthorActor)
+		notes = append(notes, nm)
 	}
 	d["notes"] = notes
 	return d
 }
 
-func terr(err error) error { return ToolError{Message: err.Error()} }
+// terr 核心 / 後端的錯誤轉成工具錯誤:狀態碼、訊息、data 取自 httperr(409 的 currentVersion、taskCounts 隨
+// structuredContent 回給呼叫端);資料庫錯誤等內部細節換成通用訊息,原文由 toolFailure 連同工具名稱寫進 log
+func terr(err error) error {
+	var te ToolError
+	if errors.As(err, &te) {
+		return te
+	}
+	in := httperr.Classify(err)
+	te = ToolError{Message: in.Msg, Data: in.Data}
+	if in.Status != 500 || len(in.Data) > 0 {
+		te.Status = in.Status
+	}
+	if in.Masked {
+		te.cause = err
+		if in.Cause != nil {
+			te.cause = in.Cause
+		}
+	}
+	return te
+}
 
 func parseRoutine(d map[string]any) (model.AgentRoutine, error) {
 	a := Args{Raw: d}
@@ -230,6 +253,7 @@ func RegisterAgentTools(s *Server) {
 			}
 			if t.ClaimedBy != "" {
 				row["claimedBy"] = t.ClaimedBy
+				putActor(row, "claimedByActor", t.ClaimedByActor)
 			}
 			out = append(out, row)
 		}
@@ -249,15 +273,15 @@ func RegisterAgentTools(s *Server) {
 		res, err := e.Backend().ClaimTask(e.Org(), in)
 		if err != nil {
 			if service.Code(err) == 409 { // 含「已被領取、處理中,鎖定到 hh:mm」:原文轉給呼叫端
-				return nil, ToolError{Message: "領取失敗:" + err.Error()}
+				return nil, prefixErr("領取失敗:", err)
 			}
 			return nil, terr(err)
 		}
 		out := map[string]any{"agent": map[string]any{}, "task": nil}
-		name, gid := ag, ag
+		name := ag
 		if res.Agent != nil {
 			out["agent"] = agentJSON(e, cabLayout(e), *res.Agent, openTasksOf(e, res.Agent.ID))
-			name, gid = res.Agent.Name, res.Agent.ID
+			name = res.Agent.Name
 		}
 		if res.Task == nil {
 			out["message"] = name + " 目前沒有待領取的任務"
@@ -276,7 +300,7 @@ func RegisterAgentTools(s *Server) {
 		if res.Task.LockedUntil != nil {
 			lockNote = "已鎖定到 " + res.Task.LockedUntil.Time.In(time.Local).Format("15:04") + "(其他人不能再領);長任務請定期用 agent_task_report(status: inProgress)回報進度以續約,逾時未回報會被自動退回待領取。"
 		}
-		out["message"] = "已領取。" + lockNote + "做完用 agent_task_report 回報。開 Issue 或留言時帶 agent: \"" + gid + "\",才會署名這個角色;或改用 credential 連角色端點,署名由憑證決定"
+		out["message"] = "已領取。" + lockNote + "要以這個角色身分工作(署名、文件權限),用 credential 連角色端點(Authorization: Bearer <agentId>:<secret>),身分由憑證決定;做完用 agent_task_report 回報。這個端點不能指定角色身分署名"
 		return out, nil
 	})
 
@@ -470,4 +494,39 @@ func RegisterAgentTools(s *Server) {
 		}
 		return taskJSON(e, *t), nil
 	})
+
+	s.Register("agent_task_transfer", func(c *Call) (any, error) {
+		e := agentEnv(c)
+		from, err := c.Args.Require("from")
+		if err != nil {
+			return nil, err
+		}
+		to, err := c.Args.Require("to")
+		if err != nil {
+			return nil, err
+		}
+		scope, err := c.Args.OptionalEnum("scope", []string{service.TransferOpen, service.TransferAll})
+		if err != nil {
+			return nil, err
+		}
+		res, err := e.Backend().TransferAgentTasks(e.Org(), service.AgentTransferInput{From: from, To: to, Scope: scope})
+		if err != nil {
+			return nil, terr(err)
+		}
+		return map[string]any{"from": res.From, "to": res.To, "scope": res.Scope, "total": res.Total, "released": res.Released, "byStatus": res.ByStatus}, nil
+	})
 }
+
+// prefixErr 同 terr,訊息前面加一段說明(狀態碼、data 照舊)
+func prefixErr(prefix string, err error) error {
+	te := terr(err).(ToolError)
+	te.Message = prefix + te.Message
+	return te
+}
+
+// ToolErr 同 terr(給核心以外的工具套件用):錯誤轉成工具錯誤,資料庫錯誤等內部細節換成通用訊息,原文連同工具名稱進 log;
+// 刻意給人看的錯誤(ToolError、httperr.Public)訊息照給
+func ToolErr(err error) error { return terr(err) }
+
+// PrefixErr 同 ToolErr,訊息前面加一段說明
+func PrefixErr(prefix string, err error) error { return prefixErr(prefix, err) }

@@ -3,12 +3,41 @@
     {
       "from": "user:tim@example.com",
       "to": "agent:pm",
-      "label": "目標"
+      "label": "目標",
+      "fromActor": {
+        "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+        "kind": "user",
+        "handle": "tim@example.com",
+        "name": "Tim",
+        "email": "tim@example.com",
+        "status": "active"
+      },
+      "toActor": {
+        "id": "agt_019a3f2c-0000-7000-8000-000000000003",
+        "kind": "agent",
+        "handle": "pm",
+        "name": "產品經理",
+        "status": "suspended"
+      }
     },
     {
       "from": "agent:pm",
       "to": "agent:eng",
-      "label": ""
+      "label": "",
+      "fromActor": {
+        "id": "agt_019a3f2c-0000-7000-8000-000000000003",
+        "kind": "agent",
+        "handle": "pm",
+        "name": "產品經理",
+        "status": "suspended"
+      },
+      "toActor": {
+        "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+        "kind": "agent",
+        "handle": "eng",
+        "name": "工程師",
+        "status": "active"
+      }
     }
   ],
   "updatedAt": "2026-11-01T00:00:00Z"

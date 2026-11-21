@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"omixor-core/env"
+	"omixor-core/config"
 )
 
 // 旁白語音批次的流程,同 Swift 版 Voice/VoicePipeline.swift:
@@ -87,7 +87,7 @@ func StartVoice(a *App, timer bool) *VoicePipeline {
 }
 
 func init() {
-	OnStart(func(a *App) { StartVoice(a, env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") != "1") })
+	OnStart(func(a *App) { StartVoice(a, !config.Current().Bool(config.NoTimers)) })
 }
 
 // MARK: - 設定
@@ -104,7 +104,7 @@ func (p *VoicePipeline) loadSettings() {
 func (p *VoicePipeline) SaveSettings() { _ = WriteJSON(voiceSettingsPath(), p.Settings) }
 
 func (p *VoicePipeline) ShuttleRoot() string {
-	if e := env.Get("OMIXOR_SHUTTLE_PATH", "OPS_SHUTTLE_PATH"); e != "" {
+	if e := config.Current().Str(config.ShuttlePath); e != "" {
 		return e
 	}
 	s := p.Settings.ShuttlePath

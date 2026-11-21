@@ -9,7 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"omixor-core/env"
+	"omixor-core/config"
+	"omixor-core/httperr"
 )
 
 // GCP:用「Google Cloud」連線(Google 網頁 OAuth,cloud-platform.read-only)讀 Cloud Run 服務、版本、Job 執行、
@@ -477,7 +478,7 @@ func GCPLogFilter(service, job *string, severity string, since time.Time, contai
 func GCPExplain(err error) string {
 	e, ok := AsConnError(err)
 	if !ok {
-		return err.Error()
+		return httperr.Report("GCP 連線", err).Msg // 資料庫錯誤、路徑等換成通用訊息,原文進 log
 	}
 	switch e.Status {
 	case 401:
@@ -861,7 +862,7 @@ func GCPExecutionJSON(e GCPExecution, withDuration bool) map[string]any {
 
 func init() {
 	OnStart(func(a *App) {
-		if env.Get("OMIXOR_NO_TIMERS", "OPS_NO_TIMERS") == "1" {
+		if config.Current().Bool(config.NoTimers) {
 			return
 		}
 		go func() {

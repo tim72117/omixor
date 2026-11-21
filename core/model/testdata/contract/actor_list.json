@@ -1,0 +1,39 @@
+[
+  {
+    "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+    "kind": "user",
+    "handle": "tim@example.com",
+    "name": "Tim",
+    "email": "tim@example.com",
+    "status": "active"
+  },
+  {
+    "id": "usr_019a3f2c-0000-7000-8000-000000000004",
+    "kind": "user",
+    "handle": "old@example.com",
+    "name": "Old",
+    "email": "old@example.com",
+    "status": "disabled"
+  },
+  {
+    "id": "agt_019a3f2c-0000-7000-8000-000000000002",
+    "kind": "agent",
+    "handle": "eng",
+    "name": "工程師",
+    "status": "active"
+  },
+  {
+    "id": "agt_019a3f2c-0000-7000-8000-000000000003",
+    "kind": "agent",
+    "handle": "pm",
+    "name": "產品經理",
+    "status": "suspended"
+  },
+  {
+    "id": "sys_omixor",
+    "kind": "system",
+    "handle": "omixor",
+    "name": "omixor 系統",
+    "status": "active"
+  }
+]

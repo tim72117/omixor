@@ -7,6 +7,7 @@
 //	omixor members [--org default]                 組織成員
 //	omixor members add <email> [--role admin|member] [--org default]
 //	omixor members remove <email> [--org default]
+//	omixor actors [--org default] [--kind user|agent|system] [--q 前綴] [--status active|disabled|suspended|retired|all]   組織看得到的使用者、角色、系統 actor(id、種類、handle、名稱、狀態)
 //	omixor users | users add <email> [--role admin|member] | users role <email> <role> | users disable|enable <email>
 //	omixor tokens | tokens revoke <id>
 //	omixor audit [--limit 100]
@@ -41,6 +42,7 @@ import (
 
 	"omixor-core/backend"
 	"omixor-core/client"
+	"omixor-core/config"
 	"omixor-core/evoleap"
 	"omixor-core/mcp"
 	"omixor-core/model"
@@ -59,7 +61,7 @@ type credentials struct {
 
 // configDir 設定資料夾(OMIXOR_CONFIG_DIR 可改,測試用)
 func configDir() string {
-	if d := os.Getenv("OMIXOR_CONFIG_DIR"); d != "" {
+	if d := config.Current().Str(config.ConfigDir); d != "" {
 		return d
 	}
 	dir, _ := os.UserConfigDir()
@@ -95,7 +97,7 @@ func serverKey(srv string) string {
 
 // credPath 這台伺服器的登入資料
 func credPath(srv string) string {
-	if p := os.Getenv("OMIXOR_CREDENTIALS"); p != "" {
+	if p := config.Current().Str(config.Credentials); p != "" {
 		return p
 	}
 	return filepath.Join(configDir(), "credentials", serverKey(trim(srv))+".json")
@@ -115,7 +117,7 @@ func loadCred(srv string) credentials {
 	if c := readCred(credPath(srv)); c.Token != "" && (c.Server == "" || trim(c.Server) == srv) {
 		return c
 	}
-	if os.Getenv("OMIXOR_CREDENTIALS") != "" {
+	if config.Current().Str(config.Credentials) != "" {
 		return credentials{}
 	}
 	if c := readCred(legacyCredPath()); c.Token != "" && trim(c.Server) == srv {
@@ -136,12 +138,12 @@ func saveCred(c credentials) error {
 
 // pickServer 這個指令連哪一台:--server > OMIXOR_SERVER > 上次登入的 > 舊版登入資料的 > 正式站
 func pickServer(flagSrv string) string {
-	for _, s := range []string{flagSrv, os.Getenv("OMIXOR_SERVER")} {
+	for _, s := range []string{flagSrv, config.Current().Str(config.ServerURL)} {
 		if s = trim(s); s != "" {
 			return s
 		}
 	}
-	if os.Getenv("OMIXOR_CREDENTIALS") == "" {
+	if config.Current().Str(config.Credentials) == "" {
 		if b, err := os.ReadFile(currentSrvPath()); err == nil {
 			if s := trim(string(b)); s != "" {
 				return s
@@ -149,7 +151,7 @@ func pickServer(flagSrv string) string {
 		}
 	}
 	p := legacyCredPath()
-	if e := os.Getenv("OMIXOR_CREDENTIALS"); e != "" {
+	if e := config.Current().Str(config.Credentials); e != "" {
 		p = e
 	}
 	if c := readCred(p); c.Server != "" {
@@ -198,7 +200,15 @@ func reorder(args []string, valued map[string]bool) []string {
 	return append(flags, pos...)
 }
 
-var valued = map[string]bool{"role": true, "org": true, "o": true, "limit": true, "server": true, "agent": true, "interval": true, "device": true, "from": true, "name": true, "evoleap": true, "evoleap-console": true}
+var valued = map[string]bool{"role": true, "org": true, "o": true, "limit": true, "server": true, "agent": true, "interval": true, "device": true, "from": true, "name": true, "kind": true, "q": true, "status": true, "evoleap": true, "evoleap-console": true}
+
+// actorID 輸出用:actor 物件的 id;沒有(查不到)是空字串
+func actorID(a *model.ActorView) string {
+	if a == nil {
+		return ""
+	}
+	return a.ID
+}
 
 func printJSON(w io.Writer, v any) {
 	b, _ := json.MarshalIndent(v, "", "  ")
@@ -217,10 +227,18 @@ func readIssues(file string) ([]model.Issue, error) {
 	return list, nil
 }
 
-const usage = `用法:omixor login|logout|whoami|orgs|members|users|tokens|audit|issues|agents|channel …(說明見 core/cli/cli.go)`
+const usage = `用法:omixor login|logout|whoami|orgs|members|actors|users|tokens|audit|issues|agents|channel …(說明見 core/cli/cli.go)`
 
 // Main 給 cmd 用:執行並在出錯時結束程式
 func Main(args []string) {
+	if len(args) > 0 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
+		fmt.Println(usage)
+		fmt.Println()
+		fmt.Print(config.Usage(config.CLI))
+		return
+	}
+	// 設定(環境變數)啟動時集中讀取、驗證一次;有問題一次列完
+	config.MustLoad(config.CLI)
 	if err := Run(args, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -238,6 +256,9 @@ func Run(args []string, out io.Writer) error {
 	org := fs.String("org", "default", "組織 id")
 	role := fs.String("role", "", "admin 或 member")
 	name := fs.String("name", "", "名稱")
+	kindFlag := fs.String("kind", "", "actor 種類:user、agent、system")
+	qFlag := fs.String("q", "", "actor 的 handle 或名稱前綴")
+	statusFlag := fs.String("status", "", "actor 狀態:active、disabled、suspended、retired、all")
 	outFile := fs.String("o", "", "輸出檔案")
 	from := fs.String("from", "", "還原用的 issues.json")
 	yes := fs.Bool("yes", false, "真的刪除")
@@ -292,7 +313,7 @@ func Run(args []string, out io.Writer) error {
 		if err := saveCred(credentials{Server: srv, Token: res.Token, TokenID: res.TokenID, Email: res.User.Email, ExpiresAt: res.ExpiresAt}); err != nil {
 			return err
 		}
-		if os.Getenv("OMIXOR_CREDENTIALS") == "" {
+		if config.Current().Str(config.Credentials) == "" {
 			_ = setCurrentServer(srv) // 之後的指令沒指定 --server 就連這台
 		}
 		exp := "不到期"
@@ -375,8 +396,16 @@ func Run(args []string, out io.Writer) error {
 				return err
 			}
 			for _, m := range l {
-				fmt.Fprintf(out, "%-32s %-6s %s\n", m.Email, m.Role, m.Name)
+				fmt.Fprintf(out, "%-32s %-6s %-20s %s\n", m.Email, m.Role, m.Name, actorID(m.ActorRef))
 			}
+		}
+	case "actors":
+		l, err := cl.ListActors(*org, *kindFlag, *qFlag, *statusFlag)
+		if err != nil {
+			return err
+		}
+		for _, a := range l {
+			fmt.Fprintf(out, "%-44s %-6s %-28s %-9s %s\n", a.ID, a.Kind, a.Handle, a.Status, a.Name)
 		}
 	case "users":
 		if sub == "" || sub == "list" {
@@ -480,7 +509,11 @@ func issues(cl *client.Client, out io.Writer, sub string, pos []string, org, out
 			return err
 		}
 		for _, i := range l {
-			fmt.Fprintf(out, "%-8s %-6s %s\n", i.ID, i.Status, i.Title)
+			project := i.Project
+			if project == "" {
+				project = "-"
+			}
+			fmt.Fprintf(out, "%-10s %-8s %-6s %s\n", i.Display(), project, i.Status, i.Title)
 		}
 	case "export":
 		l, err := cl.ExportIssues(org)
@@ -520,6 +553,9 @@ func issues(cl *client.Client, out io.Writer, sub string, pos []string, org, out
 		file := map[string]model.Issue{}
 		for _, i := range list {
 			file[strings.ToUpper(i.ID)] = i
+			if i.Key != "" {
+				file[strings.ToUpper(i.Key)] = i
+			}
 		}
 		for _, id := range ids {
 			src, ok := file[strings.ToUpper(id)]
@@ -528,11 +564,11 @@ func issues(cl *client.Client, out io.Writer, sub string, pos []string, org, out
 			}
 			labels, comments := src.Labels, src.Comments
 			got, err := cl.UpdateIssue(org, src.ID, service.IssuePatch{Title: &src.Title, Body: &src.Body, Status: &src.Status,
-				Priority: &src.Priority, Labels: &labels, Source: &src.Source, Link: &src.Link, Repo: &src.Repo, Comments: &comments, Author: src.CreatedBy})
+				Priority: &src.Priority, Labels: &labels, Source: &src.Source, Link: &src.Link, Repo: &src.Repo, Comments: &comments, Restore: true})
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "已還原 %s「%s」(%s、%s、%d 則留言)\n", got.ID, got.Title, got.Status, got.Priority, len(got.Comments))
+			fmt.Fprintf(out, "已還原 %s「%s」(%s、%s、%d 則留言)\n", got.Display(), got.Title, got.Status, got.Priority, len(got.Comments))
 		}
 	case "delete":
 		if len(ids) == 0 && !all {
@@ -545,6 +581,9 @@ func issues(cl *client.Client, out io.Writer, sub string, pos []string, org, out
 		have := map[string]model.Issue{}
 		for _, i := range cur {
 			have[strings.ToUpper(i.ID)] = i
+			if i.Key != "" {
+				have[strings.ToUpper(i.Key)] = i
+			}
 			if all {
 				ids = append(ids, i.ID)
 			}
@@ -559,7 +598,7 @@ func issues(cl *client.Client, out io.Writer, sub string, pos []string, org, out
 				return fmt.Errorf("伺服器上沒有 %s(什麼都還沒刪)", id)
 			}
 			if !yes {
-				fmt.Fprintf(out, "會刪除 %s「%s」\n", i.ID, i.Title)
+				fmt.Fprintf(out, "會刪除 %s「%s」\n", i.Display(), i.Title)
 			}
 		}
 		if !yes {
@@ -571,7 +610,7 @@ func issues(cl *client.Client, out io.Writer, sub string, pos []string, org, out
 			if err := cl.DeleteIssue(org, i.ID); err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "已刪除 %s「%s」\n", i.ID, i.Title)
+			fmt.Fprintf(out, "已刪除 %s「%s」(移到垃圾桶)\n", i.Display(), i.Title)
 		}
 	default:
 		return errors.New(usage)

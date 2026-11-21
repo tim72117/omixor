@@ -74,7 +74,8 @@ func TestAppModeArgs(t *testing.T) {
 // token 第一次產生、之後沿用;rotate 換新的、舊的作廢;App 模式與獨立模式的 token 互不作廢
 func TestStandaloneToken(t *testing.T) {
 	dir := t.TempDir()
-	l, err := OpenStandalone(LocalConfig{DataDir: dir}, false)
+	db := testDB(t)
+	l, err := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestStandaloneToken(t *testing.T) {
 	}
 
 	// 重開:同一把 token,紀錄不重建
-	l2, err := OpenStandalone(LocalConfig{DataDir: dir}, false)
+	l2, err := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,10 +110,10 @@ func TestStandaloneToken(t *testing.T) {
 
 	// 同一個資料夾用 App 模式開(另一個裝置名稱):獨立模式的 token 不受影響
 	appTok := testTok + "app"
-	if _, err := OpenLocal(LocalConfig{DataDir: dir, Token: appTok}); err != nil {
+	if _, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: appTok}); err != nil {
 		t.Fatal(err)
 	}
-	l3, err := OpenStandalone(LocalConfig{DataDir: dir}, false)
+	l3, err := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestStandaloneToken(t *testing.T) {
 	}
 
 	// rotate:換新的,舊的 401;App 的照樣能用
-	l4, err := OpenStandalone(LocalConfig{DataDir: dir}, true)
+	l4, err := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,10 +143,10 @@ func TestStandaloneToken(t *testing.T) {
 		}
 	}
 	// App 模式重開:作廢的只有 App 自己的舊 token
-	if _, err := OpenLocal(LocalConfig{DataDir: dir, Token: appTok + "2"}); err != nil {
+	if _, err := OpenLocal(LocalConfig{DatabaseURL: db, DataDir: dir, Token: appTok + "2"}); err != nil {
 		t.Fatal(err)
 	}
-	l5, _ := OpenStandalone(LocalConfig{DataDir: dir}, false)
+	l5, _ := OpenStandalone(LocalConfig{DatabaseURL: db, DataDir: dir}, false)
 	if code, _ := localReq(t, l5.Handler(), "GET", "/api/orgs", appTok, nil); code != 401 {
 		t.Fatal("App 舊的 token 要作廢", code)
 	}
@@ -158,7 +159,8 @@ func TestStandaloneToken(t *testing.T) {
 func TestRunLocalStandalone(t *testing.T) {
 	t.Setenv("OMIXOR_PUBLIC_URL", "")
 	dir := t.TempDir()
-	env := envMap(map[string]string{"OMIXOR_DATA_DIR": dir, "OMIXOR_ADDR": "127.0.0.1:0"})
+	db := testDB(t)
+	env := envMap(map[string]string{"OMIXOR_DATA_DIR": dir, "OMIXOR_ADDR": "127.0.0.1:0", "OMIXOR_DATABASE_URL": db})
 	pr, pw := io.Pipe()
 	stop := make(chan struct{})
 	res := make(chan error, 1)

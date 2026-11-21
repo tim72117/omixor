@@ -35,6 +35,8 @@ services:
       OMIXOR_WEB_LOCAL_ONLY_PUBLISH: "1"
       OMIXOR_WEB_HOSTS: ${OMIXOR_WEB_HOSTS:-${OPS_WEB_HOSTS:-}}
       OMIXOR_MCP_ADDR: 0.0.0.0
+      # MCP 連接埠的 Bearer 權杖;沒設時 console 自己產生並存在資料庫(畫面的 MCP 設定頁,管理員可以查看或換新)
+      OMIXOR_CONSOLE_MCP_TOKEN: ${OMIXOR_CONSOLE_MCP_TOKEN:-}
     ports:
       - "127.0.0.1:5191:5191"
       - "127.0.0.1:${OMIXOR_MCP_HOST_PORT:-${OPS_MCP_HOST_PORT:-3765}}:3765"

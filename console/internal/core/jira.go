@@ -229,14 +229,14 @@ func JiraImport(a *App, projects []string, includeClosed bool) (JiraImportResult
 			continue
 		}
 		num++
-		n.ID = "ISS-" + strconv.Itoa(num) // 實際的編號由核心依目前最大號碼往後給
+		n.ID = "" // id 與 key 由核心產生
 		created = append(created, n)
 		res.Created++
 	}
 	if err := a.issueRemoteSave(s.Org, updated, created); err != nil {
 		a.issueRemoteFailed(err)
 		a.Mu.Unlock()
-		return res, UserError{"Issue 沒有存起來:" + err.Error()}
+		return res, facingPrefix("jira_import", "Issue 沒有存起來:", err)
 	}
 	a.issueRemoteLoad(s)
 	a.Log(a.Actor(), "square.and.arrow.down", "從 Jira 匯入 "+strings.Join(keys, "、")+":新增 "+strconv.Itoa(res.Created)+

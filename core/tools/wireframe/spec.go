@@ -23,6 +23,9 @@ type Error struct{ Msg string }
 
 func (e *Error) Error() string { return "線框圖描述錯誤:" + e.Msg }
 
+// HTTPError 描述有誤是給使用者看的訊息(httperr.Public);沒有指定狀態碼
+func (e *Error) HTTPError() (int, map[string]any) { return 0, nil }
+
 func errf(format string, a ...any) error { return &Error{fmt.Sprintf(format, a...)} }
 
 // node 解析後的一個節點

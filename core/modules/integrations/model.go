@@ -32,6 +32,8 @@ type GitHubSettings struct {
 	Saved     bool        `json:"saved"`
 	UpdatedAt *model.Time `json:"updatedAt,omitempty"`
 	UpdatedBy string      `json:"updatedBy,omitempty"` // email(或名稱)
+	// UpdatedByActor 最後修改者的 actor 物件(ISS-36 C-3;只在服務層輸出補)
+	UpdatedByActor *model.ActorView `json:"updatedByActor,omitempty"`
 }
 
 // Clone 深拷貝
@@ -53,6 +55,8 @@ type GitLabSettings struct {
 	Saved     bool        `json:"saved"`
 	UpdatedAt *model.Time `json:"updatedAt,omitempty"`
 	UpdatedBy string      `json:"updatedBy,omitempty"`
+	// UpdatedByActor 最後修改者的 actor 物件(ISS-36 C-3;只在服務層輸出補)
+	UpdatedByActor *model.ActorView `json:"updatedByActor,omitempty"`
 }
 
 // Clone 深拷貝

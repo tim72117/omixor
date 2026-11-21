@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"omixor-core/cli"
+	"omixor-core/config"
 	"omixor-core/version"
 )
 
@@ -39,7 +40,7 @@ func printVersion() {
 
 // loginServer 讀 omixor login 存的登入資料,回傳發 token 的 server 網址(沒登入回傳 "")
 func loginServer() string {
-	p := os.Getenv("OMIXOR_CREDENTIALS")
+	p := config.Current().Str(config.Credentials)
 	if p == "" {
 		dir, _ := os.UserConfigDir()
 		if home, err := os.UserHomeDir(); err == nil {

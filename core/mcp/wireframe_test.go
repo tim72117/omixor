@@ -9,13 +9,13 @@ import (
 	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 	"omixor-core/tools/wireframe"
 )
 
 // wireframe_render:畫圖、存文件(新增與更新第一個 ```wireframe 區塊)、從文件重畫,文件權限同 doc_save
 func TestWireframeTool(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})
@@ -66,12 +66,7 @@ func TestWireframeTool(t *testing.T) {
 
 	// 角色的文件權限:只能寫構想
 	ok(t, admin, "", "agent_upsert", map[string]any{"id": "designer", "name": "設計師", "doc_access": map[string]any{"構想": "write"}})
-	fails(t, admin, "", "wireframe_render", map[string]any{"spec": spec, "agent": "designer", "save": map[string]any{"section": "機密", "title": "x"}},
-		"線框圖畫好了,但存到文件櫃失敗:設計師沒有權限寫入「機密」;它可以寫的範圍:構想")
-	out = ok(t, admin, "", "wireframe_render", map[string]any{"spec": spec, "agent": "designer", "save": map[string]any{"section": "ideas", "title": "角色畫的"}})
-	if out["doc"].(map[string]any)["location"] != "構想" {
-		t.Fatal(out["doc"])
-	}
+	fails(t, admin, "", "wireframe_render", map[string]any{"spec": spec, "agent": "designer", "save": map[string]any{"section": "機密", "title": "x"}}, mcp.IdentityAgentError)
 
 	// 角色端點也開放
 	if _, err := svc.AssignTask(boss, "lab", service.TaskInput{AgentID: "designer", Title: "畫圖"}); err != nil {

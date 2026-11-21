@@ -1,0 +1,29 @@
+[
+  {
+    "id": 2,
+    "at": "2026-11-05T03:00:00Z",
+    "userId": "u_tim",
+    "email": "tim@example.com",
+    "source": "login",
+    "actorRef": {
+      "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+      "kind": "user",
+      "handle": "tim@example.com",
+      "name": "Tim",
+      "email": "tim@example.com",
+      "status": "active"
+    },
+    "action": "issue.create",
+    "org": "acme",
+    "detail": {
+      "id": "ISS-12"
+    }
+  },
+  {
+    "id": 1,
+    "at": "2026-11-05T02:00:00Z",
+    "userId": "",
+    "email": "",
+    "action": "login.denied"
+  }
+]

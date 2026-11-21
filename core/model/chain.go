@@ -6,7 +6,7 @@ import (
 
 // 組織鏈(資訊流動方向):CEO 給研發長「目標」,研發長給產品經理、設計師、工程師「任務」,做完的人回報給派工的人。
 // 一個組織一份 OrgChain;一條邊 From → To 表示「From 可以派工作給 To(Label 例如 目標、任務,空白 = 任務);To 做完回報給 From」。
-// 節點是 "agent:<角色 id>" 或 "user:<email 小寫>"。規則(驗證、依鏈派工、自動回報)在 service/chain.go。
+// 節點是 actor id(usr_… 或 agt_…;ISS-36),對外輸出才轉成相容的 "agent:<角色 id>" 或 "user:<email>"(service 的 presentChain)。規則(驗證、依鏈派工、自動回報)在 service/chain.go。
 
 // UserPrefix 真人成員節點的前綴(角色節點用 AgentPrefix)
 const UserPrefix = "user:"
@@ -24,6 +24,9 @@ type ChainEdge struct {
 	From  string `json:"from"`
 	To    string `json:"to"`
 	Label string `json:"label"`
+	// FromActor、ToActor 端點的 actor 物件(ISS-36 C-3;服務層出口補,和相容的節點字串 from、to 並存;查不到省略)
+	FromActor *ActorView `json:"fromActor,omitempty"`
+	ToActor   *ActorView `json:"toActor,omitempty"`
 }
 
 type OrgChain struct {
@@ -87,16 +90,12 @@ func AgentNode(id string) string { return AgentPrefix + id }
 // UserNode user:<email 小寫>
 func UserNode(email string) string { return UserPrefix + strings.ToLower(strings.TrimSpace(email)) }
 
-// NodeOfAuthor 任務的 createdBy 對應的鏈上節點:agent:<id> 原樣、email 換成 user:<email 小寫>;其他(routine、chain、mcp…)回空字串
+// NodeOfAuthor 任務的 createdBy(actor id)對應的鏈上節點:使用者或角色的 actor id 原樣;系統 actor(routine、chain、omixor…)與其他回空字串
+// (鏈上的節點就是 actor id,見 OrgChain)
 func NodeOfAuthor(createdBy string) string {
 	a := strings.TrimSpace(createdBy)
-	switch {
-	case strings.HasPrefix(a, AgentPrefix) && len(a) > len(AgentPrefix):
+	if k, ok := ActorKindOfID(a); ok && k != ActorKindSystem {
 		return a
-	case strings.HasPrefix(a, UserPrefix) && len(a) > len(UserPrefix):
-		return UserNode(a[len(UserPrefix):])
-	case strings.Contains(a, "@"):
-		return UserNode(a)
 	}
 	return ""
 }

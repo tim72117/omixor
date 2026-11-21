@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"omixor-core/backend"
@@ -9,10 +10,11 @@ import (
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 func TestCabinetLayoutSave(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})
@@ -56,7 +58,7 @@ func TestCabinetLayoutSave(t *testing.T) {
 		map[string]any{"section": "課程", "label": "課程規劃"},
 		map[string]any{"tab": "L0", "label": "AI 工具", "code": ""},
 	}})
-	l, _ := st.GetCabinetLayout("lab", "")
+	l, _ := getLayoutOnly(st)
 	if sec := model.Layout(l).Section("s3"); sec == nil || sec.Label != "課程規劃" || sec.Tabs[0].Label != "AI 工具" || sec.Tabs[0].Code != nil {
 		t.Fatalf("改名:%+v", l)
 	}
@@ -66,7 +68,7 @@ func TestCabinetLayoutSave(t *testing.T) {
 	fails(t, admin, "", "cabinet_layout_save", map[string]any{"add_tabs": []any{map[string]any{"section": "nope", "label": "x"}}}, "找不到區塊「nope」")
 	fails(t, admin, "", "cabinet_layout_save", map[string]any{"add_tabs": []any{map[string]any{"section": "行銷", "label": "IG"}}, "remove": []any{"AI 工具"}},
 		"「腳本」還在被拿掉的頁籤裡,先搬走或刪除")
-	if l, _ := st.GetCabinetLayout("lab", ""); len(model.Layout(l).Section("marketing").Tabs) != 1 {
+	if l, _ := getLayoutOnly(st); len(model.Layout(l).Section("marketing").Tabs) != 1 {
 		t.Fatal("失敗時不能存一半")
 	}
 	fails(t, admin, "", "cabinet_layout_save", map[string]any{}, "要給 add_sections、add_tabs、update 或 remove")
@@ -86,7 +88,7 @@ func TestCabinetLayoutSave(t *testing.T) {
 	fails(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"tab": "AI 工具", "label": "x"}}}, "「AI 工具」對到多個頁籤(/s3/1、/mk/1),用頁籤網址指定")
 	fails(t, admin, "", "cabinet_layout_save", map[string]any{"remove": []any{"AI 工具"}}, "「AI 工具」對到多個頁籤(/s3/1、/mk/1),用頁籤網址指定")
 	ok(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"section": "mk", "tab": "AI 工具", "label": "AI"}}})
-	l, _ = st.GetCabinetLayout("lab", "")
+	l, _ = getLayoutOnly(st)
 	if model.Layout(l).TabByPath("/mk/1").Label != "AI" || model.Layout(l).TabByPath("/s3/1").Label != "AI 工具" {
 		t.Fatalf("限定區塊改名:%+v", l)
 	}
@@ -99,12 +101,71 @@ func TestCabinetLayoutSave(t *testing.T) {
 	ok(t, admin, "", "cabinet_layout_save", map[string]any{"add_sections": []any{map[string]any{"label": "AI", "id": "ai"}}})
 	fails(t, admin, "", "cabinet_layout_save", map[string]any{"remove": []any{"AI"}}, "「AI」同時是區塊和頁籤(/mk/1)的名稱:區塊用 id「ai」,頁籤用網址指定")
 	out = ok(t, admin, "", "cabinet_layout_save", map[string]any{"remove": []any{"ai", "/mk/1"}})
-	if l, _ := st.GetCabinetLayout("lab", ""); model.Layout(l).Section("ai") != nil || model.Layout(l).TabByPath("/mk/1") != nil || len(model.Layout(l).Section("mk").Tabs) != 1 {
+	if l, _ := getLayoutOnly(st); model.Layout(l).Section("ai") != nil || model.Layout(l).TabByPath("/mk/1") != nil || len(model.Layout(l).Section("mk").Tabs) != 1 {
 		t.Fatalf("用 id 與網址移除:%+v", l)
 	}
 
 	// 一般成員不能改結構
 	if _, e := call(t, ep(amy), "", "cabinet_layout_save", map[string]any{"add_sections": []any{map[string]any{"label": "x"}}}); e == "" {
 		t.Fatal("一般成員不能改結構")
+	}
+}
+
+func getLayoutOnly(st store.Store) ([]model.CabinetSection, error) {
+	l, _, err := st.GetCabinetLayout("lab", "")
+	return l, err
+}
+
+// 樂觀鎖:cabinet 回傳 layoutVersion;cabinet_layout_save 帶 expectedVersion,版本不符拒絕(不覆蓋);不帶就用這次呼叫開頭讀到的版本
+func TestCabinetLayoutSaveVersion(t *testing.T) {
+	st := storetest.New(t)
+	svc := &service.Service{Store: st}
+	now := model.Now()
+	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})
+	_ = st.CreateOrg(model.Org{ID: "lab", Name: "實驗室", CreatedAt: now})
+	_ = st.SaveMember(model.Member{Org: "lab", UserID: "u1", Email: "boss@x", Role: "admin", AddedAt: now})
+	boss := &model.Principal{User: model.User{ID: "u1", Email: "boss@x", Role: "member"}}
+	admin := mcp.AdminEndpoint(mcp.AdminEndpointConfig{Resolve: func(r *http.Request) (backend.Backend, string, error) {
+		return &backend.Local{Svc: svc, P: boss}, "lab", nil
+	}})
+	ver := func(out map[string]any) int {
+		t.Helper()
+		v, ok := out["layoutVersion"].(float64)
+		if !ok {
+			t.Fatalf("要有 layoutVersion:%v", out)
+		}
+		return int(v)
+	}
+	if v := ver(ok(t, admin, "", "cabinet", nil)); v != 0 {
+		t.Fatal("沒存過是 0", v)
+	}
+	add := func(label string, extra map[string]any) map[string]any {
+		args := map[string]any{"add_sections": []any{map[string]any{"label": label}}}
+		for k, v := range extra {
+			args[k] = v
+		}
+		return args
+	}
+	if v := ver(ok(t, admin, "", "cabinet_layout_save", add("甲", map[string]any{"expectedVersion": 0}))); v != 1 {
+		t.Fatal("第一次存檔後 1", v)
+	}
+	// 沒帶 expectedVersion:向下相容,照常存
+	if v := ver(ok(t, admin, "", "cabinet_layout_save", add("乙", nil))); v != 2 {
+		t.Fatal("不帶也能存", v)
+	}
+	// 帶舊版本:拒絕,結構不變
+	_, e := call(t, admin, "", "cabinet_layout_save", add("丙", map[string]any{"expectedVersion": 1}))
+	if !strings.Contains(e, "結構已被別人更新") || !strings.Contains(e, "目前版本 2") {
+		t.Fatalf("要擋下並說明:%q", e)
+	}
+	if l, _ := getLayoutOnly(st); model.Layout(l).Section("丙") != nil {
+		t.Fatal("被擋的存檔不能寫入")
+	}
+	// 帶目前的版本:成功
+	if v := ver(ok(t, admin, "", "cabinet_layout_save", add("丁", map[string]any{"expectedVersion": 2}))); v != 3 {
+		t.Fatal(v)
+	}
+	if v := ver(ok(t, admin, "", "cabinet", nil)); v != 3 {
+		t.Fatal(v)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"omixor-core/model"
+	"omixor-core/service"
 )
 
 // Issue:型別是核心的 model.Issue / model.Comment(JSON 格式同 Swift 版 Issues/Issues.swift);
@@ -31,6 +32,9 @@ type issueState struct {
 	// Issue 伺服器模式(issues_remote.go):最近一次讀取的時間與錯誤
 	fetched   time.Time
 	remoteErr string
+	// lastErr 最近一次核心錯誤的原型別(*service.Error、client.Error…):409 的 Data(current、currentVersion)要原樣帶給呼叫者,
+	// 不能只剩字串。remoteErr 為空時視為沒有錯誤(見 IssueRemoteErr)
+	lastErr error
 	// gen 清單每變一次加一:背景讀取期間清單變過(新增、修改、同步讀取),讀回來的舊結果就丟掉
 	gen int
 }
@@ -97,11 +101,35 @@ func (a *App) WithOrgIssues(org string, f func()) {
 	f()
 }
 
-// Issue 依 id 找(不分大小寫)
+// issueIs 這張 Issue 是不是編號 ref:內部 id 或目前的 key(不分大小寫;舊的 key 要問核心,見 Issue)
+func issueIs(i model.Issue, ref string) bool {
+	ref = strings.TrimSpace(ref)
+	return ref != "" && (strings.EqualFold(i.ID, ref) || strings.EqualFold(i.Key, ref))
+}
+
+// issueIndex 清單裡編號 ref 的位置(內部 id 或目前的 key);沒有回 -1
+func issueIndex(list []model.Issue, ref string) int {
+	for k := range list {
+		if issueIs(list[k], ref) {
+			return k
+		}
+	}
+	return -1
+}
+
+// Issue 依編號找:內部 id 或目前的 key(不分大小寫);清單裡沒有時問核心(舊的 key 透過別名表解析)。找不到回 nil
 func (a *App) Issue(id string) *model.Issue {
-	for i := range a.issueSt().Issues {
-		if strings.EqualFold(a.issueSt().Issues[i].ID, id) {
-			c := a.issueSt().Issues[i]
+	s := a.issueSt()
+	if k := issueIndex(s.Issues, id); k >= 0 {
+		c := s.Issues[k]
+		return &c
+	}
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	if b, err := a.issueBackend(); err == nil {
+		if i, err := b.GetIssue(s.Org, id); err == nil && i != nil {
+			c := normIssue(*i)
 			return &c
 		}
 	}
@@ -144,14 +172,22 @@ func (a *App) CreateIssue(title, body, priority string, labels []string, source,
 // CreateIssueFor 同 CreateIssue,多一個指派的角色 id(空 = 不指派;有給核心會自動替該角色排任務)
 // 與所屬倉庫 repo(空 = 不標記;格式不對核心回 400)
 func (a *App) CreateIssueFor(title, body, priority string, labels []string, source, link, author, assignee, repo string) model.Issue {
+	return a.CreateIssueIn(service.IssueInput{Title: title, Body: body, Priority: priority, Labels: labels,
+		Source: source, Link: link, Author: author, Assignee: assignee, Repo: repo})
+}
+
+// CreateIssueIn 同 CreateIssueFor,用完整的輸入(多了 Project:放進的專案 id,空 = 組織層級;專案要存在而且有代號,否則核心回錯)
+func (a *App) CreateIssueIn(in service.IssueInput) model.Issue {
 	s := a.issueSt()
-	issue, err := a.issueRemoteCreate(title, body, priority, CleanLabels(labels), source, link, author, assignee, repo)
+	in.Labels = CleanLabels(in.Labels)
+	title, author := in.Title, in.Author
+	issue, err := a.issueRemoteCreate(in)
 	if err != nil {
 		// 核心存不進去(伺服器連不上、沒有資料庫、欄位格式不對…):回傳沒有存起來的草稿(id 是空的),同 Swift
 		a.issueRemoteFailed(err)
-		return model.Issue{Title: title, Body: body, Priority: priority, Labels: CleanLabels(labels), Repo: repo, Status: "open", CreatedBy: author, Comments: []model.Comment{}}
+		return model.Issue{Title: in.Title, Body: in.Body, Priority: in.Priority, Labels: in.Labels, Repo: in.Repo, Project: in.Project, Status: "open", CreatedBy: in.Author, Comments: []model.Comment{}}
 	}
-	s.remoteErr = ""
+	a.issueRemoteOK(s)
 	s.gen++
 	kept := []model.Issue{issue}
 	for _, i := range s.Issues {
@@ -160,7 +196,7 @@ func (a *App) CreateIssueFor(title, body, priority string, labels []string, sour
 		}
 	}
 	s.Issues = kept
-	a.logIssue(AuthorActor(author), "exclamationmark.bubble", "建立 "+issue.ID+"「"+title+"」")
+	a.logIssue(AuthorActor(author), "exclamationmark.bubble", "建立 "+issue.Display()+"「"+title+"」")
 	a.changedIssues()
 	if issue.Assignee != "" {
 		go a.AgentsChanged() // 核心替角色排了任務
@@ -183,23 +219,34 @@ func (a *App) UpdateIssue(id, author string, change func(*model.Issue)) *model.I
 // UpdateIssueAppend 同 UpdateIssue,另外在內文最後附加 appendBody(和現有內文空一行;交給核心在 Issue 的鎖裡
 // 以最新內文附加,不會蓋掉同時進來的修改)。change 可以是 nil
 func (a *App) UpdateIssueAppend(id, author, appendBody string, change func(*model.Issue)) *model.Issue {
-	return a.updateIssue(id, author, appendBody, false, change)
+	return a.updateIssue(id, author, appendBody, false, 0, change)
+}
+
+// UpdateIssueAtVersion 同 UpdateIssueAppend,另外帶呼叫者讀到的版本(version > 0 才檢查):核心的版本和它不同就回 409
+// (回傳 nil,原因在 IssueRemoteErr:*service.Error,Data 有 current、currentVersion),不會悄悄蓋掉別人先做的修改。
+// UI 的編輯畫面、API 的 If-Match/version、MCP 的 version 都走這條
+func (a *App) UpdateIssueAtVersion(id, author, appendBody string, version int, change func(*model.Issue)) *model.Issue {
+	return a.updateIssue(id, author, appendBody, false, version, change)
 }
 
 // UpdateIssueReplacingComments 同 UpdateIssue,但 change 改過的留言整份送給核心取代(保留給的留言 id 與時間)。
 // 只給明確要「整份取代」的呼叫者用(/api/issues 給了 comments);一般新增留言用 CommentIssue
 func (a *App) UpdateIssueReplacingComments(id, author string, change func(*model.Issue)) *model.Issue {
-	return a.updateIssue(id, author, "", true, change)
+	return a.updateIssue(id, author, "", true, 0, change)
 }
 
-func (a *App) updateIssue(id, author, appendBody string, replaceComments bool, change func(*model.Issue)) *model.Issue {
+// UpdateIssueReplacingCommentsAtVersion 同 UpdateIssueReplacingComments,另外帶呼叫者讀到的版本(version > 0 才檢查,不同回 409)
+func (a *App) UpdateIssueReplacingCommentsAtVersion(id, author string, version int, change func(*model.Issue)) *model.Issue {
+	return a.updateIssue(id, author, "", true, version, change)
+}
+
+func (a *App) updateIssue(id, author, appendBody string, replaceComments bool, version int, change func(*model.Issue)) *model.Issue {
 	s := a.issueSt()
 	a.issueRemoteLoad(s) // 用核心裡最新的內容來改
-	idx := -1
-	for i := range s.Issues {
-		if strings.EqualFold(s.Issues[i].ID, id) {
-			idx = i
-			break
+	idx := issueIndex(s.Issues, id)
+	if idx < 0 { // 舊的 key:問核心換成內部 id
+		if i := a.Issue(id); i != nil {
+			idx = issueIndex(s.Issues, i.ID)
 		}
 	}
 	if idx < 0 {
@@ -226,20 +273,22 @@ func (a *App) updateIssue(id, author, appendBody string, replaceComments bool, c
 			return
 		}
 		if i.Status == "closed" {
-			a.logIssue(AuthorActor(author), "checkmark.circle", "關閉 "+i.ID+"「"+i.Title+"」")
+			a.logIssue(AuthorActor(author), "checkmark.circle", "關閉 "+i.Display()+"「"+i.Title+"」")
 		} else {
-			a.logIssue(AuthorActor(author), "arrow.uturn.backward.circle", "重新打開 "+i.ID+"「"+i.Title+"」")
+			a.logIssue(AuthorActor(author), "arrow.uturn.backward.circle", "重新打開 "+i.Display()+"「"+i.Title+"」")
 		}
 	}
 	if appendBody == "" && string(Marshal(n)) == string(Marshal(before)) {
 		return &n
 	}
-	saved, err := a.issueRemoteUpdate(n, before, author, appendBody, replaceComments)
+	saved, err := a.issueRemoteUpdate(n, before, author, appendBody, replaceComments, version)
 	if err != nil {
 		a.issueRemoteFailed(err)
+		// 失敗前已經重讀過核心(版本衝突就是因為別處改過):畫面握著的是舊內容與舊版本,要通知它重讀,否則之後的動作都會 409
+		a.changedIssues()
 		return nil
 	}
-	s.remoteErr = ""
+	a.issueRemoteOK(s)
 	s.gen++
 	s.Issues[idx] = saved
 	logStatus(saved)
@@ -280,7 +329,7 @@ func (a *App) AddIssueComment(id, text, author string) (*model.Issue, error) {
 		return nil, err
 	}
 	saved := normIssue(*i)
-	s.remoteErr = ""
+	a.issueRemoteOK(s)
 	s.gen++
 	found := false
 	for k := range s.Issues {
@@ -296,23 +345,42 @@ func (a *App) AddIssueComment(id, text, author string) (*model.Issue, error) {
 	return &saved, nil
 }
 
-// DeleteIssue 刪除(id 完全相同才刪,同 Swift)
-func (a *App) DeleteIssue(id string) {
+// DeleteIssue 把 Issue 移到垃圾桶(軟刪除,核心的 DeleteIssue;id 或 key 都可以)。失敗時原因在 IssueRemoteErr(呼叫時要拿著 Mu)
+func (a *App) DeleteIssue(id string) { _, _ = a.trashIssue(id) }
+
+// TrashIssueAs 移到垃圾桶並記到動態牆(actor 做的);回傳被刪的那筆。失敗回傳核心的原錯誤(找不到 404、沒權限 403、連線錯誤…),
+// 原因同時在 IssueRemoteErr。呼叫時要拿著 Mu
+func (a *App) TrashIssueAs(actor Actor, id string) (model.Issue, error) {
+	gone, err := a.trashIssue(id)
+	if err != nil {
+		return gone, err
+	}
+	a.logIssue(actor, "trash", "將 "+gone.Display()+"「"+gone.Title+"」移到垃圾桶")
+	return gone, nil
+}
+
+// trashIssue 移到垃圾桶並把本機清單裡的那筆拿掉;回傳被刪的那筆(找不到時只有 ID 欄位)。失敗回傳核心的原錯誤
+func (a *App) trashIssue(id string) (model.Issue, error) {
 	s := a.issueSt()
+	gone := model.Issue{ID: id}
+	if k := issueIndex(s.Issues, id); k >= 0 {
+		gone = s.Issues[k]
+	}
 	if err := a.issueRemoteDelete(id); err != nil {
 		a.issueRemoteFailed(err)
-		return
+		return gone, err
 	}
-	s.remoteErr = ""
+	a.issueRemoteOK(s)
 	s.gen++
 	kept := []model.Issue{}
 	for _, i := range s.Issues {
-		if i.ID != id {
+		if !issueIs(i, id) && !(gone.ID != "" && i.ID == gone.ID) {
 			kept = append(kept, i)
 		}
 	}
 	s.Issues = kept
 	a.changedIssues()
+	return gone, nil
 }
 
 func init() {
@@ -340,10 +408,13 @@ func init() {
 		return map[string]any{"github": gh, "gitlab": gl, "used": used}
 	})
 	RegisterAction("issue_delete", func(a *App, args map[string]any) (any, error) {
+		// 移到垃圾桶(軟刪除;任何組織成員都可以)。還原、永久刪除是 issue_restore、issue_purge(組織管理員)
 		id, _ := args["id"].(string)
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
-		a.DeleteIssue(id)
+		if _, err := a.TrashIssueAs(UserActor(a, args), id); err != nil {
+			return nil, trashErr(err)
+		}
 		return nil, nil
 	})
 	OnBadge(func(a *App) map[string]int {

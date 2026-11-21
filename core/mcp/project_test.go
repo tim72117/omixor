@@ -9,12 +9,12 @@ import (
 	"omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
-	"omixor-core/store"
+	"omixor-core/storetest"
 )
 
 // 專案工具(projects、project_save)與文件櫃工具的 project 參數;不帶 project 和以前一樣(未分專案)
 func TestProjectTools(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})
@@ -44,7 +44,7 @@ func TestProjectTools(t *testing.T) {
 	if u := ok(t, admin, "", "project_save", map[string]any{"id": "prj-1", "description": "官網改版"}); u["name"] != "官網" || u["description"] != "官網改版" {
 		t.Fatal(u)
 	}
-	fails(t, admin, "", "project_save", map[string]any{"id": "PRJ-1"}, "要給 name 或 description")
+	fails(t, admin, "", "project_save", map[string]any{"id": "PRJ-1"}, "要給 name、key 或 description")
 
 	// 專案的結構:cabinet_layout_save 帶 project,不影響未分專案
 	lay := ok(t, admin, "", "cabinet_layout_save", map[string]any{"project": "PRJ-1",
@@ -120,11 +120,8 @@ func TestProjectTools(t *testing.T) {
 	}
 	fails(t, admin, "", "agent_upsert", map[string]any{"id": "writer", "doc_access": map[string]any{"PRJ-1:沒有": "read"}}, "專案 PRJ-1:文件櫃沒有「沒有」這個區塊或頁籤")
 	fails(t, admin, "", "agent_upsert", map[string]any{"id": "writer", "doc_access": map[string]any{"PRJ-9:docs": "read"}}, "doc_access 的 PRJ-9:docs:找不到專案 PRJ-9")
-	fails(t, admin, "", "doc_save", map[string]any{"project": "PRJ-1", "title": "x", "section": "規格", "agent": "writer"},
-		"寫手沒有權限寫入「官網 › 規格」;它可以寫的範圍:文件、官網 › API")
-	if c := ok(t, admin, "", "cabinet", map[string]any{"project": "PRJ-1", "agent": "writer"}); len(c["sections"].([]any)) != 1 {
-		t.Fatal("角色只看到能存取的位置", c)
-	}
+	fails(t, admin, "", "doc_save", map[string]any{"project": "PRJ-1", "title": "x", "section": "規格", "agent": "writer"}, mcp.IdentityAgentError)
+	fails(t, admin, "", "cabinet", map[string]any{"project": "PRJ-1", "agent": "writer"}, mcp.IdentityAgentError)
 	ctx := ok(t, admin, "", "agent_context", map[string]any{"agent": "writer"})
 	if docs := ctx["docs"].(map[string]any); docs["total"].(float64) != 2 {
 		t.Fatalf("未分專案的 docs 與官網的 API:%v", ctx["docs"])
@@ -172,7 +169,7 @@ func contains(l []string, s string) bool {
 // agent_upsert 的 doc_access 給 none:專案已刪、或專案裡找不到那個位置時,照正規化後的 key 拿掉(殘留的設定移得掉);
 // 不是 none 的照舊回錯誤
 func TestAgentUpsertRemovesStaleProjectKey(t *testing.T) {
-	st := store.NewMem()
+	st := storetest.New(t)
 	svc := &service.Service{Store: st}
 	now := model.Now()
 	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})

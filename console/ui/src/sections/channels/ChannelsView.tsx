@@ -9,6 +9,7 @@ import { Icon } from "../../components/Icon";
 import type { Agent, Channel, ChannelMessage, ChannelPage, ChannelsView as ChannelsData } from "../../components/models";
 import { EmptyState, ErrorText, Modal, Pill } from "../../components/ui";
 import { relative } from "../../fmt";
+import { useIssueLabel } from "../development/issueApi";
 import type { SectionProps } from "../index";
 import { canGo } from "../../features";
 
@@ -50,6 +51,7 @@ function Avatar({ w, size = 28 }: { w: Who; size?: number }) {
 
 export default function ChannelsView({ focusId, clearFocus }: SectionProps) {
   const [data, err] = useView<ChannelsData>("channels", ["orgs", "agents"]);
+  const issueLabel = useIssueLabel();
   const channels = Array.isArray(data?.channels) ? data!.channels : [];
   const dir = useDirectoryOf(data);
   const [selected, setSelected] = useState<string>();
@@ -72,7 +74,7 @@ export default function ChannelsView({ focusId, clearFocus }: SectionProps) {
   if (!data) return <div className="muted" style={{ padding: 20 }}>載入中…</div>;
 
   const q = query.trim().toLowerCase();
-  const list = channels.filter((c) => !q || c.name.toLowerCase().includes(q) || c.topic.toLowerCase().includes(q) || c.issueId.toLowerCase().includes(q));
+  const list = channels.filter((c) => !q || c.name.toLowerCase().includes(q) || c.topic.toLowerCase().includes(q) || c.issueId.toLowerCase().includes(q) || issueLabel(c.issueId).toLowerCase().includes(q));
   const current = channels.find((c) => c.id === selected);
 
   return (
@@ -93,7 +95,7 @@ export default function ChannelsView({ focusId, clearFocus }: SectionProps) {
               </div>
               <div className="row gap6 caption muted">
                 <span className="mono">{c.id}</span>
-                {c.issueId && <span className="mono">· {c.issueId}</span>}
+                {c.issueId && <span className="mono">· {issueLabel(c.issueId)}</span>}
                 <span>· {c.members.length} 位</span>
                 <span className="grow" />
                 <span>{relative(c.lastMessageAt ?? c.updatedAt)}</span>
@@ -117,6 +119,7 @@ export default function ChannelsView({ focusId, clearFocus }: SectionProps) {
 type Dir = ReturnType<typeof useDirectoryOf>;
 
 function ChannelPane({ channel, me, dir }: { channel: Channel; me: string; dir: Dir }) {
+  const issueLabel = useIssueLabel();
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
   const [hasOlder, setHasOlder] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -187,7 +190,7 @@ function ChannelPane({ channel, me, dir }: { channel: Channel; me: string; dir: 
           <div className="row gap8" style={{ alignItems: "baseline" }}>
             <span className="h2 ellipsis">{channel.name}</span>
             <span className="mono muted caption">{channel.id}</span>
-            {channel.issueId && canGo("development") && <button className="btn" style={{ padding: "0 6px", fontSize: 12 }} title="打開 Issue" onClick={() => go("development", channel.issueId)}><Icon name="link" size={11} /> {channel.issueId}</button>}
+            {channel.issueId && canGo("development") && <button className="btn" style={{ padding: "0 6px", fontSize: 12 }} title="打開 Issue" onClick={() => go("development", channel.issueId)}><Icon name="link" size={11} /> {issueLabel(channel.issueId)}</button>}
           </div>
           {channel.topic && <span className="caption muted ellipsis">{channel.topic}</span>}
         </div>
@@ -311,6 +314,7 @@ function Composer({ members, onSend }: { members: Who[]; onSend: (text: string) 
 
 /** 新增頻道或頻道設定(名稱、主題、成員加減) */
 function ChannelForm({ channel, dir, me, onDone }: { channel?: Channel; dir: Dir; me: string; onDone: (id?: string) => void }) {
+  const issueLabel = useIssueLabel();
   const [name, setName] = useState(channel?.name ?? "");
   const [topic, setTopic] = useState(channel?.topic ?? "");
   const [members, setMembers] = useState<string[]>(channel?.members ?? [me]);
@@ -347,7 +351,7 @@ function ChannelForm({ channel, dir, me, onDone }: { channel?: Channel; dir: Dir
     <div className="col gap8">
       <input className="input" placeholder="頻道名稱(最多 80 字)" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus />
       <input className="input" placeholder="主題(選填)" value={topic} maxLength={500} onChange={(e) => setTopic(e.target.value)} />
-      {channel?.issueId && <span className="caption muted">綁定 {channel.issueId}</span>}
+      {channel?.issueId && <span className="caption muted">綁定 {issueLabel(channel.issueId)}</span>}
       <div className="card-title">成員</div>
       <div className="col" style={{ maxHeight: 260, overflowY: "auto", gap: 2 }}>
         {rows.map((w) => (

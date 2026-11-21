@@ -3,10 +3,12 @@ package integrations
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
 
+	"omixor-core/httperr"
 	coreinteg "omixor-core/modules/integrations"
 	"omixor-web/internal/core"
 )
@@ -57,7 +59,7 @@ func (st *integState) writeCount() int {
 func (st *integState) setErr(gh bool, err error) {
 	msg := ""
 	if err != nil {
-		msg = err.Error()
+		msg = httperr.Report("GitHub / GitLab 設定(核心)", err).Msg
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -96,7 +98,7 @@ func integErr(err error) error {
 		return nil
 	}
 	if errors.Is(err, core.ErrNoDB) {
-		return core.UserError{Message: "GitHub / GitLab 設定存在組織(核心):" + err.Error()}
+		return core.UserError{Message: "GitHub / GitLab 設定存在組織(核心):" + httperr.Report("GitHub / GitLab 設定", err).Msg}
 	}
 	return core.AgentUserErr(err)
 }
@@ -167,7 +169,7 @@ func GHSyncSettings(a *core.App) {
 			r, err := be.ImportGitHubSettings(snap.org, coreinteg.GitHubImport{Repos: local.Repos})
 			if err != nil {
 				// 不是管理員不能匯入:先照核心的(空的)顯示,等管理員連上時再匯入
-				st.setErr(true, errors.New("這台的舊 GitHub 設定還沒匯入組織(要組織管理員):"+err.Error()))
+				st.setErr(true, fmt.Errorf("這台的舊 GitHub 設定還沒匯入組織(要組織管理員):%w", err))
 			} else {
 				x = &r.Settings
 				if len(r.Skipped) > 0 {
@@ -227,7 +229,7 @@ func GLSyncSettings(a *core.App) {
 		if len(local.Projects) > 0 || base != "" {
 			r, err := be.ImportGitLabSettings(snap.org, coreinteg.GitLabImport{BaseURL: base, Projects: local.Projects})
 			if err != nil {
-				st.setErr(false, errors.New("這台的舊 GitLab 設定還沒匯入組織(要組織管理員):"+err.Error()))
+				st.setErr(false, fmt.Errorf("這台的舊 GitLab 設定還沒匯入組織(要組織管理員):%w", err))
 			} else {
 				x = &r.Settings
 				if len(r.Skipped) > 0 {

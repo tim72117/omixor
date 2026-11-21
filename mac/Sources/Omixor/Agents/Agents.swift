@@ -600,8 +600,8 @@ final class AgentStore {
     /// 給 Claude Code 的一段話:貼到對話裡就會以角色身分領任務
     func prompt(agent: Agent, task: AgentTask? = nil) -> String {
         if let task {
-            return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))處理任務 \(task.id):用 agent_task_claim 領取,照角色設定與任務說明完成,過程用 agent_task_report 回報,做完把結果回報成 done;開 Issue 或留言時帶 agent: \(agent.id)。"
+            return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))處理任務 \(task.id):用 agent_task_claim 領取,照角色設定與任務說明完成,過程用 agent_task_report 回報,做完把結果回報成 done;要以該角色身分寫 Issue、留言或文件,必須改用 agent_task_claim 回傳的角色憑證連角色端點(/mcp/agent);一般 omixor 連線不能帶 agent 參數指定角色署名。"
         }
-        return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))工作:用 agent_task_claim 依序領取它的待領取任務,照角色設定與任務說明完成並用 agent_task_report 回報,直到沒有任務為止;開 Issue 或留言時帶 agent: \(agent.id)。"
+        return "請以 omixor 的虛擬角色「\(agent.name)」(id: \(agent.id))工作:用 agent_task_claim 依序領取它的待領取任務,照角色設定與任務說明完成並用 agent_task_report 回報,直到沒有任務為止;要以該角色身分寫 Issue、留言或文件,必須改用 agent_task_claim 回傳的角色憑證連角色端點(/mcp/agent);一般 omixor 連線不能帶 agent 參數指定角色署名。"
     }
 }

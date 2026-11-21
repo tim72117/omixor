@@ -109,7 +109,7 @@ func (a Args) Strings(k string) ([]string, bool) {
 func (a Args) Require(k string) (string, error) {
 	s, ok := a.String(k)
 	if !ok || s == "" {
-		return "", ToolError{"缺少參數 " + k}
+		return "", ToolError{Message: "缺少參數 " + k}
 	}
 	return s, nil
 }
@@ -117,7 +117,7 @@ func (a Args) Require(k string) (string, error) {
 func (a Args) RequireInt(k string) (int, error) {
 	n, ok := a.Int(k)
 	if !ok {
-		return 0, ToolError{"缺少或無效的整數參數 " + k}
+		return 0, ToolError{Message: "缺少或無效的整數參數 " + k}
 	}
 	return n, nil
 }
@@ -133,7 +133,7 @@ func (a Args) RequireEnum(k string, values []string) (string, error) {
 			return s, nil
 		}
 	}
-	return "", ToolError{fmt.Sprintf("%s 必須是 %s 之一,收到「%s」", k, strings.Join(values, "、"), s)}
+	return "", ToolError{Message: fmt.Sprintf("%s 必須是 %s 之一,收到「%s」", k, strings.Join(values, "、"), s)}
 }
 
 // OptionalEnum 沒給回傳 ("", nil)
