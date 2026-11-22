@@ -382,9 +382,17 @@ func TestActorList(t *testing.T) {
 	p := actorStore(t)
 	u1 := newUser(t, p, "l1@x.com")
 	u2 := newUser(t, p, "l2@x.com")
-	a1 := newAgent(t, p, "o1", "a1", u1.ID)
-	a2 := newAgent(t, p, "o1", "a2", u1.ID)
-	b1 := newAgent(t, p, "o2", "b1", u2.ID)
+	// created_at 只有秒的解析度,同秒建立時由隨機的 uuidv7 id 決勝;排序斷言要明確給嚴格遞增的 CreatedAt
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	mk := func(org, handle, owner string, n int) model.ActorRecord {
+		a, err := p.CreateActor(model.ActorRecord{Kind: model.ActorKindAgent, Org: org, Name: handle, Handle: handle, Owner: owner,
+			CreatedAt: model.Time{Time: base.Add(time.Duration(n) * time.Second)}})
+		chk(t, err)
+		return a
+	}
+	a1 := mk("o1", "a1", u1.ID, 1)
+	a2 := mk("o1", "a2", u1.ID, 2)
+	b1 := mk("o2", "b1", u2.ID, 3)
 	chk(t, p.SetActorDisabled(a2.ID, true, time.Now()))
 	chk(t, p.SetActorDisabled(u2.ID, true, time.Now()))
 	ids := func(f ActorFilter) []string {
@@ -414,7 +422,7 @@ func TestActorList(t *testing.T) {
 	// 排序:建立時間舊的在前
 	l, err := p.ListActors(ActorFilter{Kind: model.ActorKindAgent, IncludeDisabled: true})
 	chk(t, err)
-	if len(l) != 3 || l[0].ID != a1.ID || l[2].ID != b1.ID {
+	if len(l) != 3 || l[0].ID != a1.ID || l[1].ID != a2.ID || l[2].ID != b1.ID {
 		t.Fatalf("%+v", l)
 	}
 }
