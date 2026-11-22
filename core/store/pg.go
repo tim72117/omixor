@@ -24,6 +24,7 @@ import (
 //	                                              (org, upper(key)) 唯一;number 是 key 在所屬範圍(project,'' = 組織層級)內的號碼;project_ref 產生欄位外鍵指向專案(restrict);
 //	                                              version 樂觀鎖版本號;deleted_at 不是 NULL = 在垃圾桶(軟刪除);見 pg_issue.go、pg_issue_keys.go)
 //	omixor_issue_keys                             Issue 目前與過去用過的 key(主鍵 (org, key),key 一律存大寫;issue_id 外鍵 cascade)
+//	omixor_issue_keys_retired                     不再發的 Issue key(主鍵 (org, key),大寫;永久刪除的 Issue 的 key、舊版孤兒參照的 key;發號跳過,見 pg_issue_keys.go)
 //	omixor_attachments                            Issue 的圖片附件(主鍵 (org, id),id 是內容雜湊)
 //	omixor_agents                                 虛擬角色(主鍵 (org, id);docAccess、routines 在 omixor_agent_doc_access、omixor_agent_routines;舊 jsonb 欄位與 split_at 已不再寫,下一版 drop;見 pg_split_docs_agents.go)
 //	omixor_agent_tasks                            角色任務(主鍵 (org, id) = T-<n>;備註、連結在子表 omixor_agent_task_notes / _links,見 pg_split_incidents_tasks.go;舊的 links、notes jsonb 欄位不再寫)
@@ -145,6 +146,13 @@ create table if not exists omixor_issue_keys (
   created_at timestamptz not null default now(),
   primary key (org, key),
   foreign key (org, issue_id) references ops_issues (org, id) on delete cascade on update cascade
+);
+create table if not exists omixor_issue_keys_retired (
+  org text not null,
+  key text not null,
+  reason text not null,
+  created_at timestamptz not null default now(),
+  primary key (org, key)
 );
 create table if not exists omixor_attachments (
   org text not null,

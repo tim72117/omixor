@@ -147,6 +147,7 @@ func (p *PG) startupMigrations() error {
 		{"外鍵遷移失敗", true, p.migrateForeignKeys},
 		{"Issue 編號遷移失敗", true, p.migrateIssueKeys},
 		{"編號序號遷移失敗", true, p.migrateSeq},
+		{"孤兒 Issue key 保留失敗", true, p.reserveOrphanIssueKeys}, // 在 key 遷移之後(看別名表判斷孤兒);每次啟動,冪等、只新增
 		// ISS-36:22 個「誰」的欄位轉成 actor id 並加外鍵。舊結構的資料庫在這裡原地轉換;全新資料庫的表本來就是最終結構,這裡只補完成標記與外鍵(空表,瞬間)。
 		// 放在最後(三個大動作不爭同一張表),外鍵要趕在 finishStartup 開背景 validate 之前加。
 		// 不是 soft:程式只認轉換後的結構,沒轉完就不能服務(migrateActorColumnsStep 回錯誤,進度保留、重啟接著做)

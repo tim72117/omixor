@@ -76,6 +76,7 @@ func (p *PG) DeleteOrg(id string) error {
 		`delete from omixor_decisions where org = $1`,
 		`delete from omixor_issue_items where org = $1`,
 		`delete from ops_issues where org = $1`, // 留言跟著刪(on delete cascade)
+		`delete from omixor_issue_keys_retired where org = $1`,
 		`delete from omixor_attachments where org = $1`,
 		`delete from omixor_agent_credentials where org = $1`,
 		`delete from omixor_agent_tasks where org = $1`,

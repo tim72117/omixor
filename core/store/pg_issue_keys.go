@@ -181,6 +181,25 @@ func assignIssueKeys(c context.Context, tx pgx.Tx, org string, list []*legacyIss
 	if len(renumber) == 0 {
 		return nil
 	}
+	// 退役的 key(永久刪除過的、孤兒參照的)發新號時也跳過;保留原 ISS-<n> 的那一段不看它(現有 Issue 的號碼不因此改變)
+	retired := map[string]bool{}
+	if err := func() error {
+		rows, err := tx.Query(c, `select key from omixor_issue_keys_retired where org = $1`, org)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var k string
+			if err := rows.Scan(&k); err != nil {
+				return err
+			}
+			retired[k] = true
+		}
+		return rows.Err()
+	}(); err != nil {
+		return err
+	}
 	// 號碼從序號表現在的下一號起算(它會看現有資料最大號碼,不會撞還沒處理完的 ISS-<n>),用完再把序號表記到最後用的號碼
 	n, err := seqNext(c, tx, org, model.IssueScopeOrg, 0)
 	if err != nil {
@@ -188,7 +207,7 @@ func assignIssueKeys(c context.Context, tx pgx.Tx, org string, list []*legacyIss
 	}
 	last := n - 1
 	for _, x := range renumber {
-		for used[model.IssueKey(model.IssueKeyPrefix, n)] {
+		for k := model.IssueKey(model.IssueKeyPrefix, n); used[k] || retired[k]; k = model.IssueKey(model.IssueKeyPrefix, n) {
 			n++
 		}
 		x.key, x.num = model.IssueKey(model.IssueKeyPrefix, n), n
@@ -261,4 +280,89 @@ func applyIssueKeys(c context.Context, tx pgx.Tx, list []*legacyIssue) error {
 	_, err = tx.Exec(c, `insert into omixor_issue_keys (org, key, issue_id, created_at)
 		select org, upper(old_id), new_id, now() from _issue_key_map where legacy on conflict (org, key) do nothing`)
 	return err
+}
+
+// ---- 孤兒參照的 key 不再發(每次啟動;冪等) ----
+//
+// 舊版(ISS-34 之前)永久刪除 Issue、新號碼用 max(number)+1:最大號那張被刪掉後,同一個號碼會再發一次。所以舊資料庫裡可能有
+// 頻道(omixor_channels.issue_id)、任務連結(omixor_agent_task_links.url)還寫著已刪掉的 ISS-<n>(遷移只統計「孤兒」,不動它們)。
+// 序號表只從 max(number) 起算,遷移後下一張新 Issue 會拿到同一個 ISS-<n>,舊參照(頻道 {issue:"ISS-11"}、連結)就看起來指向不相干的新 Issue。
+//
+// 做法:把這些孤兒參照的 key 記進退役表 omixor_issue_keys_retired(reason = 'orphan-ref'),nextIssueKey 發號時跳過
+// (和跳過別名表同一個機制)。只跳過被參照的那幾個號碼,不把序號往前推(連結打錯成 ISS-99999 不會讓之後的號碼暴增)。
+//   - 參照:頻道 issue_id 與任務連結中,形狀是 <前綴>-<號碼> 的(前綴 2~10 個英數字、字母開頭,也就是 ISS 或專案代號的形狀;
+//     key 正規化成大寫、號碼去前導零),而且找不到 Issue(別名表沒有這個 key、也不是任何 Issue 的 id;後者涵蓋 key 遷移還沒做的舊 id)。
+//     保留字前綴(PRJ、DOC、CH、INC…,model.ReservedProjectKeys 扣掉 ISS)不是 Issue 編號,不算。
+//     專案代號形狀的也記(<代號>-<n>):以後有專案用到這個代號,發號一樣跳過。
+//   - 每次啟動都跑(不只在 key 遷移裡):已經跑過 key 遷移的資料庫也補得到;滾動升級期間舊版實例新留下的孤兒,下次啟動補上。
+//     只 insert … on conflict do nothing,不改、不刪任何使用者資料;沒有新孤兒時不寫入。
+//     成本:頻道、任務連結各掃一次(regex 過濾),對別名表、ops_issues 走主鍵。
+//   - 新版本身:永久刪除(DeleteIssue)把頻道的 issue_id 清成 NULL,任務連結留著;同一範圍的序號不回收,所以只有「專案刪掉後
+//     另一個專案再用同一個代號」會重發,DeleteIssue 因此在刪除時就把 key 記進退役表(reason = 'deleted'),不靠這裡。
+//   - 鎖:交易層級 advisory lock(omixor-issue-keys-retire),等不到或逾時只警告、略過(下次啟動再做),不讓啟動失敗。
+func (p *PG) reserveOrphanIssueKeys() error {
+	c, cancel := p.migCtx(2 * time.Minute)
+	defer cancel()
+	tx, err := p.pool.Begin(c)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(c)
+	if err := xactLock(c, tx, "omixor-issue-keys-retire"); err != nil {
+		if errors.Is(err, errLockWait) || isTimeout(c, err) {
+			warnf("孤兒 Issue key 保留:%v,略過這次(下次啟動再做)", err)
+			return nil
+		}
+		return err
+	}
+	n, err := retireOrphanIssueKeys(c, tx)
+	if err != nil {
+		if isTimeout(c, err) {
+			warnf("孤兒 Issue key 保留:%v,略過這次(下次啟動再做)", err)
+			return nil
+		}
+		return err
+	}
+	if err := tx.Commit(c); err != nil {
+		return err
+	}
+	if n > 0 {
+		log.Printf("[遷移] Issue 編號:%d 個孤兒參照的 key(頻道、任務連結指向已不存在的 Issue)記進 omixor_issue_keys_retired,之後發號跳過", n)
+	}
+	return nil
+}
+
+// issueRefShape 頻道 issue_id、任務連結裡「像 Issue key」的形狀(前綴同專案代號規則:2~10 個英數字、字母開頭;大小寫不分)
+const issueRefShape = `'^[A-Za-z][A-Za-z0-9]{1,9}-[0-9]+$'`
+
+// retireOrphanIssueKeys 見 reserveOrphanIssueKeys;回傳新記進退役表的筆數
+func retireOrphanIssueKeys(c context.Context, tx pgx.Tx) (int64, error) {
+	var links bool
+	if err := tx.QueryRow(c, `select to_regclass('omixor_agent_task_links') is not null`).Scan(&links); err != nil {
+		return 0, err
+	}
+	refs := `select org, issue_id as ref from omixor_channels where issue_id ~ ` + issueRefShape
+	if links {
+		refs += ` union select org, url from omixor_agent_task_links where url ~ ` + issueRefShape
+	}
+	var skip []string // 保留字前綴(ISS 以外):不是 Issue 編號
+	for _, k := range model.ReservedProjectKeys {
+		if k != model.IssueKeyPrefix {
+			skip = append(skip, k)
+		}
+	}
+	tag, err := tx.Exec(c, `with refs as (`+refs+`),
+		k as (
+			select org, ref, upper(substring(ref from '^(.*)-[0-9]+$')) as prefix, ltrim(substring(ref from '-([0-9]+)$'), '0') as num from refs
+		)
+		insert into omixor_issue_keys_retired (org, key, reason, created_at)
+		select distinct k.org, k.prefix || '-' || k.num, 'orphan-ref', now() from k
+		where k.num <> '' and k.prefix <> all($1::text[])
+			and not exists (select 1 from omixor_issue_keys a where a.org = k.org and a.key in (k.prefix || '-' || k.num, upper(k.ref)))
+			and not exists (select 1 from ops_issues x where x.org = k.org and x.id = any(array[k.ref, upper(k.ref), lower(k.ref)]))
+		on conflict (org, key) do nothing`, skip)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }

@@ -6,7 +6,8 @@
 // (見 issueRef:先查別名表、再當成 id)。
 //
 // 軟刪除:deleted_at 不是 NULL = 在垃圾桶裡。ListIssues、GetIssue 與所有寫入都當作不存在(ErrNotFound);
-// ListDeletedIssues 列垃圾桶、RestoreIssue 還原、DeleteIssue 才是真的刪除(永久)。key 與別名保留,序號不回收。
+// ListDeletedIssues 列垃圾桶、RestoreIssue 還原、DeleteIssue 才是真的刪除(永久)。key 與別名保留,序號不回收;
+// 永久刪除時 key 記進退役表 omixor_issue_keys_retired,之後不再發(跨專案代號重用也不會)。
 //
 // 樂觀鎖:version 每次改本體(UpdateIssue、MoveIssue、TrashIssue、RestoreIssue)+1;新增留言不動 version。
 
@@ -69,7 +70,8 @@ func (p *PG) ProjectKeyAliasTaken(org, prefix string) (string, error) {
 // ErrIssueKeyTaken 別名表裡這個 key 已經指向別張 Issue(發號會跳號重試,其他情況原樣回報)
 var ErrIssueKeyTaken = errors.New("issue key taken by another issue")
 
-// nextIssueKey 在 scope 發下一個 key:號碼被別名表(搬走的舊 key、舊格式 id)佔用就跳號。
+// nextIssueKey 在 scope 發下一個 key:號碼被別名表(搬走的舊 key、舊格式 id)或退役表 omixor_issue_keys_retired
+// (永久刪除的 Issue 的 key、舊版留下的孤兒參照,見 pg_issue_keys.go:reserveOrphanIssueKeys)佔用就跳號。
 // 號碼單調往上,所以最多跳過現有的別名數;上限 100000 保險
 func nextIssueKey(c context.Context, tx pgx.Tx, org, project, prefix string) (string, int, error) {
 	for range 100000 {
@@ -80,6 +82,7 @@ func nextIssueKey(c context.Context, tx pgx.Tx, org, project, prefix string) (st
 		key := model.IssueKey(prefix, n)
 		var taken bool
 		if err := tx.QueryRow(c, `select exists (select 1 from omixor_issue_keys where org = $1 and key = upper($2))
+			or exists (select 1 from omixor_issue_keys_retired where org = $1 and key = upper($2))
 			or exists (select 1 from ops_issues where org = $1 and key <> '' and upper(key) = upper($2))`, org, key).Scan(&taken); err != nil {
 			return "", 0, err
 		}
@@ -574,6 +577,14 @@ func (p *PG) DeleteIssue(org, id string) error {
 	// 頻道綁的 Issue 被刪:顯式把頻道的 issue_id 清成 NULL(PG 14 以下不支援 on delete set null (issue_id) 欄位清單,
 	// 外鍵那條只能退成不帶這個子句;這裡與版本無關,而且和刪除在同一個交易)
 	if _, err := tx.Exec(c, `update omixor_channels set issue_id = null where org = $1 and issue_id = $2`, org, iid); err != nil {
+		return err
+	}
+	// key 退役:這張 Issue 目前與過去的 key(別名隨刪除 cascade 掉)記進退役表,發號不再用。任務連結、文字裡的 <代號>-<n>
+	// 刪除後還留著;同一個範圍的序號本來就不回收,但專案刪掉後別的專案(或新專案)再用同一個代號時,序號是新的一組,
+	// 沒有這一步會重發同一個 key,舊參照就指到不相干的新 Issue
+	if _, err := tx.Exec(c, `insert into omixor_issue_keys_retired (org, key, reason, created_at)
+		select org, key, 'deleted', now() from omixor_issue_keys where org = $1 and issue_id = $2
+		on conflict (org, key) do nothing`, org, iid); err != nil {
 		return err
 	}
 	tag, err := tx.Exec(c, `delete from ops_issues where org = $1 and id = $2`, org, iid)

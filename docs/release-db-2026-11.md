@@ -22,7 +22,7 @@
 | jsonb 拆表 | 14 張新子表 + 8 張父表的 `split_at` + 8 個 `<表>_unsplit` 部分索引 + 事件純量欄位 | `MIGRATIONS.md` §2、`pg_split_*.go` |
 | 外鍵 | 26 條(8 條關聯 + 18 張表的 org → `omixor_orgs`),先 `not valid` 再背景 validate | `pg_fk.go:fkSpecs`、`orgFKTables` |
 | 身分登記層 | **不部署**:`omixor_principals`、3 個 SQL 規範化函式、19 個 `<欄位>_ref` 產生欄位、19 條 `fk_p_*` 外鍵都已從程式移除;ISS-36 直接進 actor 欄位(雲端 DOC-11)。Go 的規範化規則(`core/model/principal.go`)與「誰」的欄位清單(`core/store/identity_fields.go`)保留給 actor 遷移用 | `MIGRATIONS.md` §7 |
-| Issue key | Issue 內部 id 換成 UUIDv7、原 `ISS-<n>` 變成 key;`ops_issues` 新增 `project`、`key`、`version`、`deleted_at`、`deleted_by` 與 `project_ref` 產生欄位;新表 `omixor_issue_keys`(key、舊 id 別名)。細節見 1.5 | `pg_issue_keys.go:migrateIssueKeys`、`pg.go` |
+| Issue key | Issue 內部 id 換成 UUIDv7、原 `ISS-<n>` 變成 key;`ops_issues` 新增 `project`、`key`、`version`、`deleted_at`、`deleted_by` 與 `project_ref` 產生欄位;新表 `omixor_issue_keys`(key、舊 id 別名)、`omixor_issue_keys_retired`(不再發的 key:孤兒參照、永久刪除;`DeleteOrg` 一併刪除)。細節見 1.4 | `pg_issue_keys.go:migrateIssueKeys`、`pg.go` |
 | 專案與 repo 連結(ISS-34 第 2 階段) | 新表 `omixor_project_repos`(主鍵 (org, project, repo_key);(org, project) 外鍵 cascade;`create table if not exists`,新表沒有舊資料、不重寫任何表)。只用於預設值與篩選,不是權限來源;既有 Issue 不自動歸類 | `pg.go`、`pg_project_repo.go` |
 | 專案成員與受限專案(ISS-34 第 3 階段) | `omixor_projects.restricted boolean not null default false`(`alter table … add column`,`omixor_projects` 是小表、只重寫一次;預設值是常數,PG 11 起不重寫整張表)、新表 `omixor_project_members (org, project, actor_id, role admin/member)`(主鍵 (org, project, actor_id);(org, project) 外鍵 cascade、`actor_id → omixor_actors(id)` cascade 由 `migrateForeignKeys` 補〔`fk_project_members_actor`,not valid 再背景 validate,fkSpecs 共 +1 條〕)、索引 `omixor_project_members_actor`。既有專案全部是「不受限」,行為不變;沒有資料搬移,遷移冪等,結構指紋測試 `TestProjectMembersMigration` | `pg.go`、`pg_schema_boot.go`、`pg_fk.go`、`pg_project_members.go` |
 | 待決定 / 需要協助 | 新表 `omixor_decisions (org, id DEC-<n>, number, kind decision/help, title, body, options jsonb, status open/decided/withdrawn, answer, answer_note, evidence, source_issue, blocks jsonb, created_by not null, decided_by, created_at, decided_at, updated_at)`(`create table if not exists`,直接是最終結構,新表沒有舊資料、不重寫任何表;主鍵 (org, id)、`(org, source_issue) → ops_issues(org, id)` 建表時就有〔set null (source_issue)、update cascade,存的是 Issue 內部 id〕)、索引 `omixor_decisions_org_status`、`omixor_decisions_org_issue`、`(org, number)` 部分唯一索引 `omixor_decisions_org_number`(`seqTables`,migrateSeq 建)、`omixor_seq` scope `decision`;actor 外鍵 2 條 `fk_decisions_created_by`(not null)/`fk_decisions_decided_by`(可 NULL)→ `omixor_actors(id)` restrict,以及 `omixor_decisions.org → omixor_orgs` cascade,由 `migrateForeignKeys` 補(not valid 再背景 validate;fkSpecs +3 條)。**不進 `ActorColumns`**(那是「舊字串 → actor id」的轉換引擎,新表不需要),登記在 `identity_fields.go:NewTableActorFields`。`DeleteOrg` 一併刪除。冪等,結構指紋測試 `TestDecisionsTableStructure` | `pg.go`、`pg_schema_boot.go`、`pg_fk.go`、`pg_seq.go`、`pg_decision.go` |
@@ -59,11 +59,12 @@
 | 3 | `migrateForeignKeys`:issue_id 可為 NULL、`project_ref`(大表略過)、索引、孤兒報告、26 條 `not valid` 外鍵 | 單步失敗只記「警告」 | 階段 15 分鐘與剩餘預算取短;每步 `lock_timeout` 2 秒、最多 8 次(隨機退避,總等待 ≤ 60 秒) |
 | 4 | `migrateIssueKeys`(ISS-34,見 1.4):Issue id 換 UUIDv7、key、別名表 | 失敗會讓啟動失敗(預算用完時降為警告) | 10 分鐘與剩餘預算取短 |
 | 5 | `migrateSeq`:建序號表、初始化、唯一索引(`create unique index concurrently`) | 索引失敗只記警告 | 10 分鐘與剩餘預算取短 |
+| 5b | `reserveOrphanIssueKeys`(見 1.4):孤兒參照的 Issue key 記進 `omixor_issue_keys_retired`,發號跳過;**每次啟動**,冪等、只新增 | 等不到鎖或逾時只警告、略過 | 2 分鐘與剩餘預算取短 |
 | 6 | `logMigrationSummary`:一行彙總(缺的 `project_ref`、缺的外鍵、需手動處理的大表);只查 `information_schema` 與 `pg_constraint`,不掃資料 | 查詢失敗只略過 | 30 秒 |
 | 7 | `finishStartup`:開背景工作:26 條外鍵的 validate;補不上的外鍵與被鎖擋住的 validate **每隔約 5 分鐘**(`fkBackgroundRetryEvery`)重試,直到成功或服務關閉(`Close()`);有孤兒(23503)的 validate 不重試 | 只記警告 | 每條 validate 30 分鐘(`fkValidateTimeout`) |
 | 8 | `server/server.go:Run`:`EnsureOrgsForIssues`、`StartRoutines`、然後才 `ListenAndServe` | | |
 
-順序固定:`migrateForeignKeys` → `migrateIssueKeys` → `migrateSeq`。
+順序固定:`migrateForeignKeys` → `migrateIssueKeys` → `migrateSeq` → `reserveOrphanIssueKeys`。
 
 **預期時間的未知數**:每一步的耗時取決於正式資料的列數與大小。**必須在備份副本上演練取得實際數字**(第 2.2 節),不要憑感覺估。伺服器在遷移完成**前不會 listen**(`Run` 先 `NewPG`),對 Cloud Run 而言是「容器還沒開始接受連線」:`deploy-server.yml` 沒有設 startup probe,所以預設的啟動探測時限必須大於整體預算,否則新 revision 會被判定失敗(預設值待確認;見 2.6)。
 
@@ -79,6 +80,7 @@
 - **實測耗時**(測試庫 PG 17、本機 docker;舊結構資料:2 萬 Issue、10 萬留言、2 萬任務(各 1 條連結)、2 千頻道;建法見 `MIGRATIONS.md` §10):Issue key 這一步 **約 238 秒 → 約 5.2 秒**;`NewPG` 整體(含其他遷移)約 308 秒 → 約 71 秒。預算 10 分鐘。
 - **逾時或失敗**:整段回滾(單一交易),Issue 維持舊狀態,下次啟動(`key` 仍為空字串)整個重跑;不會留下做一半的資料。預算已用完時此步降為警告、服務照常啟動(見 1.3)。
 - 做完會記一行 log:筆數、耗時、**孤兒數**(頻道綁的 Issue、長得像 Issue 編號的任務連結,找不到 Issue 的筆數;只統計,不改資料)。
+- **孤兒參照的號碼不再發**(演練發現的問題):舊版永久刪除 Issue 並用 max+1 發號,序號表從 `max(number)` 起算,所以被刪掉的最大號(例如 ISS-11,頻道與任務連結還指著它)遷移後會再發給新 Issue,舊參照看起來指向不相干的 Issue。修正:`migrateSeq` 之後的 `reserveOrphanIssueKeys`(`pg_issue_keys.go`)**每次啟動**把頻道 `issue_id`、任務連結中 `<前綴>-<n>` 形狀且找不到 Issue 的 key(大寫、去前導零;保留字前綴 PRJ/DOC/CH/INC 除外)記進 `omixor_issue_keys_retired`,`nextIssueKey` 跳過(同跳過別名的機制)。只跳過被參照的號碼,不推高序號;已經跑過 key 遷移的資料庫重啟一次就補上;不改、不刪頻道與任務連結。新版 `DeleteIssue`(永久刪除)也把 key 記進這張表,避免「刪專案後別的專案用同一個代號」重發舊 key。log:`[遷移] Issue 編號:N 個孤兒參照的 key … 記進 omixor_issue_keys_retired`。
 - 舊的 `(org, number)` 唯一索引 `ops_issues_org_number` **不在這一步拿掉**:`migrateSeq` 的 `ensureSeqIndex` 依欄位比對,索引欄位不是 `(org, project, number)` 就先在 `ops_issues_org_number_new` 建好新索引,成功才拿掉舊的並改名(換索引過程中唯一性一直有保障;就算這個 key 遷移被跳過或逾時,專案內的 Issue 號碼也不會撞舊索引)。
 - 順序:必須在 `migrateForeignKeys` 之後、`migrateSeq` 之前。`ops_issues` 因此在這一版多出 `project`、`key`、`version`、`deleted_at`、`deleted_by`(常數預設值,不重寫)與 `project_ref`(產生欄位,會重寫,已納入大小門檻與維護窗口腳本)。
 
