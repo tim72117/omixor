@@ -1,11 +1,13 @@
 // ⌘K 指令面板:跳到頁面、服務、伺服器、事件、AI 自動化(Swift 的 CommandPalette)
 import { useEffect, useRef, useState } from "react";
 import { useView } from "../api";
-import { go } from "../components/bits";
 import { Icon } from "../components/Icon";
-import { arr, type Automation, type Incident, type Server, type Service } from "../components/models";
+import { go } from "../lib/nav";
+import { arr, type Automation, type Incident, type Server, type Service } from "../models";
+import css from "./CommandPalette.module.css";
 import { useFeatures } from "../features";
 import { SECTIONS, type SectionId } from "../types";
+import { Modal } from "../components/Modal";
 
 // feature:這個項目所在的分頁(系統設定關掉的不列;所屬頁面關了也不列)
 type Entry = { id: string; title: string; detail: string; icon: string; section: SectionId; focus?: string; feature?: string };
@@ -29,31 +31,28 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const q = query.trim().toLowerCase();
   const entries = (q ? all.filter((e) => e.title.toLowerCase().includes(q) || e.detail.toLowerCase().includes(q)) : all).slice(0, 40);
   useEffect(() => setSel(0), [query]);
-  useEffect(() => { listRef.current?.querySelector(".palette-item.on")?.scrollIntoView({ block: "nearest" }); }, [sel]);
+  useEffect(() => { listRef.current?.querySelector("." + css.on)?.scrollIntoView({ block: "nearest" }); }, [sel]);
   const run = (e?: Entry) => { if (!e) return; go(e.section, e.focus); onClose(); };
   return (
-    <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal palette" onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
-        else if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(entries.length - 1, s + 1)); }
+    <Modal open onClose={onClose} width={560} height={420} className={css.palette} ariaLabel="指令面板" onKeyDown={(e) => {
+        if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(entries.length - 1, s + 1)); }
         else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(0, s - 1)); }
         else if (e.key === "Enter" && !e.nativeEvent.isComposing) run(entries[sel]);
       }}>
-        <div className="palette-input">
+        <div className={css.input}>
           <Icon name="magnifyingglass" size={16} className="muted" />
           <input autoFocus value={query} placeholder="搜尋頁面、服務、伺服器、事件…" onChange={(e) => setQuery(e.target.value)} />
         </div>
-        <div className="palette-list" ref={listRef}>
+        <div className={css.list} ref={listRef}>
           {entries.map((e, i) => (
-            <button key={e.id} className={"palette-item" + (i === sel ? " on" : "")} onMouseEnter={() => setSel(i)} onClick={() => run(e)}>
-              <span style={{ width: 20, display: "inline-flex", justifyContent: "center" }}><Icon name={e.icon} size={14} /></span>
+            <button key={e.id} className={css.item + (i === sel ? " " + css.on : "")} onMouseEnter={() => setSel(i)} onClick={() => run(e)}>
+              <span className={css.icon}><Icon name={e.icon} size={14} /></span>
               <span className="grow ellipsis">{e.title}</span>
               <span className="caption muted">{e.detail}</span>
             </button>
           ))}
-          {entries.length === 0 && <div className="muted" style={{ padding: 16 }}>找不到符合的項目</div>}
+          {entries.length === 0 && <div className={"muted " + css.empty}>找不到符合的項目</div>}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

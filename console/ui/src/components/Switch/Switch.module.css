@@ -1,0 +1,8 @@
+.switch { width: 32px; height: 19px; border-radius: var(--r-pill); border: 0; padding: 2px; background: color-mix(in srgb, var(--fg) 18%, transparent); display: inline-flex; flex: none; transition: background .15s; }
+.switch span { width: 15px; height: 15px; border-radius: var(--r-pill); background: white; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
+.switch.on { background: var(--green); }
+.switch.on span { transform: translateX(13px); }
+.switch.small { width: 26px; height: 15px; }
+.switch.small span { width: 11px; height: 11px; }
+.switch.small.on span { transform: translateX(11px); }
+.switch:disabled { opacity: .45; }

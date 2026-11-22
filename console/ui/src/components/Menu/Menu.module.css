@@ -1,0 +1,20 @@
+/* 選單(原本 omixorKit 的 ox-menu;項目樣式原本借用全域 .menu-item / .menu-sep,這裡完整複製一份) */
+.menu { position: fixed; z-index: 60; min-width: 200px; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.2); display: flex; flex-direction: column; }
+/* MenuButton 的下拉:貼在按鈕下方 */
+.abs { position: absolute; top: calc(100% + 4px); }
+/* simple:bits 舊樣式的右鍵選單(較淡的陰影、項目沒有勾選欄、間距較大) */
+.simple { position: fixed; z-index: 30; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.18); min-width: 200px; }
+
+.item { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 6px 8px; border-radius: var(--r-sm); text-align: left; }
+.item:hover { background: var(--accent-fill); color: var(--on-accent); }
+.item:focus-visible { outline-offset: -2px; }
+.menu .item { white-space: nowrap; font-size: var(--fs-base); padding: 5px 8px; gap: 4px; }
+.menu .item:disabled { opacity: .4; background: none; color: inherit; }
+.simple .item:disabled { opacity: .4; pointer-events: none; }
+.item.danger { color: var(--danger); }
+.item.danger:hover:not(:disabled) { color: var(--on-accent); background: var(--danger-fill); }
+.check { width: 12px; flex: none; }
+.sep { height: 1px; background: var(--line); margin: 4px 0; }
+.header { font-size: var(--fs-xs); color: var(--fg2); padding: 4px 8px 2px; }
+/* Dropdown:呼叫端自己決定位置(top/left/right/bottom)的下拉容器;包在 :where() 裡,className 一定蓋得過 */
+:where(.dropdown) { position: absolute; z-index: 30; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.18); min-width: 200px; }

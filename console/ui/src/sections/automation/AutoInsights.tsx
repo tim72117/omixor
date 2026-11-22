@@ -1,16 +1,21 @@
 // 成效:AI 自動化幫團隊省了多少時間、花了多少錢、可不可靠(Swift 的 AutoInsightsView)
 import { useState } from "react";
 import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, LabelList, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { IconTile, percent } from "../../components/bits";
+import { Card, cardClass } from "../../components/Card";
+import { EmptyState } from "../../components/EmptyState";
 import { Icon } from "../../components/Icon";
-import type { Automation } from "../../components/models";
-import { Card, EmptyState, Segmented } from "../../components/ui";
+import { IconTile } from "../../components/IconTile";
+import { Segmented } from "../../components/Segmented";
+import { pct } from "../../lib/format";
+import type { Automation } from "../../models";
+import css from "./automation.module.css";
 import { AutonomyBadge, seedUnit, useAuto } from "./autoShared";
+import { tableClass } from "../../components/Table";
+import { axisProps } from "../../components/charts/theme";
 
 type Sort = "hours" | "runs" | "success" | "cost";
 const SORTS: { value: Sort; label: string }[] = [{ value: "hours", label: "省下時間" }, { value: "runs", label: "執行次數" }, { value: "success", label: "成功率" }, { value: "cost", label: "成本" }];
 const PALETTE = ["var(--indigo)", "var(--purple)", "var(--teal)", "var(--orange)", "var(--pink)", "var(--gray)"];
-const axis = { tick: { fontSize: 11, fill: "var(--fg2)" }, stroke: "var(--line)" };
 
 export function AutoInsights({ openAutomation }: { openAutomation: (id: string) => void }) {
   const d = useAuto();
@@ -56,21 +61,21 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
   return (
     <div className="page-scroll">
       <div className="page-inner">
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
+        <div className={"grid " + css.tileGrid}>
           <Tile title="30 天執行" value={String(totalRuns)} icon="play.circle" tint="indigo" spark={spark} />
-          <Tile title="整體成功率" value={percent(weighted * 100)} icon="checkmark.circle" tint="green" />
+          <Tile title="整體成功率" value={pct(weighted * 100)} icon="checkmark.circle" tint="green" />
           <Tile title="省下人力" value={`${totalHours.toFixed(0)} 小時`} delta={`≈ ${(totalHours / 8).toFixed(1)} 人日`} icon="clock.arrow.circlepath" tint="purple" />
           <Tile title="AI 成本(30 天)" value={`$${totalCost.toFixed(2)}`} delta={totalHours > 0 ? `每省 1 小時 $${(totalCost / totalHours).toFixed(2)}` : undefined} icon="dollarsign.circle" tint="orange" />
-          <Tile title="人工核准通過率" value={approvalRate == null ? "—" : percent(approvalRate * 100, 0)} delta={decided.length ? `${decided.length} 件已處理` : undefined} icon="hand.raised" tint="purple" />
+          <Tile title="人工核准通過率" value={approvalRate == null ? "—" : pct(approvalRate * 100, 0)} delta={decided.length ? `${decided.length} 件已處理` : undefined} icon="hand.raised" tint="purple" />
         </div>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 16, alignItems: "start" }}>
+        <div className={"grid " + css.chartGrid}>
           <Card title="每日執行次數" subtitle="近 14 天,依流程分色">
-            <div style={{ height: 230 }}>
+            <div className={css.chart}>
               <ResponsiveContainer>
                 <BarChart data={runsByDay} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
-                  <XAxis dataKey="day" interval={1} {...axis} />
-                  <YAxis allowDecimals={false} {...axis} />
+                  <XAxis dataKey="day" interval={1} {...axisProps} />
+                  <YAxis allowDecimals={false} {...axisProps} />
                   <Tooltip contentStyle={{ background: "var(--bg2)", border: "1px solid var(--line)", fontSize: "var(--fs-xs)" }} />
                   <Legend iconSize={8} wrapperStyle={{ fontSize: "var(--fs-xs)" }} />
                   {series.map((s, i) => <Bar key={s} dataKey={s} stackId="a" fill={PALETTE[i % PALETTE.length]} isAnimationActive={false} />)}
@@ -84,8 +89,8 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
                 <BarChart data={hoursData} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
                   <defs><linearGradient id="aiGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="var(--purple)" /><stop offset="100%" stopColor="var(--indigo)" /></linearGradient></defs>
                   <CartesianGrid stroke="var(--line)" horizontal={false} />
-                  <XAxis type="number" {...axis} />
-                  <YAxis type="category" dataKey="name" width={120} {...axis} />
+                  <XAxis type="number" {...axisProps} />
+                  <YAxis type="category" dataKey="name" width={120} {...axisProps} />
                   <Bar dataKey="timeSavedHours" fill="url(#aiGrad)" radius={[0, 4, 4, 0]} isAnimationActive={false}>
                     <LabelList dataKey="timeSavedHours" position="right" formatter={(v: number) => v.toFixed(1)} style={{ fontSize: "var(--fs-xs)", fill: "var(--fg2)" }} />
                   </Bar>
@@ -98,8 +103,8 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
               <ResponsiveContainer>
                 <BarChart data={successData} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="var(--line)" horizontal={false} />
-                  <XAxis type="number" domain={[0, 105]} ticks={[0, 25, 50, 75, 100]} {...axis} />
-                  <YAxis type="category" dataKey="name" width={120} {...axis} />
+                  <XAxis type="number" domain={[0, 105]} ticks={[0, 25, 50, 75, 100]} {...axisProps} />
+                  <YAxis type="category" dataKey="name" width={120} {...axisProps} />
                   <ReferenceLine x={90} stroke="var(--fg2)" strokeDasharray="4 3" />
                   <Bar dataKey="v" radius={[0, 4, 4, 0]} isAnimationActive={false}>
                     {successData.map((x) => <Cell key={x.name} fill={x.v >= 95 ? "var(--green)" : x.v >= 90 ? "var(--orange)" : "var(--red)"} />)}
@@ -110,12 +115,12 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
             </div>
           </Card>
           <Card title="每日 AI 成本" subtitle="美元,依 tokens 用量估算">
-            <div style={{ height: 230 }}>
+            <div className={css.chart}>
               <ResponsiveContainer>
                 <ComposedChart data={costByDay} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
-                  <XAxis dataKey="day" interval={1} {...axis} />
-                  <YAxis tickFormatter={(v) => `$${(+v).toFixed(1)}`} {...axis} />
+                  <XAxis dataKey="day" interval={1} {...axisProps} />
+                  <YAxis tickFormatter={(v) => `$${(+v).toFixed(1)}`} {...axisProps} />
                   <Area type="monotone" dataKey="cost" stroke="none" fill="var(--purple)" fillOpacity={0.15} isAnimationActive={false} />
                   <Line type="monotone" dataKey="cost" stroke="var(--purple)" dot={{ r: 2, fill: "var(--purple)" }} isAnimationActive={false} />
                 </ComposedChart>
@@ -124,18 +129,18 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
           </Card>
         </div>
         <Card>
-          <div className="row"><span className="h3 grow" style={{ fontSize: "var(--fs-md)" }}>流程排行</span><div style={{ width: 320 }}><Segmented value={sort} onChange={setSort} options={SORTS} /></div></div>
-          <table className="table">
-            <thead><tr><th>流程</th><th>自主程度</th><th style={{ textAlign: "right" }}>執行</th><th style={{ textAlign: "right" }}>成功率</th><th style={{ textAlign: "right" }}>省下</th><th style={{ textAlign: "right" }}>成本</th></tr></thead>
+          <div className="row"><span className={"h3 grow " + css.cardName}>流程排行</span><div className={css.w320}><Segmented value={sort} onChange={setSort} options={SORTS} /></div></div>
+          <table className={tableClass.simple}>
+            <thead><tr><th>流程</th><th>自主程度</th><th className={css.right}>執行</th><th className={css.right}>成功率</th><th className={css.right}>省下</th><th className={css.right}>成本</th></tr></thead>
             <tbody>
               {sorted.map((a) => (
-                <tr key={a.id} className="click" onClick={() => openAutomation(a.id)}>
+                <tr key={a.id} className={tableClass.click} onClick={() => openAutomation(a.id)}>
                   <td><span className="row gap8"><IconTile icon={a.icon} size={22} dimmed={!a.enabled} />{a.name}{!a.enabled && <span className="caption muted">已停用</span>}</span></td>
                   <td><AutonomyBadge autonomy={a.autonomy} /></td>
-                  <td className="num" style={{ textAlign: "right" }}>{a.runs30d}</td>
-                  <td className="num" style={{ textAlign: "right", color: a.successRate >= 0.95 ? undefined : a.successRate >= 0.9 ? "var(--orange)" : "var(--red)" }}>{percent(a.successRate * 100)}</td>
-                  <td className="num" style={{ textAlign: "right" }}>{a.timeSavedHours.toFixed(1)} h</td>
-                  <td className="num" style={{ textAlign: "right" }}>${cost30(a).toFixed(2)}</td>
+                  <td className={"num " + css.right}>{a.runs30d}</td>
+                  <td className={"num " + css.right + (a.successRate >= 0.95 ? "" : a.successRate >= 0.9 ? " " + css.warn : " " + css.danger)}>{pct(a.successRate * 100)}</td>
+                  <td className={"num " + css.right}>{a.timeSavedHours.toFixed(1)} h</td>
+                  <td className={"num " + css.right}>${cost30(a).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -149,14 +154,14 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
 function Tile({ title, value, delta, icon, tint, spark }: { title: string; value: string; delta?: string; icon: string; tint: string; spark?: { i: number; v: number }[] }) {
   const c = `var(--${tint})`;
   return (
-    <div className="card metric" style={{ gap: 6, borderRadius: "var(--r-xl)" }}>
+    <div className={cardClass + " " + css.tile}>
       <div className="caption muted row gap4"><IconInline name={icon} c={c} />{title}</div>
-      <div className="row gap8" style={{ alignItems: "baseline" }}>
-        <span className="metric-value" style={{ fontSize: "var(--fs-3xl)" }}>{value}</span>
-        {delta && <span className="caption" style={{ color: "var(--green)", fontWeight: 500 }}>{delta}</span>}
+      <div className={"row gap8 " + css.baseline}>
+        <span className={css.metricValue}>{value}</span>
+        {delta && <span className={"caption " + css.good + " " + css.medium}>{delta}</span>}
       </div>
       {spark && (
-        <div style={{ height: 28 }}>
+        <div className={css.spark}>
           <ResponsiveContainer>
             <ComposedChart data={spark} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
               <YAxis hide domain={["dataMin", "dataMax"]} />

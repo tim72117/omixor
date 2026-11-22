@@ -3,8 +3,10 @@
 // 沒有設定遠端就不會出現。左下角的 AccountBox 之後隨時可以切換,「登出」後也會回到這裡。
 import { useEffect, useState, type ReactNode } from "react";
 import { action, useRun, useView } from "../api";
+import { ErrorText } from "../components/ErrorText";
 import { Icon } from "../components/Icon";
 import { useAuth } from "./auth";
+import css from "./auth.module.css";
 
 export type AuthOption = { id: string; label: string };
 export type AccountServer = { id: string; name: string; url: string; auth: AuthOption[] };
@@ -36,7 +38,7 @@ export function ConnectGate({ children }: { children: ReactNode }) {
 
 function Inner({ children }: { children: ReactNode }) {
   const [acc, err] = useView<Account>("account", ["account"]);
-  if (!acc && !err) return <div className="empty">載入中…</div>;
+  if (!acc && !err) return <div className={css.loading}>載入中…</div>;
   // 讀不到(例如還沒登入 LDAP)就先放行,讓既有的登入頁處理
   if (!acc || !acc.gate) return <>{children}</>;
   return <Picker acc={acc} />;
@@ -52,16 +54,16 @@ function Picker({ acc }: { acc: Account }) {
     else void connect("remote", s.id, s.auth[0]?.id, s.auth[0]?.label ?? s.name);
   };
   return (
-    <div className="login-bg">
-      <div className="login-card connect-card">
-        <div className="row gap8" style={{ justifyContent: "center" }}>
+    <div className={css.bg}>
+      <div className={css.card + " " + css.connectCard}>
+        <div className={"row gap8 " + css.center}>
           <Icon name="server.rack" size={22} />
           <span className="h2">omixor</span>
         </div>
-        <div className="muted caption" style={{ textAlign: "center" }}>選擇連接對象</div>
+        <div className={"muted caption " + css.centerText}>選擇連接對象</div>
 
         {busy ? (
-          <div className="col gap8" style={{ alignItems: "center", padding: "14px 0" }}>
+          <div className={"col gap8 " + css.waiting}>
             <div>請在瀏覽器完成{pending ? ` ${pending} ` : ""}核准…</div>
             <div className="caption muted">核准後會自動進入。</div>
             <button className="btn" onClick={cancel}>取消</button>
@@ -70,7 +72,7 @@ function Picker({ acc }: { acc: Account }) {
           <>
             <div className="caption muted">{choosing.name} 要用哪種方式登入?</div>
             {choosing.auth.map((a) => (
-              <button key={a.id} className="connect-option" onClick={() => void connect("remote", choosing.id, a.id, a.label)}>
+              <button key={a.id} className={css.option} onClick={() => void connect("remote", choosing.id, a.id, a.label)}>
                 <Icon name="key.horizontal" size={18} />
                 <span className="col grow"><span>{a.label}</span></span>
               </button>
@@ -79,7 +81,7 @@ function Picker({ acc }: { acc: Account }) {
           </>
         ) : (
           <>
-            <button className="connect-option" onClick={() => void connect("local")}>
+            <button className={css.option} onClick={() => void connect("local")}>
               <Icon name="internaldrive" size={18} />
               <span className="col grow">
                 <span>本機</span>
@@ -87,7 +89,7 @@ function Picker({ acc }: { acc: Account }) {
               </span>
             </button>
             {acc.servers.map((s) => (
-              <button key={s.id} className="connect-option" onClick={() => pick(s)}>
+              <button key={s.id} className={css.option} onClick={() => pick(s)}>
                 <Icon name="cloud" size={18} />
                 <span className="col grow">
                   <span>{s.name}</span>
@@ -96,7 +98,7 @@ function Picker({ acc }: { acc: Account }) {
             ))}
           </>
         )}
-        {error && <div className="error-text">{error}</div>}
+        <ErrorText>{error}</ErrorText>
       </div>
     </div>
   );

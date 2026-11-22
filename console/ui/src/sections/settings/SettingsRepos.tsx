@@ -5,13 +5,19 @@
 // 資料:view github、view gitlab;動作:github_ensure_connection、github_add_repo、github_remove_repo、gitlab_*、connection_*(見 docs/PORTING.md)。
 import { useState } from "react";
 import { action, useRun, useView } from "../../api";
-import { Card, ErrorText } from "../../components/ui";
-import { Banner, copyText, SIcon, useAct } from "../../components/omixorKit";
+import { Banner } from "../../components/Callout";
+import { Card, cardTitleClass } from "../../components/Card";
+import { ErrorText } from "../../components/ErrorText";
+import { iconButtonClass } from "../../components/IconButton";
+import { SIcon } from "../../components/SIcon";
+import { useAct } from "../../components/Toast";
+import { copyText } from "../../lib/clipboard";
+import { go } from "../../lib/nav";
 import { GitLabProjects, GitLabSetup, InsecureBanner, LogoutRow, ServerCard } from "../../gitlab/gitlabSettings";
 import type { GitLabView } from "../../gitlab/GitLabTab";
 import type { Connection, GitHubView } from "../development/DevGitHubTab";
 import { Form, Row, Section } from "./form";
-import { go } from "../../components/bits";
+import css from "./settings.module.css";
 import { useFeatures } from "../../features";
 
 const HOMEPAGE = "http://127.0.0.1";
@@ -34,7 +40,7 @@ function ReposLink() {
   const flags = useFeatures();
   if (!flags.visible("development") || !flags.enabled("development.repos")) return null;
   return (
-    <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+    <div className={"row gap8 " + css.end}>
       <span className="caption muted">追蹤中 repo 的 PR/MR 與 Actions/Pipeline 在開發進度看</span>
       <button className="btn" onClick={() => go("development", "repos")}><SIcon name="shippingbox" size={12} />前往 開發進度 › Repositories</button>
     </div>
@@ -78,7 +84,7 @@ function GitHubAccountRow({ gh }: { gh: GitHubView }) {
   return (
     <Row>
       <SIcon name="person.crop.circle.badge.checkmark" color="green" />
-      <div className="col grow" style={{ minWidth: 0 }}>
+      <div className="col grow">
         <span>{gh.state?.account ?? "已登入"}</span>
         <span className="caption muted">登入方式:{conn.auth === "bearer" ? "個人存取權杖" : "GitHub OAuth"}</span>
       </div>
@@ -106,17 +112,17 @@ function GitHubRepos({ gh }: { gh: GitHubView }) {
       {repos.map((r) => (
         <Row key={r}>
           <SIcon name="shippingbox" size={13} className="muted" />
-          <span className="grow ellipsis" style={{ minWidth: 0 }}>{r}</span>
+          <span className="grow ellipsis">{r}</span>
           <button className="btn small link" onClick={() => openURL(`https://github.com/${r}`)}>在 GitHub 打開</button>
           <button className="btn small danger" onClick={() => run(() => action("github_remove_repo", { repo: r }))}>停止追蹤</button>
         </Row>
       ))}
       <Row>
-        <input className="input grow" style={{ minWidth: 0 }} placeholder="owner/name" value={newRepo} onChange={(e) => setNewRepo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && newRepo.trim() && addRepo()} />
+        <input className="input grow" placeholder="owner/name" value={newRepo} onChange={(e) => setNewRepo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && newRepo.trim() && addRepo()} />
         <button className="btn" disabled={!newRepo.trim()} onClick={addRepo}>加入</button>
       </Row>
-      {repoError && <Row><span className="caption" style={{ color: "var(--red)" }}>{repoError}</span></Row>}
-      {!repoError && gh.settingsError && <Row><span className="caption" style={{ color: "var(--orange)" }}>組織設定:{gh.settingsError}</span></Row>}
+      {repoError && <Row><span className={"caption " + css.dangerRed}>{repoError}</span></Row>}
+      {!repoError && gh.settingsError && <Row><span className={"caption " + css.warn}>組織設定:{gh.settingsError}</span></Row>}
       {toastEl}
     </Section>
   );
@@ -133,31 +139,31 @@ function GitHubSetup({ gh }: { gh: GitHubView }) {
   const login = (id: string) => run(() => action("connection_login", { id }));
   const copyRow = (label: string, value: string) => (
     <div className="row gap8 wrap">
-      <span className="caption muted" style={{ width: 180 }}>{label}</span>
-      <span className="mono" style={{ userSelect: "text", wordBreak: "break-all" }}>{value}</span>
-      <button className="ox-icon-btn" title="複製" onClick={() => copyText(value)}><SIcon name="doc.on.doc" size={12} /></button>
+      <span className={"caption muted " + css.w180}>{label}</span>
+      <span className={"mono " + css.copyValue}>{value}</span>
+      <button className={iconButtonClass.bare} title="複製" onClick={() => copyText(value)}><SIcon name="doc.on.doc" size={12} /></button>
     </div>
   );
   return (
-    <div className="col" style={{ gap: 12 }}>
+    <div className="col gap12">
       <div className="caption muted">連上後,開發進度 › Repositories 會列出追蹤中 repo 的 Actions 執行(含失敗的步驟與紀錄)和開著的 PR(含檢查結果);虛擬角色也能透過 MCP 讀。</div>
       {!conn ? (
-        <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => run(() => action("github_ensure_connection"))}>開始設定</button>
+        <button className={"btn primary " + css.start} disabled={busy} onClick={() => run(() => action("github_ensure_connection"))}>開始設定</button>
       ) : conn.auth === "oauth" ? (
         !conn.oauth?.clientId || !conn.oauth?.hasClientSecret ? (
           <Card>
-            <div className="card-title">1. 在 GitHub 註冊一個 OAuth App(只要做一次)</div>
+            <div className={cardTitleClass}>1. 在 GitHub 註冊一個 OAuth App(只要做一次)</div>
             <div className="muted">按下面的按鈕會打開 GitHub 的「New OAuth App」頁。名稱和網址會自動帶入;如果沒帶到,照下面填:</div>
             {copyRow("Application name", "omixor")}
             {copyRow("Homepage URL", HOMEPAGE)}
             {copyRow("Authorization callback URL", CALLBACK)}
             <div className="caption muted">「Enable Device Flow」不用勾。按 Register application 後,在 App 頁按「Generate a new client secret」。</div>
-            <button className="btn" style={{ alignSelf: "flex-start" }} onClick={() => openURL(REGISTER_URL)}>打開 GitHub 註冊頁</button>
+            <button className={"btn " + css.start} onClick={() => openURL(REGISTER_URL)}>打開 GitHub 註冊頁</button>
             <div className="divider" />
-            <div className="card-title">2. 把 Client ID 和 Client secret 貼到這裡</div>
+            <div className={cardTitleClass}>2. 把 Client ID 和 Client secret 貼到這裡</div>
             <input className="input" placeholder="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} />
             <input className="input" type="password" placeholder="Client secret(存在鑰匙圈)" value={secret} onChange={(e) => setSecret(e.target.value)} />
-            <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy || !clientId.trim() || (!secret && !conn.oauth?.hasClientSecret)} onClick={() => run(async () => {
+            <button className={"btn primary " + css.start} disabled={busy || !clientId.trim() || (!secret && !conn.oauth?.hasClientSecret)} onClick={() => run(async () => {
               await action("connection_upsert", { ...conn, oauth: { ...conn.oauth, clientId: clientId.trim() } });
               if (secret.trim()) await action("connection_secret", { id: conn.id, secret: secret.trim() });
               setSecret("");
@@ -166,7 +172,7 @@ function GitHubSetup({ gh }: { gh: GitHubView }) {
           </Card>
         ) : (
           <Card>
-            <div className="card-title">用瀏覽器登入 GitHub</div>
+            <div className={cardTitleClass}>用瀏覽器登入 GitHub</div>
             <div className="muted">會打開 GitHub 的授權頁,按 Authorize 後回到 omixor 就完成了。權限只要 read:user;公開 repo 的 PR 與 Actions 不用額外權限。</div>
             <div className="row gap8 wrap">
               <button className="btn primary" disabled={busy || !!st?.busy} onClick={() => login(conn.id)}>用瀏覽器登入</button>
@@ -183,9 +189,9 @@ function GitHubSetup({ gh }: { gh: GitHubView }) {
       ) : <GitHubTokenStep conn={conn} />}
       {(st?.error || error) && <Banner>{st?.error || error}</Banner>}
       {conn?.auth === "oauth" && (
-        <details className="ox-disclosure" open={useToken} onToggle={(e) => setUseToken((e.target as HTMLDetailsElement).open)}>
+        <details className={css.nativeDisclosure} open={useToken} onToggle={(e) => setUseToken((e.target as HTMLDetailsElement).open)}>
           <summary>改用個人存取權杖</summary>
-          <div style={{ paddingTop: 6 }}><GitHubTokenStep conn={conn} /></div>
+          <div className={css.pt6}><GitHubTokenStep conn={conn} /></div>
         </details>
       )}
     </div>
@@ -199,14 +205,14 @@ function GitHubTokenStep({ conn }: { conn: Connection }) {
     <div className="col gap8">
       <div className="caption muted">在 GitHub › Settings › Developer settings › Fine-grained tokens 建一個 token,Repository access 選要追蹤的 repo,權限給 Actions、Pull requests、Checks、Metadata 的 Read-only。</div>
       <div className="row gap8">
-        <input className="input grow" style={{ minWidth: 0 }} type="password" placeholder="github_pat_…(存在鑰匙圈)" value={token} onChange={(e) => setToken(e.target.value)} />
+        <input className="input grow" type="password" placeholder="github_pat_…(存在鑰匙圈)" value={token} onChange={(e) => setToken(e.target.value)} />
         <button className="btn" disabled={busy || !token.trim()} onClick={() => run(async () => {
           await action("connection_upsert", { ...conn, auth: "bearer" });
           await action("connection_bearer", { id: conn.id, token });
           setToken("");
         })}>使用這個 token</button>
       </div>
-      {conn.auth === "bearer" && <button className="btn link" style={{ alignSelf: "flex-start" }} onClick={() => run(() => action("connection_upsert", { ...conn, auth: "oauth" }))}>改回網頁 OAuth 登入</button>}
+      {conn.auth === "bearer" && <button className={"btn link " + css.start} onClick={() => run(() => action("connection_upsert", { ...conn, auth: "oauth" }))}>改回網頁 OAuth 登入</button>}
       {error && <Banner>{error}</Banner>}
     </div>
   );

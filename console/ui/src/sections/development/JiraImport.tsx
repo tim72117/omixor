@@ -3,7 +3,11 @@
 // 再匯入一次會更新同一筆(用 Jira 網址比對),不會重複。只讀 Jira,不會改 Jira 上的東西。
 import { useEffect, useState } from "react";
 import { action, useRun, useView } from "../../api";
-import { Banner, Check, SIcon } from "../../components/omixorKit";
+import { Banner } from "../../components/Callout";
+import { Check } from "../../components/Check";
+import { SIcon } from "../../components/SIcon";
+import css from "./JiraImport.module.css";
+import { fieldClass } from "../../components/Field";
 
 type JiraView = { configured: boolean; baseURL?: string; auth?: string; cloud?: boolean; loggedIn?: boolean; account?: string | null; error?: string | null };
 type Project = { key: string; name: string };
@@ -18,13 +22,13 @@ export function JiraImport({ onDone }: { onDone: () => void }) {
   const ready = jira.configured && jira.loggedIn && !jira.error;
   return (
     <div className="col gap12">
-      <div className="row gap8" style={{ alignItems: "center" }}>
+      <div className="row gap8">
         <SIcon name="square.and.arrow.down" size={16} />
         <span className="h3">從 Jira 匯入 Issue</span>
       </div>
       {ready && !editing ? (
         <>
-          <div className="row gap8 caption muted" style={{ alignItems: "center" }}>
+          <div className="row gap8 caption muted">
             <span>已連線 {jira.baseURL}{jira.account ? `(${jira.account})` : ""}</span>
             <button className="btn link" onClick={() => setEditing(true)}>更換連線</button>
           </div>
@@ -46,13 +50,13 @@ function SetupForm({ jira, onSaved, onCancel }: { jira: JiraView; onSaved: () =>
   return (
     <div className="col gap8">
       {jira.configured && jira.error && <Banner>{jira.error}</Banner>}
-      <label className="bx-field"><span>Jira 網址</span>
+      <label className={fieldClass}><span>Jira 網址</span>
         <input className="input" placeholder="https://your-team.atlassian.net" value={baseURL} onChange={(e) => setBaseURL(e.target.value)} />
       </label>
-      <label className="bx-field"><span>{cloud ? "登入用的 email" : "帳號 email(Jira Cloud 必填;Server / Data Center 用個人存取權杖時留空)"}</span>
+      <label className={fieldClass}><span>{cloud ? "登入用的 email" : "帳號 email(Jira Cloud 必填;Server / Data Center 用個人存取權杖時留空)"}</span>
         <input className="input" autoComplete="off" placeholder="me@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
       </label>
-      <label className="bx-field"><span>{email.trim() ? "API token" : "API token / 個人存取權杖"}</span>
+      <label className={fieldClass}><span>{email.trim() ? "API token" : "API token / 個人存取權杖"}</span>
         <input className="input" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)}
           placeholder={jira.loggedIn ? "已設定,輸入新的會取代" : "存在本機(加密),不會顯示"} />
       </label>
@@ -109,7 +113,7 @@ function ProjectPicker({ onDone }: { onDone: () => void }) {
       ) : (
         <>
           <input className="input" placeholder={`搜尋專案(共 ${projects.length} 個)`} value={query} onChange={(e) => setQuery(e.target.value)} />
-          <div className="col gap4" style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 8 }}>
+          <div className={"col gap4 " + css.picker}>
             {list.map((p) => (
               <Check key={p.key} on={picked.includes(p.key)} onChange={(v) => toggle(p.key, v)}>
                 <span className="mono">{p.key}</span> <span>{p.name}</span>

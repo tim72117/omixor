@@ -4,9 +4,14 @@
 // 資料:view gitlab;動作:gitlab_jobs、gitlab_job_log、gitlab_mr(見 docs/PORTING.md)。
 import { useEffect, useState } from "react";
 import { action } from "../api";
-import { Card, Pill } from "../components/ui";
-import { Banner, MarkdownText, SIcon } from "../components/omixorKit";
+import { Banner } from "../components/Callout";
+import { Card } from "../components/Card";
+import { iconButtonClass } from "../components/IconButton";
+import { MarkdownText } from "../components/Markdown";
+import { Pill } from "../components/Pill";
+import { SIcon } from "../components/SIcon";
 import { relative } from "../fmt";
+import css from "./gitlab.module.css";
 
 type Connection = {
   id: string; name: string; baseURL: string; auth: "oauth" | "approval" | "bearer" | "basic" | "none";
@@ -90,9 +95,9 @@ export function PipelineDetail({ p, projectName }: { p: GLPipeline; projectName:
   };
   const [icon, c] = statusIcon(p.status);
   return (
-    <div className="col" style={{ padding: 20, gap: 12, maxWidth: 860 }}>
-      <div className="row" style={{ alignItems: "baseline", gap: 8 }}>
-        <span className="h3" style={{ userSelect: "text" }}>Pipeline #{p.iid || p.id}</span><span className="muted">{projectName}</span><span className="grow" />
+    <div className={"col " + css.detail}>
+      <div className={css.baseline + " gap8"}>
+        <span className={"h3 " + css.selectable}>Pipeline #{p.iid || p.id}</span><span className="muted">{projectName}</span><span className="grow" />
         {p.url && <button className="btn" onClick={() => openURL(p.url)}>在 GitLab 打開</button>}
       </div>
       <div className="row gap8 wrap">
@@ -111,28 +116,28 @@ export function PipelineDetail({ p, projectName }: { p: GLPipeline; projectName:
           {jobs.filter((j) => j.stage === stage).map((j) => {
             const [ji, jc] = statusIcon(j.status, j.allowFailure);
             return (
-              <div key={j.id} className="col" style={{ gap: 6 }}>
+              <div key={j.id} className={"col " + css.job}>
                 <div className="row gap8">
                   <SIcon name={ji} color={jc} size={13} />
-                  <span style={{ fontWeight: j.isFailure ? 600 : undefined }}>{j.name}</span>
+                  <span className={j.isFailure ? css.failed : undefined}>{j.name}</span>
                   <span className="caption muted">{j.statusLabel}{j.allowFailure && j.status === "failed" ? "(允許失敗)" : ""}</span>
-                  {j.failureReason && <span className="caption" style={{ color: "var(--red)" }}>{j.failureReason}</span>}
+                  {j.failureReason && <span className={"caption " + css.red}>{j.failureReason}</span>}
                   {dur(j.duration) && <span className="caption muted">{dur(j.duration)}</span>}
                   <span className="grow" />
                   {j.status === "failed" && <button className="btn" onClick={() => loadLog(j.id)}>{logJob === j.id && log != null ? "重新讀紀錄" : "看紀錄最後幾行"}</button>}
-                  {j.url && <button className="ox-icon-btn" title="在 GitLab 打開" onClick={() => openURL(j.url)}><SIcon name="arrow.up.right.square" size={12} /></button>}
+                  {j.url && <button className={iconButtonClass.bare} title="在 GitLab 打開" onClick={() => openURL(j.url)}><SIcon name="arrow.up.right.square" size={12} /></button>}
                 </div>
                 {logJob === j.id && (
                   <>
-                    {logError && <div className="caption" style={{ color: "var(--orange)" }}>{logError}</div>}
-                    {log != null ? <pre className="ox-code" style={{ fontSize: "var(--fs-xs)", userSelect: "text", maxHeight: 420, overflow: "auto" }}>{log}</pre> : !logError && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
+                    {logError && <div className={"caption " + css.warn}>{logError}</div>}
+                    {log != null ? <pre className={css.code + " " + css.log}>{log}</pre> : !logError && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
                   </>
                 )}
               </div>
             );
           })}
         </Card>
-      )) : !error && <div className="row" style={{ justifyContent: "center" }}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>}
+      )) : !error && <div className={"row " + css.center}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>}
       {jobs && jobs.length === 0 && <div className="muted">這個 pipeline 沒有 job</div>}
     </div>
   );
@@ -148,9 +153,9 @@ export function MRDetail({ m }: { m: GLMR }) {
   const [icon, c] = statusIcon(mr.pipeline?.status);
   const ap = approvalText(mr.approval);
   return (
-    <div className="col" style={{ padding: 20, gap: 12, maxWidth: 860 }}>
-      <div className="row gap8" style={{ alignItems: "baseline" }}>
-        <span className="h3" style={{ userSelect: "text" }}>{m.title}</span><span className="muted" style={{ fontSize: "var(--fs-lg)" }}>!{m.iid}</span><span className="grow" />
+    <div className={"col " + css.detail}>
+      <div className={css.baseline + " gap8"}>
+        <span className={"h3 " + css.selectable}>{m.title}</span><span className={"muted " + css.iid}>!{m.iid}</span><span className="grow" />
         {m.url && <button className="btn" onClick={() => openURL(m.url)}>在 GitLab 打開</button>}
       </div>
       <div className="row gap8 wrap">
@@ -164,7 +169,7 @@ export function MRDetail({ m }: { m: GLMR }) {
         {detail && <span className="caption muted num">+{detail.additions} −{detail.deletions} · {detail.changesCount} 個檔案</span>}
       </div>
       {m.reviewers?.length > 0 && <div className="caption muted">審查者:{m.reviewers.join("、")}</div>}
-      {mr.pipeline?.url && <button className="btn link" style={{ alignSelf: "flex-start" }} onClick={() => openURL(mr.pipeline!.url)}>打開 head pipeline #{mr.pipeline.id}</button>}
+      {mr.pipeline?.url && <button className={"btn link " + css.selfStart} onClick={() => openURL(mr.pipeline!.url)}>打開 head pipeline #{mr.pipeline.id}</button>}
       <div className="divider" />
       {error && <Banner>{error}</Banner>}
       {detail ? (
@@ -173,17 +178,17 @@ export function MRDetail({ m }: { m: GLMR }) {
           <Card title="變更的檔案">
             {(detail.files ?? []).map((f) => (
               <div key={f.oldPath + "→" + f.newPath} className="row gap8">
-                <span className="caption" style={{ width: 44, color: f.status === "added" ? "var(--green)" : f.status === "deleted" ? "var(--red)" : "var(--fg2)" }}>
+                <span className={"caption " + css.fileStatus + " " + (f.status === "added" ? css.ok : f.status === "deleted" ? css.red : "muted")}>
                   {({ added: "新增", deleted: "刪除", renamed: "改名", modified: "修改" } as Record<string, string>)[f.status] ?? f.status}
                 </span>
                 <span className="caption mono ellipsis grow">{f.status === "renamed" ? `${f.oldPath} → ${f.newPath}` : f.newPath}</span>
-                <span className="caption num" style={{ color: "var(--green)" }}>+{f.additions}</span>
-                <span className="caption num" style={{ color: "var(--red)" }}>−{f.deletions}</span>
+                <span className={"caption num " + css.ok}>+{f.additions}</span>
+                <span className={"caption num " + css.red}>−{f.deletions}</span>
               </div>
             ))}
           </Card>
         </>
-      ) : !error && <div className="row" style={{ justifyContent: "center" }}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>}
+      ) : !error && <div className={"row " + css.center}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>}
     </div>
   );
 }

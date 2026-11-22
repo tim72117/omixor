@@ -3,10 +3,17 @@
 // 資料:view gitlab;動作:gitlab_settings、gitlab_ensure_connection、gitlab_add_project、gitlab_remove_project、connection_*(見 docs/PORTING.md)。
 import { useState } from "react";
 import { action, useRun } from "../api";
-import { Card } from "../components/ui";
-import { Banner, Check, copyText, SIcon, useAct } from "../components/omixorKit";
+import { Banner } from "../components/Callout";
+import { Card, cardTitleClass } from "../components/Card";
+import { Check } from "../components/Check";
+import { iconButtonClass } from "../components/IconButton";
+import { SIcon } from "../components/SIcon";
+import { useAct } from "../components/Toast";
+import { copyText } from "../lib/clipboard";
 import { Row, Section } from "../sections/settings/form";
 import type { GitLabView } from "./GitLabTab";
+import css from "./gitlab.module.css";
+import { disclosureClass } from "../components/Disclosure";
 
 type Connection = NonNullable<GitLabView["connection"]>;
 const openURL = (u: string) => u && window.open(u, "_blank", "noopener");
@@ -25,15 +32,15 @@ export function ServerCard({ gl, onSaved }: { gl: GitLabView; onSaved?: () => vo
   const changedBase = gl.configured && base.trim().replace(/\/+$/, "") !== gl.baseURL;
   return (
     <Card>
-      <div className="card-title">1. 公司的 GitLab 在哪裡</div>
+      <div className={cardTitleClass}>1. 公司的 GitLab 在哪裡</div>
       <input className="input" placeholder="https://gitlab.corp.example.com" value={base} onChange={(e) => setBase(e.target.value)} />
       <div className="caption muted">只要網址(不用 /api/v4)。omixor 只讀,token 只會送到這一台主機。</div>
-      <div className="caption muted" style={{ marginTop: 4 }}>自簽憑證時,指定公司的 CA 憑證檔(PEM 格式,例如 ~/certs/corp-ca.pem):</div>
+      <div className={"caption muted " + css.mt4}>自簽憑證時,指定公司的 CA 憑證檔(PEM 格式,例如 ~/certs/corp-ca.pem):</div>
       <input className="input mono" placeholder="CA 憑證檔路徑(選填)" value={ca} disabled={insecure} onChange={(e) => setCA(e.target.value)} />
       <Check on={insecure} onChange={setInsecure}><span className="caption">不驗證憑證(只給測試環境)</span></Check>
       {insecure && <Banner tint="red">不驗證憑證時,連線可能被攔截、token 可能外流。正式環境請改用 CA 憑證檔。</Banner>}
-      {changedBase && <div className="caption" style={{ color: "var(--orange)" }}>換網址會登出,要重新登入。</div>}
-      <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy || !base.trim()} onClick={() => run(async () => {
+      {changedBase && <div className={"caption " + css.warn}>換網址會登出,要重新登入。</div>}
+      <button className={"btn primary " + css.selfStart} disabled={busy || !base.trim()} onClick={() => run(async () => {
         await action("gitlab_settings", { baseURL: base.trim(), caCert: insecure ? "" : ca.trim(), insecure });
         onSaved?.();
       })}>儲存</button>
@@ -49,7 +56,7 @@ export function LogoutRow({ gl }: { gl: GitLabView }) {
   return (
     <Row>
       <SIcon name="person.crop.circle.badge.checkmark" color="green" />
-      <div className="col grow" style={{ minWidth: 0 }}>
+      <div className="col grow">
         <span>{gl.state?.account ?? "已登入"}</span>
         <span className="caption muted ellipsis">
           <span className="mono">{gl.baseURL}</span> · 登入方式:{gl.connection.auth === "bearer" ? "個人存取權杖" : "GitLab OAuth"}
@@ -70,34 +77,34 @@ export function GitLabSetup({ gl }: { gl: GitLabView }) {
   const { busy, error, run } = useRun();
   const copyRow = (label: string, value: string) => (
     <div className="row gap8 wrap">
-      <span className="caption muted" style={{ width: 150 }}>{label}</span>
-      <span className="mono" style={{ userSelect: "text", wordBreak: "break-all" }}>{value}</span>
-      <button className="ox-icon-btn" title="複製" onClick={() => copyText(value)}><SIcon name="doc.on.doc" size={12} /></button>
+      <span className={"caption muted " + css.copyLabel}>{label}</span>
+      <span className={"mono " + css.copyValue}>{value}</span>
+      <button className={iconButtonClass.bare} title="複製" onClick={() => copyText(value)}><SIcon name="doc.on.doc" size={12} /></button>
     </div>
   );
   return (
-    <div className="col" style={{ gap: 12 }}>
+    <div className={"col " + css.gap12}>
       <div className="caption muted">連上後,開發進度 › Repositories 會列出追蹤中專案的 Pipelines(含 jobs、stage 與失敗紀錄)和開著的 Merge Requests(含 pipeline 與核准狀態)。omixor 只讀,不會開 MR、留言或重跑 pipeline。</div>
       {!conn ? (
-        <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => run(() => action("gitlab_ensure_connection"))}>開始設定</button>
+        <button className={"btn primary " + css.selfStart} disabled={busy} onClick={() => run(() => action("gitlab_ensure_connection"))}>開始設定</button>
       ) : (
         <>
           <ServerCard gl={gl} />
           {gl.configured && (conn.auth === "oauth" ? (
             !conn.oauth?.clientId ? (
               <Card>
-                <div className="card-title">2. 在 GitLab 建一個應用程式(只要做一次)</div>
+                <div className={cardTitleClass}>2. 在 GitLab 建一個應用程式(只要做一次)</div>
                 <div className="muted">打開 GitLab 的「使用者設定 › 應用程式」(管理員也可以在 Admin › Applications 建給全公司用),新增應用程式,照下面填:</div>
                 {copyRow("Name", "omixor")}
                 {copyRow("Redirect URI", gl.callback)}
                 {copyRow("Scopes", gl.scopes)}
                 <div className="caption muted">「Confidential」不要勾(omixor 是桌面程式,用 PKCE);若公司規定要勾,建好後把 Secret 也貼到下面。omixor 登入時回呼網址會帶一個隨機連接埠(http://127.0.0.1:&lt;埠&gt;/callback);如果 GitLab 回報 redirect URI 不符,代表這版 GitLab 對本機回呼也比對連接埠,請改用個人存取權杖。</div>
-                <button className="btn" style={{ alignSelf: "flex-start" }} disabled={!gl.applicationsURL} onClick={() => openURL(gl.applicationsURL)}>打開 GitLab 的應用程式頁</button>
+                <button className={"btn " + css.selfStart} disabled={!gl.applicationsURL} onClick={() => openURL(gl.applicationsURL)}>打開 GitLab 的應用程式頁</button>
                 <div className="divider" />
-                <div className="card-title">3. 把 Application ID 貼到這裡</div>
+                <div className={cardTitleClass}>3. 把 Application ID 貼到這裡</div>
                 <input className="input" placeholder="Application ID" value={clientId} onChange={(e) => setClientId(e.target.value)} />
                 <input className="input" type="password" placeholder="Secret(選填,存在鑰匙圈)" value={secret} onChange={(e) => setSecret(e.target.value)} />
-                <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy || !clientId.trim()} onClick={() => run(async () => {
+                <button className={"btn primary " + css.selfStart} disabled={busy || !clientId.trim()} onClick={() => run(async () => {
                   await action("connection_upsert", { ...conn, oauth: { ...conn.oauth, clientId: clientId.trim() } });
                   if (secret.trim()) await action("connection_secret", { id: conn.id, secret: secret.trim() });
                   setSecret("");
@@ -106,7 +113,7 @@ export function GitLabSetup({ gl }: { gl: GitLabView }) {
               </Card>
             ) : (
               <Card>
-                <div className="card-title">用瀏覽器登入 GitLab</div>
+                <div className={cardTitleClass}>用瀏覽器登入 GitLab</div>
                 <div className="muted">會打開 {gl.baseURL} 的授權頁,按 Authorize 後回到 omixor 就完成了。權限:{gl.scopes}。如果授權頁顯示「The requested scope is invalid, unknown, or malformed」,代表 GitLab 應用程式沒勾到這些 scope:到應用程式頁編輯,勾 {gl.scopes} 後儲存再登入一次。</div>
                 <div className="row gap8 wrap">
                   <button className="btn primary" disabled={busy || !!st?.busy} onClick={() => run(() => action("connection_login", { id: conn.id }))}>用瀏覽器登入</button>
@@ -123,9 +130,9 @@ export function GitLabSetup({ gl }: { gl: GitLabView }) {
           ) : <TokenStep gl={gl} conn={conn} />)}
           {(st?.error || error) && <Banner>{st?.error || error}</Banner>}
           {gl.configured && conn.auth === "oauth" && (
-            <details className="ox-disclosure" open={useToken} onToggle={(e) => setUseToken((e.target as HTMLDetailsElement).open)}>
+            <details className={disclosureClass.native} open={useToken} onToggle={(e) => setUseToken((e.target as HTMLDetailsElement).open)}>
               <summary>改用個人存取權杖</summary>
-              <div style={{ paddingTop: 6 }}><TokenStep gl={gl} conn={conn} /></div>
+              <div className={css.pt6}><TokenStep gl={gl} conn={conn} /></div>
             </details>
           )}
         </>
@@ -140,16 +147,16 @@ function TokenStep({ gl, conn }: { gl: GitLabView; conn: Connection }) {
   return (
     <div className="col gap8">
       <div className="caption muted">在 GitLab 的「使用者設定 › 個人存取權杖」建一個 token,範圍只勾 read_api,設好到期日。</div>
-      {gl.tokenURL && <button className="btn" style={{ alignSelf: "flex-start" }} onClick={() => openURL(gl.tokenURL)}>打開建立權杖頁(已帶好 read_api)</button>}
+      {gl.tokenURL && <button className={"btn " + css.selfStart} onClick={() => openURL(gl.tokenURL)}>打開建立權杖頁(已帶好 read_api)</button>}
       <div className="row gap8">
-        <input className="input grow" style={{ minWidth: 0 }} type="password" placeholder="glpat-…(存在鑰匙圈)" value={token} onChange={(e) => setToken(e.target.value)} />
+        <input className="input grow" type="password" placeholder="glpat-…(存在鑰匙圈)" value={token} onChange={(e) => setToken(e.target.value)} />
         <button className="btn" disabled={busy || !token.trim()} onClick={() => run(async () => {
           if (conn.auth !== "bearer") await action("connection_upsert", { ...conn, auth: "bearer" });
           await action("connection_bearer", { id: conn.id, token });
           setToken("");
         })}>使用這個 token</button>
       </div>
-      {conn.auth === "bearer" && <button className="btn link" style={{ alignSelf: "flex-start" }} onClick={() => run(() => action("connection_upsert", { ...conn, auth: "oauth" }))}>改回 GitLab OAuth 登入</button>}
+      {conn.auth === "bearer" && <button className={"btn link " + css.selfStart} onClick={() => run(() => action("connection_upsert", { ...conn, auth: "oauth" }))}>改回 GitLab OAuth 登入</button>}
       {error && <Banner>{error}</Banner>}
     </div>
   );
@@ -177,17 +184,17 @@ export function GitLabProjects({ gl }: { gl: GitLabView }) {
       {projects.map((k) => (
         <Row key={k}>
           <SIcon name="shippingbox" size={13} className="muted" />
-          <span className="grow ellipsis" style={{ minWidth: 0 }}>{nameOf(k)}</span>
+          <span className="grow ellipsis">{nameOf(k)}</span>
           <button className="btn small link" onClick={() => openURL(webOf(k))}>在 GitLab 打開</button>
           <button className="btn small danger" onClick={() => run(() => action("gitlab_remove_project", { project: k }))}>停止追蹤</button>
         </Row>
       ))}
       <Row>
-        <input className="input grow" style={{ minWidth: 0 }} placeholder="group/project 或 id" value={newProject} onChange={(e) => setNewProject(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && newProject.trim() && addProject()} />
+        <input className="input grow" placeholder="group/project 或 id" value={newProject} onChange={(e) => setNewProject(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && newProject.trim() && addProject()} />
         <button className="btn" disabled={!newProject.trim()} onClick={addProject}>加入</button>
       </Row>
-      {projectError && <Row><span className="caption" style={{ color: "var(--red)" }}>{projectError}</span></Row>}
-      {!projectError && gl.settingsError && <Row><span className="caption" style={{ color: "var(--orange)" }}>組織設定:{gl.settingsError}</span></Row>}
+      {projectError && <Row><span className={"caption " + css.red}>{projectError}</span></Row>}
+      {!projectError && gl.settingsError && <Row><span className={"caption " + css.warn}>組織設定:{gl.settingsError}</span></Row>}
       {toastEl}
     </Section>
   );

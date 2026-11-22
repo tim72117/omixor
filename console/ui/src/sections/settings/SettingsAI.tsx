@@ -2,12 +2,22 @@
 // 這些偏好設定在 Swift 版存在 UserDefaults;這裡存在瀏覽器的 localStorage(鍵名 omixor.settings.ai.*;以前是 ops.*,見 legacyStorage.ts)。
 import { useState } from "react";
 import { action, tool, useRun, useView } from "../../api";
-import { AIBadge, ActorAvatar, Switch, go, num, useDirectory, useStored } from "../../components/bits";
+import { ActorAvatar } from "../../components/Avatar";
+import { AIBadge } from "../../components/Badge";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import { AUTONOMIES, AUTONOMY_COLOR, AUTONOMY_DETAIL, AUTONOMY_LABEL, arr, type ActivityItem, type Approval, type Automation, type AutomationRun, type Autonomy } from "../../components/models";
-import { ErrorText, Pill, Segmented } from "../../components/ui";
+import { iconButtonClass } from "../../components/IconButton";
+import { Pill } from "../../components/Pill";
+import { Segmented } from "../../components/Segmented";
+import { Switch } from "../../components/Switch";
+import { useDirectory } from "../../lib/directory";
+import { num } from "../../lib/format";
+import { useStored } from "../../lib/hooks";
+import { go } from "../../lib/nav";
+import { AUTONOMIES, AUTONOMY_COLOR, AUTONOMY_DETAIL, AUTONOMY_LABEL, arr, type ActivityItem, type Approval, type Automation, type AutomationRun, type Autonomy } from "../../models";
 import { SECTIONS } from "../../types";
 import { Form, Row, Section } from "./form";
+import css from "./settings.module.css";
 import { canGo } from "../../features";
 
 const rank = (a: Autonomy) => AUTONOMIES.indexOf(a);
@@ -73,13 +83,13 @@ export function SettingsAI() {
     URL.revokeObjectURL(a.href);
   };
   const pending = approvals.filter((a) => a.state === "pending").length;
-  const barColor = ratio > 1 ? "var(--red)" : ratio > 0.8 ? "var(--orange)" : "var(--green)";
+  const barTone = ratio > 1 ? " " + css.fillRed : ratio > 0.8 ? " " + css.fillOrange : "";
 
   return (
     <Form>
       <Section header="總開關" icon="power">
-        <Row label={<span style={{ fontWeight: 500 }}>允許 AI 自動化執行變更</span>}
-          sub={<span style={{ color: enabled ? undefined : "var(--orange)" }}>{enabled ? "AI 會依下方上限自動執行或請求核准。" : "已暫停:所有 AI 自動化只產生建議,不會做任何變更。"}</span>}>
+        <Row label={<span className={css.medium}>允許 AI 自動化執行變更</span>}
+          sub={<span className={enabled ? undefined : css.warn}>{enabled ? "AI 會依下方上限自動執行或請求核准。" : "已暫停:所有 AI 自動化只產生建議,不會做任何變更。"}</span>}>
           <Switch on={enabled} onChange={(v) => { setEnabled(v); log(v ? "play.circle" : "pause.circle", v ? "恢復 AI 自動化執行" : "暫停所有 AI 自動化執行(緊急停止)"); }} />
         </Row>
         <Row label="目前啟用的自動化"><span className="num">{autos.filter((a) => a.enabled).length} / {autos.length}</span></Row>
@@ -95,7 +105,7 @@ export function SettingsAI() {
         {overCeiling.length > 0 && (
           <Row>
             <div className="col gap8 grow">
-              <span className="row gap6" style={{ color: "var(--orange)", fontWeight: 500 }}><Icon name="exclamationmark.triangle.fill" size={13} />{overCeiling.length} 個自動化的自主程度高於 Production 上限「{AUTONOMY_LABEL[ceilProd]}」</span>
+              <span className={"row gap6 " + css.warn + " " + css.medium}><Icon name="exclamationmark.triangle.fill" size={13} />{overCeiling.length} 個自動化的自主程度高於 Production 上限「{AUTONOMY_LABEL[ceilProd]}」</span>
               {overCeiling.map((a) => (
                 <div key={a.id} className="row gap8">
                   <Icon name={a.icon} size={14} color="var(--purple)" /><span>{a.name}</span><Pill text={AUTONOMY_LABEL[a.autonomy]} color={AUTONOMY_COLOR[a.autonomy]} />
@@ -110,17 +120,17 @@ export function SettingsAI() {
       </Section>
       <Section header="預算" icon="dollarsign.circle">
         <Row label="每月預算上限">
-          <input className="input num" type="number" min={0} step={50} style={{ width: 110, textAlign: "right" }} value={budget} onChange={(e) => setBudget(Math.max(0, +e.target.value || 0))} />
+          <input className={"input num " + css.w110 + " " + css.right} type="number" min={0} step={50} value={budget} onChange={(e) => setBudget(Math.max(0, +e.target.value || 0))} />
           <span className="muted">USD</span>
         </Row>
         <Row>
           <div className="col gap6 grow">
-            <div className="row"><span className="grow">最近 30 天花費</span><span className="num" style={{ color: ratio > 1 ? "var(--red)" : ratio > 0.8 ? "var(--orange)" : "var(--fg2)" }}>${spend.toFixed(2)} / ${budget.toFixed(0)}</span></div>
+            <div className="row"><span className="grow">最近 30 天花費</span><span className={"num " + (ratio > 1 ? css.dangerRed : ratio > 0.8 ? css.warn : "muted")}>${spend.toFixed(2)} / ${budget.toFixed(0)}</span></div>
             <div className="row gap8">
-              <div className="grow" style={{ height: 6, borderRadius: "var(--r-md)", background: "color-mix(in srgb, var(--fg) 8%, transparent)" }}>
-                <div style={{ width: `${Math.min(100, ratio * 100)}%`, height: 6, borderRadius: "var(--r-md)", background: barColor }} />
+              <div className={"grow " + css.track}>
+                <div className={css.fill + barTone} style={{ width: `${Math.min(100, ratio * 100)}%` }} />
               </div>
-              <span className="caption muted num" style={{ width: 36, textAlign: "right" }}>{Math.floor(ratio * 100)}%</span>
+              <span className={"caption muted num " + css.w36 + " " + css.right}>{Math.floor(ratio * 100)}%</span>
             </div>
             <span className="caption muted">{runs.length} 次執行 · {num(runs.reduce((s, r) => s + r.tokens, 0))} tokens</span>
           </div>
@@ -147,7 +157,7 @@ export function SettingsAI() {
         {blocked.map((c) => (
           <Row key={c}>
             <Icon name="nosign" size={13} color="var(--red)" /><span className="mono grow">{c}</span>
-            <button className="bx-icon-btn" title="移除" onClick={() => setBlocked(blocked.filter((x) => x !== c))}><Icon name="minus.circle" size={13} /></button>
+            <button className={iconButtonClass.normal} title="移除" onClick={() => setBlocked(blocked.filter((x) => x !== c))}><Icon name="minus.circle" size={13} /></button>
           </Row>
         ))}
         <Row>
@@ -167,17 +177,17 @@ export function SettingsAI() {
       </Section>
       <Section header="稽核紀錄" icon="list.bullet.clipboard">
         <Row>
-          <div style={{ width: 280 }}><Segmented value={audit} onChange={setAudit} options={[{ value: "all", label: "全部" }, { value: "ai", label: "AI 執行" }, { value: "human", label: "人員變更" }]} /></div>
+          <div className={css.w280}><Segmented value={audit} onChange={setAudit} options={[{ value: "all", label: "全部" }, { value: "ai", label: "AI 執行" }, { value: "human", label: "人員變更" }]} /></div>
           <div className="grow" />
           <button className="btn" disabled={!items.length} onClick={exportCSV}><Icon name="square.and.arrow.up" size={12} />匯出 CSV</button>
         </Row>
         {items.length === 0 && <Row><span className="muted">沒有符合的稽核紀錄</span></Row>}
         {items.slice(0, 30).map((i) => (
-          <Row key={i.id} style={{ alignItems: "flex-start" }}>
-            <span className="caption num muted" style={{ width: 84, flex: "none" }}>{(() => { const d = new Date(i.date); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; })()}</span>
+          <Row key={i.id} alignTop>
+            <span className={"caption num muted " + css.w84 + " " + css.none}>{(() => { const d = new Date(i.date); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; })()}</span>
             <ActorAvatar actor={i.actor} size={18} />
             <div className="col grow">
-              <span className="row gap4 caption"><span style={{ fontWeight: 500 }}>{dir.name(i.actor)}</span>{i.actor.kind === "ai" && <AIBadge />}</span>
+              <span className="row gap4 caption"><span className={css.medium}>{dir.name(i.actor)}</span>{i.actor.kind === "ai" && <AIBadge />}</span>
               <span className="caption muted">{i.text}</span>
             </div>
           </Row>

@@ -1,0 +1,13 @@
+/* 系統頁與功能開關清單(sections/system)自己的樣式;原本是 styles.css 的 sys-* 與 inline style */
+.page { flex: 1; min-height: 0; }
+.body { gap: 16px; max-width: 860px; width: 100%; margin: 0 auto; }
+.warn { color: var(--orange); font-weight: 500; }
+.selectable { user-select: text; }
+
+/* 功能開關清單(FeatureList) */
+.row { display: flex; align-items: flex-start; gap: 12px; }
+.row :global(.grow) { min-width: 0; }
+.kids { display: flex; flex-direction: column; gap: 10px; padding-left: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+.collapsed { font-size: var(--fs-sm); color: var(--fg2); display: flex; align-items: center; gap: 6px; }
+.pageName { font-weight: 600; font-size: var(--fs-md); }
+.note { color: var(--purple); }

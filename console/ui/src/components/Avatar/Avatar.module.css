@@ -1,0 +1,13 @@
+.avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-pill); color: var(--on-accent); font-weight: 600; flex: none; line-height: 1; background: var(--avatar-fill); }
+.ai { background: linear-gradient(135deg, var(--purple), var(--indigo)); }
+/* 未指派:虛線圓 */
+.none { background: none; border: 1px dashed var(--fg2); }
+/* 疊在一起的頭像(AvatarStack) */
+.stackRow { display: flex; align-items: center; }
+.stack { display: inline-flex; align-items: center; }
+.stack > .avatar { box-shadow: 0 0 0 1.5px var(--bg2); }
+.stack > .avatar + .avatar { margin-left: -6px; }
+.more { font-size: var(--fs-xs); padding-left: 8px; }
+.label { min-width: 0; }
+/* .label.inline 提高權重:不受全域 .row(display: flex)的載入順序影響 */
+.label.inline { display: inline-flex; }

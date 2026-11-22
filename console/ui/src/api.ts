@@ -3,16 +3,27 @@
 //   tool(名稱, 參數)    以目前使用者身分執行 MCP 工具(POST /api/tool/<名稱>)
 //   action(名稱, 參數)  只有畫面能做的動作(POST /api/action/<名稱>)
 //   useActionQuery(名稱, 參數, 主題)  用參數查詢的 action(例如 issue_board),參數變了或收到主題通知就重查
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+//
+// useView 與 useActionQuery 共用 lib/viewStore.ts 的快取:同一個 view(或同一組 action + 參數)不論幾個元件在看,
+// 只發一個請求、收到通知只重讀一次;沒人看的不重讀(下次有人看再讀)。
+// SSE:伺服器每次連上(包括斷線重連)都先送一個 "*";畫面自己不再補送。
+// 資料回應帶版本(X-Omixor-Version),版本已經涵蓋的通知不重讀,所以頁面打開時不會「掛載讀一次 + 連上 "*" 再讀一次」。
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ViewStore, type ViewSnapshot, type ViewStatus } from "./lib/viewStore";
+import { ApiError, getJSON, postJSON } from "./lib/http";
 
-type Listener = (topics: string[]) => void;
-const listeners = new Set<Listener>();
+export { ApiError, unwrapPost } from "./lib/http";
+export type { ViewSnapshot, ViewStatus } from "./lib/viewStore";
+
+/** 全部 view / action 查詢共用的快取(除錯時可以看 viewStore.requests) */
+export const viewStore = new ViewStore({ debounceMs: 80 });
+
 let connected = false;
 let version = 0;
 const versionSubs = new Set<() => void>();
 
 function connect() {
-  if (connected) return;
+  if (connected || typeof EventSource === "undefined") return;
   connected = true;
   const es = new EventSource("/api/events");
   es.onmessage = (e) => {
@@ -20,15 +31,14 @@ function connect() {
       const ev = JSON.parse(e.data) as { version: number; topics: string[] };
       version = ev.version;
       versionSubs.forEach((f) => f());
-      listeners.forEach((l) => l(ev.topics ?? []));
+      viewStore.notify(ev.topics ?? [], typeof ev.version === "number" ? ev.version : undefined);
     } catch {
       /* 忽略格式錯誤的事件 */
     }
   };
-  es.onerror = () => {
-    // 瀏覽器會自動重連;重連後補一次全部重讀
-    es.addEventListener("open", () => listeners.forEach((l) => l(["*"])), { once: true });
-  };
+  // 瀏覽器會自動重連,伺服器連上時會送 "*"(internal/web/web.go),畫面不用自己補。
+  // 斷線期間伺服器可能重啟(版本從頭算),手上的版本作廢,讓重連時的 "*" 一律重讀。
+  es.onerror = () => viewStore.resetVersions();
 }
 
 /**
@@ -52,66 +62,17 @@ export function useVersion(throttleMs = 0): number {
   return throttleMs ? shown : live;
 }
 
-/** status:HTTP 狀態碼(action 才有);data:回應裡 error 以外的欄位(例如刪角色 409 的 code、taskCounts、total) */
-export class ApiError extends Error {
-  status: number;
-  data?: Record<string, any>;
-  constructor(message: string, status = 0, data?: Record<string, any>) {
-    super(message);
-    this.status = status;
-    this.data = data;
-  }
-}
-
-/** 讀回應內容:非 2xx 也要讀(內容有 error 與 current、currentVersion、taskCounts 等欄位);不是 JSON(例如代理的錯誤頁)回 null */
-async function readBody(r: Response): Promise<any> {
-  try {
-    return await r.json();
-  } catch {
-    return null;
-  }
-}
-
-function toApiError(r: { status: number }, body: any): ApiError {
-  const { error, result: _result, ...rest } = body ?? {};
-  return new ApiError(error ?? `HTTP ${r.status}`, r.status, Object.keys(rest).length ? rest : undefined);
+/** 手動通知某些主題的資料變了(和收到伺服器的 SSE 通知一樣:訂閱這些主題的 view 會重讀)。版本衝突後用來讓畫面重讀最新內容 */
+export function refreshTopics(topics: string[]) {
+  viewStore.notify(topics);
 }
 
 /**
- * POST 回應 → 結果:失敗(有 error 或非 2xx)丟 ApiError;2xx 但內容不是 {result: …}(null、HTML 錯誤頁、代理吐的空回應)
- * 丟看得懂的 ApiError,而不是之後用到 undefined 才冒出 TypeError
+ * 以目前使用者身分執行 MCP 工具;失敗時丟出 ApiError(訊息和 MCP 的錯誤一樣)。
+ * 沒給型別參數時回傳 unknown:要用回傳值就寫 tool<型別>(…)(型別在 models/)
  */
-export function unwrapPost<T>(r: { ok: boolean; status: number }, body: any): T {
-  if (body?.error || !r.ok) throw toApiError(r, body);
-  if (body === null || typeof body !== "object" || Array.isArray(body) || !("result" in body)) {
-    throw new ApiError(`伺服器回應的格式不對(HTTP ${r.status}),可能是連線被代理或閘道改寫了;請重新整理再試`, r.status);
-  }
-  return body.result as T;
-}
-
-/** 手動通知某些主題的資料變了(和收到伺服器的 SSE 通知一樣:訂閱這些主題的 view 會重讀)。版本衝突後用來讓畫面重讀最新內容 */
-export function refreshTopics(topics: string[]) {
-  listeners.forEach((l) => l(topics));
-}
-
-async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url);
-  const body = await readBody(r);
-  if (!r.ok) throw toApiError(r, body);
-  return body as T;
-}
-
-async function post<T>(url: string, args: unknown): Promise<T> {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(args ?? {}),
-  });
-  return unwrapPost<T>(r, await readBody(r));
-}
-
-/** 以目前使用者身分執行 MCP 工具;失敗時丟出 ApiError(訊息和 MCP 的錯誤一樣) */
-export const tool = <T = any>(name: string, args: Record<string, unknown> = {}) => post<T>(`/api/tool/${name}`, args);
+export const tool = async <T = unknown>(name: string, args: Record<string, unknown> = {}): Promise<T> =>
+  (await postJSON<T>(`/api/tool/${name}`, args)).data;
 
 /** 上傳圖片到目前組織的附件(PNG、JPEG、GIF、WebP,上限 10 MB),回傳 /api/attachments/… 網址 */
 export async function uploadImage(file: Blob): Promise<string> {
@@ -122,87 +83,75 @@ export async function uploadImage(file: Blob): Promise<string> {
     fr.onerror = () => reject(new ApiError("讀不到檔案"));
     fr.readAsDataURL(file);
   });
-  const r = await post<{ url: string }>("/api/attachments", { data });
-  return r.url;
+  const r = await postJSON<{ url: string }>("/api/attachments", { data });
+  return r.data.url;
 }
 
-/** 只有畫面能做的動作(核准、回滾、切換組織、登入…) */
-export const action = <T = any>(name: string, args: Record<string, unknown> = {}) => post<T>(`/api/action/${name}`, args);
+/**
+ * 只有畫面能做的動作(核准、回滾、切換組織、登入…)。
+ * 沒給型別參數時回傳 unknown:要用回傳值就寫 action<型別>(…)(型別在 models/)
+ */
+export const action = async <T = unknown>(name: string, args: Record<string, unknown> = {}): Promise<T> =>
+  (await postJSON<T>(`/api/action/${name}`, args)).data;
+
+/**
+ * useView / useActionQuery 的回傳值:舊的 tuple 寫法 `const [data, err, reload] = useView(…)` 照用,
+ * 也可以用欄位 `const v = useView(…); v.status`(搭配 components/ViewState)
+ */
+export type ViewResult<T> = [T | undefined, string | undefined, () => void] & {
+  data: T | undefined;
+  error: string | undefined;
+  /** 有請求進行中(包括已經有資料、正在重讀) */
+  loading: boolean;
+  /** loading:還沒有資料也沒有錯誤;error:最後一次讀取失敗(data 可能還是上一次的);ready:有資料 */
+  status: ViewStatus;
+  reload: () => void;
+};
+
+function result<T>(snap: ViewSnapshot<T>, data: T | undefined, reload: () => void): ViewResult<T> {
+  const status: ViewStatus = snap.error !== undefined ? "error" : data === undefined ? "loading" : "ready";
+  return Object.assign([data, snap.error, reload] as [T | undefined, string | undefined, () => void], {
+    data, error: snap.error, loading: snap.loading, status, reload,
+  });
+}
+
+function useStoreKey<T>(key: string, load: () => Promise<{ data: unknown; version?: number }>, ownTopics: string[], topics: string[], throttleMs: number) {
+  connect();
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const topicsKey = topics.join(",");
+  const ownKey = ownTopics.join(",");
+  const subscribe = useCallback(
+    (cb: () => void) =>
+      viewStore.subscribe(key, () => loadRef.current(), ownKey ? ownKey.split(",") : [], { topics: topicsKey ? topicsKey.split(",") : [], throttleMs }, cb),
+    [key, ownKey, topicsKey, throttleMs],
+  );
+  const snap = useSyncExternalStore(subscribe, () => viewStore.get<T>(key));
+  const reload = useCallback(() => viewStore.reload(key), [key]);
+  return { snap, reload };
+}
 
 /**
  * 讀 view;topics 是另外要監聽的主題(預設只聽自己的名稱與 "*");opts.throttleMs 限制重讀頻率。
- * 回傳 [資料, 錯誤, 重新讀取];資料第一次讀到前是 undefined。
+ * 回傳 [資料, 錯誤, 重新讀取](另有 .status .loading 等欄位,見 ViewResult);資料第一次讀到前是 undefined。
  */
-export function useView<T = any>(name: string, topics: string[] = [], opts: { throttleMs?: number } = {}): [T | undefined, string | undefined, () => void] {
-  const [data, setData] = useState<T>();
-  const [error, setError] = useState<string>();
-  const seq = useRef(0);
-  const lastLoad = useRef(0);
-  const load = () => {
-    lastLoad.current = Date.now();
-    const n = ++seq.current;
-    getJSON<T>(`/api/view/${name}`)
-      .then((d) => n === seq.current && (setData(d), setError(undefined)))
-      .catch((e) => n === seq.current && setError(String(e.message ?? e)));
-  };
-  useEffect(() => {
-    connect();
-    load();
-    const watch = new Set([name, ...topics]);
-    let timer: number | undefined;
-    const l: Listener = (ts) => {
-      if (ts.includes("*") || ts.some((t) => watch.has(t))) {
-        // 短時間內多次通知合併成一次重讀;有 throttleMs 時兩次重讀至少隔這麼久
-        window.clearTimeout(timer);
-        const wait = Math.max(80, lastLoad.current + (opts.throttleMs ?? 0) - Date.now());
-        timer = window.setTimeout(load, wait);
-      }
-    };
-    listeners.add(l);
-    return () => {
-      listeners.delete(l);
-      window.clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, topics.join(",")]);
-  return [data, error, load];
+export function useView<T = any>(name: string, topics: string[] = [], opts: { throttleMs?: number } = {}): ViewResult<T> {
+  const { snap, reload } = useStoreKey<T>(`view:${name}`, () => getJSON<T>(`/api/view/${name}`), [name], topics, opts.throttleMs ?? 0);
+  return result(snap, snap.data, reload);
 }
 
 /**
  * 用參數呼叫一個「查詢用」的 action(例如 issue_query、issue_board:規則在後端,畫面只顯示結果),
- * 參數變了、或收到 topics 的 SSE 通知(或 "*")就重新呼叫;舊的請求晚回來會丟掉。
- * 回傳 [資料, 錯誤, 重新讀取];資料第一次讀到前是 undefined(之後重新讀取期間保留上一次的結果)。
+ * 參數變了、或收到 topics 的 SSE 通知(或 "*")就重新呼叫;舊的請求晚回來會丟掉。和 useView 共用快取(key = 名稱 + 參數)。
+ * 回傳 [資料, 錯誤, 重新讀取];資料第一次讀到前是 undefined(之後換參數、重新讀取期間保留上一次的結果)。
  */
-export function useActionQuery<T = any>(name: string, args: Record<string, unknown>, topics: string[] = []): [T | undefined, string | undefined, () => void] {
-  const [data, setData] = useState<T>();
-  const [error, setError] = useState<string>();
-  const seq = useRef(0);
-  const key = JSON.stringify(args);
-  const load = () => {
-    const n = ++seq.current;
-    action<T>(name, JSON.parse(key))
-      .then((d) => n === seq.current && (setData(d), setError(undefined)))
-      .catch((e) => n === seq.current && setError(String(e?.message ?? e)));
-  };
-  useEffect(() => {
-    connect();
-    load();
-    const watch = new Set(topics);
-    let timer: number | undefined;
-    const l: Listener = (ts) => {
-      if (ts.includes("*") || ts.some((t) => watch.has(t))) {
-        window.clearTimeout(timer);
-        timer = window.setTimeout(load, 80);
-      }
-    };
-    listeners.add(l);
-    return () => {
-      listeners.delete(l);
-      window.clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, key, topics.join(",")]);
-  return [data, error, load];
+export function useActionQuery<T = any>(name: string, args: Record<string, unknown>, topics: string[] = []): ViewResult<T> {
+  const argsKey = JSON.stringify(args);
+  const { snap, reload } = useStoreKey<T>(`action:${name}:${argsKey}`, () => postJSON<T>(`/api/action/${name}`, JSON.parse(argsKey)), [], topics, 0);
+  // 換參數時新的結果還沒回來:先顯示上一組參數的結果(搜尋打字時清單不閃空白)
+  const last = useRef<T | undefined>(undefined);
+  if (snap.data !== undefined) last.current = snap.data;
+  return result(snap, snap.data ?? last.current, reload);
 }
 
 /** value 停止變動 ms 毫秒後才回傳新的值(搜尋輸入用) */

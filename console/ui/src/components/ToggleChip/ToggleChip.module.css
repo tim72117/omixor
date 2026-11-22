@@ -1,0 +1,2 @@
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-sm); font-weight: 500; padding: 3px 9px; border-radius: var(--r-pill); border: 1px solid var(--line); cursor: default; }
+.dot { width: 7px; height: 7px; border-radius: var(--r-pill); display: inline-block; }

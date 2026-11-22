@@ -1,12 +1,18 @@
 // 伺服器與服務:服務、伺服器、服務地圖(範例資料)與 GCP(真實 Cloud Run)。Swift 的 InfrastructureView.swift。
 import { useEffect, useState } from "react";
-import { OmixorProvider, Seg, SIcon, useList, useOmixor, type Server } from "../../components/omixorKit";
+import { Segmented } from "../../components/Segmented";
+import { SIcon } from "../../components/SIcon";
+import { OmixorProvider, useOmixor } from "../../lib/directory";
+import { useList } from "../../lib/hooks";
+import type { Server } from "../../models";
 import type { SectionProps } from "..";
 import { InfraServicesTab } from "./InfraServicesTab";
 import { InfraServersTab } from "./InfraServersTab";
 import { InfraMapTab } from "./InfraMapTab";
 import { InfraGCPTab } from "./InfraGCPTab";
 import { useFeatureTabs } from "../../features";
+import css from "./infrastructure.module.css";
+import { layoutClass } from "../../components/Layout";
 
 type Tab = "services" | "servers" | "map" | "gcp";
 const TABS: { value: Tab; label: string }[] = [{ value: "services", label: "服務" }, { value: "servers", label: "伺服器" }, { value: "map", label: "服務地圖" }, { value: "gcp", label: "GCP" }];
@@ -38,23 +44,23 @@ function Infrastructure({ focusId, clearFocus }: SectionProps) {
   const badSvc = o.services.filter((s) => s.health !== "healthy").length;
   const badSrv = servers.filter((s) => s.health !== "healthy").length;
   return (
-    <div className="ox-page">
-      <div className="row" style={{ padding: "16px 20px 12px", borderBottom: "1px solid var(--line)", gap: 16 }}>
-        <div className="col gap4" style={{ minWidth: 0 }}>
+    <div className={layoutClass.page}>
+      <div className={"row " + css.header}>
+        <div className={"col gap4 " + css.titleCol}>
           <div className="page-title">伺服器與服務</div>
-          <div className="row gap12 muted ellipsis" style={{ gap: 10 }}>
+          <div className={"row muted ellipsis " + css.gap10}>
             <span className="row gap4"><SIcon name="square.stack.3d.up" size={12} />{o.services.length} 個服務</span>
             <span className="row gap4"><SIcon name="server.rack" size={12} />{servers.length} 台主機</span>
-            {badSvc + badSrv > 0 ? <span className="row gap4" style={{ color: "var(--orange)" }}><SIcon name="exclamationmark.triangle.fill" size={12} color="orange" />{badSvc} 個服務、{badSrv} 台主機需要注意</span>
-              : o.services.length > 0 && <span className="row gap4" style={{ color: "var(--green)" }}><SIcon name="checkmark.circle.fill" size={12} color="green" />全部正常</span>}
+            {badSvc + badSrv > 0 ? <span className={"row gap4 " + css.warn}><SIcon name="exclamationmark.triangle.fill" size={12} color="orange" />{badSvc} 個服務、{badSrv} 台主機需要注意</span>
+              : o.services.length > 0 && <span className={"row gap4 " + css.ok}><SIcon name="checkmark.circle.fill" size={12} color="green" />全部正常</span>}
           </div>
         </div>
         <span className="grow" />
-        <div style={{ width: 340, flex: "none" }}>
-          <Seg value={tab} onChange={setTab} options={TABS.filter((x) => tabs.on(x.value))} />
+        <div className={css.tabs}>
+          <Segmented value={tab} onChange={setTab} options={TABS.filter((x) => tabs.on(x.value))} />
         </div>
       </div>
-      <div className="ox-page">
+      <div className={layoutClass.page}>
         {tab === "services" && <InfraServicesTab selection={selectedService} setSelection={setSelectedService} servers={servers} onOpenServer={openServer} />}
         {tab === "servers" && <InfraServersTab selection={selectedServer} setSelection={setSelectedServer} servers={servers} onOpenService={openService} />}
         {tab === "map" && <InfraMapTab selection={selectedService} setSelection={setSelectedService} onOpenService={openService} />}

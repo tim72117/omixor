@@ -1,10 +1,11 @@
 // 監控與告警:告警、儀表板、日誌、規則、網站訪客五個分頁(Swift 的 MonitoringView)
 import { useEffect, useState } from "react";
 import { useView } from "../../api";
-import { PageHeader } from "../../components/bits";
 import { Icon } from "../../components/Icon";
-import { arr, type Alert, type AlertRule, type Dashboard } from "../../components/models";
-import { Segmented } from "../../components/ui";
+import { PageHeader } from "../../components/PageHeader";
+import { Segmented } from "../../components/Segmented";
+import { arr, type Alert, type AlertRule, type Dashboard } from "../../models";
+import css from "./monitoring.module.css";
 import type { Nav } from "../../types";
 import type { SectionProps } from "../index";
 import { AlertsTab } from "./AlertsTab";
@@ -64,7 +65,7 @@ export default function MonitoringView({ focusId, clearFocus }: SectionProps) {
     : `${firing.length} 則告警觸發中` + (crit > 0 ? `(${crit} 則 Critical)` : "") + ` · 時間範圍 ${tr.label}`;
 
   return (
-    <div className="col" style={{ flex: 1, minHeight: 0 }}>
+    <div className={"col " + css.fill}>
       <PageHeader
         title="監控與告警"
         subtitle={subtitle}
@@ -76,7 +77,7 @@ export default function MonitoringView({ focusId, clearFocus }: SectionProps) {
           />
         }
       />
-      <div className="col" style={{ flex: 1, minHeight: 0 }}>
+      <div className={"col " + css.fill}>
         {tab === "alerts" && <AlertsTab selectedId={alertId} setSelectedId={setAlertId} />}
         {tab === "dashboards" && <DashboardsTab selectedId={dashId} setSelectedId={setDashId} />}
         {tab === "logs" && <LogsTab />}

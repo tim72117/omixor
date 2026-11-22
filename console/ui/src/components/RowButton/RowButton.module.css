@@ -1,0 +1,4 @@
+/* 整列可點的按鈕(清單裡的項目、可展開的列)。全部包在 :where() 裡(權重 0):className(內距、對齊、選取底色)一定蓋得過 */
+:where(.row) { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; text-align: left; padding: 6px; border-radius: var(--r-md); }
+:where(.row:hover) { background: var(--hover); }
+.row:focus-visible { outline-offset: -2px; }

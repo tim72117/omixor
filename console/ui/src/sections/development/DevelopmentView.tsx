@@ -2,7 +2,11 @@
 // Repositories 是 GitHub 與 GitLab 追蹤中的 repo(原本的 GitHub、GitLab 分頁併進來),只看資料;
 // 連線、登入與追蹤的 repo / 專案在 設定 › 程式碼倉庫(sections/settings/SettingsRepos.tsx)。
 import { useEffect, useState } from "react";
-import { OmixorProvider, Seg, SIcon, useList, type PullRequest, type Repository, type WorkItem } from "../../components/omixorKit";
+import { Segmented } from "../../components/Segmented";
+import { SIcon } from "../../components/SIcon";
+import { OmixorProvider } from "../../lib/directory";
+import { useList } from "../../lib/hooks";
+import type { PullRequest, Repository, WorkItem } from "../../models";
 import type { SectionProps } from "..";
 import { DEV_TABS, DevCtx, type DevModel, type DevTab } from "./devShared";
 import { DevOverviewTab } from "./DevOverviewTab";
@@ -10,9 +14,11 @@ import { DevBoardTab } from "./DevBoardTab";
 import { DevIssuesTab, type Issue } from "./DevIssuesTab";
 import { findIssue, KEY_RE, UUID_RE } from "./issueModel";
 import { resolveIssueRef } from "./issueApi";
+import { ISSUE_FILTERS_DEFAULT, type IssueFilters } from "./issueFilters";
 import { DevPullRequestsTab } from "./DevPullRequestsTab";
 import { DevReposTab } from "./DevReposTab";
 import { useFeatures, useFeatureTabs } from "../../features";
+import { layoutClass } from "../../components/Layout";
 
 export default function DevelopmentView(props: SectionProps) {
   return <OmixorProvider><Development {...props} /></OmixorProvider>;
@@ -30,6 +36,7 @@ function Development({ focusId, clearFocus }: SectionProps) {
   const [highlightedItem, setHighlightedItem] = useState<string>();
   const [selectedIssue, setSelectedIssue] = useState<string>();
   const [selectedRepo, setSelectedRepo] = useState<string>();
+  const [issueFilters, setIssueFiltersState] = useState<IssueFilters>(ISSUE_FILTERS_DEFAULT);
   const [prs, , prsReady] = useList<PullRequest>("pull_requests");
   const [issues, , issuesReady] = useList<Issue>("issues");
   const [work, , workReady] = useList<WorkItem>("work_items");
@@ -38,6 +45,7 @@ function Development({ focusId, clearFocus }: SectionProps) {
   const model: DevModel = {
     tab, setTab, selectedPR, setSelectedPR, prRepoFilter, setPrRepoFilter, highlightedItem, setHighlightedItem, selectedIssue, setSelectedIssue,
     selectedRepo, setSelectedRepo,
+    issueFilters, setIssueFilters: (patch) => setIssueFiltersState((f) => ({ ...f, ...patch })),
     showIssue: (id) => { setSelectedIssue(id); setTab("issues"); },
     showPR: (id) => { setSelectedPR(id); setTab("pulls"); },
     showRepoPRs: (repo) => { setPrRepoFilter(repo); setSelectedPR(undefined); setTab("pulls"); },
@@ -70,11 +78,11 @@ function Development({ focusId, clearFocus }: SectionProps) {
 
   return (
     <DevCtx.Provider value={model}>
-      <div className="ox-page">
-        <div className="ox-tabbar">
-          <Seg value={tab} onChange={setTab} options={DEV_TABS.filter((d) => tabs.on(d.id)).map((d) => ({ value: d.id, label: <><SIcon name={d.icon} size={12} />{d.label}</> }))} />
+      <div className={layoutClass.page}>
+        <div className="tabbar">
+          <Segmented value={tab} onChange={setTab} options={DEV_TABS.filter((d) => tabs.on(d.id)).map((d) => ({ value: d.id, label: <><SIcon name={d.icon} size={12} />{d.label}</> }))} />
         </div>
-        <div className="ox-page">
+        <div className={layoutClass.page}>
           {tab === "overview" && <DevOverviewTab />}
           {tab === "board" && <DevBoardTab />}
           {tab === "issues" && <DevIssuesTab />}

@@ -1,0 +1,75 @@
+/* 總覽頁自己的樣式。
+   和全域 class(.row、.mono、.gap8…)疊在同一個元素、又設定同一個屬性時,用重複的 class 提高權重(.x.x);
+   Card、Tile、PlainButton 的基本樣式權重是 0,疊上去的 class 不用加倍。
+   有顏色的磚塊用 style 的 --c 帶入狀態色。 */
+
+/* 共用小工具 */
+.none { flex: none; }
+.wfull { width: 100%; }
+.medium { font-weight: 500; }
+.bold { font-weight: 600; }
+.base { font-size: var(--fs-base); }
+.xs.xs { font-size: var(--fs-xs); }
+.big { font-size: var(--fs-3xl); font-weight: 600; }
+.bigXl { font-size: var(--fs-xl); font-weight: 600; }
+.orange { color: var(--orange); }
+.fg2 { color: var(--fg2); }
+.white { color: white; }
+.gap1 { gap: 1px; }
+.gap2 { gap: 2px; }
+.gap6 { gap: 6px; }
+.gap10.gap10 { gap: 10px; }
+.gap16.gap16 { gap: 16px; }
+.top.top { align-items: flex-start; }
+.end { align-items: flex-end; }
+.baseline.baseline { align-items: baseline; }
+.selfStart { align-self: flex-start; }
+.pt5 { padding-top: 5px; }
+.py6 { padding: 6px 0; }
+.w180 { width: 180px; }
+.sepTop { border-top: 1px solid var(--line); }
+.clamp2, .clamp3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.clamp2 { -webkit-line-clamp: 2; }
+.clamp3 { -webkit-line-clamp: 3; }
+@keyframes pulse { 50% { opacity: .35; } }
+.pulse { animation: pulse 1.4s ease-in-out infinite; }
+
+/* 版面 */
+.columns.columns { align-items: flex-start; gap: 16px; }
+.autoGrid { display: grid; gap: 12px; }
+.grid280 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.grid180 { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.grid300 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+
+/* 狀態橫幅 */
+.banner { padding: 14px; border-radius: var(--r-xl); background: color-mix(in srgb, var(--c) 9%, transparent); border: 1px solid color-mix(in srgb, var(--c) 25%, transparent); }
+
+/* 服務健康 */
+.svcTile { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--c) 5%, transparent); border: 1px solid color-mix(in srgb, var(--c) 12%, transparent); }
+.svcTile.bad { background: color-mix(in srgb, var(--c) 12%, transparent); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); }
+.tier { font-size: var(--fs-xs); font-weight: 700; }
+
+/* 告警 */
+.alertRow.alertRow { align-items: flex-start; padding: 8px 0; }
+
+/* AI 待核准 */
+.approval { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--purple) 5%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 18%, transparent); }
+.actionCode { font-size: var(--fs-sm); padding: 8px; border-radius: var(--r-md); background: color-mix(in srgb, var(--fg) 5%, transparent); user-select: text; }
+
+/* 事件 */
+.incTile { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--c) 6%, transparent); border: 1px solid color-mix(in srgb, var(--c) 25%, transparent); }
+
+/* CI/CD */
+.sectionLabel { font-weight: 600; padding-bottom: 2px; }
+.runRow.runRow { padding: 6px 0; gap: 5px; }
+.stages { gap: 3px; }
+.stage { flex: 1; height: 5px; border-radius: var(--r-sm); }
+
+/* 錯誤預算 */
+.donut { position: relative; width: 84px; height: 84px; flex: none; }
+.donutLabel { position: absolute; inset: 0; align-items: center; justify-content: center; }
+.budgetName { width: 96px; flex: none; }
+.budgetPct { width: 36px; text-align: right; flex: none; }
+
+/* 動態牆 */
+.actRow.actRow { align-items: flex-start; padding: 7px 0; gap: 10px; }

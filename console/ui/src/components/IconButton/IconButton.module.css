@@ -1,0 +1,9 @@
+/* 只有圖示的小按鈕。版面屬性包在 :where() 裡(權重 0),呼叫端的 class 一定蓋得過;
+   color 不能放進 :where,否則會輸給全域 button { color: inherit } */
+:where(.btn) { border: 0; background: none; padding: 3px; border-radius: var(--r-sm); display: inline-flex; align-items: center; justify-content: center; }
+.btn { color: var(--fg2); }
+.btn:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.btn:disabled { opacity: .35; }
+/* 精簡版:沒有內距、hover 變淡(原 omixorKit 的 ox-icon-btn) */
+:where(.bare) { border: 0; background: none; padding: 0; display: inline-flex; align-items: center; cursor: default; color: inherit; }
+.bare:hover { opacity: .75; }

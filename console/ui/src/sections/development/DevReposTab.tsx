@@ -6,12 +6,21 @@
 // 連線、登入與追蹤的 repo / 專案在 設定 › 程式碼倉庫;沒設定或沒登入時只顯示空狀態與「前往設定」。
 import { useEffect, useState } from "react";
 import { action, useView } from "../../api";
-import { EmptyState, MetaFit, Pill } from "../../components/ui";
-import { Banner, Check, Seg, SIcon, useAct } from "../../components/omixorKit";
+import { Banner } from "../../components/Callout";
+import { Check } from "../../components/Check";
+import { EmptyState } from "../../components/EmptyState";
+import { MetaFit } from "../../components/MetaFit";
+import { Pill } from "../../components/Pill";
+import { Segmented } from "../../components/Segmented";
+import { SIcon } from "../../components/SIcon";
+import { useAct } from "../../components/Toast";
 import { relative } from "../../fmt";
 import { ManageReposButton, RepoSetupEmpty, useDev } from "./devShared";
 import { checksIcon, checksLabel, eventLabel, isFailure, PullDetail, runIcon, RunDetail, type GitHubView } from "./DevGitHubTab";
 import { ApprovalMark, MRDetail, PipelineDetail, statusIcon, statusLabel, type GitLabView } from "../../gitlab/GitLabTab";
+import ds from "./devShared.module.css";
+import css from "./DevReposTab.module.css";
+import { layoutClass } from "../../components/Layout";
 
 type Platform = "github" | "gitlab";
 type BuildState = "success" | "failure" | "running" | "canceled" | "other";
@@ -64,8 +73,8 @@ export function DevReposTab() {
   if (!v.github.loggedIn && !v.gitlab.loggedIn) {
     const configured = v.github.configured || v.gitlab.configured;
     return (
-      <div className="col" style={{ flex: 1, minHeight: 0 }}>
-        {v.gitlab.insecure && <div style={{ padding: "8px 16px 0" }}><InsecureNote /></div>}
+      <div className={layoutClass.page}>
+        {v.gitlab.insecure && <div className={css.insecureTop}><InsecureNote /></div>}
         <RepoSetupEmpty title={configured ? "還沒登入 GitHub 或 GitLab" : "還沒設定 GitHub 或 GitLab"}
           message="GitHub、GitLab 的連線、登入與要追蹤的 repo / 專案在 設定 › 程式碼倉庫 設定。" />
       </div>
@@ -94,10 +103,10 @@ function ReposMain({ v }: { v: CodeReposView }) {
   const fetched = [v.github.fetchedAt, v.gitlab.fetchedAt].filter(Boolean).sort().pop();
   const both = v.github.tracked > 0 && v.gitlab.tracked > 0;
   return (
-    <div className="ox-page">
-      <div className="row gap8 wrap" style={{ padding: "8px 16px", gap: 10 }}>
+    <div className={layoutClass.page}>
+      <div className={"row wrap " + css.statusBar}>
         <PlatformStatus platform="github" p={v.github} />
-        <span style={{ width: 1, height: 16, background: "var(--line)" }} />
+        <span className={css.vsep} />
         <PlatformStatus platform="gitlab" p={v.gitlab} />
         <span className="grow" />
         {fetched && <span className="caption muted">更新於 {relative(fetched)}</span>}
@@ -105,9 +114,9 @@ function ReposMain({ v }: { v: CodeReposView }) {
         <ManageReposButton />
         <button className="btn" title="重新整理" disabled={busy} onClick={() => run(() => action("code_repos_refresh"))}><SIcon name="arrow.clockwise" /></button>
       </div>
-      {v.gitlab.insecure && <div style={{ padding: "0 16px 6px" }}><InsecureNote /></div>}
+      {v.gitlab.insecure && <div className={css.insecure}><InsecureNote /></div>}
       {(v.github.error || v.gitlab.error) && (
-        <div className="col" style={{ background: "color-mix(in srgb, var(--orange) 8%, transparent)" }}>
+        <div className={"col " + css.errors}>
           {v.github.error && <Banner>GitHub:{v.github.error}</Banner>}
           {v.gitlab.error && <Banner>GitLab:{v.gitlab.error}</Banner>}
         </div>
@@ -116,10 +125,10 @@ function ReposMain({ v }: { v: CodeReposView }) {
       {all.length === 0 ? (
         <RepoSetupEmpty title="還沒追蹤任何 repo" icon="shippingbox" message="要追蹤的 GitHub repo、GitLab 專案在 設定 › 程式碼倉庫 加入。" />
       ) : (
-        <div className="ox-fill">
-          <div className="col" style={{ width: 400, flex: "none", borderRight: "1px solid var(--line)", minHeight: 0 }}>
-            <div className="col" style={{ padding: 10, gap: 8 }}>
-              {both && <Seg value={filter} onChange={setFilter} options={[
+        <div className={layoutClass.fill}>
+          <div className={ds.sideList + " " + css.side}>
+            <div className={"col " + css.filters}>
+              {both && <Segmented value={filter} onChange={setFilter} options={[
                 { value: "all", label: `全部(${all.length})` },
                 { value: "github", label: `GitHub(${v.github.tracked})` },
                 { value: "gitlab", label: `GitLab(${v.gitlab.tracked})` },
@@ -128,12 +137,12 @@ function ReposMain({ v }: { v: CodeReposView }) {
             </div>
             <div className="divider" />
             {rows.length === 0 ? <EmptyState title="沒有符合的 repo" icon="shippingbox" /> : (
-              <div className="ox-list">
+              <div className="list">
                 {rows.map((r) => <RepoRow key={repoId(r)} r={r} on={repoId(r) === dev.selectedRepo} onClick={() => dev.setSelectedRepo(repoId(r))} />)}
               </div>
             )}
           </div>
-          <div className="ox-scroll">
+          <div className={layoutClass.scroll}>
             {selected ? <RepoDetail key={repoId(selected)} r={selected} p={selected.platform === "github" ? v.github : v.gitlab} />
               : <EmptyState title="選一個 repo" icon="shippingbox" message="看開著的 PR / MR 與 Actions / Pipeline 執行(含失敗原因)。資料每 5 分鐘自動更新,也可以按右上角重新整理。" />}
           </div>
@@ -154,7 +163,7 @@ function PlatformStatus({ platform, p }: { platform: Platform; p: CodePlatform }
       <SIcon name="person.crop.circle.badge.checkmark" color="green" />
       <span>{label}:{p.account ?? "已登入"}</span>
       <span className="muted">· 追蹤 {p.tracked} 個</span>
-      {p.settingsError && <span className="ellipsis" style={{ color: "var(--orange)" }} title={p.settingsError}>(組織設定讀不到)</span>}
+      {p.settingsError && <span className={"ellipsis " + ds.orange} title={p.settingsError}>(組織設定讀不到)</span>}
     </span>
   );
 }
@@ -163,17 +172,17 @@ function RepoRow({ r, on, onClick }: { r: CodeRepo; on: boolean; onClick: () => 
   const [icon, c] = buildIcon(r.lastBuild?.state);
   const pr = r.platform === "github" ? "PR" : "MR";
   return (
-    <div className={"ox-list-row row gap8" + (on ? " on" : "")} style={{ alignItems: "flex-start" }} onClick={onClick}>
-      <span title={r.lastBuild ? `${r.defaultBranch} 最近一次建置:${r.lastBuild.label}` : "預設分支還沒有建置"}><SIcon name={icon} color={c} style={{ marginTop: 2 }} /></span>
-      <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
-        <span className="row gap6"><span className="ellipsis" style={{ fontWeight: 600 }}>{r.name}</span><PlatformTag platform={r.platform} /></span>
-        {r.error ? <span className="caption ellipsis" style={{ color: "var(--orange)" }} title={r.error}>{r.error}</span> : (
-          <div className="ox-meta gap6 caption muted">
+    <div className={"list-row gap8 " + ds.rowTop + (on ? " on" : "")} onClick={onClick}>
+      <span title={r.lastBuild ? `${r.defaultBranch} 最近一次建置:${r.lastBuild.label}` : "預設分支還沒有建置"}><SIcon name={icon} color={c} className={ds.rowIcon} /></span>
+      <div className={"col grow " + ds.rowBody}>
+        <span className="row gap6"><span className={"ellipsis " + ds.bold}>{r.name}</span><PlatformTag platform={r.platform} /></span>
+        {r.error ? <span className={"caption ellipsis " + ds.orange} title={r.error}>{r.error}</span> : (
+          <div className="meta gap6 caption muted">
             {/* 放不下時先拿掉分支、再拿掉建置文字(左邊圖示已表示建置狀態);PR 數一律保留 */}
             <MetaFit items={[
-              { key: "build", drop: 1, shrink: 64, node: r.lastBuild ? <span title={r.lastBuild.label} style={{ color: r.lastBuild.state === "failure" ? "var(--red)" : undefined }}>{r.lastBuild.label}</span> : <span>{r.loaded ? "沒有建置" : "讀取中…"}</span> },
+              { key: "build", drop: 1, shrink: 64, node: r.lastBuild ? <span title={r.lastBuild.label} className={r.lastBuild.state === "failure" ? ds.red : undefined}>{r.lastBuild.label}</span> : <span>{r.loaded ? "沒有建置" : "讀取中…"}</span> },
               ...(r.defaultBranch ? [{ key: "branch", drop: 2, shrink: 56, className: "mono", node: <span title={r.defaultBranch}>{r.defaultBranch}</span> }] : []),
-              { key: "pulls", node: <span>{r.openPulls} 個 {pr}{r.failingPulls > 0 && <span style={{ color: "var(--red)" }}>({r.failingPulls} 個失敗)</span>}</span> },
+              { key: "pulls", node: <span>{r.openPulls} 個 {pr}{r.failingPulls > 0 && <span className={ds.red}>({r.failingPulls} 個失敗)</span>}</span> },
             ]} />
             {r.lastBuild?.at && <span>{relative(r.lastBuild.at)}</span>}
           </div>
@@ -189,18 +198,18 @@ function RepoDetail({ r, p }: { r: CodeRepo; p: CodePlatform }) {
   const [bi, bc] = buildIcon(r.lastBuild?.state);
   const where = PLATFORM[r.platform].label;
   return (
-    <div className="col" style={{ minHeight: "100%" }}>
-      <div className="col" style={{ padding: "16px 20px 10px", gap: 8 }}>
-        <div className="row gap8" style={{ alignItems: "baseline" }}>
-          <span className="h3" style={{ userSelect: "text" }}>{r.name}</span>
+    <div className={"col " + css.detail}>
+      <div className={"col " + css.head}>
+        <div className={css.baseline + " gap8"}>
+          <span className={"h3 " + ds.selectable}>{r.name}</span>
           <PlatformTag platform={r.platform} />
           <span className="grow" />
           {r.url && <button className="btn" onClick={() => openURL(r.url)}>在 {where} 打開</button>}
         </div>
-        {r.description && <div className="muted" style={{ userSelect: "text" }}>{r.description}</div>}
+        {r.description && <div className={"muted " + ds.selectable}>{r.description}</div>}
         <div className="row gap8 wrap">
           {r.lastBuild
-            ? <span title={r.lastBuild.url ? `在 ${where} 打開` : undefined} style={{ cursor: r.lastBuild.url ? "pointer" : undefined }} onClick={() => r.lastBuild?.url && openURL(r.lastBuild.url)}>
+            ? <span title={r.lastBuild.url ? `在 ${where} 打開` : undefined} className={r.lastBuild.url ? css.link : undefined} onClick={() => r.lastBuild?.url && openURL(r.lastBuild.url)}>
               <Pill text={`${r.defaultBranch}:${r.lastBuild.label}`} color={bc} icon={bi} />
             </span>
             : r.loaded && <Pill text={`${r.defaultBranch || "預設分支"}:沒有建置`} icon="circle.dashed" />}
@@ -221,7 +230,7 @@ function RepoDetail({ r, p }: { r: CodeRepo; p: CodePlatform }) {
 /** 列表 ↔ 詳情:選了一筆時顯示詳情與「返回」 */
 function BackBar({ label, onBack }: { label: string; onBack: () => void }) {
   return (
-    <div className="row" style={{ padding: "8px 16px 0" }}>
+    <div className={"row " + css.backBar}>
       <button className="btn" onClick={onBack}><SIcon name="chevron.left" size={12} />{label}</button>
     </div>
   );
@@ -244,23 +253,23 @@ function GitHubRepoDetail({ repo }: { repo: string }) {
   if (mode === "pulls" && pull) return <div className="col"><BackBar label="Pull Requests" onBack={() => setSelPull(undefined)} /><PullDetail key={pull.number} pull={pull} /></div>;
   return (
     <div className="col">
-      <div className="row gap8" style={{ padding: "10px 16px" }}>
-        <Seg value={mode} onChange={setMode} options={[{ value: "runs", label: `Actions(${allRuns.length})` }, { value: "pulls", label: `Pull Requests(${pulls.length})` }]} />
+      <div className={"row gap8 " + css.modeBar}>
+        <Segmented value={mode} onChange={setMode} options={[{ value: "runs", label: `Actions(${allRuns.length})` }, { value: "pulls", label: `Pull Requests(${pulls.length})` }]} />
         <span className="grow" />
         {mode === "runs" && <Check on={failedOnly} onChange={setFailedOnly}><span className="caption">只看失敗</span></Check>}
       </div>
       <div className="divider" />
       {mode === "runs" ? (
         runs.length === 0 ? <EmptyState title={snap.fetchedAt ? (failedOnly ? "沒有失敗的執行" : "沒有執行紀錄") : "讀取中…"} icon="arrow.triangle.branch" /> : (
-          <div className="ox-list">
+          <div className="list">
             {runs.map((x) => {
               const [icon, c] = runIcon(x);
               return (
-                <div key={x.id} className="ox-list-row row gap8" style={{ alignItems: "flex-start" }} onClick={() => setSelRun(x.id)}>
-                  <SIcon name={icon} color={c} style={{ marginTop: 2 }} />
-                  <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
-                    <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{x.title}</span>
-                    <div className="ox-meta gap6 caption muted">
+                <div key={x.id} className={"list-row gap8 " + ds.rowTop} onClick={() => setSelRun(x.id)}>
+                  <SIcon name={icon} color={c} className={ds.rowIcon} />
+                  <div className={"col grow " + ds.rowBody}>
+                    <span className={ds.clamp2}>{x.title}</span>
+                    <div className="meta gap6 caption muted">
                       <MetaFit items={[
                         { key: "wf", shrink: 80, node: <span title={`${x.workflow} #${x.runNumber}`}>{x.workflow} #{x.runNumber}</span> },
                         { key: "branch", drop: 1, shrink: 56, className: "mono", node: <span title={x.branch}>{x.branch}</span> },
@@ -275,17 +284,17 @@ function GitHubRepoDetail({ repo }: { repo: string }) {
           </div>
         )
       ) : pulls.length === 0 ? <EmptyState title={snap.fetchedAt ? "沒有開著的 PR" : "讀取中…"} icon="arrow.triangle.pull" /> : (
-        <div className="ox-list">
+        <div className="list">
           {pulls.map((x) => {
             const [icon, c] = checksIcon(x.checks);
             return (
-              <div key={x.number} className="ox-list-row row gap8" style={{ alignItems: "flex-start" }} onClick={() => setSelPull(x.number)}>
-                <SIcon name="arrow.triangle.pull" color={x.draft ? "secondary" : "green"} style={{ marginTop: 2 }} />
-                <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
-                  <span className="row gap4"><span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{x.title}</span>{x.draft && <Pill text="草稿" />}</span>
-                  <div className="ox-meta gap6 caption muted">
+              <div key={x.number} className={"list-row gap8 " + ds.rowTop} onClick={() => setSelPull(x.number)}>
+                <SIcon name="arrow.triangle.pull" color={x.draft ? "secondary" : "green"} className={ds.rowIcon} />
+                <div className={"col grow " + ds.rowBody}>
+                  <span className="row gap4"><span className={ds.clamp2}>{x.title}</span>{x.draft && <Pill text="草稿" />}</span>
+                  <div className="meta gap6 caption muted">
                     <span className="mono">#{x.number}</span>
-                    <span title={checksLabel(x.checks)} style={{ display: "inline-flex" }}><SIcon name={icon} color={c} size={12} /></span>
+                    <span title={checksLabel(x.checks)} className={ds.inlineFlex}><SIcon name={icon} color={c} size={12} /></span>
                     <MetaFit items={[
                       { key: "checks", drop: 1, node: <span>{checksLabel(x.checks)}</span> },
                       { key: "author", drop: 2, shrink: 60, node: <span title={x.author}>{x.author}</span> },
@@ -320,23 +329,23 @@ function GitLabRepoDetail({ project, name }: { project: string; name: string }) 
   if (mode === "mrs" && mr) return <div className="col"><BackBar label="Merge Requests" onBack={() => setSelMR(undefined)} /><MRDetail key={mr.iid} m={mr} /></div>;
   return (
     <div className="col">
-      <div className="row gap8" style={{ padding: "10px 16px" }}>
-        <Seg value={mode} onChange={setMode} options={[{ value: "pipelines", label: `Pipelines(${allPipelines.length})` }, { value: "mrs", label: `Merge Requests(${mrs.length})` }]} />
+      <div className={"row gap8 " + css.modeBar}>
+        <Segmented value={mode} onChange={setMode} options={[{ value: "pipelines", label: `Pipelines(${allPipelines.length})` }, { value: "mrs", label: `Merge Requests(${mrs.length})` }]} />
         <span className="grow" />
         {mode === "pipelines" && <Check on={failedOnly} onChange={setFailedOnly}><span className="caption">只看失敗</span></Check>}
       </div>
       <div className="divider" />
       {mode === "pipelines" ? (
         pipelines.length === 0 ? <EmptyState title={snap.fetchedAt ? (failedOnly ? "沒有失敗的 pipeline" : "沒有 pipeline") : "讀取中…"} icon="arrow.triangle.branch" /> : (
-          <div className="ox-list">
+          <div className="list">
             {pipelines.map((x) => {
               const [icon, c] = statusIcon(x.status);
               return (
-                <div key={x.id} className="ox-list-row row gap8" style={{ alignItems: "flex-start" }} onClick={() => setSelPipeline(x.id)}>
-                  <SIcon name={icon} color={c} style={{ marginTop: 2 }} />
-                  <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
+                <div key={x.id} className={"list-row gap8 " + ds.rowTop} onClick={() => setSelPipeline(x.id)}>
+                  <SIcon name={icon} color={c} className={ds.rowIcon} />
+                  <div className={"col grow " + ds.rowBody}>
                     <span className="row gap6"><span className="mono ellipsis">{x.ref}</span><span className="caption muted">#{x.iid || x.id}</span><span className="caption">{x.statusLabel}</span></span>
-                    <div className="ox-meta gap6 caption muted">
+                    <div className="meta gap6 caption muted">
                       <MetaFit items={[
                         { key: "src", shrink: 60, node: <span title={x.sourceLabel}>{x.sourceLabel}</span> },
                         ...(x.user ? [{ key: "user", drop: 1, shrink: 60, node: <span title={x.user}>{x.user}</span> }] : []),
@@ -351,17 +360,17 @@ function GitLabRepoDetail({ project, name }: { project: string; name: string }) 
           </div>
         )
       ) : mrs.length === 0 ? <EmptyState title={snap.fetchedAt ? "沒有開著的 MR" : "讀取中…"} icon="arrow.triangle.pull" /> : (
-        <div className="ox-list">
+        <div className="list">
           {mrs.map((x) => {
             const [icon, c] = statusIcon(x.pipeline?.status);
             return (
-              <div key={x.iid} className="ox-list-row row gap8" style={{ alignItems: "flex-start" }} onClick={() => setSelMR(x.iid)}>
-                <SIcon name="arrow.triangle.pull" color={x.draft ? "secondary" : "green"} style={{ marginTop: 2 }} />
-                <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
-                  <span className="row gap4"><span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{x.title}</span>{x.draft && <Pill text="草稿" />}</span>
-                  <div className="ox-meta gap6 caption muted">
+              <div key={x.iid} className={"list-row gap8 " + ds.rowTop} onClick={() => setSelMR(x.iid)}>
+                <SIcon name="arrow.triangle.pull" color={x.draft ? "secondary" : "green"} className={ds.rowIcon} />
+                <div className={"col grow " + ds.rowBody}>
+                  <span className="row gap4"><span className={ds.clamp2}>{x.title}</span>{x.draft && <Pill text="草稿" />}</span>
+                  <div className="meta gap6 caption muted">
                     <span className="mono">!{x.iid}</span>
-                    <span title={`pipeline:${statusLabel(x.pipeline?.status)}`} style={{ display: "inline-flex" }}><SIcon name={icon} color={c} size={12} /></span>
+                    <span title={`pipeline:${statusLabel(x.pipeline?.status)}`} className={ds.inlineFlex}><SIcon name={icon} color={c} size={12} /></span>
                     <ApprovalMark a={x.approval} />
                     <MetaFit items={[
                       { key: "pipeline", drop: 1, node: <span>{statusLabel(x.pipeline?.status)}</span> },

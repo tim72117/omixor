@@ -1,8 +1,14 @@
 // 開發進度頁內部共用:分頁、跨分頁狀態、計算指標、小元件(Swift 的 DevShared.swift)。
 import { createContext, useContext } from "react";
 import { action } from "../../api";
-import { color, EmptyState } from "../../components/ui";
-import { ActorAvatar, CHECK, SIcon, WORK_TYPE, now, t, type CheckKey, type PullRequest, type Repository, type WorkItem, type WorkTypeKey } from "../../components/omixorKit";
+import { EmptyState } from "../../components/EmptyState";
+import { Bar } from "../../components/ProgressBar";
+import { SIcon } from "../../components/SIcon";
+import { color } from "../../lib/color";
+import { now, t } from "../../lib/format";
+import { CHECK, WORK_TYPE, type CheckKey, type PullRequest, type Repository, type WorkItem, type WorkTypeKey } from "../../models";
+import css from "./devShared.module.css";
+import type { IssueFilters } from "./issueFilters";
 
 // Repositories(功能 development.repos,選用模組 integrations):GitHub 與 GitLab 追蹤中的 repo 一起列;
 // 原本的 GitHub、GitLab 分頁已併進來(舊連結的 focusId "github" / "gitlab" 改開 Repositories)
@@ -26,11 +32,13 @@ export type DevModel = {
   showIssue: (id: string) => void; showPR: (id: number) => void; showRepoPRs: (repo: string) => void; showItem: (id: string) => void;
   /** 打開 Repositories 並選這個 repo(「平台:key」;undefined = 只切到分頁) */
   showRepo: (id?: string) => void;
+  /** 看板與 Issue 分頁共用的篩選(切換分頁時保留;status 只有 Issue 分頁用) */
+  issueFilters: IssueFilters; setIssueFilters: (patch: Partial<IssueFilters>) => void;
 };
 export const DevCtx = createContext<DevModel | null>(null);
 export const useDev = () => useContext(DevCtx)!;
 
-// MARK: - Issue 的倉庫篩選(Issue 分頁與看板共用;Swift 的 IssueRepoOptions / IssueRepoFilterPicker)
+// MARK: - Issue 的倉庫篩選(Issue 分頁與看板共用;Swift 的 IssueRepoOptions;篩選膠囊在 issueFilters.tsx)
 
 /** 選單去重用的鍵:不分大小寫(平台前綴保留,github:x 與 gitlab:x 是不同倉庫) */
 export const repoKey = (r: string) => r.trim().toLowerCase();
@@ -42,22 +50,6 @@ export function usedRepos(issues: { repo?: string }[]): string[] {
   const m = new Map<string, string>();
   for (const i of issues) if (i.repo && !m.has(repoKey(i.repo))) m.set(repoKey(i.repo), i.repo);
   return [...m.values()].sort((a, b) => a.localeCompare(b));
-}
-
-/** 依所屬倉庫篩選的下拉:"" = 全部倉庫;NO_REPO = 未標記;其他 = 只列這個倉庫(比對規則在核心的 model.RepoMatch)。
- *  沒有 Issue 標記倉庫、也沒在篩選時不顯示 */
-export function RepoFilterSelect({ value, onChange, repos }: { value: string; onChange: (v: string) => void; repos: string[] }) {
-  if (repos.length === 0 && !value) return null;
-  return (
-    <select className="select" title="依所屬倉庫篩選" value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">全部倉庫</option>
-      <option value={NO_REPO}>未標記倉庫</option>
-      {repos.length > 0 && <option disabled>──────</option>}
-      {repos.map((r) => <option key={r} value={r}>{r}</option>)}
-      {/* 篩選中的倉庫已經沒有 Issue 用了:仍列出來,選單才不會是空白 */}
-      {value && value !== NO_REPO && !repos.some((r) => repoKey(r) === repoKey(value)) && <option value={value}>{value}</option>}
-    </select>
-  );
 }
 
 // MARK: - 程式碼倉庫設定的入口(Repositories 分頁用)
@@ -74,7 +66,7 @@ export function ManageReposButton() {
 export function RepoSetupEmpty({ title, message, icon = "chevron.left.forwardslash.chevron.right" }: { title: string; message: string; icon?: string }) {
   return (
     <EmptyState title={title} icon={icon} message={
-      <span className="col" style={{ alignItems: "center", gap: 10 }}>
+      <span className={"col " + css.setupEmpty}>
         <span>{message}</span>
         <button className="btn primary" onClick={openRepoSettings}>前往 設定 › 程式碼倉庫</button>
       </span>
@@ -114,51 +106,42 @@ export function age(iso: string) {
 
 // MARK: - 小元件
 
-export function ChecksIcon({ s, showLabel }: { s: CheckKey; showLabel?: boolean }) {
-  const m = CHECK[s] ?? CHECK.pending;
+export function ChecksIcon({ s: key, showLabel }: { s: CheckKey; showLabel?: boolean }) {
+  const m = CHECK[key] ?? CHECK.pending;
   return <span className="row gap4" title={`檢查:${m.label}`} style={{ color: color(m.color) }}><SIcon name={m.icon} color={m.color} />{showLabel && m.label}</span>;
 }
 
 export function DiffStat({ a, d }: { a: number; d: number }) {
-  return <span className="row gap6 num" style={{ fontSize: "var(--fs-base)" }}><span style={{ color: "var(--green)" }}>+{a}</span><span style={{ color: "var(--red)" }}>−{d}</span></span>;
-}
-
-export function AvatarStack({ ids, size = 20 }: { ids: string[]; size?: number }) {
-  return (
-    <span className="row">
-      <span className="ox-avatar-stack">{ids.slice(0, 4).map((id) => <ActorAvatar key={id} actor={{ kind: "person", id }} size={size} />)}</span>
-      {ids.length > 4 && <span className="muted" style={{ fontSize: "var(--fs-xs)", paddingLeft: 8 }}>+{ids.length - 4}</span>}
-    </span>
-  );
+  return <span className={"row gap6 num " + css.diff}><span className={css.green}>+{a}</span><span className={css.red}>−{d}</span></span>;
 }
 
 /** 覆蓋率條:越高越好 */
 export function CoverageBar({ value }: { value: number }) {
   const c = value >= 80 ? "green" : value >= 60 ? "orange" : "red";
   return (
-    <div className="row gap8" style={{ width: "100%" }}>
-      <div className="ox-bar" style={{ height: 6 }}><div style={{ width: `${Math.min(100, Math.max(0, value))}%`, background: color(c) }} /></div>
-      <span className="caption muted num" style={{ width: 36, textAlign: "right", flex: "none" }}>{value.toFixed(0)}%</span>
+    <div className={"row gap8 " + css.fullWidth}>
+      <Bar value={value / 100} c={c} />
+      <span className={"caption muted num " + css.coverage}>{value.toFixed(0)}%</span>
     </div>
   );
 }
 
 export function TypeTag({ type }: { type: WorkTypeKey }) {
   const m = WORK_TYPE[type];
-  return <span className="row gap4 caption muted"><span style={{ width: 8, height: 8, borderRadius: 2, background: color(m?.color) }} />{m?.label ?? type}</span>;
+  return <span className="row gap4 caption muted"><span className={css.typeSwatch} style={{ background: color(m?.color) }} />{m?.label ?? type}</span>;
 }
 
 export function VulnLabel({ count, big }: { count: number; big?: boolean }) {
-  const st = big ? { fontSize: 16, fontWeight: 600 } : undefined;
-  if (count === 0) return <span className="row gap4 num" style={{ color: "var(--green)", ...st }}><SIcon name="checkmark.shield" color="green" />0</span>;
+  const bigCls = big ? " " + css.vulnBig : "";
+  if (count === 0) return <span className={"row gap4 num " + css.green + bigCls}><SIcon name="checkmark.shield" color="green" />0</span>;
   const c = count >= 3 ? "red" : "orange";
-  return <span className="row gap4 num" style={{ color: color(c), ...st }}><SIcon name="exclamationmark.shield.fill" color={c} />{count}</span>;
+  return <span className={"row gap4 num " + css[c] + bigCls}><SIcon name="exclamationmark.shield.fill" color={c} />{count}</span>;
 }
 
 export function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="card" style={{ padding: 12, gap: 8, borderRadius: "var(--r-xl)" }}>
-      <div className="muted" style={{ fontWeight: 600 }}>{title}</div>
+    <div className={css.detailSection}>
+      <div className={"muted " + css.bold}>{title}</div>
       {children}
     </div>
   );

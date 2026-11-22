@@ -1,0 +1,108 @@
+/* 伺服器與服務頁(sections/infrastructure)自己的樣式;原本是 omixorKit.css 的 ox-* 與各處的 inline style */
+
+.header { padding: 16px 20px 12px; border-bottom: 1px solid var(--line); gap: 16px; }
+.titleCol { min-width: 0; }
+.tabs { width: 340px; flex: none; }
+
+/* 通用小片段 */
+.gap1 { gap: 1px; }
+.gap2 { gap: 2px; }
+.gap3 { gap: 3px; }
+.gap5 { gap: 5px; }
+.gap10 { gap: 10px; }
+.gap14 { gap: 14px; }
+.gap16 { gap: 16px; }
+.gap18 { gap: 18px; }
+.gap24 { gap: 24px; }
+.bold { font-weight: 600; }
+.medium { font-weight: 500; }
+.xs { font-size: var(--fs-xs); }
+.selectable { user-select: text; }
+.noShrink { flex: none; }
+.selfStart { align-self: flex-start; }
+.end { justify-content: flex-end; }
+.center { justify-content: center; }
+.relative { position: relative; }
+.pad10 { padding: 10px; }
+.pad16 { padding: 16px; }
+.full { width: 100%; }
+.warn { color: var(--orange); }
+.red { color: var(--red); }
+.ok { color: var(--green); }
+.baseline { display: flex; align-items: baseline; }
+
+.rowSep { border-top: 1px solid var(--line); }
+/* 左右對照的資訊表(原 ox-kbd-row) */
+.kbdRow { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: baseline; font-size: var(--fs-base); }
+.statValue { font-size: var(--fs-lg); font-weight: 500; }
+.statStrong { font-size: var(--fs-lg); font-weight: 600; }
+/* .mono 也設了 font-size */
+.monoXs.monoXs { font-size: var(--fs-xs); }
+
+/* 共用標籤(infraShared 的 Chip,原 ox-chip) */
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-base); padding: 3px 9px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--fg) 5%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 8%, transparent); white-space: nowrap; }
+button.chip { cursor: default; font: inherit; font-size: var(--fs-base); color: inherit; }
+button.chip:hover { background: color-mix(in srgb, var(--fg) 9%, transparent); }
+
+/* MARK: - 服務 */
+.listPane { display: flex; flex-direction: column; flex: none; border-right: 1px solid var(--line); min-height: 0; }
+/* .list-row 也設了 padding */
+.svcRow.svcRow { gap: 10px; padding: 8px 12px; }
+.budget { align-items: flex-end; gap: 3px; }
+.serviceDetail { padding: 18px; gap: 14px; }
+.kpis150 { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.charts300 { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.hostRow { gap: 10px; padding: 4px 0; }
+.hostName { gap: 1px; min-width: 120px; }
+.hostUsage { gap: 3px; width: 180px; }
+.depItem { gap: 5px; padding: 4px 0; }
+.alertItem { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; }
+.alertState { align-items: flex-end; gap: 2px; }
+.replicas { font-size: var(--fs-lg); font-weight: 600; min-width: 28px; text-align: center; }
+
+/* MARK: - 伺服器 */
+.filterBar { gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.hostGrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.sidePanel { flex: none; border-left: 1px solid var(--line); overflow-y: auto; background: var(--bg); }
+.hostCard { padding: 12px; border-radius: var(--r-xl); background: var(--bg2); }
+.hostHead { gap: 7px; width: 100%; }
+.spark { width: 100%; pointer-events: none; }
+.serverDetail { padding: 16px; gap: 14px; }
+.waiting { min-height: 80px; text-align: center; }
+.nameCell { max-width: 180px; }
+.restartsHigh { color: var(--orange); font-weight: 600; }
+.tag { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-xs); padding: 3px 7px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--fg) 6%, transparent); }
+
+/* MARK: - 服務地圖 */
+.legend { gap: 14px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.swatch { width: 10px; height: 10px; border-radius: var(--r-sm); }
+.mapBg { background: color-mix(in srgb, var(--bg2) 35%, transparent); }
+.canvas { position: relative; }
+.edges { position: absolute; inset: 0; pointer-events: none; }
+.mapNode { position: absolute; transform: translate(-50%, -50%); border-radius: var(--r-xl); padding: 0 9px; display: flex; flex-direction: column; justify-content: center; gap: 3px; background: var(--bg2); cursor: default; transition: opacity .15s; }
+.tierTag { font-size: var(--fs-xs); font-weight: 600; }
+.selBar { gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--bg2); }
+
+/* MARK: - GCP */
+.setupWrap { padding: 24px; max-width: 760px; }
+.topBar { gap: 10px; padding: 8px 16px; }
+.vsep { width: 1px; height: 16px; background: var(--line); }
+/* .list 也設了 flex */
+.nav.nav { width: 300px; flex: none; border-right: 1px solid var(--line); background: color-mix(in srgb, var(--side) 50%, transparent); }
+/* .list-row 也設了 border-bottom */
+.navRow.navRow { border: 0; }
+.navEmpty { padding: 4px 12px; }
+.formGrid { display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: center; }
+.detail { padding: 20px; gap: 14px; max-width: 980px; }
+.rangePicker { width: 200px; }
+.chart150 { height: 150px; }
+.chart110 { height: 110px; }
+/* .select 也設了 min-width */
+.severity.severity { min-width: 120px; }
+.logRow { display: flex; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--line); align-items: flex-start; }
+.sev { width: 58px; flex: none; font-size: var(--fs-xs); font-weight: 700; }
+.logText { user-select: text; word-break: break-all; }
+.logTextOpen { white-space: pre-wrap; }
+.flex1 { flex: 1; }
+.serverSearch { min-width: 140px; max-width: 240px; flex: 1; }
+.right { text-align: right; }

@@ -1,10 +1,15 @@
 // Issue 垃圾桶(只有組織管理員):列出已刪除的 Issue,可以還原或永久刪除(永久刪除要二次確認,無法復原)。
 import { useCallback, useEffect, useState } from "react";
 import { useView } from "../../api";
-import { EmptyState } from "../../components/ui";
-import { monthDayTime, useAct, useConfirm, useOmixor } from "../../components/omixorKit";
+import { useConfirm } from "../../components/Confirm";
+import { EmptyState } from "../../components/EmptyState";
+import { useAct } from "../../components/Toast";
+import { useOmixor } from "../../lib/directory";
+import { monthDayTime } from "../../lib/format";
 import { loadTrash, purgeIssue, restoreIssue } from "./issueApi";
 import { issueKey, type Issue } from "./issueModel";
+import s from "./IssueTrash.module.css";
+import { ModalTitle } from "../../components/Modal";
 
 export function IssueTrash({ onClose }: { onClose: () => void }) {
   const o = useOmixor();
@@ -21,17 +26,17 @@ export function IssueTrash({ onClose }: { onClose: () => void }) {
   const who = (a?: string) => (!a ? "—" : a === "mcp" ? "MCP 用戶端" : a.startsWith("agent:") ? o.name({ kind: "ai", id: a.slice(6) }) : o.name({ kind: "person", id: a }));
   return (
     <div className="col gap12">
-      <div className="modal-title">垃圾桶</div>
+      <ModalTitle>垃圾桶</ModalTitle>
       <span className="caption muted">已刪除的 Issue 在這裡。還原後回到原本的位置與編號;永久刪除就找不回來了。只有組織管理員看得到。</span>
       {err ? <EmptyState title="讀不到垃圾桶" icon="exclamationmark.triangle" message={err} />
         : !list ? <div className="muted">載入中…</div>
         : list.length === 0 ? <EmptyState title="垃圾桶是空的" icon="trash" />
         : (
-          <div className="col" style={{ maxHeight: 420, overflowY: "auto" }}>
+          <div className={"col " + s.list}>
             {list.map((i) => (
-              <div key={i.id} className="row gap8" style={{ padding: "8px 0", borderBottom: "1px solid var(--line)", alignItems: "center" }}>
-                <span className="mono caption muted" style={{ width: 80, flex: "none" }}>{issueKey(i)}</span>
-                <div className="col grow" style={{ minWidth: 0 }}>
+              <div key={i.id} className={"row gap8 " + s.item}>
+                <span className={"mono caption muted " + s.key}>{issueKey(i)}</span>
+                <div className="col grow">
                   <span className="ellipsis">{i.title}</span>
                   <span className="caption muted">{who(i.deletedBy)} 刪除於 {i.deletedAt ? monthDayTime(i.deletedAt) : "—"}</span>
                 </div>

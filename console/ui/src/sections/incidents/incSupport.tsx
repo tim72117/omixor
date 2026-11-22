@@ -1,14 +1,20 @@
 // 事件畫面共用的小工具:SEV 樣式、時間軸事件樣式、時間格式、AI 摘要與檢討報告(Swift 的 IncSupport)
 import { createContext, useContext } from "react";
-import { go, useDirectory } from "../../components/bits";
 import { Icon } from "../../components/Icon";
+import { Pill } from "../../components/Pill";
+import { isAI } from "../../lib/actor";
+import { color } from "../../lib/color";
+import type { useDirectory } from "../../lib/directory";
+import { go } from "../../lib/nav";
 import {
   HEALTH_COLOR, INC_STATUSES, INC_STATUS_COLOR, INC_STATUS_ICON, INC_STATUS_LABEL, WORK_STATUS_LABEL,
   type Alert, type Incident, type IncidentEventKind, type IncidentStatus, type OnCallShift, type Service, type WorkItem,
-} from "../../components/models";
-import { Pill, color } from "../../components/ui";
+} from "../../models";
 import type { Actor } from "../../types";
 import { canGo } from "../../features";
+import css from "./incidents.module.css";
+import { StatusDot } from "../../components/StatusDot";
+import { tOrNow } from "../../lib/format";
 
 export type IncData = { incidents: Incident[]; alerts: Alert[]; services: Service[]; workItems: WorkItem[]; onCall: OnCallShift[]; loaded: boolean; error?: string };
 export const IncCtx = createContext<IncData>({ incidents: [], alerts: [], services: [], workItems: [], onCall: [], loaded: false });
@@ -22,10 +28,8 @@ export const sevMeaning = (s: number) =>
 
 export function SevBadge({ sev, large }: { sev: number; large?: boolean }) {
   return (
-    <span title={sevMeaning(sev)} className="mono" style={{
-      fontSize: large ? "var(--fs-sm)" : "var(--fs-xs)", fontWeight: 700, padding: large ? "3px 8px" : "2px 5px", borderRadius: "var(--r-sm)", flex: "none",
-      color: sev === 3 ? "rgba(0,0,0,.75)" : "white", background: color(sevColor(sev)),
-    }}>{sevLabel(sev)}</span>
+    <span title={sevMeaning(sev)} className={"mono " + css.sev + (large ? " " + css.sevLg : "") + (sev === 3 ? " " + css.sevDark : "")}
+      style={{ background: color(sevColor(sev)) }}>{sevLabel(sev)}</span>
   );
 }
 
@@ -38,16 +42,15 @@ export const KIND_ICON: Record<IncidentEventKind, string> = { status: "flag.fill
 export const KIND_LABEL: Record<IncidentEventKind, string> = { status: "狀態", note: "備註", action: "處置", alert: "告警", deploy: "部署", aiFinding: "AI 發現" };
 export const KIND_COLOR: Record<IncidentEventKind, string> = { status: "blue", note: "gray", action: "teal", alert: "red", deploy: "indigo", aiFinding: "purple" };
 export const isKey = (k: IncidentEventKind) => k !== "note";
-export const isAI = (a: Actor) => a.kind === "ai";
+export { isAI };
 export const isPerson = (a: Actor) => a.kind === "person";
 
 export const isActive = (i: Incident) => i.status !== "resolved";
-export const t = (iso?: string | null) => (iso ? new Date(iso).getTime() : Date.now());
-export const durationOf = (i: Incident, now = Date.now()) => Math.max(0, ((i.resolvedAt ? t(i.resolvedAt) : now) - t(i.startedAt)) / 1000);
+export const durationOf = (i: Incident, now = Date.now()) => Math.max(0, ((i.resolvedAt ? tOrNow(i.resolvedAt) : now) - tOrNow(i.startedAt)) / 1000);
 /** 從事件開始到第一次有人回應的秒數(MTTA 用) */
 export function ackDelay(i: Incident): number | undefined {
-  const start = t(i.startedAt);
-  const ds = i.timeline.filter((e) => isPerson(e.actor) && t(e.date) >= start).map((e) => t(e.date));
+  const start = tOrNow(i.startedAt);
+  const ds = i.timeline.filter((e) => isPerson(e.actor) && tOrNow(e.date) >= start).map((e) => tOrNow(e.date));
   return ds.length ? (Math.min(...ds) - start) / 1000 : undefined;
 }
 export const sortedTimeline = (i: Incident) => [...i.timeline].sort((a, b) => a.date.localeCompare(b.date));
@@ -84,9 +87,8 @@ export function ServiceChip({ id }: { id: string }) {
   const { services } = useInc();
   const s = services.find((x) => x.id === id);
   return (
-    <button className="bx-chip" title={`到「伺服器與服務」查看 ${s?.name ?? id}`} onClick={canGo("infrastructure") ? () => go("infrastructure", id) : undefined}
-      style={{ background: "color-mix(in srgb, var(--fg) 6%, transparent)" }}>
-      <span className="dot" style={{ background: color(HEALTH_COLOR[s?.health ?? "unknown"]) }} />
+    <button className={css.serviceChip} title={`到「伺服器與服務」查看 ${s?.name ?? id}`} onClick={canGo("infrastructure") ? () => go("infrastructure", id) : undefined}>
+      <StatusDot c={HEALTH_COLOR[s?.health ?? "unknown"]} size={7} />
       {s?.name ?? id}
       <Icon name="arrow.up.right" size={8} className="faint" />
     </button>

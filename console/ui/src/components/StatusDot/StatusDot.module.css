@@ -1,0 +1,7 @@
+.dot { width: var(--dot-size); height: var(--dot-size); border-radius: var(--r-pill); background: var(--c); display: inline-block; flex: none; position: relative; }
+/* ping:放大淡出的圓(omixorKit 舊樣式) */
+.ping::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-pill); background: var(--c); animation: ping 1.2s ease-out infinite; }
+@keyframes ping { 0% { transform: scale(1); opacity: .6; } 100% { transform: scale(2.2); opacity: 0; } }
+/* glow:向外擴散的光暈(bits 舊樣式) */
+.glow::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-pill); box-shadow: 0 0 0 0 var(--c); animation: glow 1.3s ease-out infinite; }
+@keyframes glow { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 60%, transparent); } to { box-shadow: 0 0 0 7px transparent; } }

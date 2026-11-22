@@ -1,7 +1,11 @@
 // 伺服器與服務頁內部共用(Swift 的 InfraShared.swift)
 import type { ReactNode } from "react";
-import { color, Pill } from "../../components/ui";
-import { SIcon, type MetricPoint } from "../../components/omixorKit";
+import { Pill } from "../../components/Pill";
+import { Bar } from "../../components/ProgressBar";
+import { SIcon } from "../../components/SIcon";
+import type { MetricPoint } from "../../models";
+import css from "./infrastructure.module.css";
+import { cardTitleClass } from "../../components/Card";
 
 const M64 = (1n << 64n) - 1n;
 /** 穩定的字串雜湊(FNV-1a 64) */
@@ -43,16 +47,19 @@ export function TierPill({ tier }: { tier: number }) {
 }
 
 export function BudgetBar({ remaining, height = 6, width }: { remaining: number; height?: number; width?: number }) {
-  return <div className="ox-bar" style={{ height, width, flex: width ? "none" : 1 }}><div style={{ width: `${Math.min(1, Math.max(0, remaining)) * 100}%`, background: color(budgetColor(remaining)) }} /></div>;
+  return <Bar value={remaining} c={budgetColor(remaining)} height={height} style={{ width, flex: width ? "none" : 1 }} />;
 }
 
+/**
+ * 服務/主機的圓角標籤(可點時是按鈕、尾端有 ›)。和 components/Chip 外觀不同(膠囊圓角、--fs-base、圖示可上色、可點),所以留在這裡。
+ */
 export function Chip({ text, c = "secondary", icon, onClick, title }: { text: string; c?: string; icon?: string; onClick?: () => void; title?: string }) {
   const body = <>{icon && <SIcon name={icon} color={c} size={12} />}<span className="ellipsis">{text}</span>{onClick && <SIcon name="chevron.right" size={9} className="faint" />}</>;
-  return onClick ? <button className="ox-chip" title={title} onClick={onClick}>{body}</button> : <span className="ox-chip" title={title}>{body}</span>;
+  return onClick ? <button className={css.chip} title={title} onClick={onClick}>{body}</button> : <span className={css.chip} title={title}>{body}</span>;
 }
 
 export function SectionHeader({ title, trailing }: { title: string; trailing?: ReactNode }) {
-  return <div className="row" style={{ alignItems: "baseline" }}><span className="card-title">{title}</span><span className="grow" />{trailing && <span className="caption muted">{trailing}</span>}</div>;
+  return <div className={css.baseline}><span className={cardTitleClass}>{title}</span><span className="grow" />{trailing && <span className="caption muted">{trailing}</span>}</div>;
 }
 
 export function minutes(m: number) {

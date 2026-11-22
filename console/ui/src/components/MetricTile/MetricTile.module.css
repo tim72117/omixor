@@ -1,0 +1,2 @@
+.tile { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.value { font-size: var(--fs-3xl); font-weight: 600; font-variant-numeric: tabular-nums; }

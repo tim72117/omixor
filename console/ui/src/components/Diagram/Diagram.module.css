@@ -1,0 +1,7 @@
+.root { margin: 8px 0; }
+.error { color: var(--red); }
+.frame { overflow-x: hidden; border: 1px solid var(--line); border-radius: var(--r-lg); background: #fff; }
+.frame.zoom { overflow-x: auto; }
+.img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+.zoom .img { cursor: zoom-out; max-width: none; }
+.source { cursor: pointer; }

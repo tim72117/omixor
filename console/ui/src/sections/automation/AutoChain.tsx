@@ -4,11 +4,15 @@
 // 編輯先改在草稿,按「存檔」才整份送到核心(驗證失敗時草稿保留,錯誤原文顯示)。
 import { useMemo, useState } from "react";
 import { action, useRun, useView } from "../../api";
-import { AgentAvatar } from "../../components/bits";
+import { AgentAvatar } from "../../components/Avatar";
+import { Card } from "../../components/Card";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import type { Agent, ChainEdge, OrgChain, OrgChainView } from "../../components/models";
-import { Card, EmptyState, ErrorText, Pill } from "../../components/ui";
+import { Pill } from "../../components/Pill";
+import type { Agent, ChainEdge, OrgChain, OrgChainView } from "../../models";
 import { relative } from "../../fmt";
+import css from "./automation.module.css";
 import { useAuto } from "./autoShared";
 
 const NODE_W = 160;
@@ -60,7 +64,7 @@ export function AutoChain() {
   const dirty = !!draft;
 
   if (viewErr || view?.error) return <EmptyState title="讀不到組織鏈" icon="exclamationmark.triangle" message={viewErr ?? view?.error} />;
-  if (!view) return <div className="muted" style={{ padding: 20 }}>載入中…</div>;
+  if (!view) return <div className={"muted " + css.loading}>載入中…</div>;
 
   const canEdit = view.canEdit;
   const members = view.members ?? [];
@@ -85,10 +89,10 @@ export function AutoChain() {
   });
 
   return (
-    <div className="col gap12" style={{ padding: 16, overflowY: "auto", flex: 1, minHeight: 0 }}>
+    <div className={"col gap12 " + css.tabPage}>
       <Card title="組織鏈" subtitle="箭頭是派工方向:上游可以派工作給下游;下游做完會自動回報給上游(角色會收到「檢視回報」任務,成員可在任務查到回報給自己的結果)"
         right={
-          <div className="row gap8" style={{ alignItems: "center" }}>
+          <div className="row gap8">
             {dirty && <Pill text="尚未存檔" color="orange" />}
             {!dirty && (savedAt ?? view.chain.updatedAt) && <span className="caption muted">更新於 {relative((savedAt ?? view.chain.updatedAt)!)}</span>}
             {canEdit && dirty && <button className="btn" disabled={busy} onClick={() => { setDraft(undefined); setError(undefined); }}>還原</button>}
@@ -104,7 +108,7 @@ export function AutoChain() {
       </Card>
       <Card title="邊" subtitle={`${edges.length} 條${canEdit ? "" : "(只有組織管理員可以修改)"}`}>
         {edges.map((e) => (
-          <div key={edgeKey(e)} className="row gap8" style={{ padding: "6px 0", borderBottom: "1px solid var(--line)", alignItems: "center" }}>
+          <div key={edgeKey(e)} className={"row gap8 " + css.lineRow}>
             <NodeChip node={e.from} name={nodeName(e.from)} agentById={agentById} />
             <Icon name="chevron.right" size={12} className="muted" />
             <Pill text={labelOf(e)} color="blue" />
@@ -122,11 +126,11 @@ export function AutoChain() {
 
 function Legend() {
   return (
-    <div className="row gap12 caption muted" style={{ alignItems: "center", marginBottom: 8 }}>
-      <span className="row gap4" style={{ alignItems: "center" }}>
+    <div className={"row gap12 caption muted " + css.legend}>
+      <span className="row gap4">
         <svg width="34" height="10"><line x1="2" y1="5" x2="26" y2="5" stroke={DISPATCH} strokeWidth="2" /><path d="M26 1 L32 5 L26 9 Z" fill={DISPATCH} /></svg>派工(目標、任務)
       </span>
-      <span className="row gap4" style={{ alignItems: "center" }}>
+      <span className="row gap4">
         <svg width="34" height="10"><line x1="2" y1="5" x2="26" y2="5" stroke={REPORT} strokeWidth="1.5" strokeDasharray="4 3" /><path d="M26 1 L32 5 L26 9 Z" fill={REPORT} /></svg>回報
       </span>
     </div>
@@ -136,7 +140,7 @@ function Legend() {
 function NodeChip({ node, name, agentById }: { node: string; name: string; agentById: Map<string, Agent> }) {
   const a = node.startsWith("agent:") ? agentById.get(node.slice(6)) : undefined;
   return (
-    <span className="row gap6" style={{ alignItems: "center", minWidth: 0 }} title={node}>
+    <span className={"row gap6 " + css.shrink} title={node}>
       {a ? <AgentAvatar agent={a} size={20} /> : <Icon name={node.startsWith("user:") ? "person" : "questionmark.circle"} size={16} className="muted" />}
       <span className="ellipsis">{name}</span>
     </span>
@@ -150,13 +154,13 @@ function AddEdge({ options, edges, disabled, onAdd }: { options: { value: string
   const dup = !!from && !!to && edges.some((e) => e.from === from && e.to === to);
   const problem = from && to && from === to ? "不能指向自己" : dup ? "這條邊已經有了" : "";
   return (
-    <div className="col gap6" style={{ paddingTop: 10 }}>
-      <div className="row gap8" style={{ alignItems: "center", flexWrap: "wrap" }}>
+    <div className={"col gap6 " + css.addEdge}>
+      <div className="row gap8 wrap">
         <select className="select" value={from} onChange={(e) => setFrom(e.target.value)}>
           <option value="">From(派工的人)</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <Icon name="chevron.right" size={12} className="muted" />
-        <input className="input" style={{ width: 120 }} placeholder="Label(預設 任務)" value={label} onChange={(e) => setLabel(e.target.value)} />
+        <input className={"input " + css.w120} placeholder="Label(預設 任務)" value={label} onChange={(e) => setLabel(e.target.value)} />
         <Icon name="chevron.right" size={12} className="muted" />
         <select className="select" value={to} onChange={(e) => setTo(e.target.value)}>
           <option value="">To(接工作的人)</option>{options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -166,7 +170,7 @@ function AddEdge({ options, edges, disabled, onAdd }: { options: { value: string
           <Icon name="plus" size={12} />新增邊
         </button>
       </div>
-      {problem && <span className="caption" style={{ color: "var(--orange)" }}>{problem}</span>}
+      {problem && <span className={"caption " + css.warn}>{problem}</span>}
       <span className="caption muted">新增或刪除後按上方「存檔」才會生效;核心會檢查節點存在、不重複、不能有循環。</span>
     </div>
   );
@@ -191,9 +195,9 @@ function ChainGraph({ edges, name, agentById }: { edges: ChainEdge[]; name: (n: 
   });
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <div style={{ position: "relative", width, height, margin: "0 auto" }}>
-        <svg width={width} height={height} style={{ position: "absolute", inset: 0 }}>
+    <div className={css.scrollX}>
+      <div className={css.graph} style={{ width, height }}>
+        <svg width={width} height={height} className={css.graphSvg}>
           <defs>
             <marker id="chain-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill={DISPATCH} /></marker>
             <marker id="chain-report" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill={REPORT} /></marker>
@@ -230,16 +234,12 @@ function ChainGraph({ edges, name, agentById }: { edges: ChainEdge[]; name: (n: 
           const a = n.startsWith("agent:") ? agentById.get(n.slice(6)) : undefined;
           const isUser = n.startsWith("user:");
           return (
-            <div key={n} title={n} className="row gap6"
-              style={{
-                position: "absolute", left: p.x, top: p.y, width: NODE_W, height: NODE_H, boxSizing: "border-box", padding: "0 10px",
-                alignItems: "center", background: "var(--bg2)", border: `1px solid ${a || isUser ? "var(--line)" : "var(--orange)"}`, borderRadius: "var(--r-xl)",
-                boxShadow: "0 1px 2px rgba(0,0,0,.06)",
-              }}>
+            <div key={n} title={n} className={"row gap6 " + css.node + (a || isUser ? "" : " " + css.nodeMissing)}
+              style={{ left: p.x, top: p.y, width: NODE_W, height: NODE_H }}>
               {a ? <AgentAvatar agent={a} size={26} />
-                : <span className="bx-avatar" style={{ width: 26, height: 26, background: "var(--gray)" }}><Icon name={isUser ? "person" : "questionmark.circle"} size={13} color="white" /></span>}
-              <div className="col" style={{ minWidth: 0 }}>
-                <span className="ellipsis" style={{ fontWeight: 500 }}>{name(n)}</span>
+                : <AgentAvatar agent={{ symbol: isUser ? "person" : "questionmark.circle", color: "gray" }} size={26} />}
+              <div className={"col " + css.shrink}>
+                <span className={"ellipsis " + css.medium}>{name(n)}</span>
                 <span className="caption muted ellipsis">{a ? a.role || "虛擬角色" : isUser ? n.slice(5) : "不存在的節點"}</span>
               </div>
             </div>

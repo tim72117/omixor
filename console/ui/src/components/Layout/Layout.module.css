@@ -1,0 +1,4 @@
+/* 頁面骨架:Page(直向撐滿)、Fill(橫向撐滿,放清單 + 詳情)、Scroll(撐滿並捲動)。包在 :where() 裡,className 一定蓋得過 */
+:where(.page) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+:where(.fill) { flex: 1; min-height: 0; display: flex; }
+:where(.scroll) { flex: 1; min-height: 0; overflow: auto; }

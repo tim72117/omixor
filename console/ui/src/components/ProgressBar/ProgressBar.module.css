@@ -1,0 +1,7 @@
+/* 根元素包在 :where() 裡(權重 0):呼叫端的 className 一定蓋得過 */
+:where(.bar) { flex: 1; min-width: 0; border-radius: var(--r-pill); background: color-mix(in srgb, var(--fg) 8%, transparent); overflow: hidden; position: relative; }
+.bar > div { height: 100%; border-radius: var(--r-pill); }
+:where(.progress) { width: 100%; }
+.label { width: 34px; flex: none; }
+.value { width: 36px; text-align: right; flex: none; }
+.pct { font-size: var(--fs-xs); width: 32px; text-align: right; flex: none; }

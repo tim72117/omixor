@@ -1,0 +1,8 @@
+/* 有色邊框的提示區塊(Callout);顏色由 style 帶入 */
+.callout { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: var(--r-xl); border: 1px solid; }
+/* 紫色的 AI 說明框(AICallout) */
+.ai { display: flex; gap: 8px; align-items: flex-start; padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--purple) 8%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 20%, transparent); }
+.aiTitle { font-weight: 600; color: var(--purple); }
+.aiBody { line-height: 1.5; }
+/* 錯誤或後端尚未提供時的提示列(Banner) */
+.banner { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); padding: 6px 16px; }

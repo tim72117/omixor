@@ -1,0 +1,3 @@
+/* 從 Jira 匯入 */
+
+.picker { max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px; }

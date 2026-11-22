@@ -4,9 +4,14 @@
 // 資料:view github;動作:github_jobs、github_job_log、github_pull(見 docs/PORTING.md)。
 import { useEffect, useState } from "react";
 import { action } from "../../api";
-import { Card, Pill } from "../../components/ui";
-import { Banner, MarkdownText, SIcon } from "../../components/omixorKit";
+import { Banner } from "../../components/Callout";
+import { Card, cardTitleClass } from "../../components/Card";
+import { MarkdownText } from "../../components/Markdown";
+import { Pill } from "../../components/Pill";
+import { SIcon } from "../../components/SIcon";
 import { relative } from "../../fmt";
+import ds from "./devShared.module.css";
+import css from "./DevGitHubTab.module.css";
 
 export type GHChecks = { total: number; success: number; failure: number; pending: number; skipped: number };
 export type GHPull = { repo: string; number: number; title: string; author: string; branch: string; base: string; draft: boolean; labels: string[]; reviewers: string[]; headSHA: string; createdAt?: string; updatedAt?: string; url: string; checks?: GHChecks | null };
@@ -94,9 +99,9 @@ export function RunDetail({ run: r }: { run: GHRun }) {
   const [icon, c] = runIcon(r);
   const d = ghDuration(runDuration(r));
   return (
-    <div className="col" style={{ padding: 20, gap: 12, maxWidth: 820 }}>
-      <div className="row" style={{ alignItems: "baseline" }}>
-        <span className="h3" style={{ userSelect: "text" }}>{r.title}</span><span className="grow" />
+    <div className={"col " + css.detail}>
+      <div className={css.baseline}>
+        <span className={"h3 " + ds.selectable}>{r.title}</span><span className="grow" />
         {r.url && <button className="btn" onClick={() => openURL(r.url)}>在 GitHub 打開</button>}
       </div>
       <div className="row gap8 wrap">
@@ -117,23 +122,23 @@ export function RunDetail({ run: r }: { run: GHRun }) {
         return (
           <Card key={j.id}>
             <div className="row gap8">
-              <SIcon name={ji} color={jc} /><span className="card-title">{j.name}</span>{jd && <span className="caption muted">{jd}</span>}
+              <SIcon name={ji} color={jc} /><span className={cardTitleClass}>{j.name}</span>{jd && <span className="caption muted">{jd}</span>}
               <span className="grow" />
               {failed && <button className="btn" onClick={() => loadLog(j.id)}>{logJob === j.id && log != null ? "重新讀紀錄" : "看紀錄最後幾行"}</button>}
             </div>
             {(j.steps ?? []).map((s) => {
               const [si, sc] = stepIcon(s.status, s.conclusion);
-              return <div key={s.number} className="row gap6"><SIcon name={si} color={sc} size={12} /><span style={{ color: s.conclusion === "skipped" ? "var(--fg2)" : undefined, fontWeight: sc === "red" ? 600 : undefined }}>{s.name}</span></div>;
+              return <div key={s.number} className="row gap6"><SIcon name={si} color={sc} size={12} /><span className={(s.conclusion === "skipped" ? ds.secondary : "") + (sc === "red" ? " " + ds.bold : "")}>{s.name}</span></div>;
             })}
             {logJob === j.id && (
               <>
-                {logError && <div className="caption" style={{ color: "var(--orange)" }}>{logError}</div>}
-                {log != null ? <pre className="ox-code" style={{ fontSize: "var(--fs-xs)", userSelect: "text" }}>{log}</pre> : !logError && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
+                {logError && <div className={"caption " + ds.orange}>{logError}</div>}
+                {log != null ? <pre className={css.log}>{log}</pre> : !logError && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
               </>
             )}
           </Card>
         );
-      }) : !error && <div className="row" style={{ justifyContent: "center" }}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>}
+      }) : !error && <div className={"row " + css.center}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>}
     </div>
   );
 }
@@ -147,9 +152,9 @@ export function PullDetail({ pull: p }: { pull: GHPull }) {
   const checks = detail?.pull?.checks ?? p.checks;
   const [icon, c] = checksIcon(checks);
   return (
-    <div className="col" style={{ padding: 20, gap: 12, maxWidth: 820 }}>
-      <div className="row gap8" style={{ alignItems: "baseline" }}>
-        <span className="h3" style={{ userSelect: "text" }}>{p.title}</span><span className="muted" style={{ fontSize: "var(--fs-lg)" }}>#{p.number}</span><span className="grow" />
+    <div className={"col " + css.detail}>
+      <div className={css.baseline + " gap8"}>
+        <span className={"h3 " + ds.selectable}>{p.title}</span><span className={"muted " + css.number}>#{p.number}</span><span className="grow" />
         {p.url && <button className="btn" onClick={() => openURL(p.url)}>在 GitHub 打開</button>}
       </div>
       <div className="row gap8 wrap">
@@ -170,13 +175,13 @@ export function PullDetail({ pull: p }: { pull: GHPull }) {
             {(detail.files ?? []).map((f) => (
               <div key={f.filename} className="row gap8">
                 <span className="caption mono ellipsis grow">{f.filename}</span>
-                <span className="caption num" style={{ color: "var(--green)" }}>+{f.additions}</span>
-                <span className="caption num" style={{ color: "var(--red)" }}>−{f.deletions}</span>
+                <span className={"caption num " + ds.green}>+{f.additions}</span>
+                <span className={"caption num " + ds.red}>−{f.deletions}</span>
               </div>
             ))}
           </Card>
         </>
-      ) : !error && <div className="row" style={{ justifyContent: "center" }}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>}
+      ) : !error && <div className={"row " + css.center}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>}
     </div>
   );
 }

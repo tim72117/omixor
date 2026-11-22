@@ -1,11 +1,19 @@
 // 待核准收件匣:AI 準備好的動作,等人決定(Swift 的 AutoInboxView)
 import { useEffect, useState } from "react";
 import { action, useRun } from "../../api";
-import { CodeBlock, IconTile, useDirectory } from "../../components/bits";
+import { Card, cardClass } from "../../components/Card";
+import { CodeBlock } from "../../components/CodeBlock";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import { RISK_COLOR, RISK_LABEL, type Approval, type Risk } from "../../components/models";
-import { Card, EmptyState, ErrorText, Modal, Pill, color } from "../../components/ui";
+import { IconTile } from "../../components/IconTile";
+import { Modal } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
+import { color } from "../../lib/color";
+import { useDirectory } from "../../lib/directory";
+import { RISK_COLOR, RISK_LABEL, type Approval, type Risk } from "../../models";
 import { relative } from "../../fmt";
+import css from "./automation.module.css";
 import { Countdown, RiskBadge, autoName, pendingOf, useAuto } from "./autoShared";
 
 const rank = (r: Risk) => (r === "high" ? 2 : r === "medium" ? 1 : 0);
@@ -38,7 +46,7 @@ export function AutoInbox({ focusId, clearFocus, edited, setEdited, openAutomati
           <Icon name="hand.raised.fill" size={15} color="var(--purple)" />
           <span className="h3">{all.length === 0 ? "目前沒有需要你決定的事" : `${all.length} 件請求等你決定`}</span>
           <div className="grow" />
-          <select className="select" style={{ minWidth: 120 }} value={risk} onChange={(e) => setRisk(e.target.value as Risk | "")}>
+          <select className={"select " + css.minW120} value={risk} onChange={(e) => setRisk(e.target.value as Risk | "")}>
             <option value="">全部風險</option>
             {(["high", "medium", "low"] as Risk[]).map((r) => <option key={r} value={r}>{RISK_LABEL[r]}</option>)}
           </select>
@@ -53,10 +61,10 @@ export function AutoInbox({ focusId, clearFocus, edited, setEdited, openAutomati
         ))}
         {decided.length > 0 && (
           <>
-            <span className="h3" style={{ marginTop: 8 }}>最近已處理</span>
-            <div className="card" style={{ padding: 0, gap: 0 }}>
+            <span className={"h3 " + css.mt8}>最近已處理</span>
+            <div className={cardClass + " " + css.flush}>
               {decided.slice(0, 12).map((r, i) => (
-                <div key={r.id} id={"apv-" + r.id} style={{ borderTop: i ? "1px solid var(--line)" : undefined, background: highlighted === r.id ? "color-mix(in srgb, var(--purple) 8%, transparent)" : undefined }}>
+                <div key={r.id} id={"apv-" + r.id} className={(i ? css.sepTop : "") + (highlighted === r.id ? " " + css.flash : "")}>
                   <DecidedRow req={r} edited={edited[r.id]} />
                 </div>
               ))}
@@ -82,39 +90,36 @@ function ApprovalCard({ req, highlighted, openAutomation, openRun, onEdited }: {
     setConfirmApprove(false); setConfirmReject(false); setEditing(false);
   });
   return (
-    <div id={"apv-" + req.id} className="card" style={{
-      padding: 16, gap: 12, borderRadius: "var(--r-xl)", position: "relative", overflow: "hidden",
-      border: highlighted ? "2px solid var(--purple)" : undefined, transition: "border .3s",
-    }}>
-      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: color(RISK_COLOR[req.risk]) }} />
-      <div className="row gap12" style={{ alignItems: "flex-start" }}>
+    <div id={"apv-" + req.id} className={cardClass + " " + css.approval + (highlighted ? " " + css.focused : "")}>
+      <div className={css.riskStripe} style={{ background: color(RISK_COLOR[req.risk]) }} />
+      <div className={"row gap12 " + css.top}>
         <IconTile icon={auto?.icon ?? "sparkles"} size={36} />
         <div className="col gap4 grow">
-          <span className="h3" style={{ fontSize: "var(--fs-md)" }}>{req.title}</span>
+          <span className={"h3 " + css.cardName}>{req.title}</span>
           <span className="row gap6 caption">
-            <button className="btn link caption" style={{ padding: 0 }} onClick={() => openAutomation(req.automation)}>{auto?.name ?? req.automation}</button>
+            <button className={"btn link caption " + css.noPad} onClick={() => openAutomation(req.automation)}>{auto?.name ?? req.automation}</button>
             <span className="faint">·</span><span className="muted">提出於 {relative(req.createdAt)}</span>
           </span>
         </div>
-        <div className="col gap6" style={{ alignItems: "flex-end" }}><RiskBadge risk={req.risk} /><Countdown expiresAt={req.expiresAt} /></div>
+        <div className={"col gap6 " + css.alignEnd}><RiskBadge risk={req.risk} /><Countdown expiresAt={req.expiresAt} /></div>
       </div>
-      <div className="row gap8" style={{ alignItems: "flex-start", padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--purple) 7%, transparent)" }}>
+      <div className={"row gap8 " + css.top + " " + css.aiBox}>
         <Icon name="sparkles" size={13} color="var(--purple)" />
-        <div className="col gap4"><span style={{ fontWeight: 600, color: "var(--purple)" }}>AI 的判斷</span><span style={{ userSelect: "text", lineHeight: 1.5 }}>{req.rationale}</span></div>
+        <div className="col gap4"><span className={css.strong + " " + css.purple}>AI 的判斷</span><span className={css.selectable + " " + css.lh15}>{req.rationale}</span></div>
       </div>
       {req.evidence.length > 0 && (
         <div className="col gap4">
-          <span style={{ fontWeight: 600 }}>依據</span>
-          {req.evidence.map((e, i) => <span key={i} className="row gap6" style={{ alignItems: "baseline" }}><Icon name="checkmark.circle" size={11} className="muted" /><span style={{ userSelect: "text" }}>{e}</span></span>)}
+          <span className={css.strong}>依據</span>
+          {req.evidence.map((e, i) => <span key={i} className={"row gap6 " + css.baseline}><Icon name="checkmark.circle" size={11} className="muted" /><span className={css.selectable}>{e}</span></span>)}
         </div>
       )}
       <div className="col gap6">
-        <span className="row gap6" style={{ fontWeight: 600 }}><Icon name="terminal" size={13} />將執行的動作</span>
+        <span className={"row gap6 " + css.strong}><Icon name="terminal" size={13} />將執行的動作</span>
         <CodeBlock text={req.action} maxHeight={220} />
       </div>
-      <div className="row gap8" style={{ alignItems: "flex-start" }}>
+      <div className={"row gap8 " + css.top}>
         <Icon name="arrow.uturn.backward.circle" size={14} color="var(--blue)" />
-        <div className="col gap4"><span style={{ fontWeight: 600 }}>回滾計畫</span><span className="muted" style={{ userSelect: "text" }}>{req.rollbackPlan}</span></div>
+        <div className="col gap4"><span className={css.strong}>回滾計畫</span><span className={"muted " + css.selectable}>{req.rollbackPlan}</span></div>
       </div>
       <div className="divider" />
       <div className="row gap8">
@@ -129,14 +134,14 @@ function ApprovalCard({ req, highlighted, openAutomation, openRun, onEdited }: {
       </div>
       <Modal open={confirmApprove} onClose={() => setConfirmApprove(false)} width={420} title="確定要核准高風險動作?">
         <span className="muted">「{req.title}」會立即執行。請確認回滾計畫可行:{req.rollbackPlan}</span>
-        <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+        <div className={"row gap8 " + css.end}>
           <button className="btn" onClick={() => setConfirmApprove(false)}>取消</button>
           <button className="btn red" disabled={busy} onClick={() => decide(true)}>核准並執行</button>
         </div>
       </Modal>
       <Modal open={confirmReject} onClose={() => setConfirmReject(false)} width={420} title="拒絕這個請求?">
         <span className="muted">AI 不會執行這個動作,執行紀錄會標為已拒絕。</span>
-        <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+        <div className={"row gap8 " + css.end}>
           <button className="btn" onClick={() => setConfirmReject(false)}>取消</button>
           <button className="btn red" disabled={busy} onClick={() => decide(false)}>拒絕</button>
         </div>
@@ -164,7 +169,7 @@ function EditSheet({ open, req, onClose, onApprove, busy }: { open: boolean; req
         {changed ? <><Pill text="已修改" color="orange" icon="pencil" /><button className="btn link" onClick={() => setCmd(req.action)}>還原 AI 版本</button></> : <span className="caption muted">尚未修改</span>}
       </div>
       {req.risk === "high" && <label className="row gap6"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />我已確認這是高風險動作,並了解回滾計畫</label>}
-      <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+      <div className={"row gap8 " + css.end}>
         <button className="btn" onClick={onClose}>取消</button>
         <button className="btn purple" disabled={busy || !cmd.trim() || (req.risk === "high" && !ack)} onClick={() => onApprove(cmd)}>核准修改後的指令</button>
       </div>
@@ -183,9 +188,9 @@ function DecidedRow({ req, edited }: { req: Approval; edited?: string }) {
   };
   const [label, c, icon] = info[req.state] ?? info.pending;
   return (
-    <div className="row gap8" style={{ padding: "9px 14px" }} title={edited != null ? `修改後的指令:\n${edited}` : req.action}>
-      <span style={{ width: 22, display: "inline-flex", justifyContent: "center" }}><Icon name={icon} size={15} color={color(c)} /></span>
-      <div className="col grow" style={{ minWidth: 0 }}>
+    <div className={"row gap8 " + css.decidedRow} title={edited != null ? `修改後的指令:\n${edited}` : req.action}>
+      <span className={css.stateIcon}><Icon name={icon} size={15} color={color(c)} /></span>
+      <div className="col grow">
         <span className="ellipsis">{req.title}</span>
         <span className="caption muted ellipsis">{autoName(d, req.automation)}{req.decidedBy ? ` · ${dir.person(req.decidedBy)?.name ?? req.decidedBy} 決定` : ""}</span>
       </div>

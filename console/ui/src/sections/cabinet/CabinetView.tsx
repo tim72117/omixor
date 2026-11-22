@@ -2,14 +2,23 @@
 // 專案:左上切換「未分專案」(原本的組織文件櫃)或組織的某個專案,每個專案各自一份結構與文件(cabinet_query);文件可以搬到別的專案
 import { useEffect, useState } from "react";
 import { action, tool, useActionQuery, useRun, useView } from "../../api";
-import { AgentAvatar, AuthorIcon, Markdown, SearchField, useDirectory, useStored } from "../../components/bits";
+import { AgentAvatar, AuthorIcon } from "../../components/Avatar";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import { DOC_ACCESS_LABEL, agentAccess, tabTitle, type Agent, type AgentsView, type CabinetDoc, type CabinetQuery, type CabinetSection, type DocAccess, type Project } from "../../components/models";
-import { EmptyState, ErrorText, Modal, Pill } from "../../components/ui";
+import { iconButtonClass } from "../../components/IconButton";
+import { Markdown } from "../../components/Markdown";
+import { Modal, ModalTitle } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
+import { SearchField } from "../../components/SearchField";
+import { useDirectory } from "../../lib/directory";
+import { useStored } from "../../lib/hooks";
+import { DOC_ACCESS_LABEL, agentAccess, tabTitle, type Agent, type AgentsView, type CabinetDoc, type CabinetQuery, type CabinetSection, type DocAccess, type Project } from "../../models";
 import { relative } from "../../fmt";
 import type { SectionProps } from "../index";
 import { CabinetLayoutEditor } from "./CabinetLayoutEditor";
 import { ProjectBar, projectLabel } from "./ProjectBar";
+import css from "./cabinet.module.css";
 
 export default function CabinetView({ focusId, clearFocus }: SectionProps) {
   // 選的專案(空字串 = 未分專案);記在瀏覽器,換組織後專案不存在就回到未分專案
@@ -76,23 +85,23 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
   const sel = docs.find((d) => d.id === selectedDoc);
 
   if (!data && err) return <EmptyState title="讀不到文件櫃" icon="exclamationmark.triangle" message={err} />;
-  if (!data) return <div className="muted" style={{ padding: 20 }}>載入中…</div>;
+  if (!data) return <div className={"muted " + css.loading}>載入中…</div>;
   // 讀不到選的專案(例如剛被刪除):留著專案切換,讓人選別的
   const failed = err && data.project !== project;
 
   const nodeRow = (title: string, icon: string, count: number, rs: [Agent, DocAccess][], id: string, indent: number, toggle?: () => void, open?: boolean) => (
-    <div key={id} className={"bx-list-row" + (node === id ? " on" : "")} style={{ border: 0, padding: "5px 10px", paddingLeft: 10 + indent, alignItems: "center", gap: 6, borderRadius: "var(--r-md)", margin: "0 6px" }}
+    <div key={id} className={css.node + (indent ? " " + css.indent : "") + (node === id ? " " + css.on : "")}
       onClick={() => { setNode(id); setSelectedDoc(undefined); }}>
       {toggle ? (
-        <button className="bx-icon-btn" style={{ padding: 0 }} onClick={(e) => { e.stopPropagation(); toggle(); }}>
-          <span style={{ display: "inline-flex", transform: open ? "rotate(90deg)" : undefined, transition: "transform .15s" }}><Icon name="chevron.right" size={10} /></span>
+        <button className={css.toggle} onClick={(e) => { e.stopPropagation(); toggle(); }}>
+          <span className={css.chevron + (open ? " " + css.open : "")}><Icon name="chevron.right" size={10} /></span>
         </button>
-      ) : <span style={{ width: 16 }} />}
+      ) : <span className={css.spacer} />}
       <Icon name={icon} size={13} className="muted" />
       <span className="ellipsis grow">{title}</span>
-      <span className="row" style={{ gap: 0 }}>
-        {rs.slice(0, 4).map(([a, acc], i) => (
-          <span key={a.id} title={`${a.name}:${DOC_ACCESS_LABEL[acc]}`} style={{ marginLeft: i ? -4 : 0, opacity: acc === "write" ? 1 : 0.45, display: "inline-flex" }}><AgentAvatar agent={a} size={14} /></span>
+      <span className="row">
+        {rs.slice(0, 4).map(([a, acc]) => (
+          <span key={a.id} title={`${a.name}:${DOC_ACCESS_LABEL[acc]}`} className={css.reader + (acc === "write" ? "" : " " + css.readOnly)}><AgentAvatar agent={a} size={14} /></span>
         ))}
       </span>
       {count > 0 && <span className="caption muted num">{count}</span>}
@@ -100,12 +109,12 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
   );
 
   return (
-    <div className="split cab-split">
-      <div className="split-list cab-nav" style={{ background: "var(--side)" }}>
+    <div className={"split " + css.split}>
+      <div className={"split-list " + css.nav}>
         <ProjectBar project={project} projects={projects} projectsError={data.projectsError} onChange={switchProject} />
-        {failed && <div style={{ padding: "8px 10px" }}><ErrorText>{err}</ErrorText></div>}
-        {data.error && shown === "" && <div className="caption" style={{ padding: "6px 10px", color: "var(--orange)" }}>{data.error}</div>}
-        <div className="grow" style={{ overflowY: "auto", paddingTop: 6 }}>
+        {failed && <div className={css.failed}><ErrorText>{err}</ErrorText></div>}
+        {data.error && shown === "" && <div className={"caption " + css.layoutError + " " + css.orange}>{data.error}</div>}
+        <div className={"grow " + css.tree}>
           {layout.map((s) => {
             const open = expanded.has(s.id);
             const toggle = () => setExpanded((e) => { const n = new Set(e); if (n.has(s.id)) n.delete(s.id); else n.add(s.id); return n; });
@@ -117,14 +126,14 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
             );
           })}
         </div>
-        <div style={{ padding: 8, borderTop: "1px solid var(--line)" }}>
+        <div className={css.navFoot}>
           <button className="btn link" onClick={() => setEditingLayout(true)}><Icon name="slider.horizontal.3" size={12} />編輯結構</button>
         </div>
       </div>
-      <div className="split-list cab-docs">
-        <div className="col gap8" style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
-          <div className="row"><span className="h3 ellipsis grow" style={{ fontSize: "var(--fs-md)" }}>{tab ? tabTitle(tab) : section?.label}</span>
-            <button className="bx-icon-btn" title="新增文件" onClick={() => setCreating(true)}><Icon name="plus" size={14} /></button></div>
+      <div className={"split-list " + css.docs}>
+        <div className={"col gap8 " + css.docsHead}>
+          <div className="row"><span className={"ellipsis grow " + css.docsTitle}>{tab ? tabTitle(tab) : section?.label}</span>
+            <button className={iconButtonClass.normal} title="新增文件" onClick={() => setCreating(true)}><Icon name="plus" size={14} /></button></div>
           <span className="mono caption muted">位置 {tab?.path ?? section?.path ?? ""}</span>
           {(() => {
             const rs = readers(section?.id ?? "", tab?.path);
@@ -139,7 +148,7 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
             <span className="row gap6 caption">
               <span className="mono muted">{d.id}</span><AuthorIcon author={d.author} size={14} />
               {!tab && d.tab && <span className="muted ellipsis">{(() => { const t = section?.tabs.find((x) => x.path === d.tab); return t ? tabTitle(t) : ""; })()}</span>}
-              <span className="grow" /><span className="muted" style={{ flex: "none" }}>{relative(d.updatedAt)}</span>
+              <span className="grow" /><span className={"muted " + css.none}>{relative(d.updatedAt)}</span>
             </span>
           </div>
         ))}
@@ -173,7 +182,7 @@ function DocFrame({ html }: { html: string }) {
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
   }, [frame]);
-  return <iframe ref={setFrame} title="文件" sandbox="allow-scripts" srcDoc={html} style={{ width: "100%", height, border: 0, borderRadius: "var(--r-xl)" }} />;
+  return <iframe ref={setFrame} title="文件" sandbox="allow-scripts" srcDoc={html} className={css.frame} style={{ height }} />;
 }
 
 /** 文件開頭的欄位(--- 之間的 key: value);沒有範本時顯示成一行小字,內文照舊用 Markdown */
@@ -204,11 +213,11 @@ function DocDetail({ doc, layout, projects, version, onDeleted, onMoved }: { doc
   const save = () => run(async () => { await tool("doc_save", { id: doc.id, title, body }); setEditing(false); });
   const del = () => run(async () => { await action("cabinet_doc_delete", { id: doc.id }); onDeleted(); });
   return (
-    <div className="page-inner" style={{ maxWidth: 820, gap: 12 }}>
+    <div className={css.doc}>
       <div className="row gap8 wrap">
-        {editing ? <input className="input" style={{ fontSize: "var(--fs-lg)", flex: "1 1 220px" }} value={title} onChange={(e) => setTitle(e.target.value)} />
-          : <span className="page-title" style={{ userSelect: "text", flex: "1 1 220px", minWidth: 0, overflowWrap: "anywhere" }}>{doc.title}</span>}
-        <div className="ox-actions">
+        {editing ? <input className={"input " + css.titleInput} value={title} onChange={(e) => setTitle(e.target.value)} />
+          : <span className={"page-title " + css.title}>{doc.title}</span>}
+        <div className="actions">
         {editing ? (
           <>
             <button className="btn" onClick={() => setEditing(false)}>取消</button>
@@ -233,16 +242,16 @@ function DocDetail({ doc, layout, projects, version, onDeleted, onMoved }: { doc
       </div>
       <ErrorText>{error}</ErrorText>
       <div className="divider" />
-      {editing ? <textarea className="textarea" style={{ minHeight: 360 }} value={body} onChange={(e) => setBody(e.target.value)} />
+      {editing ? <textarea className={"textarea " + css.body} value={body} onChange={(e) => setBody(e.target.value)} />
         : html ? <DocFrame html={html} />
         : doc.body ? (
           <>
-            {fm.meta.length > 0 && <span className="caption muted mono" style={{ userSelect: "text" }}>{fm.meta.map(([k, v]) => `${k}: ${v}`).join(" · ")}</span>}
+            {fm.meta.length > 0 && <span className={"caption muted mono " + css.selectable}>{fm.meta.map(([k, v]) => `${k}: ${v}`).join(" · ")}</span>}
             <Markdown text={fm.rest} />
           </>
         ) : <span className="muted">沒有內文</span>}
       <Modal open={confirmDel} onClose={() => setConfirmDel(false)} width={380} title={`刪除「${doc.title}」?`}>
-        <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+        <div className={"row gap8 " + css.end}>
           <button className="btn" onClick={() => setConfirmDel(false)}>取消</button>
           <button className="btn red" disabled={busy} onClick={del}>刪除</button>
         </div>
@@ -293,12 +302,12 @@ function MoveDocSheet({ doc, projects, onClose, onMoved }: { doc: CabinetDoc; pr
               ])}
             </select>
           </label>
-          {tl && tl.length === 0 && <span className="caption" style={{ color: "var(--orange)" }}>這個專案的文件櫃還沒有區塊;先切到那個專案「編輯結構」。</span>}
+          {tl && tl.length === 0 && <span className={"caption " + css.orange}>這個專案的文件櫃還沒有區塊;先切到那個專案「編輯結構」。</span>}
           {cabErr && <ErrorText>{cabErr}</ErrorText>}
         </>
       )}
       <ErrorText>{error}</ErrorText>
-      <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+      <div className={"row gap8 " + css.end}>
         <button className="btn" onClick={onClose}>取消</button>
         <button className="btn primary" disabled={busy || !targets.length || !place || !tl} onClick={move}>搬過去</button>
       </div>
@@ -318,9 +327,9 @@ function NewDocSheet({ project, projects, section, tab, onClose, onCreated }: { 
   });
   return (
     <Modal open onClose={onClose} width={600}>
-      <span className="modal-title">新增文件到「{project ? `${projectLabel(project, projects)} › ` : ""}{section.label}{tab ? ` › ${tabTitle(tab)}` : ""}」</span>
+      <ModalTitle>新增文件到「{project ? `${projectLabel(project, projects)} › ` : ""}{section.label}{tab ? ` › ${tabTitle(tab)}` : ""}」</ModalTitle>
       <input className="input" autoFocus placeholder="標題" value={title} onChange={(e) => setTitle(e.target.value)} />
-      <textarea className="textarea" style={{ minHeight: 260 }} value={body} onChange={(e) => setBody(e.target.value)} />
+      <textarea className={"textarea " + css.newBody} value={body} onChange={(e) => setBody(e.target.value)} />
       <ErrorText>{error}</ErrorText>
       <div className="row gap8">
         <span className="caption muted grow">純文字,支援 Markdown</span>

@@ -1,0 +1,173 @@
+/* AI 自動化各分頁共用的版面樣式(phase 2 從 inline style 與全域 bx-* class 搬來) */
+
+/* MARK: - 通用 */
+.loading { padding: 20px; }
+.page { flex: 1; min-height: 0; }
+/* 分頁內容:可捲動、四周留白(搭配 .col .gap12) */
+.tabPage { padding: 16px; overflow-y: auto; flex: 1; min-height: 0; }
+.shrink { min-width: 0; }
+.end { justify-content: flex-end; }
+.start { align-self: flex-start; }
+.left { text-align: left; }
+.right { text-align: right; }
+.medium { font-weight: 500; }
+.strong { font-weight: 600; }
+.selectable { user-select: text; }
+.anywhere { overflow-wrap: anywhere; }
+.warn { color: var(--orange); }
+.danger { color: var(--red); }
+.w60 { width: 60px; }
+.w70 { width: 70px; }
+.w110 { width: 110px; }
+.w120 { width: 120px; }
+.w150 { width: 150px; }
+/* 列表裡一列一條分隔線(搭配 .row) */
+.lineRow { padding: 6px 0; border-bottom: 1px solid var(--line); }
+
+/* 左欄清單列(原全域 .bx-list-row) */
+.listRow { padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: default; display: flex; gap: 8px; }
+.listRow:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.listRow.on { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.listRow:focus-visible { outline-offset: -2px; }
+
+.inactive { opacity: .5; }
+
+/* MARK: - 組織鏈 */
+.legend { margin-bottom: 8px; }
+.addEdge { padding-top: 10px; }
+.scrollX { overflow-x: auto; }
+.graph { position: relative; margin: 0 auto; }
+.graphSvg { position: absolute; inset: 0; }
+/* 節點(位置與尺寸由 NODE_W/NODE_H 算,寫在 inline) */
+.node { position: absolute; box-sizing: border-box; padding: 0 10px; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-xl); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.node.nodeMissing { border-color: var(--orange); }
+
+/* MARK: - 虛擬角色 */
+.agentList { width: 250px; }
+.scrollY { overflow-y: auto; }
+.listRow.agentRow { align-items: center; gap: 10px; }
+.listFoot { padding: 8px; border-top: 1px solid var(--line); }
+.w72 { width: 72px; }
+.w900 { max-width: 900px; }
+.headMain { flex: 1 1 220px; min-width: 0; }
+.avatarBox { flex: none; display: inline-flex; }
+.shrink2 { flex-shrink: 2; }
+/* 全域 .select / .textarea 有 min-width / min-height,要提高權重才蓋得過 */
+:global(.select).minW100 { min-width: 100px; }
+:global(.select).minW120 { min-width: 120px; }
+:global(.textarea).minH140 { min-height: 140px; }
+.taskItem { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.indent { padding-left: 24px; }
+.resultBox { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--green) 8%, transparent); }
+.resultHead { font-weight: 600; color: var(--green); }
+/* 圖示選擇鈕(蓋過全域 .btn 的內距、框色、底色,含 hover) */
+:global(.btn).symbolBtn { padding: 5px; }
+:global(.btn).symbolBtn.picked, :global(.btn).symbolBtn.picked:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+/* 顏色選擇圓點(底色是角色顏色,寫在 inline) */
+.swatch { width: 20px; height: 20px; border-radius: var(--r-pill); border: 2px solid transparent; }
+.swatch.picked { border-color: var(--fg); }
+.box { padding: 8px; border-radius: var(--r-lg); border: 1px solid var(--line); }
+.grow1 { flex: 1; }
+/* 文件櫃存取範圍的一列 */
+.pickerRow { flex: 1; min-width: 0; padding: 3px 0; }
+.pickerRow.pickerIndent { padding-left: 20px; }
+:global(.grow).pickerLabel { min-width: 96px; overflow-wrap: anywhere; }
+.pickerSelect { width: auto; flex: 0 1 auto; max-width: 60%; }
+
+/* MARK: - 頁面骨架 */
+.tabs { max-width: 760px; }
+
+/* MARK: - 派發 */
+/* 選中的角色列:和其他清單的選取列同色 */
+.agentPicked { background: var(--selected); }
+
+/* MARK: - 自動化流程 */
+.xs { font-size: var(--fs-xs); }
+.center { text-align: center; }
+.none { flex: none; }
+.good { color: var(--green); }
+.indigo { color: var(--indigo); }
+.strike { text-decoration: line-through; }
+.w320 { width: 320px; }
+.w360 { width: 360px; }
+.clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* 和全域 .row / .h3 / .grid 同一個屬性時,要疊 class 提高權重 */
+:global(.row).top { align-items: flex-start; }
+:global(.row).baseline { align-items: baseline; }
+:global(.h3).cardName { font-size: var(--fs-md); }
+:global(.grid).flowGrid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; align-items: start; }
+/* 自主程度說明卡(cardClass,改成橫排、內距較小) */
+.modeCard { flex-direction: row; align-items: flex-start; gap: 10px; padding: 10px; }
+.modeIcon { width: 28px; height: 28px; border-radius: var(--r-md); flex: none; display: inline-flex; align-items: center; justify-content: center; }
+/* 流程卡(cardClass) */
+.flowCard { gap: 12px; }
+.flowCard.off { opacity: .72; }
+.flowCard.hovered { border-color: color-mix(in srgb, var(--indigo) 45%, transparent); }
+.locked { opacity: .5; pointer-events: none; }
+.runTarget { flex: none; max-width: 200px; }
+/* 安全護欄 */
+.guardGrid { display: grid; grid-template-columns: 130px 1fr; row-gap: 10px; column-gap: 14px; align-items: baseline; }
+.budgetTrack { width: 260px; height: 5px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.budgetFill { height: 5px; border-radius: var(--r-sm); background: var(--purple); }
+.budgetFill.over { background: var(--orange); }
+/* 流程圖 */
+.diaArrow { width: 14px; height: 50px; display: inline-flex; align-items: center; flex: none; }
+.diaNode { width: 98px; align-items: center; gap: 5px; padding: 4px 0; flex: none; }
+.diaIcon { width: 50px; height: 50px; display: inline-flex; align-items: center; justify-content: center; position: relative; }
+.diaRing { position: absolute; inset: 1px; border-radius: var(--r-pill); border: 5px solid color-mix(in srgb, var(--orange) 35%, transparent); }
+.diaCircle { width: 38px; height: 38px; border-radius: var(--r-pill); display: inline-flex; align-items: center; justify-content: center; }
+.diaNormal { background: var(--blue); }
+.diaAi { background: linear-gradient(135deg, var(--purple), var(--indigo)); }
+.diaHuman { background: var(--orange); }
+.diaGray { background: var(--gray); }
+.diaFaded { background: color-mix(in srgb, var(--gray) 12%, transparent); border: 1.5px dashed color-mix(in srgb, var(--gray) 50%, transparent); }
+
+/* MARK: - 待核准 */
+.mt8 { margin-top: 8px; }
+.purple { color: var(--purple); }
+.lh15 { line-height: 1.5; }
+.alignEnd { align-items: flex-end; }
+/* 全域 .btn.link 有內距,要三個 class 才蓋得過 */
+:global(.btn.link).noPad { padding: 0; }
+/* 已處理清單(cardClass,內容貼邊) */
+.flush { padding: 0; gap: 0; }
+.sepTop { border-top: 1px solid var(--line); }
+.flash { background: color-mix(in srgb, var(--purple) 8%, transparent); }
+.decidedRow { padding: 9px 14px; }
+.stateIcon { width: 22px; display: inline-flex; justify-content: center; }
+/* 待核准卡(cardClass);左側色條是風險顏色,寫在 inline */
+.approval { padding: 16px; gap: 12px; position: relative; overflow: hidden; transition: border .3s; }
+.approval.focused { border: 2px solid var(--purple); }
+.riskStripe { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+.aiBox { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--purple) 7%, transparent); }
+
+/* MARK: - 成效 */
+.tileGrid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+:global(.grid).chartGrid { grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+.chart { height: 230px; }
+.spark { height: 28px; }
+/* 指標卡(cardClass;原本是全域 .card.metric + .metric-value) */
+.tile { gap: 6px; }
+.metricValue { font-size: var(--fs-3xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* MARK: - 執行紀錄 */
+.runList { width: 360px; }
+.listHead { padding: 10px; border-bottom: 1px solid var(--line); }
+.listRow.runRow { align-items: flex-start; gap: 10px; }
+.runIcon { width: 18px; flex: none; display: inline-flex; justify-content: center; padding-top: 1px; }
+.gap3 { gap: 3px; }
+.waitBox { padding: 12px; border-radius: var(--r-xl); background: color-mix(in srgb, var(--purple) 8%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 30%, transparent); }
+.metricGrid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+:global(.row).stepRow { align-items: stretch; gap: 10px; }
+.stepRail { width: 20px; align-items: center; flex: none; padding-top: 1px; }
+.stepLine { width: 2px; flex: 1; margin: 3px 0; background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.stepGap { padding-bottom: 12px; }
+.chev { display: inline-flex; transition: transform .15s; }
+.chev.open { transform: rotate(90deg); }
+
+/* MARK: - 角色自動執行 */
+.w80 { width: 80px; }
+.w90 { width: 90px; }
+.runningBox { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--blue) 8%, transparent); }
+.output { white-space: pre-wrap; user-select: text; max-height: 120px; overflow-y: auto; }
+.recordRow { padding: 5px 0; border-bottom: 1px solid var(--line); }

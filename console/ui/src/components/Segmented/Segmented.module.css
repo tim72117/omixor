@@ -1,0 +1,11 @@
+.root { display: inline-flex; background: var(--bg3); border-radius: var(--r-md); padding: 2px; gap: 2px; min-height: var(--h-md); }
+.root button { flex: 1; border: 0; background: none; padding: 0 14px; min-height: calc(var(--h-md) - 4px); border-radius: var(--r-sm); font-size: var(--fs-sm); white-space: nowrap; }
+.root button.on { background: var(--bg2); box-shadow: 0 1px 2px rgba(0,0,0,.15); font-weight: 500; }
+.root button:focus-visible { outline-offset: -2px; }
+/* 分頁列(.tabbar,全域)裡:分頁多、視窗窄時不壓扁也不裁掉,至少是內容寬,放不下就讓外層橫向捲動 */
+:global(.tabbar) .root { width: 100%; max-width: 760px; min-width: max-content; }
+:global(.tabbar) .root button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+/* 分頁列放不下時不顯示捲軸(macOS「永遠顯示捲軸」或 Windows 會出現一條粗捲軸):邊緣淡出(data-fade-l/r)提示還有分頁,
+   觸控板橫向滑動照常,滑鼠滾輪由 useTabScroll 轉成橫向捲動;:has() 讓權重高過全域 styles.css 的 scrollbar-width: thin */
+:global(.tabbar):has(> .root), :global(.tabscroll):has(> .root) { scrollbar-width: none; }
+:global(.tabbar):has(> .root)::-webkit-scrollbar, :global(.tabscroll):has(> .root)::-webkit-scrollbar { display: none; }

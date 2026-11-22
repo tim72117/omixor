@@ -1,0 +1,5 @@
+/* 膠囊:只給 --pc(狀態色),文字色混入 --fg 以達 4.5:1,底色是淡淡的狀態色 */
+.pill {
+  display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); font-weight: 500; padding: 2px 7px; border-radius: var(--r-pill); white-space: nowrap;
+  color: color-mix(in srgb, var(--pc, var(--fg2)) var(--tint-text), var(--fg)); background: color-mix(in srgb, var(--pc, var(--fg2)) 14%, transparent);
+}

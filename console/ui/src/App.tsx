@@ -4,13 +4,18 @@ import { AssistantPanel } from "./assistant/AssistantPanel";
 import { CommandPalette } from "./assistant/CommandPalette";
 import { useAssistantVisible } from "./assistant/store";
 import { AccountBox } from "./auth/AccountBox";
-import { DirectoryProvider } from "./components/bits";
+import s from "./App.module.css";
 import { Icon } from "./components/Icon";
-import { color, Segmented } from "./components/ui";
+import { IconButton } from "./components/IconButton";
+import { Dropdown, MenuList } from "./components/Menu";
+import { Segmented } from "./components/Segmented";
+import { color } from "./lib/color";
+import { DirectoryProvider } from "./lib/directory";
 import { guardedNavigate, useFeatures, useFeaturesError, useFeaturesSync, useLocalNotice, useTimedNotice } from "./features";
 import { openOffice, useOfficeAvailable } from "./officeLink";
 import { SECTION_VIEWS } from "./sections";
 import { SECTIONS, type Nav, type SectionId } from "./types";
+import { StatusDot } from "./components/StatusDot";
 
 /** 只有這些區塊會讀工具列的環境(正式、預備、開發);其他區塊(Issue、文件櫃、自動化…)的資料屬於組織,和環境無關,不顯示切換 */
 const ENV_SECTIONS: SectionId[] = ["overview", "pipelines", "infrastructure"];
@@ -72,12 +77,12 @@ export function App() {
             ))}
           </div>
         ))}
-        <div style={{ flex: 1 }} />
+        <div className={s.spacer} />
         <AccountBox />
         <McpStatus />
       </aside>
       <main className="main">
-        <header className="toolbar" style={{ position: "relative" }}>
+        <header className={"toolbar " + s.toolbar}>
           {ENV_SECTIONS.includes(section) && <Segmented
             value={nav?.env ?? "production"}
             options={[{ value: "production", label: "Production" }, { value: "staging", label: "Staging" }, { value: "development", label: "Development" }]}
@@ -90,7 +95,7 @@ export function App() {
             <option value="7d">7 天</option>
             <option value="30d">30 天</option>
           </select>}
-          <div className="row gap4" style={{ position: "absolute", right: 12 }}>
+          <div className={"row gap4 " + s.toolbarRight}>
             <button className="btn link" title="搜尋頁面、服務、伺服器、事件(⌘K)" onClick={() => setPalette(true)}><Icon name="magnifyingglass" size={14} /></button>
             {officeOn && <button className="btn link" title="3D 辦公室(新分頁)" onClick={openOffice}><Icon name="building.2" size={14} /></button>}
             {assistantOn && <button className="btn link" title={showAssistant ? "隱藏 AI 助理(⌘J)" : "顯示 AI 助理(⌘J)"} onClick={() => setShowAssistant(!showAssistant)}>
@@ -101,7 +106,7 @@ export function App() {
         <FeaturesLoadError />
         <FeatureNotice />
         <div className="content">
-          <Suspense fallback={<div className="muted" style={{ padding: 20 }}>載入中…</div>}>
+          <Suspense fallback={<div className={"muted " + s.loading}>載入中…</div>}>
             <View key={section} focusId={nav?.focusId || undefined} clearFocus={() => action("navigate", { section, focusId: "" })} />
           </Suspense>
         </div>
@@ -119,7 +124,7 @@ function FeaturesLoadError() {
   const flags = useFeatures();
   if (!err) return null;
   return (
-    <div className="feature-notice" style={{ color: "var(--orange)" }}>
+    <div className={"feature-notice " + s.warn}>
       <Icon name="exclamationmark.triangle" size={14} />
       <span>讀不到功能開關:{err}。{flags.view ? "目前照最後一次讀到的設定顯示。" : "目前用保守預設(實驗功能關)。"}</span>
     </div>
@@ -145,7 +150,7 @@ function FeatureNotice() {
       <Icon name="switch.2" size={14} />
       <span>{text}</span>
       <button className="btn link" onClick={() => { close(); void guardedNavigate("settings", "features"); }}>前往 設定 › 功能</button>
-      <button className="bx-icon-btn" title="關閉" onClick={close}><Icon name="xmark" size={12} /></button>
+      <IconButton icon="xmark" size={12} title="關閉" onClick={close} />
     </div>
   );
 }
@@ -162,17 +167,16 @@ function OrgSwitcher() {
         <Icon name="chevron.down" size={12} className="muted" />
       </button>
       {open && (
-        <div className="menu" onMouseLeave={() => setOpen(false)}>
-          {idx?.orgs.map((o) => (
-            <button key={o.id} className="menu-item" onClick={() => { setOpen(false); if (o.id !== idx.current) action("org_switch", { id: o.id }); }}>
-              <Icon name={o.symbol} size={14} color={color(o.color)} /> {o.name} {o.id === idx.current && <span className="muted">✓</span>}
-            </button>
-          ))}
-          <div className="menu-sep" />
-          <button className="menu-item" onClick={() => { setOpen(false); action("navigate", { section: "settings", focusId: "orgs" }); }}>
-            <Icon name="gearshape" size={14} /> 管理組織…
-          </button>
-        </div>
+        <Dropdown className={s.orgMenu} onMouseLeave={() => setOpen(false)}>
+          <MenuList checkColumn={false} close={() => setOpen(false)} items={[
+            ...(idx?.orgs ?? []).map((o) => ({
+              label: <><Icon name={o.symbol} size={14} color={color(o.color)} /> {o.name} {o.id === idx?.current && <span className="muted">✓</span>}</>,
+              onClick: () => { if (o.id !== idx?.current) action("org_switch", { id: o.id }); },
+            })),
+            "sep",
+            { label: <><Icon name="gearshape" size={14} /> 管理組織…</>, onClick: () => action("navigate", { section: "settings", focusId: "orgs" }) },
+          ]} />
+        </Dropdown>
       )}
     </div>
   );
@@ -184,7 +188,7 @@ function McpStatus() {
   const ok = m.status.state === "listening";
   return (
     <div className="mcp-status" title={m.status.error ?? m.url}>
-      <span className="dot" style={{ background: ok ? "var(--green)" : "var(--orange)" }} />
+      <StatusDot c={ok ? "green" : "orange"} size={7} />
       <span className="caption">MCP {ok ? m.url.replace("http://", "") : m.status.error ?? m.status.state}</span>
     </div>
   );

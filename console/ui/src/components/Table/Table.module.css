@@ -1,0 +1,15 @@
+/* 表格。基本樣式都包在 :where() 裡(權重 0):欄位、列加自己的 class(對齊、寬度、背景)一定蓋得過 */
+:where(.data, .simple) { width: 100%; border-collapse: collapse; }
+:where(.data, .simple) th { text-align: left; font-size: var(--fs-xs); color: var(--fg2); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+:where(.data, .simple) td { border-bottom: 1px solid var(--line); vertical-align: middle; }
+/* data:表頭黏在捲動區頂端、整列 hover;選取的列加 tableClass.sel */
+:where(.data) { font-size: var(--fs-base); }
+:where(.data) th { position: sticky; top: 0; background: var(--bg); white-space: nowrap; cursor: default; user-select: none; }
+:where(.data) td { padding: 6px 8px; }
+:where(.data) tr:where(.sel) td { background: var(--selected); }
+:where(.data) tbody tr:hover:not(:where(.sel)) td { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+/* 表頭透明(放在卡片裡、底色不是 --bg 時) */
+:where(.clearHead) th { background: transparent; }
+/* simple:不黏表頭、只有可點的列(tableClass.click)hover */
+:where(.simple) td { padding: 7px 8px; }
+:where(.simple) tr:where(.click):hover td { background: color-mix(in srgb, var(--fg) 4%, transparent); }

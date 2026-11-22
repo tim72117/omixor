@@ -1,11 +1,22 @@
 // 設定 › 連線:omixor 要呼叫的外部服務。每個連線 = 網址 + 一種通用的認證方式(Swift 的 SettingsConnectionsPane)
 import { useEffect, useState } from "react";
 import { action, useRun, useView } from "../../api";
-import { Spinner, Switch } from "../../components/bits";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import { AUTH_DETAIL, AUTH_KINDS, AUTH_LABEL, type AuthKind, type Connection, type ConnectionState, type ConnectionsView } from "../../components/models";
-import { EmptyState, ErrorText, Modal, Pill } from "../../components/ui";
+import { Modal, ModalTitle } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
+import { Spinner } from "../../components/Spinner";
+import { Switch } from "../../components/Switch";
+import { AUTH_DETAIL, AUTH_KINDS, AUTH_LABEL, type AuthKind, type Connection, type ConnectionState, type ConnectionsView } from "../../models";
 import { Form, Row, Section } from "./form";
+import css from "./settings.module.css";
+import { StatusDot } from "../../components/StatusDot";
+import { disclosureClass } from "../../components/Disclosure";
+import { fieldClass } from "../../components/Field";
+
+/** 沒有帳號也沒有錯誤:淡灰 */
+const IDLE_DOT = "color-mix(in srgb, var(--gray) 40%, transparent)";
 
 const host = (u: string) => { try { return new URL(u).host || u; } catch { return u; } };
 const validURL = (u: string) => { try { return !!new URL(u).host; } catch { return false; } };
@@ -35,14 +46,14 @@ export function SettingsConnections() {
   const sel = conns.find((c) => c.id === selection);
   return (
     <div className="split">
-      <div className="split-list" style={{ width: 240 }}>
+      <div className={"split-list " + css.connList}>
         <div className="grow">
           {conns.map((c) => {
             const st = states[c.id];
             return (
-              <div key={c.id} className={"bx-list-row" + (selection === c.id ? " on" : "")} style={{ alignItems: "center" }} onClick={() => setSelection(c.id)}>
-                <span className="dot" style={{ width: 8, height: 8, background: st?.account ? "var(--green)" : st?.error ? "var(--orange)" : "color-mix(in srgb, var(--gray) 40%, transparent)" }} />
-                <div className="col grow" style={{ minWidth: 0 }}>
+              <div key={c.id} className={css.listRow + (selection === c.id ? " " + css.on : "")} onClick={() => setSelection(c.id)}>
+                <StatusDot c={st?.account ? "green" : st?.error ? "orange" : IDLE_DOT} />
+                <div className="col grow">
                   <span className="row gap4"><span className="ellipsis">{c.name}</span>{c.isProduction && <Pill text="正式" color="red" />}</span>
                   <span className="caption muted ellipsis">{AUTH_LABEL[c.auth]} · {host(c.baseURL)}</span>
                 </div>
@@ -50,7 +61,7 @@ export function SettingsConnections() {
             );
           })}
         </div>
-        <div style={{ padding: 8, borderTop: "1px solid var(--line)" }}><button className="btn link" onClick={() => setAdding(true)}><Icon name="plus" size={12} />新增連線</button></div>
+        <div className={css.listFoot}><button className="btn link" onClick={() => setAdding(true)}><Icon name="plus" size={12} />新增連線</button></div>
       </div>
       <div className="split-detail">
         {sel ? <Editor key={sel.id} original={sel} state={states[sel.id] ?? {}} />
@@ -74,7 +85,7 @@ function Editor({ original, state }: { original: Connection; state: ConnectionSt
   const setA = (p: Partial<Connection["approval"]>) => setDraft((d) => ({ ...d, approval: { ...d.approval, ...p } }));
   const act = (name: string, args: Record<string, unknown> = { id: original.id }) => run(() => action(name, args));
   const field = (label: string, value: string, onChange: (v: string) => void, placeholder?: string, type = "text") => (
-    <Row label={label}><input className="input" type={type} style={{ width: 360 }} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></Row>
+    <Row label={label}><input className={"input " + css.w360} type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></Row>
   );
   return (
     <Form width={720}>
@@ -82,9 +93,9 @@ function Editor({ original, state }: { original: Connection; state: ConnectionSt
         <Row>
           <Icon name={state.account ? "checkmark.seal.fill" : "key.horizontal"} size={22} color={state.account ? "var(--green)" : "var(--fg2)"} />
           <div className="col grow">
-            <span style={{ fontWeight: 600 }}>{state.account ? `已登入:${state.account}` : original.auth === "none" ? "不用登入" : "尚未登入"}</span>
+            <span className={css.strong}>{state.account ? `已登入:${state.account}` : original.auth === "none" ? "不用登入" : "尚未登入"}</span>
             {state.lastTest && <span className="caption muted">{state.lastTest}</span>}
-            {state.error && <span className="caption" style={{ color: "var(--orange)", userSelect: "text" }}>{state.error}</span>}
+            {state.error && <span className={"caption " + css.warn + " " + css.selectable}>{state.error}</span>}
           </div>
           {state.busy || busy ? <Spinner /> : (
             <>
@@ -113,7 +124,7 @@ function Editor({ original, state }: { original: Connection; state: ConnectionSt
         {draft.auth === "oauth" && (
           <>
             <Row label="授權伺服器(issuer)">
-              <input className="input" style={{ width: 290 }} value={draft.oauth.issuer} placeholder="留空 = 從服務網址自動探索" onChange={(e) => setO({ issuer: e.target.value })} />
+              <input className={"input " + css.w290} value={draft.oauth.issuer} placeholder="留空 = 從服務網址自動探索" onChange={(e) => setO({ issuer: e.target.value })} />
               <button className="btn" disabled={!validURL(draft.baseURL)} onClick={() => run(async () => { await action("connection_upsert", draft as unknown as Record<string, unknown>); await action("connection_discover", { id: original.id }); })}>探索</button>
             </Row>
             {field("授權端點", draft.oauth.authorizationEndpoint, (v) => setO({ authorizationEndpoint: v }), "探索後自動填入")}
@@ -121,7 +132,7 @@ function Editor({ original, state }: { original: Connection; state: ConnectionSt
             {field("註冊端點(動態註冊)", draft.oauth.registrationEndpoint, (v) => setO({ registrationEndpoint: v }), "伺服器支援時自動填入")}
             {field("client_id", draft.oauth.clientId, (v) => setO({ clientId: v }), "留空 = 自動註冊(伺服器要支援)")}
             <Row label="client secret(選填,存鑰匙圈)">
-              <input className="input" type="password" style={{ width: 260 }} value={secret} autoComplete="off"
+              <input className={"input " + css.w260} type="password" value={secret} autoComplete="off"
                 placeholder={original.oauth.hasClientSecret ? "已設定,輸入新的會取代" : "桌面用戶端通常不需要"} onChange={(e) => setSecret(e.target.value)} />
               <button className="btn" disabled={!secret && !original.oauth.hasClientSecret}
                 onClick={() => run(async () => { await action("connection_secret", { id: original.id, secret }); setSecret(""); })}>
@@ -139,11 +150,11 @@ function Editor({ original, state }: { original: Connection; state: ConnectionSt
           <>
             {field("核准頁網站", draft.approval.consoleURL, (v) => setA({ consoleURL: v }), "留空 = 和服務網址相同")}
             <Row>
-              <details className="bx-disclosure" style={{ width: "100%" }}>
+              <details className={disclosureClass.chevron + " " + css.full}>
                 <summary>進階:路徑</summary>
-                <div className="col gap6" style={{ paddingTop: 6 }}>
+                <div className={"col gap6 " + css.pt6}>
                   {([["登記", "startPath"], ["核准頁", "approvePath"], ["換 token", "exchangePath"], ["登出", "logoutPath"]] as const).map(([l, k]) => (
-                    <label key={k} className="row gap8"><span style={{ width: 70 }} className="muted">{l}</span><input className="input grow" value={draft.approval[k]} onChange={(e) => setA({ [k]: e.target.value })} /></label>
+                    <label key={k} className="row gap8"><span className={"muted " + css.w70}>{l}</span><input className="input grow" value={draft.approval[k]} onChange={(e) => setA({ [k]: e.target.value })} /></label>
                   ))}
                 </div>
               </details>
@@ -152,7 +163,7 @@ function Editor({ original, state }: { original: Connection; state: ConnectionSt
         )}
         {(draft.auth === "bearer" || draft.auth === "basic") && (
           <Row label={draft.auth === "basic" ? "帳號:Token" : "Token"}>
-            <input className="input" type="password" style={{ width: 260 }} autoComplete="off" value={bearer}
+            <input className={"input " + css.w260} type="password" autoComplete="off" value={bearer}
               placeholder={state.account ? "已設定,輸入新的會取代" : draft.auth === "basic" ? "帳號:token,例如 me@example.com:API token" : "貼上 API key 或存取權杖"} onChange={(e) => setBearer(e.target.value)} />
             <button className="btn" disabled={!bearer || dirty} onClick={() => run(async () => { await action("connection_bearer", { id: original.id, token: bearer }); setBearer(""); })}>存入鑰匙圈</button>
           </Row>
@@ -168,7 +179,7 @@ function Editor({ original, state }: { original: Connection; state: ConnectionSt
         </Row>
       </Section>
       <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)} width={400} title={`刪除「${original.name}」?`}>
-        <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+        <div className={"row gap8 " + css.end}>
           <button className="btn" onClick={() => setConfirmDelete(false)}>取消</button>
           <button className="btn red" onClick={() => { setConfirmDelete(false); act("connection_delete"); }}>刪除(連同鑰匙圈裡的登入)</button>
         </div>
@@ -192,13 +203,13 @@ function NewSheet({ existing, onClose, onCreated }: { existing: string[]; onClos
   });
   return (
     <Modal open onClose={onClose} width={520}>
-      <span className="modal-title">新增連線</span>
-      <label className="bx-field"><span>名稱</span><input className="input" autoFocus placeholder="例如 Payments API" value={name} onChange={(e) => setName(e.target.value)} /></label>
-      <label className="bx-field"><span>網址</span><input className="input" placeholder="https://api.example.com" value={url} onChange={(e) => setUrl(e.target.value)} /></label>
-      <label className="bx-field"><span>認證方式</span><select className="select" value={auth} onChange={(e) => setAuth(e.target.value as AuthKind)}>{AUTH_KINDS.map((k) => <option key={k} value={k}>{AUTH_LABEL[k]}</option>)}</select></label>
+      <ModalTitle>新增連線</ModalTitle>
+      <label className={fieldClass}><span>名稱</span><input className="input" autoFocus placeholder="例如 Payments API" value={name} onChange={(e) => setName(e.target.value)} /></label>
+      <label className={fieldClass}><span>網址</span><input className="input" placeholder="https://api.example.com" value={url} onChange={(e) => setUrl(e.target.value)} /></label>
+      <label className={fieldClass}><span>認證方式</span><select className="select" value={auth} onChange={(e) => setAuth(e.target.value as AuthKind)}>{AUTH_KINDS.map((k) => <option key={k} value={k}>{AUTH_LABEL[k]}</option>)}</select></label>
       <span className="caption muted">{AUTH_DETAIL[auth]}</span>
       <ErrorText>{error}</ErrorText>
-      <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+      <div className={"row gap8 " + css.end}>
         <button className="btn" onClick={onClose}>取消</button>
         <button className="btn primary" disabled={!name || !validURL(url) || busy} onClick={create}>建立</button>
       </div>

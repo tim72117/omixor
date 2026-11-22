@@ -1,0 +1,7 @@
+/* GitHub 的 Actions 執行與 PR 詳情 */
+.detail { padding: 20px; gap: 12px; max-width: 820px; }
+.baseline { display: flex; align-items: baseline; }
+.number { font-size: var(--fs-lg); }
+.center { justify-content: center; }
+/* 失敗工作的紀錄最後幾行 */
+.log { background: color-mix(in srgb, var(--fg) 6%, transparent); padding: 8px; border-radius: var(--r-md); font-family: ui-monospace, Menlo, monospace; font-size: var(--fs-xs); margin: 0; overflow-x: auto; white-space: pre; user-select: text; }

@@ -2,13 +2,21 @@
 // (Swift 的 AssistantPanel、AssistChat;回答由後端的 assistant_briefing / assistant_ask 產生)
 import { useEffect, useRef, useState } from "react";
 import { action, tool, useVersion, useView } from "../api";
-import { Markdown, copyText, go } from "../components/bits";
+import { cardClass } from "../components/Card";
+import { ErrorText } from "../components/ErrorText";
 import { Icon } from "../components/Icon";
-import { RISK_COLOR, RISK_LABEL, arr, type Approval } from "../components/models";
-import { color } from "../components/ui";
+import { IconButton, iconButtonClass } from "../components/IconButton";
+import { Markdown } from "../components/Markdown";
+import { copyText } from "../lib/clipboard";
+import { color } from "../lib/color";
+import { go } from "../lib/nav";
+import { RISK_COLOR, RISK_LABEL, arr, type Approval } from "../models";
+import s from "./AssistantPanel.module.css";
 import { SECTIONS, type Nav, type SectionId } from "../types";
 import { useAssistantVisible } from "./store";
 import { canGo } from "../features";
+import { AIAvatar } from "../components/Avatar";
+import { rowButtonClass } from "../components/RowButton";
 
 type Line = { icon: string; color: string; text: string };
 type Briefing = { headline: string; tone: string; lines: Line[]; suggestions: string[]; focusLabel?: string | null; section?: string; sectionTitle?: string };
@@ -137,73 +145,73 @@ export function AssistantPanel() {
     ask(q);
     inputRef.current?.focus();
   };
-  const sec = SECTIONS.find((s) => s.id === section);
+  const sec = SECTIONS.find((x) => x.id === section);
   const pending = approvals.filter((a) => a.state === "pending").sort((a, b) => a.expiresAt.localeCompare(b.expiresAt));
   const focusLabel = brief?.focusLabel;
 
   return (
-    <aside className="assist">
-      <div className="col gap8" style={{ padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
+    <aside className={s.assist}>
+      <div className={"col gap8 " + s.head}>
         <div className="row gap8">
-          <span className="bx-avatar bx-ai" style={{ width: 24, height: 24 }}><Icon name="sparkles" size={12} color="white" /></span>
-          <span className="h3 grow" style={{ fontSize: "var(--fs-md)" }}>AI 助理</span>
-          <button className="bx-icon-btn" title="清除對話" disabled={!msgs.length} onClick={clear}><Icon name="trash" size={13} /></button>
-          <button className="bx-icon-btn" title="隱藏 AI 助理(⌘J)" onClick={() => setVisible(false)}><Icon name="sidebar.trailing" size={14} /></button>
+          <AIAvatar size={24} />
+          <span className={"h3 grow " + s.title}>AI 助理</span>
+          <IconButton icon="trash" size={13} title="清除對話" disabled={!msgs.length} onClick={clear} />
+          <IconButton icon="sidebar.trailing" title="隱藏 AI 助理(⌘J)" onClick={() => setVisible(false)} />
         </div>
-        <span className="row gap4" title="助理會依照目前的頁面回答" style={{ alignSelf: "flex-start", maxWidth: "100%", color: "var(--indigo)", padding: "4px 8px", borderRadius: "var(--r-pill)", background: "color-mix(in srgb, var(--indigo) 10%, transparent)" }}>
+        <span className={"row gap4 " + s.context} title="助理會依照目前的頁面回答">
           <Icon name={sec?.icon} size={12} />
-          <span style={{ fontWeight: 500, whiteSpace: "nowrap" }}>正在看:{brief?.sectionTitle ?? sec?.title}</span>
+          <span className={s.contextLabel}>正在看:{brief?.sectionTitle ?? sec?.title}</span>
           {focusLabel && <><span className="muted">·</span><span className="ellipsis">{focusLabel}</span></>}
         </span>
       </div>
-      <div className="assist-scroll">
-        <div className="assist-soft">
-          <div className="row"><span className="muted grow" style={{ fontWeight: 600 }}>目前狀況</span>
-            <button className="btn link" style={{ color: "var(--indigo)" }} onClick={() => ask("總結目前狀況")}>詳細說明</button></div>
+      <div className={s.scroll}>
+        <div className={s.soft}>
+          <div className="row"><span className={"muted grow " + s.bold}>目前狀況</span>
+            <button className={"btn link " + s.indigoLink} onClick={() => ask("總結目前狀況")}>詳細說明</button></div>
           {brief ? (
             <>
-              <span className="row gap6"><span className="dot" style={{ width: 8, height: 8, background: color(brief.tone) }} /><span style={{ fontWeight: 600, fontSize: "var(--fs-md)" }}>{brief.headline}</span></span>
-              <div className="col" style={{ gap: 5 }}>
+              <span className="row gap6"><span className={s.toneDot} style={{ background: color(brief.tone) }} /><span className={s.headline}>{brief.headline}</span></span>
+              <div className={"col " + s.lines}>
                 {arr<Line>(brief.lines).map((l, i) => (
-                  <span key={i} className="row gap6" style={{ alignItems: "baseline" }}><span style={{ width: 14, flex: "none" }}><Icon name={l.icon} size={12} color={color(l.color)} /></span><span>{l.text}</span></span>
+                  <span key={i} className={"row gap6 " + s.line}><span className={s.lineIcon}><Icon name={l.icon} size={12} color={color(l.color)} /></span><span>{l.text}</span></span>
                 ))}
               </div>
             </>
-          ) : briefErr ? <span className="error-text"><Icon name="exclamationmark.triangle" size={12} />{briefErr}</span> : <span className="muted">讀取中…</span>}
+          ) : briefErr ? <ErrorText>{briefErr}</ErrorText> : <span className="muted">讀取中…</span>}
         </div>
-        <div className="card" style={{ padding: 11, gap: 6 }}>
+        <div className={cardClass + " " + s.pending}>
           <div className="row gap6">
-            <span className="row gap4" style={{ fontWeight: 600, color: pending.length ? "var(--purple)" : "var(--fg2)" }}><Icon name="hand.raised.fill" size={12} />待你決定</span>
-            {pending.length > 0 && <span className="num" style={{ fontSize: "var(--fs-xs)", fontWeight: 700, color: "white", background: "var(--purple)", borderRadius: "var(--r-pill)", padding: "1px 6px" }}>{pending.length}</span>}
+            <span className={"row gap4 " + s.pendingTitle + (pending.length ? " " + s.has : "")}><Icon name="hand.raised.fill" size={12} />待你決定</span>
+            {pending.length > 0 && <span className={"num " + s.badge}>{pending.length}</span>}
             <div className="grow" />
-            {canGo("automation") && <button className="btn link" style={{ color: "var(--indigo)" }} onClick={() => go("automation")}>全部查看</button>}
+            {canGo("automation") && <button className={"btn link " + s.indigoLink} onClick={() => go("automation")}>全部查看</button>}
           </div>
           {pending.length === 0 ? <span className="muted">沒有等待核准的 AI 請求</span> : pending.slice(0, 3).map((p) => (
-            <button key={p.id} className="bx-row-btn" style={{ padding: "2px 0" }} title={`前往 AI 自動化查看「${p.title}」`} onClick={canGo("automation") ? () => go("automation", p.id) : undefined}>
-              <span className="dot" style={{ width: 6, height: 6, background: color(RISK_COLOR[p.risk]) }} />
+            <button key={p.id} className={rowButtonClass + " " + s.padY2} title={`前往 AI 自動化查看「${p.title}」`} onClick={canGo("automation") ? () => go("automation", p.id) : undefined}>
+              <span className={s.riskDot} style={{ background: color(RISK_COLOR[p.risk]) }} />
               <span className="ellipsis grow">{p.title}</span>
-              <span style={{ color: color(RISK_COLOR[p.risk]), flex: "none" }}>{RISK_LABEL[p.risk]}</span>
+              <span className={s.none} style={{ color: color(RISK_COLOR[p.risk]) }}>{RISK_LABEL[p.risk]}</span>
               <Icon name="chevron.right" size={10} className="faint" />
             </button>
           ))}
-          {pending.length > 3 && <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>還有 {pending.length - 3} 個</span>}
+          {pending.length > 3 && <span className={"muted " + s.xs}>還有 {pending.length - 3} 個</span>}
         </div>
         {brief && arr<string>(brief.suggestions).length > 0 && (
           <div className="col gap6">
-            <span className="muted" style={{ fontWeight: 600 }}>可以問我</span>
-            <div className="row wrap gap6">{brief.suggestions.map((p) => <button key={p} className="assist-prompt" disabled={busy} onClick={() => ask(p)}>{p}</button>)}</div>
+            <span className={"muted " + s.bold}>可以問我</span>
+            <div className="row wrap gap6">{brief.suggestions.map((p) => <button key={p} className={s.prompt} disabled={busy} onClick={() => ask(p)}>{p}</button>)}</div>
           </div>
         )}
         {msgs.length > 0 && (
-          <div className="row gap8"><div className="divider grow" /><span className="faint" style={{ fontSize: "var(--fs-xs)" }}>對話</span><div className="divider grow" /></div>
+          <div className="row gap8"><div className="divider grow" /><span className={"faint " + s.xs}>對話</span><div className="divider grow" /></div>
         )}
-        {msgs.map((m) => m.role === "user" ? <div key={m.id} className="assist-user">{m.text}</div> : (
-          <div key={m.id} className="assist-bot">
-            <span className="bx-avatar bx-ai" style={{ width: 20, height: 20 }}><Icon name="sparkles" size={10} color="white" /></span>
-            <div className="assist-bot-body">
+        {msgs.map((m) => m.role === "user" ? <div key={m.id} className={s.user}>{m.text}</div> : (
+          <div key={m.id} className={s.bot}>
+            <AIAvatar size={20} />
+            <div className={s.botBody}>
               {m.thinking ? (
-                <span className="row gap6"><span className="assist-dots"><span /><span /><span /></span><span className="muted">分析目前資料中…</span></span>
-              ) : <div style={{ userSelect: "text" }}><Markdown text={m.text} inlineOnly /></div>}
+                <span className="row gap6"><span className={s.dots}><span /><span /><span /></span><span className="muted">分析目前資料中…</span></span>
+              ) : <div className={s.selectable}><Markdown text={m.text} inlineOnly /></div>}
               {m.actions.length > 0 && (
                 <div className="row wrap gap6">
                   {m.actions.map((a) => {
@@ -222,15 +230,15 @@ export function AssistantPanel() {
         ))}
         <div ref={bottom} />
       </div>
-      <div className="assist-composer">
-        <div className="assist-input">
+      <div className={s.composer}>
+        <div className={s.input}>
           <textarea ref={inputRef} rows={1} value={draft} placeholder="問問目前的狀況…" onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} />
-          <button className="bx-icon-btn" title="送出(Return)" disabled={!draft.trim() || busy} onClick={send}>
+          <button className={iconButtonClass.normal} title="送出(Return)" disabled={!draft.trim() || busy} onClick={send}>
             <Icon name="arrow.up.circle.fill" size={20} color={!draft.trim() || busy ? "var(--fg3)" : "var(--indigo)"} />
           </button>
         </div>
-        <span className="row gap4 faint" style={{ fontSize: "var(--fs-xs)" }}><Icon name="info.circle" size={11} />目前為模擬回應,尚未連接模型</span>
+        <span className={"row gap4 faint " + s.xs}><Icon name="info.circle" size={11} />目前為模擬回應,尚未連接模型</span>
       </div>
     </aside>
   );

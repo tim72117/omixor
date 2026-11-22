@@ -1,0 +1,9 @@
+/* KPI 卡片列:依卡片數與可用寬度挑欄數,避免最後一列只剩一張(6 張:6 / 3+3 / 2×3 / 1 欄) */
+.wrap { container-type: inline-size; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(var(--kpi-cols, 1), minmax(0, 1fr)); }
+.grid[data-n="1"], .grid[data-n="2"] { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+@container (min-width: 352px) { .grid[data-n="4"], .grid[data-n="5"], .grid[data-n="6"] { --kpi-cols: 2; } }
+@container (min-width: 534px) { .grid[data-n="3"], .grid[data-n="5"], .grid[data-n="6"] { --kpi-cols: 3; } }
+@container (min-width: 716px) { .grid[data-n="4"] { --kpi-cols: 4; } }
+@container (min-width: 898px) { .grid[data-n="5"] { --kpi-cols: 5; } }
+@container (min-width: 1080px) { .grid[data-n="6"] { --kpi-cols: 6; } }

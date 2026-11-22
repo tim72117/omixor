@@ -1,14 +1,19 @@
 // 事件統計:MTTA / MTTR、近 30 天各 SEV 事件數、每週趨勢、每起事件的修復時間(Swift 的 IncStatsView)
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import { Card, MetricTile, color } from "../../components/ui";
-import { SEVS, SevBadge, ackDelay, durationOf, fmtShort, isActive, sevColor, sevLabel, t, useInc } from "./incSupport";
+import { Card } from "../../components/Card";
+import { MetricTile } from "../../components/MetricTile";
+import { color } from "../../lib/color";
+import css from "./incidents.module.css";
+import { SEVS, SevBadge, ackDelay, durationOf, fmtShort, isActive, sevColor, sevLabel, useInc } from "./incSupport";
+import { rowButtonClass } from "../../components/RowButton";
+import { tOrNow } from "../../lib/format";
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : undefined);
 
 export function IncStats({ onSelect }: { onSelect: (id: string) => void }) {
   const { incidents } = useInc();
   const since = Date.now() - 30 * 86400000;
-  const recent = incidents.filter((i) => t(i.startedAt) >= since);
+  const recent = incidents.filter((i) => tOrNow(i.startedAt) >= since);
   const mtta = avg(recent.map(ackDelay).filter((x): x is number => x != null));
   const mttr = avg(recent.filter((i) => i.resolvedAt).map((i) => durationOf(i)));
   const bySev = SEVS.map((s) => ({ sev: sevLabel(s), n: recent.filter((i) => i.sev === s).length, c: color(sevColor(s)) }));
@@ -17,7 +22,7 @@ export function IncStats({ onSelect }: { onSelect: (id: string) => void }) {
     const start = new Date(today); start.setDate(start.getDate() - 7 * (4 - w) - 7);
     const end = new Date(start); end.setDate(end.getDate() + 7);
     const row: Record<string, number | string> = { week: `${end.getMonth() + 1}/${end.getDate()}` };
-    SEVS.forEach((s) => (row[sevLabel(s)] = incidents.filter((i) => i.sev === s && t(i.startedAt) >= start.getTime() && t(i.startedAt) < end.getTime()).length));
+    SEVS.forEach((s) => (row[sevLabel(s)] = incidents.filter((i) => i.sev === s && tOrNow(i.startedAt) >= start.getTime() && tOrNow(i.startedAt) < end.getTime()).length));
     return row;
   });
   const resolved = recent.filter((i) => i.resolvedAt).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
@@ -32,10 +37,10 @@ export function IncStats({ onSelect }: { onSelect: (id: string) => void }) {
           <MetricTile title="MTTA 平均回應" value={fmtShort(mtta)} icon="hand.raised" tint="orange" />
           <MetricTile title="MTTR 平均修復" value={fmtShort(mttr)} icon="wrench.and.screwdriver" tint="green" />
         </div>
-        <div className="grid g2" style={{ gap: 16, alignItems: "start" }}>
+        <div className={"grid g2 " + css.g2Wide}>
           <Card title="各 SEV 事件數" subtitle="近 30 天">
-            {recent.length === 0 ? <div className="muted" style={{ height: 180 }}>近 30 天沒有事件</div> : (
-              <div style={{ height: 180 }}>
+            {recent.length === 0 ? <div className={"muted " + css.chart}>近 30 天沒有事件</div> : (
+              <div className={css.chart}>
                 <ResponsiveContainer>
                   <BarChart data={bySev} margin={{ top: 16, right: 4, left: -20, bottom: 0 }}>
                     <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -51,7 +56,7 @@ export function IncStats({ onSelect }: { onSelect: (id: string) => void }) {
             )}
           </Card>
           <Card title="每週趨勢" subtitle="依 SEV 堆疊">
-            <div style={{ height: 180 }}>
+            <div className={css.chart}>
               <ResponsiveContainer>
                 <BarChart data={weekly} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -68,13 +73,13 @@ export function IncStats({ onSelect }: { onSelect: (id: string) => void }) {
           {resolved.length === 0 ? <span className="muted">近 30 天沒有已解決的事件</span> : (
             <div className="col gap4">
               {resolved.map((i) => (
-                <button key={i.id} className="bx-row-btn" onClick={() => onSelect(i.id)}>
+                <button key={i.id} className={rowButtonClass} onClick={() => onSelect(i.id)}>
                   <SevBadge sev={i.sev} />
-                  <span className="ellipsis" style={{ width: 260, flex: "none" }}>{i.title}</span>
+                  <span className={"ellipsis " + css.w260}>{i.title}</span>
                   <span className="grow">
-                    <span style={{ display: "block", height: 8, borderRadius: "var(--r-lg)", width: `${Math.max(1, (durationOf(i) / maxD) * 100)}%`, minWidth: 4, background: `color-mix(in srgb, ${color(sevColor(i.sev))} 70%, transparent)` }} />
+                    <span className={css.durBar} style={{ width: `${Math.max(1, (durationOf(i) / maxD) * 100)}%`, background: `color-mix(in srgb, ${color(sevColor(i.sev))} 70%, transparent)` }} />
                   </span>
-                  <span className="caption num muted" style={{ width: 64, textAlign: "right" }}>{fmtShort(durationOf(i))}</span>
+                  <span className={"caption num muted " + css.durText}>{fmtShort(durationOf(i))}</span>
                 </button>
               ))}
             </div>

@@ -74,6 +74,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 	})
 	mux.HandleFunc("GET /api/view/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
+		setDataVersion(w, app)
 		v, ok := core.View(app, name)
 		if !ok {
 			writeJSON(w, 404, map[string]any{"error": "沒有這個 view:" + name})
@@ -142,6 +143,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			return
 		}
 		args[core.UserKey] = userID(r, app)
+		setDataVersion(w, app)
 		out, err := core.Action(app, name, args)
 		if err != nil {
 			writeFail(w, r, err)
@@ -343,4 +345,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write(core.Marshal(v))
+}
+
+// setDataVersion:在算 view / 執行 action 之前記下資料版本,放在 X-Omixor-Version 標頭。
+// 回應內容至少反映到這個版本(版本 ≤ 它的變更都已經做完),畫面收到版本 ≤ 它的 SSE 通知(包括連線時的 "*")就不用再重讀。
+func setDataVersion(w http.ResponseWriter, app *core.App) {
+	w.Header().Set("X-Omixor-Version", strconv.FormatUint(app.Version(), 10))
 }

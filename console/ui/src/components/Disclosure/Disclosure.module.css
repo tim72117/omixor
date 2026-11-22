@@ -1,0 +1,7 @@
+/* chevron:自訂的「›」箭頭,展開時轉 90°,summary 是 flex 列 */
+details.chevron > summary { cursor: default; list-style: none; display: flex; align-items: center; gap: 6px; }
+details.chevron > summary::-webkit-details-marker { display: none; }
+details.chevron > summary::before { content: "›"; color: var(--fg3); width: 10px; display: inline-block; transition: transform .15s; }
+details.chevron[open] > summary::before { transform: rotate(90deg); }
+/* native:瀏覽器原生的三角形,summary 是小字次要色 */
+details.native > summary { cursor: default; font-size: var(--fs-sm); color: var(--fg2); list-style: revert; }

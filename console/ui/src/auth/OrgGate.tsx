@@ -4,7 +4,9 @@
 // 兩種都可以登出或換連接對象。本機模式、或已經有組織時直接顯示主畫面。
 import { useEffect, useState, type ReactNode } from "react";
 import { action, useRun, useView } from "../api";
+import { ErrorText } from "../components/ErrorText";
 import { Icon } from "../components/Icon";
+import css from "./auth.module.css";
 import type { Account } from "./ConnectGate";
 
 type OrgIndex = { current: string; orgs: { id: string }[] };
@@ -32,13 +34,13 @@ function NoOrgs({ acc }: { acc: Account }) {
       await action("gate_reset");
     });
   return (
-    <div className="login-bg">
-      <div className="login-card connect-card">
-        <div className="row gap8" style={{ justifyContent: "center" }}>
+    <div className={css.bg}>
+      <div className={css.card + " " + css.connectCard}>
+        <div className={"row gap8 " + css.center}>
           <Icon name="building.2" size={22} />
           <span className="h2">還沒有組織</span>
         </div>
-        <div className="muted caption" style={{ textAlign: "center" }}>
+        <div className={"muted caption " + css.centerText}>
           已登入 {server}:{acc.email ?? acc.name ?? ""}
           {admin ? "(伺服器管理員)" : ""}
         </div>
@@ -59,8 +61,8 @@ function NoOrgs({ acc }: { acc: Account }) {
             加入後這個畫面會在 30 秒內自動進入主畫面。
           </div>
         )}
-        {error && <div className="error-text">{error}</div>}
-        <div className="row gap8" style={{ justifyContent: "center" }}>
+        <ErrorText>{error}</ErrorText>
+        <div className={"row gap8 " + css.center}>
           <button className="btn link" disabled={busy} onClick={() => void leave(false)}>換連接對象</button>
           <button className="btn link" disabled={busy} onClick={() => void leave(true)}>登出</button>
         </div>

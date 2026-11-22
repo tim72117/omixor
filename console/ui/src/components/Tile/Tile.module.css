@@ -1,0 +1,6 @@
+/* 可點的磚塊/卡片(hover 稍亮、按下變淡)與不帶外觀的按鈕。包在 :where() 裡,className 一定蓋得過 */
+:where(.tile) { cursor: default; transition: filter .12s; text-align: left; font: inherit; color: inherit; }
+.tile:hover { filter: brightness(1.02); }
+.tile:active { opacity: .75; }
+:where(.plain) { border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; cursor: default; }
+.plain:focus-visible, .tile:focus-visible { outline-offset: -2px; }

@@ -1,11 +1,16 @@
 // 設定 › 團隊與值班:組織成員(接核心)、輪值表與升級規則(Swift 的 SettingsTeamPane)
 import { useState } from "react";
 import { tool, useView } from "../../api";
-import { ActorAvatar, Switch, useContextMenu, useDirectory } from "../../components/bits";
+import { ActorAvatar } from "../../components/Avatar";
 import { Icon } from "../../components/Icon";
-import { arr, type OnCallShift } from "../../components/models";
-import { Pill } from "../../components/ui";
+import { iconButtonClass } from "../../components/IconButton";
+import { useContextMenu } from "../../components/Menu";
+import { Pill } from "../../components/Pill";
+import { Switch } from "../../components/Switch";
+import { useDirectory } from "../../lib/directory";
+import { arr, type OnCallShift } from "../../models";
 import { Form, Row, Section } from "./form";
+import css from "./settings.module.css";
 import { SettingsMembers } from "./SettingsMembers";
 
 const p2 = (n: number) => String(n).padStart(2, "0");
@@ -20,7 +25,7 @@ export function SettingsTeam() {
   const [escalate, setEscalate] = useState(10);
   const [auto, setAuto] = useState(true);
   const [followSun, setFollowSun] = useState(false);
-  const menu = useContextMenu();
+  const menu = useContextMenu("simple");
   const now = Date.now();
   const t = (s: string) => new Date(s).getTime();
   const shifts = onCall.filter((s) => t(s.end) > now).sort((a, b) => a.start.localeCompare(b.start) || a.role.localeCompare(b.role));
@@ -35,12 +40,12 @@ export function SettingsTeam() {
           return (
             <Row key={s.id}>
               <ActorAvatar actor={{ kind: "person", id: s.person }} size={22} />
-              <span style={{ minWidth: 80 }}>{name}</span>
+              <span className={css.minW80}>{name}</span>
               <Pill text={s.role} color={s.role === "Primary" ? "var(--accent)" : "secondary"} />
               {active && <Pill text="進行中" color="green" />}
               <div className="grow" />
               <span className="caption num muted">{shiftDate(s.start)} – {shiftDate(s.end)}</span>
-              <button className="bx-icon-btn" title="換班" onClick={menu.open(dir.people.filter((p) => p.id !== s.person).map((p) => ({
+              <button className={iconButtonClass.normal} title="換班" onClick={menu.open(dir.people.filter((p) => p.id !== s.person).map((p) => ({
                 label: `與 ${p.name} 換班`,
                 onClick: () => { tool("activity_post", { icon: "arrow.left.arrow.right", text: `提出換班:${name} 與 ${p.name}(${shiftDate(s.start)})`, section: "settings" }).catch(() => undefined); },
               })))}><Icon name="ellipsis.circle" size={14} /></button>

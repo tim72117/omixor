@@ -2,10 +2,13 @@
 import { useState } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useView } from "../../api";
-import { num } from "../../components/bits";
+import { cardClass } from "../../components/Card";
+import { EmptyState } from "../../components/EmptyState";
 import { Icon } from "../../components/Icon";
-import { arr, type Dashboard, type MetricPoint, type MetricSeries } from "../../components/models";
-import { EmptyState, Segmented } from "../../components/ui";
+import { Segmented } from "../../components/Segmented";
+import { num } from "../../lib/format";
+import { arr, type Dashboard, type MetricPoint, type MetricSeries } from "../../models";
+import css from "./monitoring.module.css";
 import { useTimeRange } from "./MonitoringView";
 
 type Panel = { series: MetricSeries; points: { t: number; value: number }[]; usedFallback: boolean };
@@ -56,7 +59,7 @@ export function DashboardsTab({ selectedId, setSelectedId }: { selectedId?: stri
   const tr = useTimeRange();
   const dashboards = arr<Dashboard>(raw);
   if (err) return <EmptyState title="讀不到儀表板" icon="exclamationmark.triangle" message={err} />;
-  if (raw === undefined) return <div className="muted" style={{ padding: 20 }}>載入中…</div>;
+  if (raw === undefined) return <div className={"muted " + css.pad20}>載入中…</div>;
   if (!dashboards.length) return <EmptyState title="沒有儀表板" icon="chart.xyaxis.line" message="尚未設定任何監控儀表板。" />;
   const d = dashboards.find((x) => x.id === selectedId) ?? dashboards[0];
   const windowStart = Date.now() - tr.seconds * 1000;
@@ -68,7 +71,7 @@ export function DashboardsTab({ selectedId, setSelectedId }: { selectedId?: stri
           {dashboards.length <= 5 ? (
             <Segmented value={d.id} onChange={setSelectedId} options={dashboards.map((x) => ({ value: x.id, label: x.name }))} />
           ) : (
-            <select className="select" value={d.id} onChange={(e) => setSelectedId(e.target.value)} style={{ maxWidth: 260 }}>
+            <select className={"select " + css.maxw260} value={d.id} onChange={(e) => setSelectedId(e.target.value)}>
               {dashboards.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
           )}
@@ -79,7 +82,7 @@ export function DashboardsTab({ selectedId, setSelectedId }: { selectedId?: stri
           <>
             <PanelCard panel={panels[0]} height={240} prominent />
             {panels.length > 1 && (
-              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16 }}>
+              <div className={"grid " + css.panelGrid}>
                 {panels.slice(1).map((p) => <PanelCard key={p.series.id} panel={p} height={150} />)}
               </div>
             )}
@@ -104,26 +107,26 @@ function PanelCard({ panel, height, prominent }: { panel: Panel; height: number;
   const includeZero = panel.series.unit === "%" || (st.min ?? 0) < (st.max ?? 0) * 0.3;
   const gid = "g-" + panel.series.id.replace(/[^a-zA-Z0-9]/g, "");
   return (
-    <div className="card" style={{ borderRadius: "var(--r-xl)" }}>
-      <div className="row" style={{ alignItems: "flex-start" }}>
+    <div className={cardClass}>
+      <div className={"row " + css.top}>
         <div className="col gap4 grow">
-          <div style={{ fontWeight: 600, fontSize: prominent ? "var(--fs-md)" : "var(--fs-base)" }}>{panel.series.name}</div>
-          {panel.usedFallback && <div className="caption" style={{ color: "var(--orange)", fontSize: "var(--fs-xs)" }}>選取的時間範圍內沒有資料,顯示全部</div>}
+          <div className={prominent ? css.strongMd : css.strongBase}>{panel.series.name}</div>
+          {panel.usedFallback && <div className={"caption " + css.xs + " " + css.orange}>選取的時間範圍內沒有資料,顯示全部</div>}
         </div>
         {hover ? (
-          <div className="col" style={{ alignItems: "flex-end" }}>
-            <span className="num" style={{ fontWeight: 600, fontSize: prominent ? "var(--fs-xl)" : "var(--fs-md)" }}>{fmtValue(panel.series.unit, hover.value)}</span>
-            <span className="caption muted" style={{ fontSize: "var(--fs-xs)" }}>{new Date(hover.t).toLocaleString("zh-TW", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+          <div className={"col " + css.end}>
+            <span className={"num " + (prominent ? css.strongXl : css.strongMd)}>{fmtValue(panel.series.unit, hover.value)}</span>
+            <span className={"caption muted " + css.xs}>{new Date(hover.t).toLocaleString("zh-TW", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
           </div>
         ) : st.latest != null ? (
-          <div className="col" style={{ alignItems: "flex-end" }}>
-            <span className="num" style={{ fontWeight: 600, fontSize: prominent ? "var(--fs-xl)" : "var(--fs-md)", color: over ? "var(--red)" : undefined }}>{fmtValue(panel.series.unit, st.latest)}</span>
-            <span className="caption muted" style={{ fontSize: "var(--fs-xs)" }}>目前</span>
+          <div className={"col " + css.end}>
+            <span className={"num " + (prominent ? css.strongXl : css.strongMd) + (over ? " " + css.red : "")}>{fmtValue(panel.series.unit, st.latest)}</span>
+            <span className={"caption muted " + css.xs}>目前</span>
           </div>
         ) : null}
       </div>
       {panel.points.length === 0 ? (
-        <div className="muted row" style={{ height, justifyContent: "center" }}>沒有資料</div>
+        <div className={"muted row " + css.center} style={{ height }}>沒有資料</div>
       ) : (
         <div style={{ height }}>
           <ResponsiveContainer width="100%" height="100%">
@@ -154,19 +157,19 @@ function PanelCard({ panel, height, prominent }: { panel: Panel; height: number;
         </div>
       )}
       {(prominent || panel.points.length > 0) && (
-        <div className="row" style={{ gap: 18 }}>
+        <div className={"row " + css.stats}>
           {([["平均", st.avg], ["最低", st.min], ["最高", st.max]] as const).map(([k, v]) => (
             <div key={k} className="col">
-              <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{k}</span>
-              <span className="caption num" style={{ fontWeight: 500 }}>{v == null ? "—" : fmtValue(panel.series.unit, v)}</span>
+              <span className={"muted " + css.xs}>{k}</span>
+              <span className={"caption num " + css.medium}>{v == null ? "—" : fmtValue(panel.series.unit, v)}</span>
             </div>
           ))}
           {t != null && (() => {
             const n = panel.points.filter((p) => p.value >= t).length;
             return (
               <div className="col">
-                <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>超過門檻</span>
-                <span className="caption num" style={{ fontWeight: 500, color: n > 0 ? "var(--red)" : undefined }}>
+                <span className={"muted " + css.xs}>超過門檻</span>
+                <span className={"caption num " + css.medium + (n > 0 ? " " + css.red : "")}>
                   {panel.points.length ? `${((n / panel.points.length) * 100).toFixed(0)}%` : "—"}
                 </span>
               </div>

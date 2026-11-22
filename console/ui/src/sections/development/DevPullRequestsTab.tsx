@@ -2,14 +2,32 @@
 // 核准/要求修改/合併/關閉在 Swift 版只改本機的範例資料;這裡呼叫畫面動作 pull_request_set / pull_request_join_review。
 import { useState } from "react";
 import { action } from "../../api";
-import { color, EmptyState, Pill } from "../../components/ui";
+import { ActorLabel, AvatarStack } from "../../components/Avatar";
+import { AIBadge } from "../../components/Badge";
+import { useConfirm } from "../../components/Confirm";
+import { EmptyState } from "../../components/EmptyState";
+import { iconButtonClass } from "../../components/IconButton";
+import { MenuButton, useContextMenu, type MenuItem } from "../../components/Menu";
+import { Pill } from "../../components/Pill";
+import { SIcon } from "../../components/SIcon";
+import { useAct } from "../../components/Toast";
+import { copyText } from "../../lib/clipboard";
+import { color } from "../../lib/color";
+import { useOmixor } from "../../lib/directory";
+import { monthDayTime, t } from "../../lib/format";
+import { useList, useWidth } from "../../lib/hooks";
 import {
-  ActorLabel, AIBadge, copyText, MenuButton, monthDayTime, PR, PR_ORDER, RISK, RUN, SIcon, t, useAct, useConfirm, useContextMenu,
-  useList, useOmixor, useWidth, WORK_STATUS, WORK_TYPE, type MenuItem, type PipelineRun, type PullRequest, type PRStatusKey, type WorkItem,
-} from "../../components/omixorKit";
+  PR, PR_ORDER, RISK, RUN, WORK_STATUS, WORK_TYPE, type PipelineRun, type PullRequest, type PRStatusKey, type WorkItem,
+} from "../../models";
 import { relative } from "../../fmt";
-import { age, AvatarStack, ChecksIcon, DetailSection, DiffStat, isActivePR, useDev } from "./devShared";
+import { age, ChecksIcon, DetailSection, DiffStat, isActivePR, useDev } from "./devShared";
 import { canGo } from "../../features";
+import ds from "./devShared.module.css";
+import css from "./DevPullRequestsTab.module.css";
+import { StatusDot } from "../../components/StatusDot";
+import { layoutClass } from "../../components/Layout";
+import { tableClass } from "../../components/Table";
+import { plainClass } from "../../components/Tile";
 
 type SortKey = "id" | "title" | "additions" | "createdAt" | "updatedAt";
 
@@ -84,25 +102,25 @@ export function DevPullRequestsTab() {
   const table = !ready ? <div className="grow" /> : prs.length === 0 ? (
     <EmptyState title={err ? "讀不到 Pull Request" : "沒有 Pull Request"} icon="arrow.triangle.pull" message={err} />
   ) : (
-    <div className="ox-scroll" style={{ position: "relative" }}>
-      <table className="ox-table">
+    <div className={layoutClass.scroll + " " + css.rel}>
+      <table className={tableClass.data}>
         <thead><tr>{th("#", "id", 54)}{th("標題", "title")}{th("狀態", undefined, 72)}{th("作者", undefined, 130)}{th("檢查", undefined, 40)}{th("變更", "additions", 90)}{th("審查者", undefined, 84)}{th("AI 風險", undefined, 70)}{th("建立", "createdAt", 60)}</tr></thead>
         <tbody>
           {rows.map((pr) => (
-            <tr key={pr.id} className={pr.id === dev.selectedPR ? "sel" : ""} onClick={() => dev.setSelectedPR(pr.id)} onContextMenu={menu.open(prMenu(pr))}>
+            <tr key={pr.id} className={pr.id === dev.selectedPR ? tableClass.sel : ""} onClick={() => dev.setSelectedPR(pr.id)} onContextMenu={menu.open(prMenu(pr))}>
               <td className="muted num">#{pr.id}</td>
               <td>
-                <div className="col" style={{ gap: 2, minWidth: 0 }}>
-                  <span className="row gap4" style={{ minWidth: 0 }}>{pr.author.kind === "ai" && <SIcon name="sparkles" size={11} color="purple" />}<span className="ellipsis">{pr.title}</span></span>
+                <div className={"col " + css.titleCell}>
+                  <span className={"row gap4 " + css.minw0}>{pr.author.kind === "ai" && <SIcon name="sparkles" size={11} color="purple" />}<span className="ellipsis">{pr.title}</span></span>
                   <span className="caption muted ellipsis">{pr.repo} · {pr.branch}</span>
                 </div>
               </td>
               <td><Pill text={PR[pr.status]?.label ?? pr.status} color={PR[pr.status]?.color} /></td>
-              <td><ActorLabel actor={pr.author} /></td>
+              <td><ActorLabel actor={pr.author} plainAI /></td>
               <td><ChecksIcon s={pr.checks} /></td>
               <td><DiffStat a={pr.additions} d={pr.deletions} /></td>
-              <td>{pr.reviewers.length ? <AvatarStack ids={pr.reviewers} size={18} /> : <span className="faint">—</span>}</td>
-              <td>{pr.aiReview ? <span className="row gap4 caption"><span className="dot" style={{ background: color(RISK[pr.aiReview.risk].color) }} />{RISK[pr.aiReview.risk].label}</span> : <span className="faint">—</span>}</td>
+              <td>{pr.reviewers.length ? <AvatarStack actors={pr.reviewers.map((id) => ({ kind: "person", id }))} size={18} plainAI /> : <span className="faint">—</span>}</td>
+              <td>{pr.aiReview ? <span className="row gap4 caption"><StatusDot c={RISK[pr.aiReview.risk].color} size={7} />{RISK[pr.aiReview.risk].label}</span> : <span className="faint">—</span>}</td>
               <td className="muted num" title={monthDayTime(pr.createdAt)}>{age(pr.createdAt)}</td>
             </tr>
           ))}
@@ -113,9 +131,9 @@ export function DevPullRequestsTab() {
   );
 
   return (
-    <div className="ox-page">
-      <div className="ox-filterbar">
-        <input className="input" style={{ minWidth: 120, maxWidth: 220, flex: 1 }} placeholder="搜尋標題、分支或編號" value={query} onChange={(e) => setQuery(e.target.value)} />
+    <div className={layoutClass.page}>
+      <div className={ds.filterbar}>
+        <input className={"input " + css.search} placeholder="搜尋標題、分支或編號" value={query} onChange={(e) => setQuery(e.target.value)} />
         <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="active">進行中</option><option value="all">全部狀態</option><option disabled>──────</option>
           {PR_ORDER.map((s) => <option key={s} value={s}>{PR[s].label}</option>)}
@@ -131,10 +149,10 @@ export function DevPullRequestsTab() {
         <span className="grow" />
         <span className="muted num">{rows.length} 個 PR</span>
       </div>
-      <div ref={ref} className="ox-fill" style={{ flexDirection: wide ? "row" : "column" }}>
+      <div ref={ref} className={layoutClass.fill + (wide ? "" : " " + css.column)}>
         {table}
         {selected && (
-          <div style={wide ? { width: Math.min(400, w * 0.36), flex: "none", borderLeft: "1px solid var(--line)", overflowY: "auto", background: "var(--bg)" } : { height: 380, flex: "none", borderTop: "1px solid var(--line)", overflowY: "auto" }}>
+          <div className={wide ? css.sideDetail : css.bottomDetail} style={wide ? { width: Math.min(400, w * 0.36) } : undefined}>
             <PRDetail key={selected.id} pr={selected} acts={acts} />
           </div>
         )}
@@ -155,14 +173,14 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
   const run = runs.filter((r) => r.repo === pr.repo && r.branch === pr.branch).sort((a, b) => t(b.startedAt) - t(a.startedAt))[0];
   const base = o.repos.find((r) => r.id === pr.repo)?.defaultBranch ?? "main";
   return (
-    <div className="col" style={{ padding: 16, gap: 14 }}>
+    <div className={"col " + css.detail}>
       <div className="col gap6">
         <div className="row gap8">
           <span className="muted num">#{pr.id}</span>
           <Pill text={PR[pr.status]?.label ?? pr.status} color={PR[pr.status]?.color} />
           {pr.author.kind === "ai" && <AIBadge text="AI 撰寫" />}
           <span className="grow" />
-          <button className="ox-icon-btn" title="關閉詳細" onClick={() => dev.setSelectedPR(undefined)}><SIcon name="xmark" /></button>
+          <button className={iconButtonClass.bare} title="關閉詳細" onClick={() => dev.setSelectedPR(undefined)}><SIcon name="xmark" /></button>
         </div>
         <div className="h3">{pr.title}</div>
         <div className="row gap6 muted">
@@ -176,7 +194,7 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
       </div>
       {isActivePR(pr) ? (
         <div className="col gap8">
-          {canReview(pr) && <textarea className="textarea" style={{ minHeight: 34, height: 40, fontFamily: "inherit" }} placeholder="審查留言(選填)" value={comment} onChange={(e) => setComment(e.target.value)} />}
+          {canReview(pr) && <textarea className={"textarea " + css.note} placeholder="審查留言(選填)" value={comment} onChange={(e) => setComment(e.target.value)} />}
           <div className="row gap8">
             {canReview(pr) && (
               <>
@@ -195,17 +213,17 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
           </div>
         </div>
       ) : pr.status === "closed" ? (
-        <button className="btn" style={{ alignSelf: "flex-start" }} onClick={() => acts.reopen(pr)}><SIcon name="arrow.uturn.backward" size={12} />重新開啟</button>
+        <button className={"btn " + css.start} onClick={() => acts.reopen(pr)}><SIcon name="arrow.uturn.backward" size={12} />重新開啟</button>
       ) : (
-        <div className="row gap6" style={{ color: "var(--purple)" }}><SIcon name="arrow.triangle.merge" />已於 {relative(pr.updatedAt)} 合併</div>
+        <div className={"row gap6 " + ds.purple}><SIcon name="arrow.triangle.merge" />已於 {relative(pr.updatedAt)} 合併</div>
       )}
       {pr.aiReview && (
-        <div className="col gap8" style={{ padding: 12, borderRadius: "var(--r-xl)", background: "color-mix(in srgb, var(--purple) 7%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 18%, transparent)" }}>
-          <div className="row gap6"><SIcon name="sparkles" color="purple" /><span style={{ fontWeight: 600 }}>AI 審查</span><span className="grow" /><Pill text={RISK[pr.aiReview.risk].label} color={RISK[pr.aiReview.risk].color} icon={pr.aiReview.risk === "high" ? "exclamationmark.triangle.fill" : undefined} /></div>
+        <div className={"col gap8 " + css.aiReview}>
+          <div className="row gap6"><SIcon name="sparkles" color="purple" /><span className={ds.bold}>AI 審查</span><span className="grow" /><Pill text={RISK[pr.aiReview.risk].label} color={RISK[pr.aiReview.risk].color} icon={pr.aiReview.risk === "high" ? "exclamationmark.triangle.fill" : undefined} /></div>
           <div>{pr.aiReview.summary}</div>
           {pr.aiReview.findings.length > 0 && (
             <div className="col gap4">
-              {pr.aiReview.findings.map((f, i) => <div key={i} className="row gap6 muted" style={{ alignItems: "baseline" }}><span style={{ color: color(RISK[pr.aiReview!.risk].color) }}>•</span>{f}</div>)}
+              {pr.aiReview.findings.map((f, i) => <div key={i} className={css.finding + " gap6 muted"}><span style={{ color: color(RISK[pr.aiReview!.risk].color) }}>•</span>{f}</div>)}
             </div>
           )}
         </div>
@@ -220,21 +238,21 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
         {run && run.stages.length > 0 && (
           <div className="row gap4">
             {run.stages.map((s) => (
-              <div key={s.id} className="col grow" style={{ gap: 3, minWidth: 0 }} title={`${s.name}:${RUN[s.status].label}`}>
-                <span style={{ height: 5, borderRadius: "var(--r-sm)", background: color(RUN[s.status].color) }} />
-                <span className="muted ellipsis" style={{ fontSize: "var(--fs-xs)", textAlign: "center" }}>{s.name}</span>
+              <div key={s.id} className={"col grow " + css.stage} title={`${s.name}:${RUN[s.status].label}`}>
+                <span className={css.stageBar} style={{ background: color(RUN[s.status].color) }} />
+                <span className={"muted ellipsis " + css.stageName}>{s.name}</span>
               </div>
             ))}
           </div>
         )}
-        {run?.aiDiagnosis && pr.checks === "failed" && <div className="caption row gap4" style={{ color: "var(--purple)", alignItems: "flex-start" }}><SIcon name="sparkles" size={12} />{run.aiDiagnosis}</div>}
+        {run?.aiDiagnosis && pr.checks === "failed" && <div className={"caption gap4 " + ds.rowTop + " " + ds.purple}><SIcon name="sparkles" size={12} />{run.aiDiagnosis}</div>}
       </DetailSection>
       {pr.linkedItem && (
         <DetailSection title="相關工作項目">
           {linked ? (
-            <button className="ox-plain row gap8" title="在看板中顯示" onClick={() => dev.showItem(linked.id)}>
-              <span style={{ width: 3, height: 30, borderRadius: 2, background: color(WORK_TYPE[linked.type].color), flex: "none" }} />
-              <div className="col grow" style={{ gap: 2 }}>
+            <button className={plainClass + " row gap8"} title="在看板中顯示" onClick={() => dev.showItem(linked.id)}>
+              <span className={css.stripe} style={{ background: color(WORK_TYPE[linked.type].color) }} />
+              <div className={"col grow " + css.gap2}>
                 <span>{linked.title}</span>
                 <span className="caption muted row gap4"><span className="mono">{linked.id}</span>·<SIcon name={WORK_STATUS[linked.status].icon} size={11} />{WORK_STATUS[linked.status].label}· {linked.points} 點</span>
               </div>
@@ -244,10 +262,10 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
         </DetailSection>
       )}
       <DetailSection title="作者與審查者">
-        <div className="row"><span className="muted" style={{ width: 50 }}>作者</span><ActorLabel actor={pr.author} /></div>
-        <div className="row" style={{ alignItems: "flex-start" }}>
-          <span className="muted" style={{ width: 50 }}>審查者</span>
-          {pr.reviewers.length === 0 ? <span className="faint">尚未指定</span> : <div className="col gap4">{pr.reviewers.map((id) => <ActorLabel key={id} actor={{ kind: "person", id }} />)}</div>}
+        <div className="row"><span className={"muted " + css.who}>作者</span><ActorLabel actor={pr.author} plainAI /></div>
+        <div className={ds.rowTop}>
+          <span className={"muted " + css.who}>審查者</span>
+          {pr.reviewers.length === 0 ? <span className="faint">尚未指定</span> : <div className="col gap4">{pr.reviewers.map((id) => <ActorLabel key={id} actor={{ kind: "person", id }} plainAI />)}</div>}
         </div>
       </DetailSection>
       {dlg}
@@ -259,7 +277,8 @@ function PRMoreMenu({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof use
   const o = useOmixor();
   return (
     <MenuButton className="btn" align="right" label={<SIcon name="ellipsis.circle" />} items={[
-      ...(!pr.reviewers.includes(o.me) ? [{ label: "加入審查", onClick: () => acts.joinReview(pr) }] : []),
+      // me 還沒讀到(登入者未知)時不提供「加入審查」(原本預設成 "tim")
+      ...(o.me && !pr.reviewers.includes(o.me) ? [{ label: "加入審查", onClick: () => acts.joinReview(pr) }] : []),
       { label: "請 AI 助理說明這個 PR", onClick: () => window.dispatchEvent(new CustomEvent("omixor-show-assistant", { detail: { section: "development", prompt: `說明 PR #${pr.id}` } })) },
       "sep",
       { label: "關閉 PR", danger: true, onClick: () => acts.close(pr) },

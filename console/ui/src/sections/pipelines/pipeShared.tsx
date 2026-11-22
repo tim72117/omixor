@@ -1,6 +1,10 @@
 // CI/CD 畫面共用(Swift 的 PipeShared.swift)
 import { tool } from "../../api";
-import { dur, RUN, SIcon, t, useNow, type CheckKey, type Deployment, type PipelineJob, type PipelineRun, type RunStatusKey } from "../../components/omixorKit";
+import { SIcon } from "../../components/SIcon";
+import { dur, t } from "../../lib/format";
+import { useNow } from "../../lib/hooks";
+import { RUN, type CheckKey, type Deployment, type PipelineJob, type PipelineRun, type RunStatusKey } from "../../models";
+import css from "./pipelines.module.css";
 
 export const runJobs = (r: PipelineRun) => r.stages.flatMap((s) => s.jobs);
 export function runProgress(r: PipelineRun) {
@@ -35,5 +39,5 @@ export function ElapsedText({ run }: { run: PipelineRun }) {
 }
 
 export function StatusIcon({ s, size }: { s: RunStatusKey; size?: number }) {
-  return <span title={RUN[s]?.label} style={{ display: "inline-flex" }}><SIcon name={RUN[s]?.icon} color={RUN[s]?.color} size={size} spin={s === "running"} className={s === "waitingApproval" ? "ox-pulse" : undefined} /></span>;
+  return <span title={RUN[s]?.label} className={css.statusIcon}><SIcon name={RUN[s]?.icon} color={RUN[s]?.color} size={size} spin={s === "running"} className={s === "waitingApproval" ? css.pulse : undefined} /></span>;
 }

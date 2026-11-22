@@ -8,12 +8,12 @@ import {
   agentAccess, arr, boardDropStatus, DECISION_STATUS_LABEL, DOC_ACCESS_LABEL, INC_STATUS_LABEL, ITEM_STATUS_LABEL, ITEM_STATUSES, ITEM_WAIT_LABEL, leaseLabel, PRIORITY_LABEL, ROUTINE_KIND_LABEL, tabTitle, TASK_LABEL, taskOpen,
   type Agent, type AgentTask, type CabinetDoc, type CabinetSection, type Channel, type ChannelMessage, type ChannelPage,
   type Decision, type Incident, type IssueItem, type OrgChain, type Project, type ProjectMember, type ProjectRepo,
-} from "../src/components/models.ts";
+} from "../src/models/domain.ts";
 import {
   conflictCurrent, draftChanges, draftDiff, draftOf, findIssue, isIssueRef, isVersionConflict, issueKey, issueRefLabel, mergeLatest,
   projectHasIssues, projectKeyProblem, cleanProjectKey, type Issue,
 } from "../src/sections/development/issueModel.ts";
-import { ApiError, unwrapPost } from "../src/api.ts";
+import { ApiError, unwrapPost } from "../src/lib/http.ts";
 import type { ActorView } from "../src/types.ts";
 
 const dir = new URL("../../../core/model/testdata/contract/", import.meta.url);

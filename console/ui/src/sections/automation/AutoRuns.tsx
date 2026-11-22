@@ -1,10 +1,20 @@
 // 執行紀錄:每次 AI 執行的逐步過程(Swift 的 AutoRunsView)
 import { useEffect, useState } from "react";
-import { Chip, CodeBlock, IconTile, Spinner, hm, num, shortDuration } from "../../components/bits";
+import { Card } from "../../components/Card";
+import { Chip } from "../../components/Chip";
+import { CodeBlock } from "../../components/CodeBlock";
+import { EmptyState } from "../../components/EmptyState";
 import { Icon } from "../../components/Icon";
-import { RUN_COLOR, RUN_ICON, RUN_LABEL, RUN_STATUSES, type AIStep, type AutomationRun, type RunStatus } from "../../components/models";
-import { Card, EmptyState, MetricTile, Pill, color } from "../../components/ui";
+import { iconButtonClass } from "../../components/IconButton";
+import { IconTile } from "../../components/IconTile";
+import { MetricTile } from "../../components/MetricTile";
+import { Pill } from "../../components/Pill";
+import { Spinner } from "../../components/Spinner";
+import { color } from "../../lib/color";
+import { dur, hm, num } from "../../lib/format";
+import { RUN_COLOR, RUN_ICON, RUN_LABEL, RUN_STATUSES, type AIStep, type AutomationRun, type RunStatus } from "../../models";
 import { relative } from "../../fmt";
+import css from "./automation.module.css";
 import { StepIcon, autoName, pendingOf, useAuto } from "./autoShared";
 
 export function AutoRuns({ selection, setSelection, openApproval, openAutomation }: {
@@ -24,8 +34,8 @@ export function AutoRuns({ selection, setSelection, openApproval, openAutomation
   if (d.loaded && !d.runs.length) return <EmptyState title="還沒有執行紀錄" icon="list.bullet.rectangle" message="AI 自動化每次執行的過程都會記錄在這裡。" />;
   return (
     <div className="split">
-      <div className="split-list" style={{ width: 360 }}>
-        <div className="row gap8" style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
+      <div className={"split-list " + css.runList}>
+        <div className={"row gap8 " + css.listHead}>
           <select className="select grow" value={status} onChange={(e) => setStatus(e.target.value as RunStatus | "")}>
             <option value="">所有狀態</option>{RUN_STATUSES.map((s) => <option key={s} value={s}>{RUN_LABEL[s]}</option>)}
           </select>
@@ -34,14 +44,14 @@ export function AutoRuns({ selection, setSelection, openApproval, openAutomation
           </select>
         </div>
         {runs.length === 0 ? <EmptyState title="沒有符合條件的紀錄" icon="line.3.horizontal.decrease.circle" /> : runs.map((r) => (
-          <div key={r.id} className={"bx-list-row" + (selection === r.id ? " on" : "")} onClick={() => setSelection(r.id)} style={{ alignItems: "flex-start", gap: 10 }}>
-            <span style={{ width: 18, flex: "none", display: "inline-flex", justifyContent: "center", paddingTop: 1 }}>
+          <div key={r.id} className={css.listRow + " " + css.runRow + (selection === r.id ? " " + css.on : "")} onClick={() => setSelection(r.id)}>
+            <span className={css.runIcon}>
               {r.status === "running" ? <Spinner size={13} /> : <Icon name={RUN_ICON[r.status]} size={14} color={color(RUN_COLOR[r.status])} />}
             </span>
-            <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
-              <div className="row gap6"><span className="ellipsis grow" style={{ fontWeight: 500 }}>{autoName(d, r.automation)}</span><span className="caption muted" style={{ flex: "none" }}>{relative(r.startedAt)}</span></div>
-              <span className="mono caption ellipsis" style={{ color: "var(--indigo)" }}>{r.target}</span>
-              <span className="caption muted" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{r.summary}</span>
+            <div className={"col grow " + css.gap3}>
+              <div className="row gap6"><span className={"ellipsis grow " + css.medium}>{autoName(d, r.automation)}</span><span className={"caption muted " + css.none}>{relative(r.startedAt)}</span></div>
+              <span className={"mono caption ellipsis " + css.indigo}>{r.target}</span>
+              <span className={"caption muted " + css.clamp2}>{r.summary}</span>
               {r.status === "waitingApproval" && <span><Pill text="需要核准" color="purple" icon="hand.raised.fill" /></span>}
             </div>
           </div>
@@ -63,25 +73,25 @@ function RunDetail({ run, openApproval, openAutomation }: { run: AutomationRun; 
   const duration = run.finishedAt ? (new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000 : undefined;
   return (
     <div className="page-inner">
-      <div className="row gap12" style={{ alignItems: "flex-start" }}>
+      <div className={"row gap12 " + css.top}>
         <IconTile icon={a?.icon ?? "sparkles"} size={40} />
         <div className="col gap4 grow">
-          <span className="row gap8"><span className="h3" style={{ fontSize: "var(--fs-lg)" }}>{a?.name ?? run.automation}</span><Pill text={RUN_LABEL[run.status]} color={RUN_COLOR[run.status]} icon={RUN_ICON[run.status]} /></span>
-          <span className="muted" style={{ userSelect: "text" }}>{run.summary}</span>
+          <span className="row gap8"><span className="h3">{a?.name ?? run.automation}</span><Pill text={RUN_LABEL[run.status]} color={RUN_COLOR[run.status]} icon={RUN_ICON[run.status]} /></span>
+          <span className={"muted " + css.selectable}>{run.summary}</span>
           <span className="row gap6 caption"><span className="muted">對象</span><Chip text={run.target} /><span className="faint">· 執行 {run.id}</span></span>
         </div>
         {a && <button className="btn small" onClick={() => openAutomation(run.automation)}>流程設定</button>}
       </div>
       {run.status === "waitingApproval" && (
-        <div className="row gap8" style={{ padding: 12, borderRadius: "var(--r-xl)", background: "color-mix(in srgb, var(--purple) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 30%, transparent)" }}>
+        <div className={"row gap8 " + css.waitBox}>
           <Icon name="hand.raised.fill" size={18} color="var(--purple)" />
-          <div className="col grow"><span style={{ fontWeight: 600 }}>這次執行在等人核准</span><span className="caption muted">{approval?.title ?? "AI 已準備好動作,核准後才會繼續。"}</span></div>
+          <div className="col grow"><span className={css.strong}>這次執行在等人核准</span><span className="caption muted">{approval?.title ?? "AI 已準備好動作,核准後才會繼續。"}</span></div>
           {approval && <button className="btn purple" onClick={() => openApproval(approval.id)}>前往核准</button>}
         </div>
       )}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
+      <div className={"grid " + css.metricGrid}>
         <MetricTile title="開始" value={hm(run.startedAt)} icon="clock" tint="indigo" />
-        <MetricTile title="耗時" value={run.status === "running" ? "進行中" : shortDuration(duration)} icon="timer" tint="blue" />
+        <MetricTile title="耗時" value={run.status === "running" ? "進行中" : dur(duration)} icon="timer" tint="blue" />
         <MetricTile title="Tokens" value={num(run.tokens)} icon="text.word.spacing" tint="purple" />
         <MetricTile title="成本" value={`$${run.costUSD.toFixed(3)}`} icon="dollarsign.circle" tint="green" />
       </div>
@@ -96,23 +106,23 @@ function StepRow({ step, index, last }: { step: AIStep; index: number; last: boo
   const [open, setOpen] = useState(true);
   const dim = step.status === "pending" || step.status === "skipped";
   return (
-    <div className="row" style={{ alignItems: "stretch", gap: 10 }}>
-      <div className="col" style={{ width: 20, alignItems: "center", flex: "none", paddingTop: 1 }}>
+    <div className={"row " + css.stepRow}>
+      <div className={"col " + css.stepRail}>
         <StepIcon status={step.status} />
-        {!last && <div style={{ width: 2, flex: 1, margin: "3px 0", background: "color-mix(in srgb, var(--fg) 10%, transparent)" }} />}
+        {!last && <div className={css.stepLine} />}
       </div>
-      <div className="col gap6 grow" style={{ paddingBottom: last ? 0 : 12, minWidth: 0 }}>
+      <div className={"col gap6 grow" + (last ? "" : " " + css.stepGap)}>
         <div className="row gap6">
           <span className="faint num">{index}.</span>
-          <span style={{ fontWeight: 500, color: dim ? "var(--fg2)" : undefined }}>{step.title}</span>
+          <span className={css.medium + (dim ? " muted" : "")}>{step.title}</span>
           {step.tool && <Chip text={step.tool} icon="terminal" />}
           <div className="grow" />
           {step.status === "failed" && <Pill text="失敗" color="red" />}
           {step.status === "skipped" && <Pill text="略過" color="secondary" />}
           {step.status === "running" && <Pill text="執行中" color="blue" />}
           {step.output && (
-            <button className="bx-icon-btn" title={open ? "收合輸出" : "展開輸出"} onClick={() => setOpen(!open)}>
-              <span style={{ display: "inline-flex", transform: open ? "rotate(90deg)" : undefined, transition: "transform .15s" }}><Icon name="chevron.right" size={11} /></span>
+            <button className={iconButtonClass.normal} title={open ? "收合輸出" : "展開輸出"} onClick={() => setOpen(!open)}>
+              <span className={css.chev + (open ? " " + css.open : "")}><Icon name="chevron.right" size={11} /></span>
             </button>
           )}
         </div>

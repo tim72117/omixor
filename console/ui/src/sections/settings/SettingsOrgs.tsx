@@ -1,14 +1,20 @@
 // 設定 › 組織:新增、切換、改名、刪除組織,以及目前組織工作空間的各項設定入口(Swift 的 SettingsOrgsPane)
 import { useEffect, useState } from "react";
 import { action, useRun, useView } from "../../api";
-import { go } from "../../components/bits";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import type { AgentsView, CabinetView, ConnectionsView, Organization, OrgIndex } from "../../components/models";
-import { ErrorText, Modal, Pill, color } from "../../components/ui";
+import { iconButtonClass } from "../../components/IconButton";
+import { Modal, ModalTitle } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
+import { color } from "../../lib/color";
+import { go } from "../../lib/nav";
+import type { AgentsView, CabinetView, ConnectionsView, Organization, OrgIndex } from "../../models";
 import { CabinetLayoutEditor } from "../cabinet/CabinetLayoutEditor";
 import { Form, Row, Section } from "./form";
+import css from "./settings.module.css";
 import type { Pane } from "./SettingsView";
 import { canGo, featuresNow } from "../../features";
+import { fieldClass } from "../../components/Field";
 
 const SYMBOLS = ["building.2", "graduationcap", "briefcase", "storefront", "hammer", "flask", "globe", "heart", "leaf", "star"];
 const COLORS = ["blue", "teal", "green", "orange", "pink", "purple", "indigo", "gray"];
@@ -19,7 +25,7 @@ const TEMPLATES = [
 
 export function OrgBadge({ org, size = 24 }: { org: Pick<Organization, "symbol" | "color">; size?: number }) {
   return (
-    <span style={{ width: size, height: size, borderRadius: size * 0.25, background: color(org.color), display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+    <span className={css.orgBadge} style={{ width: size, height: size, borderRadius: size * 0.25, background: color(org.color) }}>
       <Icon name={org.symbol} size={size * 0.5} color="white" />
     </span>
   );
@@ -54,12 +60,12 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
           <Row key={o.id}>
             <OrgBadge org={o} size={28} />
             <div className="col grow">
-              <span className="row gap6"><span style={{ fontWeight: 600 }}>{o.name}</span>{o.id === idx?.current && <Pill text="使用中" color="green" />}</span>
+              <span className="row gap6"><span className={css.strong}>{o.name}</span>{o.id === idx?.current && <Pill text="使用中" color="green" />}</span>
               <span className="caption muted">{o.note || `id:${o.id}`}</span>
             </div>
             {o.id !== idx?.current && <button className="btn" disabled={busy} onClick={() => run(() => action("org_switch", { id: o.id }))}>切換</button>}
             <button className="btn" onClick={() => setEditing(o)}>編輯…</button>
-            {o.id !== idx?.current && <button className="bx-icon-btn" title="刪除" onClick={() => setDeleting(o)}><Icon name="trash" size={13} color="var(--red)" /></button>}
+            {o.id !== idx?.current && <button className={iconButtonClass.normal} title="刪除" onClick={() => setDeleting(o)}><Icon name="trash" size={13} color="var(--red)" /></button>}
           </Row>
         ))}
         <Row><button className="btn link" onClick={() => setCreating(true)}><Icon name="plus" size={12} />新增組織…</button></Row>
@@ -76,7 +82,7 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
       {editingLayout && <CabinetLayoutEditor layout={layout} layoutVersion={cab?.layoutVersion ?? 0} docs={Array.isArray(cab?.docs) ? cab!.docs : []} onClose={() => setEditingLayout(false)} />}
       <Modal open={!!deleting} onClose={() => setDeleting(undefined)} width={440} title={`刪除組織「${deleting?.name ?? ""}」?`}>
         <span className="muted">這個組織的 Issue、角色、任務、文件與連線設定會一起移到垃圾桶,鑰匙圈裡的登入會刪除。</span>
-        <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+        <div className={"row gap8 " + css.end}>
           <button className="btn" onClick={() => setDeleting(undefined)}>取消</button>
           <button className="btn red" disabled={busy} onClick={() => run(async () => { await action("org_delete", { id: deleting!.id }); setDeleting(undefined); })}>刪除(資料夾移到垃圾桶)</button>
         </div>
@@ -88,14 +94,14 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
 function SymbolColorPickers({ symbol, colorName, onSymbol, onColor }: { symbol: string; colorName: string; onSymbol: (s: string) => void; onColor: (c: string) => void }) {
   return (
     <>
-      <div className="bx-field"><span>圖示</span>
+      <div className={fieldClass}><span>圖示</span>
         <div className="row gap4 wrap">{SYMBOLS.map((s) => (
-          <button key={s} className="btn" style={{ padding: 5, borderColor: symbol === s ? "var(--accent)" : undefined, background: symbol === s ? "color-mix(in srgb, var(--accent) 14%, transparent)" : undefined }} onClick={() => onSymbol(s)}><Icon name={s} size={15} /></button>
+          <button key={s} className={"btn " + css.symbolBtn + (symbol === s ? " " + css.picked : "")} onClick={() => onSymbol(s)}><Icon name={s} size={15} /></button>
         ))}</div>
       </div>
-      <div className="bx-field"><span>顏色</span>
+      <div className={fieldClass}><span>顏色</span>
         <div className="row gap6">{COLORS.map((c) => (
-          <button key={c} title={c} onClick={() => onColor(c)} style={{ width: 20, height: 20, borderRadius: "var(--r-pill)", background: color(c), border: colorName === c ? "2px solid var(--fg)" : "2px solid transparent" }} />
+          <button key={c} title={c} onClick={() => onColor(c)} className={css.swatch + (colorName === c ? " " + css.picked : "")} style={{ background: color(c) }} />
         ))}</div>
       </div>
     </>
@@ -115,16 +121,16 @@ function NewOrgSheet({ onClose }: { onClose: () => void }) {
   });
   return (
     <Modal open onClose={onClose} width={520}>
-      <span className="modal-title">新增組織</span>
-      <label className="bx-field"><span>名稱</span><input className="input" autoFocus placeholder="例如 新產品實驗室" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && name.trim() && create()} /></label>
+      <ModalTitle>新增組織</ModalTitle>
+      <label className={fieldClass}><span>名稱</span><input className="input" autoFocus placeholder="例如 新產品實驗室" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && name.trim() && create()} /></label>
       <SymbolColorPickers symbol={symbol} colorName={col} onSymbol={setSymbol} onColor={setCol} />
-      <div className="bx-field"><span>起始設定</span>
+      <div className={fieldClass}><span>起始設定</span>
         {TEMPLATES.map((t) => <label key={t.id} className="row gap6"><input type="radio" checked={template === t.id} onChange={() => setTemplate(t.id)} />{t.label}</label>)}
         <span className="caption muted">{TEMPLATES.find((t) => t.id === template)?.detail}</span>
       </div>
       <label className="row gap6"><input type="checkbox" checked={switchNow} onChange={(e) => setSwitchNow(e.target.checked)} />建立後切換過去</label>
       <ErrorText>{error}</ErrorText>
-      <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+      <div className={"row gap8 " + css.end}>
         <button className="btn" onClick={onClose}>取消</button>
         <button className="btn primary" disabled={!name.trim() || busy} onClick={create}>建立</button>
       </div>
@@ -138,13 +144,13 @@ function EditOrgSheet({ original, onClose }: { original: Organization; onClose: 
   const { busy, error, run } = useRun();
   return (
     <Modal open onClose={onClose} width={480}>
-      <span className="modal-title">編輯組織</span>
-      <label className="bx-field"><span>名稱</span><input className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-      <label className="bx-field"><span>說明</span><input className="input" placeholder="選填" value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} /></label>
+      <ModalTitle>編輯組織</ModalTitle>
+      <label className={fieldClass}><span>名稱</span><input className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+      <label className={fieldClass}><span>說明</span><input className="input" placeholder="選填" value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} /></label>
       <SymbolColorPickers symbol={draft.symbol} colorName={draft.color} onSymbol={(symbol) => setDraft({ ...draft, symbol })} onColor={(c) => setDraft({ ...draft, color: c })} />
       <div className="row gap8"><span className="caption muted">id</span><span className="mono">{draft.id}</span></div>
       <ErrorText>{error}</ErrorText>
-      <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+      <div className={"row gap8 " + css.end}>
         <button className="btn" onClick={onClose}>取消</button>
         <button className="btn primary" disabled={!draft.name.trim() || busy} onClick={() => run(async () => { await action("org_update", draft as unknown as Record<string, unknown>); onClose(); })}>儲存</button>
       </div>

@@ -1,19 +1,33 @@
 // AI 自動化 › 虛擬角色:角色設定、例行任務、指派任務、看任務進度(Swift 的 AutoAgentsView)
 import { Fragment, useEffect, useState } from "react";
 import { ApiError, action, tool, useRun, useView } from "../../api";
-import { AgentAvatar, Markdown, go, useCopied, useDirectory } from "../../components/bits";
+import { AgentAvatar } from "../../components/Avatar";
+import { Card } from "../../components/Card";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
+import { iconButtonClass } from "../../components/IconButton";
+import { Markdown } from "../../components/Markdown";
+import { Modal, ModalTitle } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
+import { useCopied } from "../../lib/clipboard";
+import { color } from "../../lib/color";
+import { useDirectory } from "../../lib/directory";
+import { go } from "../../lib/nav";
 import {
   DOC_ACCESS_LABEL, PRIORITIES, PRIORITY_COLOR, PRIORITY_LABEL, ROUTINE_KIND_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, leaseLabel, tabTitle, taskOpen,
   type Agent, type AgentRoutine, type AgentTask, type AgentTaskStatus, type CabinetSection, type CabinetView, type DocAccess, type Priority, type RoutineKind,
-} from "../../components/models";
-import { Card, EmptyState, ErrorText, Modal, Pill, color } from "../../components/ui";
+} from "../../models";
 import { relative } from "../../fmt";
 import { AgentAutoRunCard } from "./AutoRunner";
 import { useIssueLabel, useIsIssueRef } from "../development/issueApi";
 import { TransferTasksModal } from "./TransferTasks";
+import css from "./automation.module.css";
 import { useAuto } from "./autoShared";
 import { canGo, useFeatures } from "../../features";
+import { disclosureClass } from "../../components/Disclosure";
+import { fieldClass } from "../../components/Field";
+import { rowButtonClass } from "../../components/RowButton";
 
 const PALETTE = ["blue", "teal", "green", "orange", "pink", "purple", "indigo", "gray"];
 const SYMBOLS = ["person.crop.circle", "chart.line.uptrend.xyaxis", "waveform", "tray.full", "magnifyingglass", "wrench.and.screwdriver", "shield.lefthalf.filled", "doc.text", "megaphone", "brain.head.profile"];
@@ -50,26 +64,26 @@ export function AutoAgents({ selection, setSelection }: { selection?: string; se
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.map((a) => a.id).join(",")]);
   if (!d.agents) {
-    return d.agentsError ? <EmptyState title="讀不到虛擬角色" icon="exclamationmark.triangle" message={d.agentsError} /> : <div className="muted" style={{ padding: 20 }}>載入中…</div>;
+    return d.agentsError ? <EmptyState title="讀不到虛擬角色" icon="exclamationmark.triangle" message={d.agentsError} /> : <div className={"muted " + css.loading}>載入中…</div>;
   }
   const sel = agents.find((a) => a.id === selection);
   return (
     <div className="split">
-      <div className="split-list" style={{ width: 250 }}>
-        <div className="grow" style={{ overflowY: "auto" }}>
+      <div className={"split-list " + css.agentList}>
+        <div className={"grow " + css.scrollY}>
           {agents.map((a) => {
             const open = d.agents!.tasks.filter((x) => x.agentId === a.id && taskOpen(x.status));
             return (
-              <div key={a.id} className={"bx-list-row" + (selection === a.id ? " on" : "")} style={{ alignItems: "center", gap: 10, opacity: a.active ? 1 : 0.5 }} onClick={() => setSelection(a.id)}>
+              <div key={a.id} className={css.listRow + " " + css.agentRow + (selection === a.id ? " " + css.on : "") + (a.active ? "" : " " + css.inactive)} onClick={() => setSelection(a.id)}>
                 <AgentAvatar agent={a} size={28} />
-                <div className="col grow" style={{ minWidth: 0 }}><span className="ellipsis">{a.name}</span><span className="caption muted ellipsis">{a.role}</span></div>
+                <div className="col grow"><span className="ellipsis">{a.name}</span><span className="caption muted ellipsis">{a.role}</span></div>
                 {open.some((x) => x.status === "blocked") && <Icon name="hand.raised.fill" size={12} color="var(--orange)" />}
                 {open.length > 0 && <span className="caption muted num">{open.length}</span>}
               </div>
             );
           })}
         </div>
-        <div style={{ padding: 8, borderTop: "1px solid var(--line)" }}>
+        <div className={css.listFoot}>
           <button className="btn link" onClick={() => setEditing(blankAgent())}><Icon name="plus" size={12} />新增角色</button>
         </div>
       </div>
@@ -118,17 +132,17 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
     return [];
   });
   return (
-    <div className="page-inner" style={{ maxWidth: 900 }}>
+    <div className={"page-inner " + css.w900}>
       {/* 標題欄至少保留 220px;按鈕群不換字、放不下時整組換到下一行,避免標題被擠成一字一行 */}
       <div className="row gap12 wrap">
-        <div className="row gap12" style={{ flex: "1 1 220px", minWidth: 0 }}>
-          <span style={{ flex: "none", display: "inline-flex" }}><AgentAvatar agent={agent} size={44} /></span>
+        <div className={"row gap12 " + css.headMain}>
+          <span className={css.avatarBox}><AgentAvatar agent={agent} size={44} /></span>
           <div className="col grow">
-            <span className="row gap8" style={{ minWidth: 0 }}><span className="page-title ellipsis" title={agent.name}>{agent.name}</span><span className="mono caption muted ellipsis" style={{ flexShrink: 2 }}>{agent.id}</span>{!agent.active && <Pill text="停用" color="gray" />}</span>
-            <span className="muted" style={{ overflowWrap: "anywhere" }}>{agent.role}</span>
+            <span className={"row gap8 " + css.shrink}><span className="page-title ellipsis" title={agent.name}>{agent.name}</span><span className={"mono caption muted ellipsis " + css.shrink2}>{agent.id}</span>{!agent.active && <Pill text="停用" color="gray" />}</span>
+            <span className={"muted " + css.anywhere}>{agent.role}</span>
           </div>
         </div>
-        <div className="ox-actions">
+        <div className="actions">
         <button className="btn" title="複製一段話,貼到 Claude Code 就會以這個角色領取所有待領取任務" onClick={() => copyPrompt("all")}>
           <Icon name="doc.on.clipboard" size={12} />{copied === "all" ? "已複製" : "複製給 Claude Code"}
         </button>
@@ -167,19 +181,19 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
       <Card title="指派任務">
         <div className="row gap8">
           <input className="input grow" value={title} placeholder={`要${agent.name}做什麼?`} onChange={(e) => setTitle(e.target.value)} />
-          <select className="select" style={{ minWidth: 100 }} value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>{PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}</select>
+          <select className={"select " + css.minW100} value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>{PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}</select>
         </div>
         <textarea className="input" rows={2} value={instructions} placeholder="補充說明(選填,Markdown)" onChange={(e) => setInstructions(e.target.value)} />
-        <div className="row" style={{ justifyContent: "flex-end" }}><button className="btn primary" disabled={!title.trim() || busy} onClick={assign}>指派</button></div>
+        <div className={"row " + css.end}><button className="btn primary" disabled={!title.trim() || busy} onClick={assign}>指派</button></div>
       </Card>
       <Card title="任務" subtitle={tasks.length ? `${tasks.filter((x) => taskOpen(x.status)).length} 件未完成` : undefined}>
         {tasks.length === 0 && <span className="muted">還沒有任務</span>}
         {sorted.map((tk) => (
-          <div key={tk.id} className="col gap8" style={{ padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
-            <button className="bx-row-btn" onClick={() => setSelectedTask(selectedTask === tk.id ? undefined : tk.id)}>
+          <div key={tk.id} className={"col gap8 " + css.taskItem}>
+            <button className={rowButtonClass} onClick={() => setSelectedTask(selectedTask === tk.id ? undefined : tk.id)}>
               <Icon name={TASK_ICON[tk.status]} size={13} color={color(TASK_COLOR[tk.status])} />
               <span className="mono caption muted">{tk.id}</span>
-              <span className="ellipsis grow" style={{ color: taskOpen(tk.status) ? undefined : "var(--fg2)" }}>{tk.title}</span>
+              <span className={"ellipsis grow" + (taskOpen(tk.status) ? "" : " muted")}>{tk.title}</span>
               {leaseLabel(tk) && <span className="caption muted" title="領取租約:鎖定期間不能被其他人領取">{leaseLabel(tk)}</span>}
               {tk.routineId && <Icon name="clock.arrow.circlepath" size={11} className="muted" />}
               {(tk.priority === "urgent" || tk.priority === "high") && <Pill text={PRIORITY_LABEL[tk.priority]} color={PRIORITY_COLOR[tk.priority]} />}
@@ -187,25 +201,25 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
               <span className="caption muted">{relative(tk.updatedAt)}</span>
             </button>
             {selectedTask === tk.id && (
-              <div className="col gap8" style={{ paddingLeft: 24 }}>
+              <div className={"col gap8 " + css.indent}>
                 <span className="caption muted">{dir.authorName(tk.createdBy)} 建立 · {fmtMDHM(tk.createdAt)}</span>
                 {tk.instructions && <Markdown text={tk.instructions} />}
                 {(tk.notes ?? []).map((n) => (
-                  <span key={n.id} className="row gap6" style={{ alignItems: "baseline" }}>
-                    <span className="caption" style={{ fontWeight: 600 }}>{dir.authorName(n.author)}</span>
+                  <span key={n.id} className={"row gap6 " + css.baseline}>
+                    <span className={"caption " + css.strong}>{dir.authorName(n.author)}</span>
                     <span className="caption muted">{p2(new Date(n.at).getHours())}:{p2(new Date(n.at).getMinutes())}</span>
-                    <span style={{ userSelect: "text" }}>{n.text}</span>
+                    <span className={css.selectable}>{n.text}</span>
                   </span>
                 ))}
                 {tk.result && (
-                  <div className="col gap4" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--green) 8%, transparent)" }}>
-                    <span className="row gap4 caption" style={{ fontWeight: 600, color: "var(--green)" }}><Icon name="checkmark.seal" size={12} />結果</span>
+                  <div className={"col gap4 " + css.resultBox}>
+                    <span className={"row gap4 caption " + css.resultHead}><Icon name="checkmark.seal" size={12} />結果</span>
                     <Markdown text={tk.result} />
                   </div>
                 )}
                 {(tk.links ?? []).length > 0 && (
                   <div className="row gap8 wrap">
-                    {tk.links.map((l) => isIssueRef(l) ? <button key={l} className="btn link" onClick={canGo("development") ? () => go("development", l) : undefined}>{issueLabel(l)}</button> : <span key={l} className="caption" style={{ userSelect: "text" }}>{l}</span>)}
+                    {tk.links.map((l) => isIssueRef(l) ? <button key={l} className="btn link" onClick={canGo("development") ? () => go("development", l) : undefined}>{issueLabel(l)}</button> : <span key={l} className={"caption " + css.selectable}>{l}</span>)}
                   </div>
                 )}
                 <div className="row gap8">
@@ -259,39 +273,39 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
   });
   return (
     <Modal open onClose={onClose} width={640}>
-      <span className="modal-title">{isNew ? "新增角色" : `編輯「${original.name}」`}</span>
+      <ModalTitle>{isNew ? "新增角色" : `編輯「${original.name}」`}</ModalTitle>
       <div className="grid g2">
-        <label className="bx-field"><span>名稱</span><input className="input" value={draft.name} placeholder="例如 訪客分析師" onChange={(e) => set({ name: e.target.value })} /></label>
-        <label className="bx-field"><span>職責</span><input className="input" value={draft.role} placeholder="一句話說明" onChange={(e) => set({ role: e.target.value })} /></label>
+        <label className={fieldClass}><span>名稱</span><input className="input" value={draft.name} placeholder="例如 訪客分析師" onChange={(e) => set({ name: e.target.value })} /></label>
+        <label className={fieldClass}><span>職責</span><input className="input" value={draft.role} placeholder="一句話說明" onChange={(e) => set({ role: e.target.value })} /></label>
       </div>
-      <div className="bx-field"><span>圖示</span>
+      <div className={fieldClass}><span>圖示</span>
         <div className="row gap4 wrap">{SYMBOLS.map((s) => (
-          <button key={s} className="btn" style={{ padding: 5, borderColor: draft.symbol === s ? "var(--accent)" : undefined, background: draft.symbol === s ? "color-mix(in srgb, var(--accent) 14%, transparent)" : undefined }} onClick={() => set({ symbol: s })}><Icon name={s} size={15} /></button>
+          <button key={s} className={"btn " + css.symbolBtn + (draft.symbol === s ? " " + css.picked : "")} onClick={() => set({ symbol: s })}><Icon name={s} size={15} /></button>
         ))}</div>
       </div>
-      <div className="bx-field"><span>顏色</span>
+      <div className={fieldClass}><span>顏色</span>
         <div className="row gap6">{PALETTE.map((c) => (
-          <button key={c} title={c} onClick={() => set({ color: c })} style={{ width: 20, height: 20, borderRadius: "var(--r-pill)", background: color(c), border: draft.color === c ? "2px solid var(--fg)" : "2px solid transparent" }} />
+          <button key={c} title={c} onClick={() => set({ color: c })} className={css.swatch + (draft.color === c ? " " + css.picked : "")} style={{ background: color(c) }} />
         ))}</div>
       </div>
       <label className="row gap6"><input type="checkbox" checked={draft.active} onChange={(e) => set({ active: e.target.checked })} />啟用(停用時例行任務不會排)</label>
-      <label className="bx-field"><span>角色設定(給 AI 的說明,Markdown)</span><textarea className="textarea" style={{ minHeight: 140 }} value={draft.instructions} onChange={(e) => set({ instructions: e.target.value })} /></label>
-      <div className="bx-field">
+      <label className={fieldClass}><span>角色設定(給 AI 的說明,Markdown)</span><textarea className={"textarea " + css.minH140} value={draft.instructions} onChange={(e) => set({ instructions: e.target.value })} /></label>
+      <div className={fieldClass}>
         <span>文件櫃存取範圍</span>
         <DocAccessEditor layout={Array.isArray(cab?.layout) ? cab!.layout : []} access={draft.docAccess} onChange={(docAccess) => set({ docAccess })} />
         <span className="caption muted">對應這個組織文件櫃的區塊與頁籤。頁籤沒設定時跟著區塊。角色用 MCP 讀寫文件時只能碰這些範圍。</span>
       </div>
-      <div className="bx-field">
+      <div className={fieldClass}>
         <span>例行任務</span>
         {draft.routines.map((r) => (
-          <div key={r.id} className="col gap6" style={{ padding: 8, borderRadius: "var(--r-lg)", border: "1px solid var(--line)" }}>
+          <div key={r.id} className={"col gap6 " + css.box}>
             <div className="row gap6">
               <input type="checkbox" checked={r.enabled} onChange={(e) => setRoutine(r.id, { enabled: e.target.checked })} />
               <input className="input grow" placeholder="例行任務標題" value={r.title} onChange={(e) => setRoutine(r.id, { title: e.target.value })} />
-              <button className="bx-icon-btn" title="刪除" onClick={() => setDraft((d) => ({ ...d, routines: d.routines.filter((x) => x.id !== r.id) }))}><Icon name="trash" size={13} color="var(--red)" /></button>
+              <button className={iconButtonClass.normal} title="刪除" onClick={() => setDraft((d) => ({ ...d, routines: d.routines.filter((x) => x.id !== r.id) }))}><Icon name="trash" size={13} color="var(--red)" /></button>
             </div>
             <div className="row gap6">
-              <select className="select" style={{ minWidth: 120 }} value={r.kind} onChange={(e) => setRoutine(r.id, { kind: e.target.value as RoutineKind })}>
+              <select className={"select " + css.minW120} value={r.kind} onChange={(e) => setRoutine(r.id, { kind: e.target.value as RoutineKind })}>
                 {(Object.keys(ROUTINE_KIND_LABEL) as RoutineKind[]).map((k) => <option key={k} value={k}>{ROUTINE_KIND_LABEL[k]}</option>)}
               </select>
               {r.kind === "weekly" && (
@@ -300,18 +314,18 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
                 </select>
               )}
               {r.kind === "hourly" ? (
-                <label className="row gap4">每 <input className="input" type="number" min={1} max={48} style={{ width: 72 }} value={r.everyHours} onChange={(e) => setRoutine(r.id, { everyHours: Math.max(1, Math.min(48, +e.target.value || 1)) })} /> 小時</label>
+                <label className="row gap4">每 <input className={"input " + css.w72} type="number" min={1} max={48} value={r.everyHours} onChange={(e) => setRoutine(r.id, { everyHours: Math.max(1, Math.min(48, +e.target.value || 1)) })} /> 小時</label>
               ) : (
                 <span className="row gap4">
-                  <input className="input" type="number" min={0} max={23} style={{ width: 72 }} value={r.hour} onChange={(e) => setRoutine(r.id, { hour: Math.max(0, Math.min(23, +e.target.value || 0)) })} />:
-                  <input className="input" type="number" min={0} max={55} step={5} style={{ width: 72 }} value={r.minute} onChange={(e) => setRoutine(r.id, { minute: Math.max(0, Math.min(55, +e.target.value || 0)) })} />
+                  <input className={"input " + css.w72} type="number" min={0} max={23} value={r.hour} onChange={(e) => setRoutine(r.id, { hour: Math.max(0, Math.min(23, +e.target.value || 0)) })} />:
+                  <input className={"input " + css.w72} type="number" min={0} max={55} step={5} value={r.minute} onChange={(e) => setRoutine(r.id, { minute: Math.max(0, Math.min(55, +e.target.value || 0)) })} />
                 </span>
               )}
             </div>
             <textarea className="input" rows={1} placeholder="要做什麼(給 AI 的任務說明)" value={r.instructions} onChange={(e) => setRoutine(r.id, { instructions: e.target.value })} />
           </div>
         ))}
-        <button className="btn link" style={{ alignSelf: "flex-start" }} onClick={() => setDraft((d) => ({ ...d, routines: [...d.routines, newRoutine()] }))}><Icon name="plus" size={12} />新增例行任務</button>
+        <button className={"btn link " + css.start} onClick={() => setDraft((d) => ({ ...d, routines: [...d.routines, newRoutine()] }))}><Icon name="plus" size={12} />新增例行任務</button>
       </div>
       <ErrorText>{error}</ErrorText>
       <div className="row gap8">
@@ -322,7 +336,7 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
       </div>
       {needTransfer && <TransferTasksModal mode="delete" from={original} agents={allAgents} counts={needTransfer} onClose={() => setNeedTransfer(undefined)} onDone={() => { setNeedTransfer(undefined); onClose(); }} />}
       <Modal open={confirmDelete} onClose={() => setConfirmDelete(false)} width={400} title={`刪除「${original.name}」?名下有任務時要先轉移給其他角色。`}>
-        <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+        <div className={"row gap8 " + css.end}>
           <button className="btn" onClick={() => setConfirmDelete(false)}>取消</button>
           <button className="btn red" disabled={busy} onClick={del}>刪除</button>
         </div>
@@ -334,9 +348,9 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
 /** 角色的文件櫃存取範圍編輯器(Swift 的 DocAccessEditor) */
 export function DocAccessEditor({ layout, access, onChange }: { layout: CabinetSection[]; access: Record<string, DocAccess>; onChange: (a: Record<string, DocAccess>) => void }) {
   const picker = (title: string, key: string, inherited?: DocAccess, indent?: boolean) => (
-    <div key={key} className="row gap8" style={{ flex: 1, minWidth: 0, padding: "3px 0", paddingLeft: indent ? 20 : 0 }}>
-      <span className="grow" style={{ minWidth: 96, overflowWrap: "anywhere" }}>{title}</span>
-      <select className="select" style={{ width: "auto", flex: "0 1 auto", maxWidth: "60%" }} value={access[key] ?? ""} onChange={(e) => {
+    <div key={key} className={"row gap8 " + css.pickerRow + (indent ? " " + css.pickerIndent : "")}>
+      <span className={"grow " + css.pickerLabel}>{title}</span>
+      <select className={"select " + css.pickerSelect} value={access[key] ?? ""} onChange={(e) => {
         const n = { ...access };
         if (e.target.value) n[key] = e.target.value as DocAccess; else delete n[key];
         onChange(n);
@@ -350,11 +364,11 @@ export function DocAccessEditor({ layout, access, onChange }: { layout: CabinetS
   );
   if (!layout.length) return <span className="caption muted">讀不到文件櫃結構</span>;
   return (
-    <div className="col" style={{ padding: 8, borderRadius: "var(--r-lg)", border: "1px solid var(--line)" }}>
+    <div className={"col " + css.box}>
       {layout.map((s) => s.tabs.length === 0 ? picker(s.label, s.id) : (
         <Fragment key={s.id}>
-          <details className="bx-disclosure">
-            <summary style={{ flex: 1 }}>{picker(s.label + "(整個區塊)", s.id)}</summary>
+          <details className={disclosureClass.chevron}>
+            <summary className={css.grow1}>{picker(s.label + "(整個區塊)", s.id)}</summary>
             {s.tabs.map((t) => picker(tabTitle(t), t.path, access[s.id], true))}
           </details>
         </Fragment>

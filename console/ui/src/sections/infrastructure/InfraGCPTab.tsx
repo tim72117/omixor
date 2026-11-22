@@ -3,10 +3,22 @@
 import { useEffect, useState } from "react";
 import { Bar as RBar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { action, useRun, useView } from "../../api";
-import { Card, color, EmptyState, Modal, Pill } from "../../components/ui";
-import { axisStyle, Banner, hhmm, monthDayTime, Seg, SIcon, useAct } from "../../components/omixorKit";
+import { Banner } from "../../components/Callout";
+import { Card, cardTitleClass } from "../../components/Card";
+import { axisStyle } from "../../components/charts/theme";
+import { EmptyState } from "../../components/EmptyState";
+import { Modal } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
+import { Segmented } from "../../components/Segmented";
+import { SIcon } from "../../components/SIcon";
+import { useAct } from "../../components/Toast";
+import { color } from "../../lib/color";
+import { hhmm, monthDayTime } from "../../lib/format";
 import { relative } from "../../fmt";
 import type { Connection, ConnState } from "../development/DevGitHubTab";
+import css from "./infrastructure.module.css";
+import { StatusDot } from "../../components/StatusDot";
+import { layoutClass } from "../../components/Layout";
 
 type GCPSettings = { project: string; region: string; services: string[]; jobs: string[]; connection: string };
 type GCPService = { id: string; url: string; ready: boolean; state: string; message: string; latestReady: string; latestCreated: string; image: string; maxInstances: number; updatedAt?: string | null; lastModifier: string; traffic: { revision: string; percent: number; tag: string }[] };
@@ -67,7 +79,7 @@ export function InfraGCPTab() {
   }, [ready, gcp?.state?.account]);
   if (err && !gcp) return <EmptyState title="讀不到 GCP 資料" icon="cloud" message={err} />;
   if (!gcp) return <EmptyState title="讀取中…" icon="cloud" />;
-  if (!ready) return <div className="page-scroll"><div style={{ padding: 24, maxWidth: 760 }}><GCPSetup gcp={gcp} /></div></div>;
+  if (!ready) return <div className="page-scroll"><div className={css.setupWrap}><GCPSetup gcp={gcp} /></div></div>;
   return <GCPMain gcp={gcp} />;
 }
 
@@ -84,11 +96,11 @@ function GCPMain({ gcp }: { gcp: GCPView }) {
   const svc = selection?.startsWith("svc:") ? snap.services?.find((s) => "svc:" + s.id === selection) : undefined;
   const job = selection?.startsWith("job:") ? snap.jobs?.find((j) => "job:" + j.id === selection) : undefined;
   return (
-    <div className="ox-page">
-      <div className="row" style={{ gap: 10, padding: "8px 16px" }}>
+    <div className={layoutClass.page}>
+      <div className={"row " + css.topBar}>
         <SIcon name="person.crop.circle.badge.checkmark" color="green" />
         <span>{gcp.state?.account ?? "已登入"}</span>
-        <span style={{ width: 1, height: 16, background: "var(--line)" }} />
+        <span className={css.vsep} />
         <span className="row gap4"><SIcon name="cloud" size={12} />{st.project}</span>
         <span className="caption mono muted">{st.region}</span>
         <button className="btn link" onClick={() => setEditing(true)}>設定…</button>
@@ -100,26 +112,26 @@ function GCPMain({ gcp }: { gcp: GCPView }) {
       </div>
       {snap.error && <Banner>{snap.error}</Banner>}
       <div className="divider" />
-      <div className="ox-fill">
-        <div className="ox-list" style={{ width: 300, flex: "none", borderRight: "1px solid var(--line)", background: "color-mix(in srgb, var(--side) 50%, transparent)" }}>
-          <div className="ox-section-label">Cloud Run 服務</div>
+      <div className={layoutClass.fill}>
+        <div className={"list " + css.nav}>
+          <div className="section-label">Cloud Run 服務</div>
           {(snap.services ?? []).map((s) => (
-            <div key={s.id} className={"ox-list-row row gap8" + (selection === "svc:" + s.id ? " on" : "")} style={{ border: 0 }} onClick={() => setSelection("svc:" + s.id)}>
-              <span className="dot" style={{ width: 8, height: 8, background: color(serviceColor(s)) }} />
-              <div className="col" style={{ gap: 2, minWidth: 0 }}><span className="ellipsis">{s.id}</span><span className="caption mono muted ellipsis">{s.latestReady || stateLabel(s)}</span></div>
+            <div key={s.id} className={"list-row row gap8 " + css.navRow + (selection === "svc:" + s.id ? " on" : "")} onClick={() => setSelection("svc:" + s.id)}>
+              <StatusDot c={serviceColor(s)} />
+              <div className={"col " + css.gap2 + " " + css.titleCol}><span className="ellipsis">{s.id}</span><span className="caption mono muted ellipsis">{s.latestReady || stateLabel(s)}</span></div>
             </div>
           ))}
-          {!snap.services?.length && snap.fetchedAt && <div className="muted" style={{ padding: "4px 12px" }}>沒有服務</div>}
-          <div className="ox-section-label">Cloud Run Job</div>
+          {!snap.services?.length && snap.fetchedAt && <div className={"muted " + css.navEmpty}>沒有服務</div>}
+          <div className="section-label">Cloud Run Job</div>
           {(snap.jobs ?? []).map((j) => (
-            <div key={j.id} className={"ox-list-row row gap8" + (selection === "job:" + j.id ? " on" : "")} style={{ border: 0 }} onClick={() => setSelection("job:" + j.id)}>
-              <span className="dot" style={{ width: 8, height: 8, background: color(execColor(j.latest)) }} />
-              <div className="col" style={{ gap: 2, minWidth: 0 }}><span className="ellipsis">{j.id}</span><span className="caption muted ellipsis">{j.latest ? `${execLabel(j.latest)} · ${j.latest.createdAt ? relative(j.latest.createdAt) : ""}` : "還沒執行過"}</span></div>
+            <div key={j.id} className={"list-row row gap8 " + css.navRow + (selection === "job:" + j.id ? " on" : "")} onClick={() => setSelection("job:" + j.id)}>
+              <StatusDot c={execColor(j.latest)} />
+              <div className={"col " + css.gap2 + " " + css.titleCol}><span className="ellipsis">{j.id}</span><span className="caption muted ellipsis">{j.latest ? `${execLabel(j.latest)} · ${j.latest.createdAt ? relative(j.latest.createdAt) : ""}` : "還沒執行過"}</span></div>
             </div>
           ))}
-          {!snap.jobs?.length && snap.fetchedAt && <div className="muted" style={{ padding: "4px 12px" }}>沒有 Job</div>}
+          {!snap.jobs?.length && snap.fetchedAt && <div className={"muted " + css.navEmpty}>沒有 Job</div>}
         </div>
-        <div className="ox-scroll">
+        <div className={layoutClass.scroll}>
           {svc ? <ServiceDetail key={svc.id} s={svc} st={st} /> : job ? <JobDetail key={job.id} j={job} st={st} />
             : <EmptyState title={snap.fetchedAt ? "選一個服務或 Job" : "讀取中…"} icon="cloud" message="狀態每 5 分鐘自動更新;錯誤日誌與指標在打開時讀。" />}
         </div>
@@ -142,14 +154,14 @@ function SettingsForm({ st, onSaved, onCancel }: { st: GCPSettings; onSaved: () 
   const field = (label: string, v: string, set: (s: string) => void, ph: string) => <><span>{label}</span><input className="input" placeholder={ph} value={v} onChange={(e) => set(e.target.value)} /></>;
   return (
     <div className="col gap12">
-      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 10px", alignItems: "center" }}>
+      <div className={css.formGrid}>
         {field("專案 id", project, setProject, "例如 shuttle-045094509")}
         {field("區域", region, setRegion, "asia-east1")}
         {field("追蹤的服務", services, setServices, "用逗號分隔;空白表示全部")}
         {field("追蹤的 Job", jobs, setJobs, "用逗號分隔;空白表示全部")}
       </div>
       {error && <Banner>{error}</Banner>}
-      <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+      <div className={"row gap8 " + css.end}>
         {onCancel && <button className="btn" onClick={onCancel}>取消</button>}
         <button className={"btn" + (onCancel ? " primary" : "")} disabled={busy || !project.trim()} onClick={async () => {
           const r = await run(() => action("gcp_settings", { project: project.trim(), region: region.trim(), services: splitList(services), jobs: splitList(jobs) }));
@@ -161,7 +173,7 @@ function SettingsForm({ st, onSaved, onCancel }: { st: GCPSettings; onSaved: () 
 }
 
 function stat(label: string, value: string, c?: string) {
-  return <div className="col" style={{ gap: 2 }}><span className="caption muted">{label}</span><span className="num" style={{ fontSize: "var(--fs-lg)", fontWeight: 600, color: c ? `var(--${c})` : undefined }}>{value}</span></div>;
+  return <div className={"col " + css.gap2}><span className="caption muted">{label}</span><span className={"num " + css.statStrong} style={c ? { color: `var(--${c})` } : undefined}>{value}</span></div>;
 }
 
 function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
@@ -193,26 +205,26 @@ function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
   const fmtX = (v: number) => (hours > 48 ? `${new Date(v).getMonth() + 1}/${new Date(v).getDate()}` : hhmm(v));
   const tip = { contentStyle: { fontSize: 12, background: "var(--bg2)", border: "1px solid var(--line)" }, labelFormatter: (v: any) => monthDayTime(Number(v)) };
   return (
-    <div className="col" style={{ padding: 20, gap: 14, maxWidth: 980 }}>
-      <div className="row gap8" style={{ alignItems: "baseline" }}>
+    <div className={"col " + css.detail}>
+      <div className={css.baseline + " gap8"}>
         <span className="h2">{s.id}</span><Pill text={stateLabel(s)} color={serviceColor(s)} />
         <span className="grow" />
-        <div style={{ width: 200 }}><Seg value={String(hours)} onChange={(v) => setHours(Number(v))} options={[{ value: "6", label: "6 小時" }, { value: "24", label: "24 小時" }, { value: "168", label: "7 天" }]} /></div>
+        <div className={css.rangePicker}><Segmented value={String(hours)} onChange={(v) => setHours(Number(v))} options={[{ value: "6", label: "6 小時" }, { value: "24", label: "24 小時" }, { value: "168", label: "7 天" }]} /></div>
         <button className="btn" onClick={() => openURL(consoleURL(st, s.id))}>在 Console 打開</button>
       </div>
-      {s.message && !s.ready && <div className="row gap6" style={{ color: "var(--red)" }}><SIcon name="exclamationmark.triangle" color="red" />{s.message}</div>}
-      <div className="ox-kbd-row">
+      {s.message && !s.ready && <div className={"row gap6 " + css.red}><SIcon name="exclamationmark.triangle" color="red" />{s.message}</div>}
+      <div className={css.kbdRow}>
         <span className="muted">網址</span>{s.url ? <a className="mono" href={s.url} target="_blank" rel="noreferrer">{s.url}</a> : <span>—</span>}
         <span className="muted">目前版本</span><span className="mono">{s.latestReady + (rolloutPending(s) ? `(最新建立:${s.latestCreated},還沒就緒)` : "")}</span>
         <span className="muted">流量</span><span className="mono">{(s.traffic ?? []).map((x) => `${x.revision} ${x.percent}%` + (x.tag ? `(${x.tag})` : "")).join("、")}</span>
-        <span className="muted">映像</span><span className="caption mono ellipsis" style={{ userSelect: "text" }} title={s.image}>{s.image}</span>
+        <span className="muted">映像</span><span className={"caption mono ellipsis " + css.selectable} title={s.image}>{s.image}</span>
         <span className="muted">更新</span><span>{(s.updatedAt ? relative(s.updatedAt) : "—") + (s.lastModifier ? ` · ${s.lastModifier}` : "") + (s.maxInstances > 0 ? ` · 最多 ${s.maxInstances} 個執行個體` : "")}</span>
       </div>
       <Card title="請求與延遲" subtitle={`Cloud Monitoring,最近 ${hours >= 168 ? "7 天" : `${hours} 小時`}`}>
-        {mErr && <div className="caption" style={{ color: "var(--orange)" }}>{mErr}</div>}
+        {mErr && <div className={"caption " + css.warn}>{mErr}</div>}
         {metrics ? (
           <>
-            <div className="row wrap" style={{ gap: 24 }}>
+            <div className={"row wrap " + css.gap24}>
               {stat("請求", String(totalReq))}
               {stat("5xx", String(Math.trunc(total("5xx"))), total("5xx") > 0 ? "red" : undefined)}
               {stat("4xx", String(Math.trunc(total("4xx"))))}
@@ -221,7 +233,7 @@ function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
               {stat("最多執行個體", String(Math.trunc(Math.max(0, ...(metrics.instances ?? []).map((p) => p.value)))))}
             </div>
             {reqData.length === 0 ? <div className="caption muted">這段時間沒有請求</div> : (
-              <div style={{ height: 150 }}>
+              <div className={css.chart150}>
                 <ResponsiveContainer>
                   <BarChart data={reqData} margin={{ top: 4, right: 6, left: -18, bottom: 0 }}>
                     <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -235,7 +247,7 @@ function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
               </div>
             )}
             {latData.length > 0 && (
-              <div style={{ height: 110 }}>
+              <div className={css.chart110}>
                 <ResponsiveContainer>
                   <LineChart data={latData} margin={{ top: 4, right: 6, left: -6, bottom: 0 }}>
                     <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -251,7 +263,7 @@ function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
         ) : !mErr && <Spinner />}
       </Card>
       <Card>
-        <div className="row"><span className="card-title">日誌</span><span className="grow" /><SeverityPicker v={severity} set={setSeverity} /></div>
+        <div className="row"><span className={cardTitleClass}>日誌</span><span className="grow" /><SeverityPicker v={severity} set={setSeverity} /></div>
         <LogList logs={logs} error={lErr} />
       </Card>
       <Card title="最近的版本">
@@ -260,7 +272,7 @@ function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
             <SIcon name={r.ready ? "checkmark.circle" : "xmark.circle"} color={r.ready ? "green" : "red"} />
             <span className="mono">{r.id}</span>
             {r.id === s.latestReady && <Pill text="目前" color="green" />}
-            {r.message && !r.ready && <span className="caption ellipsis" style={{ color: "var(--red)" }}>{r.message}</span>}
+            {r.message && !r.ready && <span className={"caption ellipsis " + css.red}>{r.message}</span>}
             <span className="grow" />
             <span className="caption mono muted">{imageTag(r.image)}</span>
             {r.createdAt && <span className="caption muted">{relative(r.createdAt)}</span>}
@@ -271,9 +283,9 @@ function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
   );
 }
 
-const Spinner = () => <div className="row" style={{ justifyContent: "center" }}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>;
+const Spinner = () => <div className={"row " + css.center}><SIcon name="arrow.triangle.2.circlepath" spin className="muted" /></div>;
 const SeverityPicker = ({ v, set }: { v: string; set: (s: string) => void }) => (
-  <select className="select" style={{ minWidth: 120 }} value={v} onChange={(e) => set(e.target.value)}>
+  <select className={"select " + css.severity} value={v} onChange={(e) => set(e.target.value)}>
     <option value="ERROR">錯誤以上</option><option value="WARNING">警告以上</option><option value="DEFAULT">全部</option>
   </select>
 );
@@ -282,18 +294,18 @@ function LogList({ logs, error }: { logs?: GCPLogEntry[]; error?: string }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   return (
     <>
-      {error && <div className="caption" style={{ color: "var(--orange)" }}>{error}</div>}
+      {error && <div className={"caption " + css.warn}>{error}</div>}
       {logs ? (logs.length === 0 ? <div className="row gap6 muted"><SIcon name="checkmark.seal" />這段時間沒有符合的日誌</div> : (
         <div className="col">
           {logs.map((l) => {
             const open = expanded.has(l.id);
             return (
-              <div key={l.id} className="row gap6" style={{ padding: "4px 0", borderBottom: "1px solid var(--line)", alignItems: "flex-start" }}
+              <div key={l.id} className={css.logRow}
                 onClick={() => setExpanded((s) => { const n = new Set(s); if (open) n.delete(l.id); else n.add(l.id); return n; })}>
-                <span style={{ width: 58, flex: "none", fontSize: "var(--fs-xs)", fontWeight: 700, color: color(sevColor(l.severity)) }}>{l.severity}</span>
-                {l.timestamp && <span className="caption muted num" style={{ flex: "none" }}>{new Date(l.timestamp).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</span>}
-                {l.httpStatus != null && l.httpStatus > 0 && <span className="caption mono" style={{ color: l.httpStatus >= 500 ? "var(--red)" : "var(--fg2)", flex: "none" }}>{l.httpStatus}</span>}
-                <span className={"caption mono" + (open ? "" : " ellipsis")} style={{ userSelect: "text", whiteSpace: open ? "pre-wrap" : undefined, wordBreak: "break-all" }}>{l.text}</span>
+                <span className={css.sev} style={{ color: color(sevColor(l.severity)) }}>{l.severity}</span>
+                {l.timestamp && <span className={"caption muted num " + css.noShrink}>{new Date(l.timestamp).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</span>}
+                {l.httpStatus != null && l.httpStatus > 0 && <span className={"caption mono " + css.noShrink + " " + (l.httpStatus >= 500 ? css.red : "muted")}>{l.httpStatus}</span>}
+                <span className={"caption mono " + css.logText + " " + (open ? css.logTextOpen : "ellipsis")}>{l.text}</span>
               </div>
             );
           })}
@@ -315,20 +327,20 @@ function JobDetail({ j, st }: { j: GCPJob; st: GCPSettings }) {
     action<GCPLogEntry[]>("gcp_logs", { job: j.id, severity, hours: 168, limit: 100 }).then((l) => setLogs(Array.isArray(l) ? l : [])).catch((e) => setLErr("讀不到日誌:" + errMsg(e)));
   }, [j.id, severity]);
   return (
-    <div className="col" style={{ padding: 20, gap: 14, maxWidth: 980 }}>
-      <div className="row gap8" style={{ alignItems: "baseline" }}>
+    <div className={"col " + css.detail}>
+      <div className={css.baseline + " gap8"}>
         <span className="h2">{j.id}</span>{j.latest && <Pill text={"最近一次:" + execLabel(j.latest)} color={execColor(j.latest)} />}
         <span className="grow" /><button className="btn" onClick={() => openURL(consoleURL(st, undefined, j.id))}>在 Console 打開</button>
       </div>
       <Card title="最近的執行">
-        {eErr && <div className="caption" style={{ color: "var(--orange)" }}>{eErr}</div>}
+        {eErr && <div className={"caption " + css.warn}>{eErr}</div>}
         {executions ? executions.map((e) => (
           <div key={e.id} className="row gap8">
-            <span className="dot" style={{ width: 8, height: 8, background: color(execColor(e)) }} />
+            <StatusDot c={execColor(e)} />
             <span className="mono">{e.id}</span>
             <span className="caption" style={{ color: color(execColor(e)) }}>{execLabel(e)}</span>
             <span className="caption muted">{e.succeeded}/{e.tasks} 個工作成功</span>
-            {e.message && <span className="caption ellipsis" style={{ color: "var(--red)" }}>{e.message}</span>}
+            {e.message && <span className={"caption ellipsis " + css.red}>{e.message}</span>}
             <span className="grow" />
             {ghDuration(execDuration(e)) && <span className="caption muted">{ghDuration(execDuration(e))}</span>}
             {e.createdAt && <span className="caption muted">{relative(e.createdAt)}</span>}
@@ -336,7 +348,7 @@ function JobDetail({ j, st }: { j: GCPJob; st: GCPSettings }) {
         )) : !eErr && <Spinner />}
       </Card>
       <Card>
-        <div className="row"><span className="card-title">日誌(最近 7 天)</span><span className="grow" /><SeverityPicker v={severity} set={setSeverity} /></div>
+        <div className="row"><span className={cardTitleClass}>日誌(最近 7 天)</span><span className="grow" /><SeverityPicker v={severity} set={setSeverity} /></div>
         <LogList logs={logs} error={lErr} />
       </Card>
     </div>
@@ -353,27 +365,27 @@ function GCPSetup({ gcp }: { gcp: GCPView }) {
   const { busy, error, run } = useRun();
   const createURL = `https://console.cloud.google.com/auth/clients/create${gcp.settings?.project ? `?project=${encodeURIComponent(gcp.settings.project)}` : ""}`;
   return (
-    <div className="col" style={{ gap: 16 }}>
+    <div className={"col " + css.gap16}>
       <div className="row gap8 h2"><SIcon name="cloud" size={20} />連上 Google Cloud</div>
       <div className="muted">連上後,這裡會顯示 Cloud Run 服務的狀態、版本與流量、Job 的執行結果、錯誤日誌,以及請求量、5xx 與延遲;虛擬角色也能透過 MCP 讀。omixor 只讀(cloud-platform.read-only),不會部署、改流量或執行 Job。</div>
       {!gcp.configured && <Card title="專案"><SettingsForm st={gcp.settings} onSaved={() => undefined} /></Card>}
       {!conn ? (
-        <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => run(() => action("gcp_ensure_connection"))}>開始設定登入</button>
+        <button className={"btn primary " + css.selfStart} disabled={busy} onClick={() => run(() => action("gcp_ensure_connection"))}>開始設定登入</button>
       ) : !conn.oauth?.clientId || !conn.oauth?.hasClientSecret ? (
         <Card>
-          <div className="card-title">1. 在 Google Cloud 建一個 OAuth 用戶端(只要做一次)</div>
+          <div className={cardTitleClass}>1. 在 Google Cloud 建一個 OAuth 用戶端(只要做一次)</div>
           <div className="col gap4 muted">
             <span>• 按下面的按鈕打開 Google Auth Platform › 用戶端 › 建立用戶端。</span>
             <span>• 應用程式類型選「電腦版應用程式」(Desktop app),名稱填 omixor,按建立。</span>
             <span>• 第一次用的話會先要你設定 OAuth 同意畫面:使用者類型選「外部」,把你自己的 Google 帳號加進「測試使用者」。</span>
             <span>• 同意畫面在「測試」狀態時,登入大約 7 天會過期要重登;改成「正式版」(不用送審,自己用會看到未驗證警告)就不會。</span>
           </div>
-          <button className="btn" style={{ alignSelf: "flex-start" }} onClick={() => openURL(createURL)}>打開 Google Cloud 建立用戶端</button>
+          <button className={"btn " + css.selfStart} onClick={() => openURL(createURL)}>打開 Google Cloud 建立用戶端</button>
           <div className="divider" />
-          <div className="card-title">2. 把用戶端 ID 和用戶端密鑰貼到這裡</div>
+          <div className={cardTitleClass}>2. 把用戶端 ID 和用戶端密鑰貼到這裡</div>
           <input className="input" placeholder="用戶端 ID(….apps.googleusercontent.com)" value={clientId} onChange={(e) => setClientId(e.target.value)} />
           <input className="input" type="password" placeholder="用戶端密鑰(存在鑰匙圈)" value={secret} onChange={(e) => setSecret(e.target.value)} />
-          <button className="btn primary" style={{ alignSelf: "flex-start" }} disabled={busy || !clientId.trim() || (!secret && !conn.oauth?.hasClientSecret)} onClick={() => run(async () => {
+          <button className={"btn primary " + css.selfStart} disabled={busy || !clientId.trim() || (!secret && !conn.oauth?.hasClientSecret)} onClick={() => run(async () => {
             await action("connection_upsert", { ...conn, oauth: { ...conn.oauth, clientId: clientId.trim() } });
             if (secret.trim()) await action("connection_secret", { id: conn.id, secret: secret.trim() });
             setSecret("");
@@ -382,7 +394,7 @@ function GCPSetup({ gcp }: { gcp: GCPView }) {
         </Card>
       ) : (
         <Card>
-          <div className="card-title">用瀏覽器登入 Google</div>
+          <div className={cardTitleClass}>用瀏覽器登入 Google</div>
           <div className="muted">會打開 Google 的授權頁,選帳號、按允許後回到 omixor 就完成了。只要求唯讀權限(cloud-platform.read-only)。帳號需要這個專案的檢視權限。</div>
           <div className="row gap8">
             <button className="btn primary" disabled={busy || !!st?.busy} onClick={() => run(() => action("connection_login", { id: conn.id }))}>用瀏覽器登入</button>

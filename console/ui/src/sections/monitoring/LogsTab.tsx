@@ -3,10 +3,17 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useView } from "../../api";
-import { SearchField, StatusDot, ToggleChip, copyText, useContextMenu } from "../../components/bits";
+import { EmptyState } from "../../components/EmptyState";
 import { Icon } from "../../components/Icon";
-import { LOG_COLOR, LOG_LEVELS, arr, type LogEntry, type LogLevel, type Server, type Service } from "../../components/models";
-import { EmptyState, color } from "../../components/ui";
+import { iconButtonClass } from "../../components/IconButton";
+import { Dropdown, MenuList, useContextMenu } from "../../components/Menu";
+import { SearchField } from "../../components/SearchField";
+import { StatusDot } from "../../components/StatusDot";
+import { ToggleChip } from "../../components/ToggleChip";
+import { copyText } from "../../lib/clipboard";
+import { color } from "../../lib/color";
+import { LOG_COLOR, LOG_LEVELS, arr, type LogEntry, type LogLevel, type Server, type Service } from "../../models";
+import css from "./monitoring.module.css";
 import { useTimeRange } from "./MonitoringView";
 
 const label = (l: LogLevel) => l.toUpperCase();
@@ -123,32 +130,34 @@ export function LogsTab() {
     setQuery([trimmed, ...add].filter(Boolean).join(" "));
   };
   const toggle = (id: string) => setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const levelMenu = useContextMenu();
+  const levelMenu = useContextMenu("simple");
 
   if (err) return <EmptyState title="讀不到日誌" icon="exclamationmark.triangle" message={err} />;
 
   return (
-    <div className="col" style={{ flex: 1, minHeight: 0, padding: 20, gap: 12 }}>
+    <div className={"col " + css.fill + " " + css.tabBody}>
       <div className="row gap8">
-        <div className="grow row" style={{ position: "relative" }}>
-          <div style={{ flex: 1 }}><SearchField value={query} onChange={setQuery} mono placeholder="搜尋日誌,例如 level:error service:api-server timeout" /></div>
-          <button className="bx-icon-btn" title="查詢語法" onClick={() => setHelpOpen(!helpOpen)} style={{ position: "absolute", right: query ? 30 : 8 }}>
+        <div className={"grow row " + css.rel}>
+          <div className={css.flex1}><SearchField value={query} onChange={setQuery} mono placeholder="搜尋日誌,例如 level:error service:api-server timeout" /></div>
+          <button className={iconButtonClass.normal + " " + css.helpBtn} title="查詢語法" onClick={() => setHelpOpen(!helpOpen)} style={{ right: query ? 30 : 8 }}>
             <Icon name="questionmark.circle" size={14} />
           </button>
           {helpOpen && (
-            <div className="bx-menu" style={{ right: 0, top: 32 }} onMouseLeave={() => setHelpOpen(false)}>
-              <button className="menu-item" onClick={() => { addToken("level:error"); setHelpOpen(false); }}>只看錯誤 level:error</button>
-              <button className="menu-item" onClick={() => { addToken("level:warn level:error"); setHelpOpen(false); }}>警告以上 level:warn level:error</button>
-              <div className="menu-sep" />
-              {svcList.map((s) => <button key={s} className="menu-item" onClick={() => { addToken(`service:${s}`); setHelpOpen(false); }}>service:{s}</button>)}
-              <div className="menu-sep" />
-              <div className="caption muted" style={{ padding: "4px 8px", maxWidth: 300 }}>語法:level:、service:、host:、trace:,其餘文字比對訊息;前面加 - 代表排除</div>
-            </div>
+            <Dropdown className={css.helpMenu} onMouseLeave={() => setHelpOpen(false)}>
+              <MenuList checkColumn={false} close={() => setHelpOpen(false)} items={[
+                { label: "只看錯誤 level:error", onClick: () => addToken("level:error") },
+                { label: "警告以上 level:warn level:error", onClick: () => addToken("level:warn level:error") },
+                "sep",
+                ...svcList.map((s) => ({ label: <>service:{s}</>, onClick: () => addToken(`service:${s}`) })),
+                "sep",
+              ]} />
+              <div className={"caption muted " + css.helpText}>語法:level:、service:、host:、trace:,其餘文字比對訊息;前面加 - 代表排除</div>
+            </Dropdown>
           )}
         </div>
-        <button className={"btn" + (live ? " primary" : "")} style={live ? { background: "var(--green)", borderColor: "var(--green)" } : undefined}
+        <button className={"btn" + (live ? " primary " + css.liveOn : "")}
           title={live ? "停止即時追蹤" : "持續接收新日誌"} onClick={() => setLive(!live)}>
-          {live ? <StatusDot c="white" pulsing /> : <Icon name="dot.radiowaves.left.and.right" size={13} />} 即時追蹤
+          {live ? <StatusDot c="white" pulsing pulse="glow" /> : <Icon name="dot.radiowaves.left.and.right" size={13} />} 即時追蹤
         </button>
       </div>
       <div className="row gap8">
@@ -164,24 +173,24 @@ export function LogsTab() {
           {svcList.map((s) => <option key={s} value={s}>{svcName(s)}</option>)}
         </select>
       </div>
-      <div style={{ height: 110, flex: "none" }}>
+      <div className={css.histo}>
         <Histogram entries={base} selection={slice} onSelect={setSlice} />
       </div>
       <div className="row gap8 caption">
         <span className="muted num">{rows.length} 筆</span>
         {slice ? (
-          <span className="pill" style={{ background: "color-mix(in srgb, var(--accent) 12%, transparent)" }}>
+          <span className={css.slicePill}>
             <Icon name="clock" size={11} />
             {new Date(slice[0]).toLocaleTimeString("zh-TW", { hour12: false })}–{new Date(slice[1]).toLocaleTimeString("zh-TW", { hour12: false })}
-            <button className="bx-icon-btn" style={{ padding: 0 }} title="清除時間篩選" onClick={() => setSlice(undefined)}><Icon name="xmark.circle.fill" size={11} /></button>
+            <button className={iconButtonClass.normal + " " + css.p0} title="清除時間篩選" onClick={() => setSlice(undefined)}><Icon name="xmark.circle.fill" size={11} /></button>
           </span>
         ) : <span className="faint">點直方圖可只看該時段</span>}
         <div className="grow" />
         {expanded.size > 0 && <button className="btn link caption" onClick={() => setExpanded(new Set())}>全部收合</button>}
-        {live && <span style={{ color: "var(--green)" }}>已接收 {tailed.length} 筆新日誌</span>}
+        {live && <span className={css.green}>已接收 {tailed.length} 筆新日誌</span>}
       </div>
-      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", background: "var(--bg2)", borderRadius: "var(--r-xl)", border: "1px solid var(--line)" }}>
-        {logsRaw === undefined ? <div className="muted" style={{ padding: 20 }}>載入中…</div>
+      <div ref={listRef} className={css.logList}>
+        {logsRaw === undefined ? <div className={"muted " + css.pad20}>載入中…</div>
           : rows.length === 0 ? (
             <EmptyState title={all.length === 0 ? "沒有日誌" : "沒有符合條件的日誌"} icon="text.magnifyingglass"
               message={all.length === 0 ? "開啟「即時追蹤」開始接收日誌。" : "調整查詢、等級或時間範圍試試看。"} />
@@ -195,7 +204,7 @@ export function LogsTab() {
 
 function Histogram({ entries, selection, onSelect }: { entries: LogEntry[]; selection?: [number, number]; onSelect: (r?: [number, number]) => void }) {
   if (!entries.length) {
-    return <div className="row caption muted" style={{ height: "100%", justifyContent: "center", borderRadius: "var(--r-xl)", background: "color-mix(in srgb, var(--fg) 3%, transparent)" }}>這段時間沒有日誌</div>;
+    return <div className={"row caption muted " + css.histEmpty}>這段時間沒有日誌</div>;
   }
   const ts = entries.map((e) => new Date(e.date).getTime());
   const lo = Math.min(...ts), hi = Math.max(...ts);
@@ -214,7 +223,7 @@ function Histogram({ entries, selection, onSelect }: { entries: LogEntry[]; sele
     onSelect(selection && selection[0] === r[0] ? undefined : r);
   };
   return (
-    <div style={{ height: "100%" }} title="點一下長條只看該時段,再點一次取消">
+    <div className={css.full} title="點一下長條只看該時段,再點一次取消">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={bins} onClick={click} barCategoryGap={1} margin={{ top: 0, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="var(--line)" strokeOpacity={0.5} vertical={false} />
@@ -238,25 +247,22 @@ function LogRow({ e, expanded, serviceName, onToggle, onFilter }: { e: LogEntry;
   const lc = color(LOG_COLOR[e.level]);
   const line = `${e.date} ${label(e.level)} [${e.service}@${e.host}] ${e.message}` + (e.traceId ? ` trace=${e.traceId}` : "");
   return (
-    <div onClick={onToggle} className="mono" style={{
-      padding: "5px 10px", borderBottom: "1px solid color-mix(in srgb, var(--line) 40%, transparent)", fontSize: 12,
-      background: expanded ? "color-mix(in srgb, var(--accent) 7%, transparent)" : e.level === "error" ? "color-mix(in srgb, var(--red) 4%, transparent)" : undefined,
-    }}>
-      <div className="row" style={{ gap: 10, alignItems: "baseline" }}>
-        <span style={{ transform: expanded ? "rotate(90deg)" : undefined, display: "inline-flex", width: 10 }}><Icon name="chevron.right" size={9} className="faint" /></span>
-        <span className="muted" style={{ flex: "none" }}>{timeMs(e.date)}</span>
-        <span style={{ width: 44, flex: "none", textAlign: "center", fontSize: "var(--fs-xs)", fontWeight: 700, color: lc, background: `color-mix(in srgb, ${lc} 12%, transparent)`, borderRadius: "var(--r-sm)", padding: "1px 0" }}>{label(e.level)}</span>
-        <span className="ellipsis" style={{ width: 110, flex: "none", color: "var(--teal)" }}>{e.service}</span>
-        <span className={expanded ? "grow" : "grow ellipsis"} style={{ color: e.level === "error" ? "var(--red)" : e.level === "debug" ? "var(--fg2)" : undefined, whiteSpace: expanded ? "pre-wrap" : undefined }}>{e.message}</span>
+    <div onClick={onToggle} className={"mono " + css.logRow + (expanded ? " " + css.open : e.level === "error" ? " " + css.err : "")}>
+      <div className={"row " + css.logLine}>
+        <span className={css.chev + (expanded ? " " + css.chevOpen : "")}><Icon name="chevron.right" size={9} className="faint" /></span>
+        <span className={"muted " + css.none}>{timeMs(e.date)}</span>
+        <span className={css.level} style={{ color: lc, background: `color-mix(in srgb, ${lc} 12%, transparent)` }}>{label(e.level)}</span>
+        <span className={"ellipsis " + css.svc}>{e.service}</span>
+        <span className={(expanded ? "grow " + css.preWrap : "grow ellipsis") + (e.level === "error" ? " " + css.red : e.level === "debug" ? " " + css.fg2 : "")}>{e.message}</span>
       </div>
       {expanded && (
-        <div className="col gap6" style={{ padding: "6px 0 4px 20px" }} onClick={(ev) => ev.stopPropagation()}>
-          <div className="bx-grid-table" style={{ gridTemplateColumns: "auto 1fr", rowGap: 4 }}>
+        <div className={"col gap6 " + css.detail} onClick={(ev) => ev.stopPropagation()}>
+          <div className={css.kv}>
             {([["時間", e.date], ["服務", `${e.service}(${serviceName})`], ["主機", e.host], ["Trace ID", e.traceId ?? "—"]] as const).map(([k, v]) => (
-              <Fragment key={k}><span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{k}</span><span style={{ userSelect: "text" }}>{v}</span></Fragment>
+              <Fragment key={k}><span className={"muted " + css.xs}>{k}</span><span className={css.selectable}>{v}</span></Fragment>
             ))}
           </div>
-          <div className="row gap8 caption" style={{ fontFamily: "inherit" }}>
+          <div className={"row gap8 caption " + css.inheritFont}>
             {e.traceId && <button className="btn link caption" onClick={() => onFilter(`trace:${e.traceId}`)}><Icon name="point.3.connected.trianglepath.dotted" size={11} />看同一個 trace</button>}
             <button className="btn link caption" onClick={() => onFilter(`service:${e.service}`)}><Icon name="shippingbox" size={11} />只看這個服務</button>
             <button className="btn link caption" onClick={() => onFilter(`host:${e.host}`)}><Icon name="server.rack" size={11} />只看這台主機</button>

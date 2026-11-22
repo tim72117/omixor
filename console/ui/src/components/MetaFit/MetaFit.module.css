@@ -1,0 +1,8 @@
+/* MetaFit:佔掉資訊行(全域 .meta)剩餘寬度,放不下的項目整個拿掉(標籤以「+N」表示),不平均壓扁 */
+:global(.meta) > .fit { flex: 1 1 0; min-width: 0; }
+.fit { position: relative; display: flex; align-items: center; gap: inherit; min-width: 0; overflow: hidden; }
+.fit > * { flex-shrink: 0; white-space: nowrap; }
+.fit > .shrink { flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; }
+.measure { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: inherit; width: max-content; visibility: hidden; pointer-events: none; white-space: nowrap; }
+.measure > * { flex-shrink: 0; }
+.more { font-size: var(--fs-xs); color: var(--fg2); padding: 1px 6px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--fg) 7%, transparent); }

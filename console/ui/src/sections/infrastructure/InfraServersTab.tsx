@@ -1,12 +1,29 @@
 // 伺服器分頁:篩選列、主機卡片格線、右側詳細面板(Swift 的 InfraServersTab.swift + InfraServerDetail.swift)
 import { useEffect, useState } from "react";
 import { action, tool } from "../../api";
-import { Card, color, EmptyState, Pill } from "../../components/ui";
-import {
-  copyText, ENV, ENV_ORDER, EnvBadge, HEALTH, HEALTH_ORDER, HealthBadge, SearchField, SERIES_COLORS, SeriesChart, SIcon, Sparkline, StatusDot,
-  UsageBar, useAct, useConfirm, useOmixor, useWidth, type EnvKey, type HealthKey, type Server,
-} from "../../components/omixorKit";
+import { EnvBadge, HealthBadge } from "../../components/Badge";
+import { Card, cardTitleClass } from "../../components/Card";
+import { SeriesChart, Sparkline } from "../../components/charts";
+import { SERIES_COLORS } from "../../components/charts/theme";
+import { useConfirm } from "../../components/Confirm";
+import { EmptyState } from "../../components/EmptyState";
+import { iconButtonClass } from "../../components/IconButton";
+import { Pill } from "../../components/Pill";
+import { UsageBar } from "../../components/ProgressBar";
+import { SearchField } from "../../components/SearchField";
+import { SIcon } from "../../components/SIcon";
+import { StatusDot } from "../../components/StatusDot";
+import { useAct } from "../../components/Toast";
+import { copyText } from "../../lib/clipboard";
+import { color } from "../../lib/color";
+import { useOmixor } from "../../lib/directory";
+import { useWidth } from "../../lib/hooks";
+import { ENV, ENV_ORDER, HEALTH, HEALTH_ORDER, type EnvKey, type HealthKey, type Server } from "../../models";
 import { Chip, SectionHeader, usageColor } from "./infraShared";
+import css from "./infrastructure.module.css";
+import { layoutClass } from "../../components/Layout";
+import { tileClass } from "../../components/Tile";
+import { tableClass } from "../../components/Table";
 
 export function InfraServersTab({ selection, setSelection, servers, onOpenService }: { selection?: string; setSelection: (id?: string) => void; servers: Server[]; onOpenService: (id: string) => void }) {
   const o = useOmixor();
@@ -37,9 +54,9 @@ export function InfraServersTab({ selection, setSelection, servers, onOpenServic
   const avgCPU = items.length ? items.reduce((a, s) => a + s.cpu, 0) / items.length : 0;
   const sel = servers.find((s) => s.id === selection);
   return (
-    <div className="ox-page">
-      <div className="row wrap" style={{ gap: 10, padding: "10px 16px", borderBottom: "1px solid var(--line)" }}>
-        <SearchField value={search} onChange={setSearch} placeholder="搜尋名稱、角色、IP、標籤" style={{ minWidth: 140, maxWidth: 240, flex: 1 }} />
+    <div className={layoutClass.page}>
+      <div className={"row wrap " + css.filterBar}>
+        <SearchField variant="filled" value={search} onChange={setSearch} placeholder="搜尋名稱、角色、IP、標籤" className={css.serverSearch} />
         <select className="select" title="環境" value={envFilter} onChange={(e) => setEnvFilter(e.target.value as EnvKey | "")}>
           <option value="">全部環境</option><option disabled>──────</option>{ENV_ORDER.map((e) => <option key={e} value={e}>{ENV[e].label}</option>)}
         </select>
@@ -53,21 +70,21 @@ export function InfraServersTab({ selection, setSelection, servers, onOpenServic
         <span className="grow" />
         <span className="row gap12 muted num">
           <span>{items.length} 台</span>
-          {down > 0 && <span className="row gap4" style={{ color: "var(--red)" }}><SIcon name="xmark.octagon.fill" size={12} color="red" />{down} 中斷</span>}
-          {degraded > 0 && <span className="row gap4" style={{ color: "var(--orange)" }}><SIcon name="exclamationmark.triangle.fill" size={12} color="orange" />{degraded} 效能下降</span>}
+          {down > 0 && <span className={"row gap4 " + css.red}><SIcon name="xmark.octagon.fill" size={12} color="red" />{down} 中斷</span>}
+          {degraded > 0 && <span className={"row gap4 " + css.warn}><SIcon name="exclamationmark.triangle.fill" size={12} color="orange" />{degraded} 效能下降</span>}
           <span>平均 CPU {Math.trunc(avgCPU)}%</span>
         </span>
       </div>
-      <div ref={ref} className="ox-fill">
+      <div ref={ref} className={layoutClass.fill}>
         {items.length === 0 ? <EmptyState title="沒有符合的主機" icon="line.3.horizontal.decrease.circle" message="調整環境、區域或狀態篩選。" /> : (
-          <div className="ox-scroll" style={{ padding: 16 }}>
-            <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))" }}>
+          <div className={layoutClass.scroll + " " + css.pad16}>
+            <div className={css.hostGrid}>
               {items.map((s) => <HostCard key={s.id} s={s} selected={s.id === selection} drained={drained.has(s.id)} onClick={() => setSelection(selection === s.id ? undefined : s.id)} />)}
             </div>
           </div>
         )}
         {sel && (
-          <div style={{ width: Math.min(480, Math.max(330, w * 0.45)), flex: "none", borderLeft: "1px solid var(--line)", overflowY: "auto", background: "var(--bg)" }}>
+          <div className={css.sidePanel} style={{ width: Math.min(480, Math.max(330, w * 0.45)) }}>
             <ServerDetail key={sel.id} s={sel} drained={drained.has(sel.id)} setDrained={(v) => setDrained((d) => { const n = new Set(d); if (v) n.add(sel.id); else n.delete(sel.id); return n; })}
               onClose={() => setSelection(undefined)} onOpenService={onOpenService} />
           </div>
@@ -81,19 +98,19 @@ function HostCard({ s, selected, drained, onClick }: { s: Server; selected: bool
   const bad = s.containers.filter((c) => c.status !== "healthy").length;
   const hc = color(HEALTH[s.health].color);
   return (
-    <button className="ox-tile col gap8" onClick={onClick} style={{ padding: 12, borderRadius: "var(--r-xl)", background: "var(--bg2)", border: selected ? "2px solid var(--accent)" : `1px solid ${s.health === "healthy" ? "var(--line)" : `color-mix(in srgb, ${hc} 45%, transparent)`}` }}>
-      <div className="row" style={{ gap: 7, width: "100%" }}>
+    <button className={tileClass + " col gap8 " + css.hostCard} onClick={onClick} style={{ border: selected ? "2px solid var(--accent)" : `1px solid ${s.health === "healthy" ? "var(--line)" : `color-mix(in srgb, ${hc} 45%, transparent)`}` }}>
+      <div className={"row " + css.hostHead}>
         <StatusDot c={HEALTH[s.health].color} pulsing={s.health === "down"} />
-        <span className="card-title ellipsis">{s.name}</span><span className="grow" />
+        <span className={cardTitleClass + " ellipsis"}>{s.name}</span><span className="grow" />
         {drained && <Pill text="已排空" color="blue" icon="drop.triangle" />}
         <EnvBadge env={s.env} />
       </div>
-      <span className="caption muted ellipsis" style={{ width: "100%" }}>{s.role} · {s.provider} {s.region}</span>
-      <div className="col gap4" style={{ width: "100%" }}><UsageBar value={s.cpu} label="CPU" /><UsageBar value={s.memory} label="RAM" /><UsageBar value={s.disk} label="磁碟" /></div>
-      {s.cpuSeries.length > 1 && <div style={{ width: "100%", pointerEvents: "none" }}><Sparkline values={s.cpuSeries.slice(-30).map((p) => p.value)} c={usageColor(s.cpu)} /></div>}
-      <div className="row caption muted" style={{ width: "100%", gap: 6 }}>
+      <span className={"caption muted ellipsis " + css.full}>{s.role} · {s.provider} {s.region}</span>
+      <div className={"col gap4 " + css.full}><UsageBar value={s.cpu} label="CPU" /><UsageBar value={s.memory} label="RAM" /><UsageBar value={s.disk} label="磁碟" /></div>
+      {s.cpuSeries.length > 1 && <div className={css.spark}><Sparkline values={s.cpuSeries.slice(-30).map((p) => p.value)} c={usageColor(s.cpu)} /></div>}
+      <div className={"row caption muted gap6 " + css.full}>
         <SIcon name="shippingbox" size={12} />{s.containers.length} 個容器
-        {bad > 0 && <span style={{ color: "var(--orange)" }}>{bad} 異常</span>}
+        {bad > 0 && <span className={css.warn}>{bad} 異常</span>}
         <span className="grow" />運作 {s.uptimeDays} 天
       </div>
     </button>
@@ -108,13 +125,13 @@ function ServerDetail({ s, drained, setDrained, onClose, onOpenService }: { s: S
   const post = (icon: string, text: string) => tool("activity_post", { icon, text, section: "infrastructure" });
   const list = o.services.filter((x) => x.hostIds.includes(s.id));
   const liveStat = (title: string, v: string, c: string) => (
-    <div className="col" style={{ gap: 1 }}><span className="row gap4 caption muted"><span className="dot" style={{ width: 6, height: 6, background: color(c) }} />{title}</span><span className="num" style={{ fontSize: "var(--fs-lg)", fontWeight: 500 }}>{v}</span></div>
+    <div className={"col " + css.gap1}><span className="row gap4 caption muted"><StatusDot c={c} size={6} />{title}</span><span className={"num " + css.statValue}>{v}</span></div>
   );
-  const spec = (k: string, v: string, mono?: boolean) => <><span className="muted">{k}</span><span className={mono ? "mono" : undefined} style={{ userSelect: "text" }}>{v}</span></>;
+  const spec = (k: string, v: string, mono?: boolean) => <><span className="muted">{k}</span><span className={(mono ? "mono " : "") + css.selectable}>{v}</span></>;
   return (
-    <div className="col" style={{ padding: 16, gap: 14 }}>
+    <div className={"col " + css.serverDetail}>
       <div className="col gap6">
-        <div className="row gap8"><span className="h3 ellipsis" style={{ userSelect: "text" }}>{s.name}</span><span className="grow" /><button className="ox-icon-btn" title="關閉" onClick={onClose}><SIcon name="xmark" /></button></div>
+        <div className="row gap8"><span className={"h3 ellipsis " + css.selectable}>{s.name}</span><span className="grow" /><button className={iconButtonClass.bare} title="關閉" onClick={onClose}><SIcon name="xmark" /></button></div>
         <div className="row gap6"><HealthBadge h={s.health} /><EnvBadge env={s.env} />{drained && <Pill text="已排空" color="blue" icon="drop.triangle" />}</div>
         <span className="muted">{s.role}</span>
       </div>
@@ -131,15 +148,15 @@ function ServerDetail({ s, drained, setDrained, onClose, onOpenService }: { s: S
         })}><SIcon name="restart" size={12} />重新開機</button>
       </div>
       <Card>
-        <div className="row"><span className="card-title">即時資源</span><span className="grow" /><span className="row gap4 caption muted"><StatusDot c="green" pulsing />每 3 秒更新</span></div>
-        <div className="row" style={{ gap: 18 }}>{liveStat("CPU", `${Math.trunc(s.cpu)}%`, "blue")}{liveStat("記憶體", `${Math.trunc(s.memory)}%`, "purple")}{liveStat("網路", `${Math.trunc(s.networkMbps)} Mbps`, "teal")}</div>
+        <div className="row"><span className={cardTitleClass}>即時資源</span><span className="grow" /><span className="row gap4 caption muted"><StatusDot c="green" pulsing />每 3 秒更新</span></div>
+        <div className={"row " + css.gap18}>{liveStat("CPU", `${Math.trunc(s.cpu)}%`, "blue")}{liveStat("記憶體", `${Math.trunc(s.memory)}%`, "purple")}{liveStat("網路", `${Math.trunc(s.networkMbps)} Mbps`, "teal")}</div>
         {s.cpuSeries.length > 1 || s.memorySeries.length > 1
           ? <SeriesChart series={[{ name: "CPU", points: s.cpuSeries }, { name: "記憶體", points: s.memorySeries }]} colors={[SERIES_COLORS[0], SERIES_COLORS[3]]} height={170} threshold={85} yDomain={[0, 100]} yFormat={(v) => `${v.toFixed(0)}%`} />
-          : <div className="faint" style={{ minHeight: 80, textAlign: "center" }}>等待資料…</div>}
+          : <div className={"faint " + css.waiting}>等待資料…</div>}
         <UsageBar value={s.disk} label="磁碟" />
       </Card>
       <Card title="規格">
-        <div className="ox-kbd-row">
+        <div className={css.kbdRow}>
           {spec("供應商", s.provider)}{spec("區域", s.region)}{spec("作業系統", s.os)}{spec("IP", s.ip, true)}
           {spec("CPU", `${s.cores} 核心`)}{spec("記憶體", `${s.memoryGB} GB`)}{spec("運作時間", s.uptimeDays === 0 ? "剛重新開機" : `${s.uptimeDays} 天`)}
         </div>
@@ -152,16 +169,16 @@ function ServerDetail({ s, drained, setDrained, onClose, onOpenService }: { s: S
       <Card>
         <SectionHeader title="容器" trailing={`${s.containers.length} 個`} />
         {s.containers.length === 0 ? <span className="faint">沒有執行中的容器</span> : (
-          <table className="ox-table">
-            <thead><tr><th style={{ background: "transparent" }}>名稱</th><th style={{ background: "transparent" }}>狀態</th><th style={{ background: "transparent", textAlign: "right" }}>重啟</th><th style={{ background: "transparent", textAlign: "right" }}>CPU</th><th style={{ background: "transparent", textAlign: "right" }}>記憶體</th></tr></thead>
+          <table className={tableClass.data + " " + tableClass.clearHead}>
+            <thead><tr><th>名稱</th><th>狀態</th><th className={css.right}>重啟</th><th className={css.right}>CPU</th><th className={css.right}>記憶體</th></tr></thead>
             <tbody>
               {s.containers.map((c) => (
                 <tr key={c.id}>
-                  <td style={{ maxWidth: 180 }}><div className="col" style={{ gap: 1 }}><span className="ellipsis" style={{ fontWeight: 500 }}>{c.name}</span><span className="mono muted ellipsis" style={{ fontSize: "var(--fs-xs)" }} title={c.image}>{c.image}</span></div></td>
+                  <td className={css.nameCell}><div className={"col " + css.gap1}><span className={"ellipsis " + css.medium}>{c.name}</span><span className={"mono muted ellipsis " + css.monoXs} title={c.image}>{c.image}</span></div></td>
                   <td><HealthBadge h={c.status} compact /></td>
-                  <td className="num" style={{ textAlign: "right", color: c.restarts > 3 ? "var(--orange)" : undefined, fontWeight: c.restarts > 3 ? 600 : undefined }}>{c.restarts}</td>
-                  <td className="num" style={{ textAlign: "right" }}>{c.cpu.toFixed(0)}%</td>
-                  <td className="num" style={{ textAlign: "right" }}>{c.memoryMB >= 1024 ? `${(c.memoryMB / 1024).toFixed(1)} GB` : `${c.memoryMB.toFixed(0)} MB`}</td>
+                  <td className={"num " + css.right + (c.restarts > 3 ? " " + css.restartsHigh : "")}>{c.restarts}</td>
+                  <td className={"num " + css.right}>{c.cpu.toFixed(0)}%</td>
+                  <td className={"num " + css.right}>{c.memoryMB >= 1024 ? `${(c.memoryMB / 1024).toFixed(1)} GB` : `${c.memoryMB.toFixed(0)} MB`}</td>
                 </tr>
               ))}
             </tbody>
@@ -170,7 +187,7 @@ function ServerDetail({ s, drained, setDrained, onClose, onOpenService }: { s: S
       </Card>
       {s.tags.length > 0 && (
         <Card title="標籤">
-          <div className="row gap6 wrap">{s.tags.map((t) => <span key={t} className="mono" style={{ fontSize: "var(--fs-xs)", padding: "3px 7px", borderRadius: "var(--r-sm)", background: "color-mix(in srgb, var(--fg) 6%, transparent)" }}>{t}</span>)}</div>
+          <div className="row gap6 wrap">{s.tags.map((t) => <span key={t} className={css.tag}>{t}</span>)}</div>
         </Card>
       )}
       {dlg}{toastEl}

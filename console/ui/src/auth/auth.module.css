@@ -1,0 +1,39 @@
+/* auth/ 自己的樣式:登入頁、選擇連接對象、沒有組織的畫面與側欄左下角的帳號區(原本是 styles.css 的 login-* / connect-* / account-*) */
+
+/* 讀取中(原 .empty) */
+.loading { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 40px; color: var(--fg2); }
+
+/* 登入頁、選擇連接對象、沒有組織:置中的卡片 */
+.bg { height: 100%; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+.card { width: 320px; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 28px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.12); }
+/* 權重提高到 0,3,0:原本 .login-card .btn 寫在 .btn.link 後面,蓋過它的 padding / min-height */
+.card.card :global(.input) { height: var(--h-lg); padding: 0 12px; font-size: var(--fs-md); }
+.card.card :global(.btn) { min-height: var(--h-lg); padding: 4px 7px; font-size: var(--fs-md); }
+.connectCard { width: 380px; max-width: calc(100vw - 32px); }
+.option { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-xl); color: inherit; text-align: left; cursor: pointer; }
+.option:hover { border-color: var(--accent); background: var(--bg3); }
+.center { justify-content: center; }
+.centerText { text-align: center; }
+.waiting { align-items: center; padding: 14px 0; }
+
+/* 側欄左下角的帳號區 */
+.box { position: relative; border-top: 1px solid var(--line); padding-top: 4px; }
+.current { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: none; border: 0; border-radius: var(--r-md); color: inherit; cursor: pointer; }
+.current:hover { background: var(--bg2); }
+.currentText { text-align: left; }
+.errDot { width: 7px; height: 7px; border-radius: var(--r-pill); display: inline-block; background: var(--orange); }
+.logout { display: flex; align-items: center; justify-content: center; gap: 6px; width: calc(100% - 16px); margin: 2px 8px 4px; padding: 4px 8px; background: none; border: 1px solid var(--line); border-radius: var(--r-md); color: inherit; cursor: pointer; font-size: var(--fs-base); }
+.logout:hover:not(:disabled) { background: var(--bg3); }
+.logout:disabled { opacity: .45; }
+/* 往上展開的選單(Dropdown,貼齊側邊欄寬度;項目可換行) */
+.menu { z-index: 20; left: 4px; right: 4px; bottom: 100%; margin-bottom: 4px; min-width: 0; }
+.wrap { flex-wrap: wrap; }
+.note6 { padding: 6px 10px; }
+.note4 { padding: 4px 10px; }
+.note2 { padding: 2px 10px; }
+.err { padding: 2px 10px; color: var(--red); }
+
+/* 設定 › 認證 */
+.settings { max-width: 760px; }
+.warn { color: var(--orange); }
+.ok { color: var(--green); }

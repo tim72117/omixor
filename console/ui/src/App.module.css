@@ -1,0 +1,10 @@
+/* App 骨架(側邊欄、工具列)自己的樣式;共用骨架 .app/.sidebar/.toolbar/.feature-notice… 仍在 styles.css */
+.spacer { flex: 1; }
+.toolbar { position: relative; }
+.toolbarRight { position: absolute; right: 12px; }
+.loading { padding: 20px; }
+.warn { color: var(--orange); }
+
+/* 組織切換選單(Dropdown,貼齊側邊欄寬度) */
+.orgMenu { z-index: 20; left: 4px; right: 4px; top: 36px; min-width: 0; }
+

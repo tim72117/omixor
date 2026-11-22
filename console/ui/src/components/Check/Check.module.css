@@ -1,0 +1,2 @@
+.check { font-size: var(--fs-base); cursor: default; white-space: nowrap; }
+.check input { margin: 0; }

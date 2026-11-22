@@ -2,11 +2,18 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { action, useView } from "../../api";
-import { Spinner, hm, useStored } from "../../components/bits";
+import { Card, cardClass } from "../../components/Card";
+import { EmptyState } from "../../components/EmptyState";
 import { Icon } from "../../components/Icon";
-import type { ConnectionsView } from "../../components/models";
-import { Card, EmptyState, Pill, Segmented } from "../../components/ui";
+import { Pill } from "../../components/Pill";
+import { Segmented } from "../../components/Segmented";
+import { Spinner } from "../../components/Spinner";
+import { hm } from "../../lib/format";
+import { useStored } from "../../lib/hooks";
+import type { ConnectionsView } from "../../models";
+import css from "./monitoring.module.css";
 import { relative } from "../../fmt";
+import { disclosureClass } from "../../components/Disclosure";
 
 // MARK: 模型(Visitors/SiteVisitors.swift;缺欄位一律用預設值)
 type SiteCount = { name: string; count: number };
@@ -121,10 +128,10 @@ export function VisitorsTab() {
           <div className="grow" />
           <Segmented value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r.id, label: r.label }))} />
           <button className="btn" title="重新整理" disabled={loading || !loggedIn} onClick={load}>{loading ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={13} />}</button>
-          {updatedAt && <span className="caption muted" style={{ whiteSpace: "nowrap" }}>{hm(updatedAt)}</span>}
+          {updatedAt && <span className={"caption muted " + css.nowrap}>{hm(updatedAt)}</span>}
         </div>
-        {(cvErr || loginErr) && <Card><span className="row gap6" style={{ color: "var(--orange)" }}><Icon name="exclamationmark.triangle.fill" size={13} />{loginErr ?? `讀不到連線:${cvErr}`}</span></Card>}
-        {error && <Card><span className="row gap6" style={{ color: "var(--orange)", userSelect: "text" }}><Icon name="exclamationmark.triangle.fill" size={13} />{error}</span></Card>}
+        {(cvErr || loginErr) && <Card><span className={"row gap6 " + css.orange}><Icon name="exclamationmark.triangle.fill" size={13} />{loginErr ?? `讀不到連線:${cvErr}`}</span></Card>}
+        {error && <Card><span className={"row gap6 " + css.orange + " " + css.selectable}><Icon name="exclamationmark.triangle.fill" size={13} />{error}</span></Card>}
         {data ? <Body d={data} range={range} /> : !loading && !error && (
           <Card><EmptyState title="還沒有資料" icon="person.3" message={loggedIn ? "按「重新整理」讀取。" : "先登入連線,才能以管理員身分讀取訪客統計。"} /></Card>
         )}
@@ -146,7 +153,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
 
   return (
     <>
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+      <div className={"grid " + css.kpiGrid}>
         <Kpi title={range === "all" ? "會員" : "新會員"} value={d.users} sub={`有進度 ${d.activeUsers}`} />
         <Kpi title="訪客" value={d.guests} sub="不同的訪客代號" />
         <Kpi title="課程頁打開" value={f.tracked} sub={`真人;爬蟲另有 ${f.bots}`} />
@@ -154,7 +161,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
         <Kpi title="首頁造訪" value={g.homeVisits} sub={`登入頁 ${g.login.visits} 次`} />
       </div>
       <Card title="訪客漏斗" subtitle="未登入的真人打開課程頁 → 播放器載入完成 → 有播放(有播放器的課加總;不含爬蟲與登入門檻)">
-        <div style={{ height: 130 }}>
+        <div className={css.funnel}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={steps} layout="vertical" margin={{ left: 0, right: 90, top: 0, bottom: 0 }}>
               <XAxis type="number" hide />
@@ -169,19 +176,19 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
       </Card>
       <Card title="各課概況" subtitle="訪客的漏斗與會員的進度;只列有紀錄的課">
         {rows.length === 0 ? <span className="muted">這段時間沒有紀錄</span> : (
-          <div className="hscroll"><div className="bx-grid-table num" style={{ gridTemplateColumns: "minmax(120px, 2fr) repeat(10, auto)", justifyItems: "end" }}>
+          <div className="hscroll"><div className={"num " + css.gridTable + " " + css.lessonTable}>
             {["課", "訪客", "打開", "載入", "播放", "失敗", "平均載入", "訪客播放", "會員", "看完", "平均進度"].map((h, i) => (
-              <span key={h} className="h" style={i === 0 ? { justifySelf: "start" } : undefined}>{h}</span>
+              <span key={h} className={css.h + (i === 0 ? " " + css.jStart : "")}>{h}</span>
             ))}
-            <span className="sep" />
+            <span className={css.sep} />
             {rows.map((l) => (
               <Fragment key={l.lesson}>
-                <span className="mono" style={{ justifySelf: "start" }}>{l.lesson}</span>
+                <span className={"mono " + css.jStart}>{l.lesson}</span>
                 <span>{l.guestVisitors}</span>
                 <span>{l.guestTracked}</span>
                 <span>{pct(l.guestReady, l.guestTracked)}</span>
-                <span style={{ color: l.guestTracked > 0 && l.guestPlayed * 2 < l.guestTracked ? "var(--orange)" : undefined }}>{pct(l.guestPlayed, l.guestTracked)}</span>
-                <span style={{ color: l.guestFailed > 0 ? "var(--red)" : "var(--fg2)" }}>{l.guestFailed > 0 ? l.guestFailed : "—"}</span>
+                <span className={l.guestTracked > 0 && l.guestPlayed * 2 < l.guestTracked ? css.orange : undefined}>{pct(l.guestPlayed, l.guestTracked)}</span>
+                <span className={l.guestFailed > 0 ? css.red : css.fg2}>{l.guestFailed > 0 ? l.guestFailed : "—"}</span>
                 <span>{l.guestReadyAvgMs > 0 ? ms(l.guestReadyAvgMs) : "—"}</span>
                 <span>{l.guestWatchedMs > 0 ? ms(l.guestWatchedMs) : "—"}</span>
                 <span>{l.learners}</span>
@@ -192,7 +199,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
           </div></div>
         )}
       </Card>
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", alignItems: "start" }}>
+      <div className={"grid " + css.countGrid}>
         <CountCard title="裝置" subtitle="每種裝置打開幾次(含爬蟲)" items={g.devices} />
         <CountCard title="進站來源" subtitle="真人從哪裡進來" items={g.sources} />
         <CountCard title="沒播放的停留" subtitle="打開後沒播放,頁面在前景多久" items={g.idleVisible} />
@@ -203,9 +210,9 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
         {g.homePaths.length === 0 ? <span className="caption muted">沒有資料</span> : (
           <div className="col gap6">
             {g.homePaths.map((p, i) => (
-              <div key={i} className="row gap8" style={{ alignItems: "baseline" }}>
-                <span className="num" style={{ width: 52, textAlign: "right", fontWeight: 600, flex: "none" }}>{p.count} 次</span>
-                <span className="mono grow" style={{ userSelect: "text" }}>{p.steps.map((st) => (st.played ? "▶ " : "") + st.lesson).join("  →  ")}</span>
+              <div key={i} className={"row gap8 " + css.baseline}>
+                <span className={"num " + css.pathCount}>{p.count} 次</span>
+                <span className={"mono grow " + css.selectable}>{p.steps.map((st) => (st.played ? "▶ " : "") + st.lesson).join("  →  ")}</span>
                 {p.played > 0 && <Pill text={`有播放 ${p.played}`} color="green" />}
               </div>
             ))}
@@ -215,19 +222,19 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
       <Card title="首頁停留" subtitle="每個真人訪客在首頁停留多久(頁面在前景的時間),最近來過的在前">
         {g.homeStays.length === 0 ? <span className="caption muted">沒有資料</span> : (
           <>
-            <div className="hscroll"><div className="bx-grid-table num" style={{ gridTemplateColumns: "repeat(4, auto) repeat(4, auto)", justifyContent: "start" }}>
-              {["最後造訪", "訪客", "裝置", "來源", "次數", "合計", "最長", "捲動"].map((h) => <span key={h} className="h">{h}</span>)}
-              <span className="sep" />
+            <div className="hscroll"><div className={"num " + css.gridTable + " " + css.stayTable}>
+              {["最後造訪", "訪客", "裝置", "來源", "次數", "合計", "最長", "捲動"].map((h) => <span key={h} className={css.h}>{h}</span>)}
+              <span className={css.sep} />
               {g.homeStays.slice(0, 20).map((h, i) => (
                 <Fragment key={i}>
                   <span>{h.lastOpened ? relative(h.lastOpened) : "—"}</span>
                   <span className="mono">{h.guest}</span>
                   <span>{h.device}</span>
                   <span className="ellipsis">{h.source || "直接"}</span>
-                  <span style={{ justifySelf: "end" }}>{h.visits}</span>
-                  <span style={{ justifySelf: "end" }}>{ms(h.totalMs)}</span>
-                  <span style={{ justifySelf: "end" }}>{ms(h.longestMs)}</span>
-                  <span style={{ justifySelf: "end" }}>{h.maxScroll}%</span>
+                  <span className={css.jEnd}>{h.visits}</span>
+                  <span className={css.jEnd}>{ms(h.totalMs)}</span>
+                  <span className={css.jEnd}>{ms(h.longestMs)}</span>
+                  <span className={css.jEnd}>{h.maxScroll}%</span>
                 </Fragment>
               ))}
             </div></div>
@@ -236,7 +243,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
         )}
       </Card>
       <Card title="登入／註冊頁" subtitle={`訪客打開登入頁 ${g.login.visits} 次;Google 按鈕載入 ${g.login.googleReady} 次(平均 ${g.login.googleReadyAvgMs > 0 ? ms(g.login.googleReadyAvgMs) : "—"}),失敗 ${g.login.googleFailed} 次`}>
-        <div className="grid g4" style={{ alignItems: "start" }}>
+        <div className={"grid g4 " + css.alignStart}>
           <MiniList title="結果" items={g.login.outcomes} />
           <MiniList title="登入後要去" items={g.login.next} />
           <MiniList title="失敗訊息" items={g.login.fails} />
@@ -247,19 +254,19 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
         {g.idleVisits.length === 0 ? <span className="caption muted">沒有資料</span> : (
           <div className="col gap4">
             {g.idleVisits.map((v, i) => (
-              <details key={i} className="bx-disclosure">
-                <summary style={{ flexWrap: "wrap" }}>
-                  <span className="caption muted" style={{ width: 70 }}>{v.openedAt ? relative(v.openedAt) : "—"}</span>
+              <details key={i} className={disclosureClass.chevron}>
+                <summary className="wrap">
+                  <span className={"caption muted " + css.w70}>{v.openedAt ? relative(v.openedAt) : "—"}</span>
                   <span className="mono">{v.lesson}</span>
                   <span className="caption muted">{v.device} · {v.source || "直接"}</span>
                   <span className="caption muted">前景 {ms(v.visibleMs)}</span>
                   {v.loadError ? <Pill text={v.loadError} color="red" /> : v.readyMs > 0 ? <span className="caption muted">載入 {ms(v.readyMs)}</span> : null}
                 </summary>
-                <div className="col" style={{ paddingLeft: 24, gap: 2 }}>
+                <div className={"col " + css.steps}>
                   {v.events.length === 0 ? <span className="caption muted">沒有足跡</span> : v.events.map((e, j) => (
                     <span key={j} className="row gap8 mono caption">
-                      <span className="muted" style={{ width: 70, textAlign: "right" }}>{ms(e.t)}</span>
-                      <span style={{ userSelect: "text" }}>{e.e}</span>
+                      <span className={"muted " + css.w70 + " " + css.right}>{ms(e.t)}</span>
+                      <span className={css.selectable}>{e.e}</span>
                     </span>
                   ))}
                 </div>
@@ -274,9 +281,9 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
 
 function Kpi({ title, value, sub }: { title: string; value: ReactNode; sub: string }) {
   return (
-    <div className="card" style={{ gap: 4 }}>
+    <div className={cardClass + " " + css.kpi}>
       <span className="caption muted">{title}</span>
-      <span className="num ellipsis" style={{ fontSize: "var(--fs-2xl)", fontWeight: 600 }}>{value}</span>
+      <span className={"num ellipsis " + css.kpiValue}>{value}</span>
       <span className="caption muted ellipsis">{sub}</span>
     </div>
   );
@@ -289,9 +296,9 @@ function CountCard({ title, subtitle, items }: { title: string; subtitle: string
       {items.length === 0 ? <span className="caption muted">沒有資料</span> : (
         <div className="col gap6">
           {items.map((c, i) => (
-            <div key={i} className="col" style={{ gap: 2 }}>
+            <div key={i} className={"col " + css.gap2}>
               <div className="row caption"><span className="ellipsis grow">{label(c.name)}</span><span className="muted num">{c.count}</span></div>
-              <div className="bx-bar" style={{ width: `${(c.count / max) * 100}%` }} />
+              <div className={css.bar} style={{ width: `${(c.count / max) * 100}%` }} />
             </div>
           ))}
         </div>
@@ -303,10 +310,10 @@ function CountCard({ title, subtitle, items }: { title: string; subtitle: string
 function MiniList({ title, items }: { title: string; items: SiteCount[] }) {
   return (
     <div className="col gap4">
-      <span className="caption muted" style={{ fontWeight: 600 }}>{title}</span>
+      <span className={"caption muted " + css.bold}>{title}</span>
       {items.length === 0 && <span className="caption muted">—</span>}
       {items.map((c, i) => (
-        <div key={i} className="row caption"><span className="ellipsis grow" style={{ userSelect: "text" }}>{c.name}</span><span className="muted num">{c.count}</span></div>
+        <div key={i} className="row caption"><span className={"ellipsis grow " + css.selectable}>{c.name}</span><span className="muted num">{c.count}</span></div>
       ))}
     </div>
   );

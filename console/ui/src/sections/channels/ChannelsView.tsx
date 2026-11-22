@@ -4,14 +4,22 @@
 // 更新:每 5 秒,或後端通知 channels 有變動時,讀這個頻道的新訊息;打開頻道、收到新訊息時標已讀。
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { action, useView } from "../../api";
-import { AgentAvatar, go, Markdown, SearchField } from "../../components/bits";
+import { AgentAvatar } from "../../components/Avatar";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import type { Agent, Channel, ChannelMessage, ChannelPage, ChannelsView as ChannelsData } from "../../components/models";
-import { EmptyState, ErrorText, MetaFit, Modal, Pill } from "../../components/ui";
+import { Markdown } from "../../components/Markdown";
+import { MetaFit } from "../../components/MetaFit";
+import { Modal } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
+import { SearchField } from "../../components/SearchField";
+import { go } from "../../lib/nav";
+import type { Agent, Channel, ChannelMessage, ChannelPage, ChannelsView as ChannelsData } from "../../models";
 import { relative } from "../../fmt";
 import { useIssueLabel } from "../development/issueApi";
 import type { SectionProps } from "../index";
 import { canGo } from "../../features";
+import s from "./ChannelsView.module.css";
 
 const POLL_MS = 5000;
 const PAGE = 50;
@@ -71,29 +79,29 @@ export default function ChannelsView({ focusId, clearFocus }: SectionProps) {
   }, [channels.length, selected]);
 
   if (err || data?.error) return <EmptyState title="讀不到對話" icon="exclamationmark.triangle" message={err ?? data?.error} />;
-  if (!data) return <div className="muted" style={{ padding: 20 }}>載入中…</div>;
+  if (!data) return <div className={"muted " + s.loading}>載入中…</div>;
 
   const q = query.trim().toLowerCase();
   const list = channels.filter((c) => !q || c.name.toLowerCase().includes(q) || c.topic.toLowerCase().includes(q) || c.issueId.toLowerCase().includes(q) || issueLabel(c.issueId).toLowerCase().includes(q));
   const current = channels.find((c) => c.id === selected);
 
   return (
-    <div className="split" style={{ height: "100%" }}>
-      <div className="split-list col" style={{ width: 280 }}>
-        <div className="row gap6" style={{ padding: "10px 12px" }}>
+    <div className={"split " + s.split}>
+      <div className={"split-list col " + s.list}>
+        <div className={"row gap6 " + s.search}>
           <SearchField value={query} onChange={setQuery} placeholder="搜尋頻道" width="100%" />
           <button className="btn" title="新增頻道" onClick={() => setCreating(true)}><Icon name="plus" size={14} /></button>
         </div>
-        <div className="ox-list">
-          {list.length === 0 && <div className="muted caption" style={{ padding: 16 }}>{channels.length ? "沒有符合的頻道" : "還沒有頻道,按 + 建立一個"}</div>}
+        <div className="list">
+          {list.length === 0 && <div className={"muted caption " + s.empty}>{channels.length ? "沒有符合的頻道" : "還沒有頻道,按 + 建立一個"}</div>}
           {list.map((c) => (
-            <div key={c.id} className={"ox-list-row col gap4" + (c.id === selected ? " on" : "")} onClick={() => setSelected(c.id)}>
+            <div key={c.id} className={"list-row col gap4" + (c.id === selected ? " on" : "")} onClick={() => setSelected(c.id)}>
               <div className="row gap6">
                 <Icon name="number" size={13} className="muted" />
-                <span className="ellipsis grow" style={{ fontWeight: c.unread ? 600 : undefined }}>{c.name}</span>
-                {c.unread > 0 && <span className="pill" style={{ background: "var(--accent-fill)", color: "var(--on-accent)", borderRadius: "var(--r-pill)", padding: "0 6px", fontSize: "var(--fs-xs)" }}>{c.unread}</span>}
+                <span className={"ellipsis grow" + (c.unread ? " " + s.unreadName : "")}>{c.name}</span>
+                {c.unread > 0 && <span className={s.badge}>{c.unread}</span>}
               </div>
-              <div className="ox-meta gap6 caption muted">
+              <div className="meta gap6 caption muted">
                 {/* 綁定的 Issue 最有用、其次人數;頻道 id 放不下就先拿掉 */}
                 <MetaFit items={[
                   ...(c.issueId ? [{ key: "issue", shrink: 60, className: "mono", node: <span title={issueLabel(c.issueId)}>{issueLabel(c.issueId)}</span> }] : []),
@@ -106,7 +114,7 @@ export default function ChannelsView({ focusId, clearFocus }: SectionProps) {
           ))}
         </div>
       </div>
-      <div className="split-detail" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className={"split-detail " + s.detail}>
         {current
           ? <ChannelPane key={current.id} channel={current} me={data.me} dir={dir} />
           : <EmptyState title="選一個頻道" icon="bubble.left.and.bubble.right" message="頻道把人與虛擬角色拉進同一個對話;@ 角色只通知,不會排任務。" />}
@@ -187,31 +195,31 @@ function ChannelPane({ channel, me, dir }: { channel: Channel; me: string; dir: 
 
   return (
     <>
-      <div className="row gap8" style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-        <div className="col gap4 grow" style={{ minWidth: 0 }}>
-          <div className="row gap8" style={{ alignItems: "baseline" }}>
+      <div className={"row gap8 " + s.header}>
+        <div className="col gap4 grow">
+          <div className={s.baseline + " gap8"}>
             <span className="h2 ellipsis">{channel.name}</span>
             <span className="mono muted caption">{channel.id}</span>
-            {channel.issueId && canGo("development") && <button className="btn" style={{ padding: "0 6px", fontSize: "var(--fs-sm)" }} title="打開 Issue" onClick={() => go("development", channel.issueId)}><Icon name="link" size={11} /> {issueLabel(channel.issueId)}</button>}
+            {channel.issueId && canGo("development") && <button className={"btn " + s.issueLink} title="打開 Issue" onClick={() => go("development", channel.issueId)}><Icon name="link" size={11} /> {issueLabel(channel.issueId)}</button>}
           </div>
           {channel.topic && <span className="caption muted ellipsis">{channel.topic}</span>}
         </div>
-        <div className="row" style={{ gap: 2 }}>
+        <div className={"row " + s.members}>
           {channel.members.slice(0, 8).map((n) => { const w = dir.who(n); return <span key={n} title={w.name}><Avatar w={w} size={22} /></span>; })}
           {channel.members.length > 8 && <span className="caption muted">+{channel.members.length - 8}</span>}
         </div>
         <button className="btn" title="頻道設定" onClick={() => setSettings(true)}><Icon name="gearshape" size={14} /></button>
       </div>
-      <div className="col" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px", gap: 12 }}>
-        {hasOlder && <button className="btn" style={{ alignSelf: "center" }} onClick={loadOlder}>載入更早的訊息</button>}
-        {loaded && messages.length === 0 && <div className="muted caption" style={{ textAlign: "center", padding: 24 }}>還沒有訊息。用 @ 提到角色,它下次執行時會看到。</div>}
+      <div className={"col " + s.messages}>
+        {hasOlder && <button className={"btn " + s.center} onClick={loadOlder}>載入更早的訊息</button>}
+        {loaded && messages.length === 0 && <div className={"muted caption " + s.noMessages}>還沒有訊息。用 @ 提到角色,它下次執行時會看到。</div>}
         {messages.map((m) => <MessageRow key={m.id} m={m} me={me} dir={dir} />)}
         <div ref={bottom} />
       </div>
-      {error && <div style={{ padding: "0 16px" }}><ErrorText>{error}</ErrorText></div>}
+      {error && <div className={s.errorWrap}><ErrorText>{error}</ErrorText></div>}
       {isMember
         ? <Composer members={channel.members.filter((n) => n !== me).map(dir.who)} onSend={send} />
-        : <div className="caption muted" style={{ padding: 12, borderTop: "1px solid var(--line)" }}>你不是這個頻道的成員(組織管理員看得到全部頻道);要發訊息請在頻道設定把自己加進來。</div>}
+        : <div className={"caption muted " + s.notMember}>你不是這個頻道的成員(組織管理員看得到全部頻道);要發訊息請在頻道設定把自己加進來。</div>}
       <Modal open={settings} onClose={() => setSettings(false)} title="頻道設定" width={560}>
         {settings && <ChannelForm channel={channel} dir={dir} me={me} onDone={() => setSettings(false)} />}
       </Modal>
@@ -223,16 +231,16 @@ function MessageRow({ m, me, dir }: { m: ChannelMessage; me: string; dir: Dir })
   const w = dir.who(m.author);
   const mentionsMe = m.mentions?.includes(me);
   return (
-    <div className="row gap8" style={{ alignItems: "flex-start" }}>
+    <div className={s.message + " gap8"}>
       <Avatar w={w} size={28} />
-      <div className="col gap4 grow" style={{ minWidth: 0, padding: mentionsMe ? "4px 8px" : undefined, borderRadius: "var(--r-md)", background: mentionsMe ? "color-mix(in srgb, var(--orange) 10%, transparent)" : undefined }}>
+      <div className={"col gap4 grow " + s.bubble + (mentionsMe ? " " + s.mention : "")}>
         <div className="row gap6">
-          <span style={{ fontWeight: 600 }}>{w.name}</span>
+          <span className={s.bold}>{w.name}</span>
           {m.author.startsWith("agent:") && <Pill text="角色" color="purple" />}
           <span className="caption muted" title={m.at}>{relative(m.at)}</span>
           {m.mentions?.length > 0 && <span className="caption muted">· 提到 {m.mentions.map((n) => dir.who(n).name).join("、")}</span>}
         </div>
-        <div style={{ userSelect: "text" }}><Markdown text={m.text} /></div>
+        <div className={s.selectable}><Markdown text={m.text} /></div>
       </div>
     </div>
   );
@@ -290,19 +298,19 @@ function Composer({ members, onSend }: { members: Who[]; onSend: (text: string) 
   };
 
   return (
-    <div className="col gap4" style={{ padding: 12, borderTop: "1px solid var(--line)", position: "relative" }}>
+    <div className={"col gap4 " + s.composer}>
       {options.length > 0 && (
-        <div className="card col" style={{ position: "absolute", bottom: "100%", left: 12, minWidth: 240, padding: 4, gap: 0, zIndex: 5 }}>
+        <div className={s.options}>
           {options.map((w, i) => (
-            <div key={w.node} className={"ox-list-row row gap6" + (i === Math.min(pick, options.length - 1) ? " on" : "")} style={{ borderBottom: 0, borderRadius: "var(--r-sm)" }}
+            <div key={w.node} className={"row gap6 " + s.option + (i === Math.min(pick, options.length - 1) ? " " + s.on : "")}
               onMouseDown={(e) => { e.preventDefault(); insert(w); }}>
               <Avatar w={w} size={18} /><span>{w.name}</span><span className="caption muted mono">{w.node}</span>
             </div>
           ))}
         </div>
       )}
-      <div className="row gap8" style={{ alignItems: "flex-end" }}>
-        <textarea ref={ta} className="input grow" rows={Math.min(8, Math.max(1, text.split("\n").length))} style={{ resize: "none", fontFamily: "inherit" }}
+      <div className={s.inputRow + " gap8"}>
+        <textarea ref={ta} className={"input grow " + s.textarea} rows={Math.min(8, Math.max(1, text.split("\n").length))}
           placeholder="寫訊息…(Enter 送出、Shift+Enter 換行,@ 提到成員)" value={text}
           onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setPick(0); }}
           onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
@@ -354,10 +362,10 @@ function ChannelForm({ channel, dir, me, onDone }: { channel?: Channel; dir: Dir
       <input className="input" placeholder="頻道名稱(最多 80 字)" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus />
       <input className="input" placeholder="主題(選填)" value={topic} maxLength={500} onChange={(e) => setTopic(e.target.value)} />
       {channel?.issueId && <span className="caption muted">綁定 {issueLabel(channel.issueId)}</span>}
-      <div className="card-title">成員</div>
-      <div className="col" style={{ maxHeight: 260, overflowY: "auto", gap: 2 }}>
+      <div className={s.sectionTitle}>成員</div>
+      <div className={"col " + s.memberList}>
         {rows.map((w) => (
-          <label key={w.node} className="row gap6" style={{ padding: "3px 4px" }}>
+          <label key={w.node} className={"row gap6 " + s.memberRow}>
             <input type="checkbox" checked={members.includes(w.node)} disabled={!channel && w.node === me} onChange={() => toggle(w.node)} />
             <Avatar w={w} size={18} />
             <span>{w.name}</span>

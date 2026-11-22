@@ -1,0 +1,135 @@
+/* CI/CD 頁(sections/pipelines)自己的樣式;原本是 omixorKit.css 的 ox-* 與各處的 inline style */
+@keyframes pulse { 50% { opacity: .35; } }
+.pulse { animation: pulse 1.4s ease-in-out infinite; }
+
+.header { padding: 16px 20px 12px; border-bottom: 1px solid var(--line); gap: 16px; }
+
+/* 通用小片段 */
+.gap1 { gap: 1px; }
+.gap2 { gap: 2px; }
+
+.gap5 { gap: 5px; }
+.gap10 { gap: 10px; }
+.gap14 { gap: 14px; }
+.gap16 { gap: 16px; }
+.bold { font-weight: 600; }
+.medium { font-weight: 500; }
+.xs { font-size: var(--fs-xs); }
+.selectable { user-select: text; }
+.noShrink { flex: none; }
+.selfStart { align-self: flex-start; }
+.end { justify-content: flex-end; }
+.right { text-align: right; }
+.warn { color: var(--orange); }
+.err { color: var(--red); }
+.baseline { display: flex; align-items: baseline; }
+.scrollX { overflow-x: auto; }
+.padY8 { padding: 8px 0; }
+/* 卡片裡的空狀態區塊 */
+.emptyBox { min-height: 160px; display: flex; }
+.emptyBoxTall { min-height: 220px; display: flex; }
+
+/* .btn.link 的 padding 權重是 0,2,0 */
+:global(.btn.link).linkFlat { padding: 0; align-self: flex-start; }
+.statusIcon { display: inline-flex; }
+
+/* 日誌的搜尋框(裡面還有符合筆數,不用 SearchField) */
+.search { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: var(--h-md); border-radius: var(--r-md); background: color-mix(in srgb, var(--fg) 5%, transparent); min-width: 0; }
+.search input { border: 0; background: none; outline: none; flex: 1; min-width: 0; font-size: var(--fs-base); }
+/* 執行紀錄的搜尋框:filled 的外觀改成白底加框 */
+.searchBox { background: var(--bg2); border: 1px solid var(--line); }
+
+/* MARK: - 執行紀錄 */
+.listPane { display: flex; flex-direction: column; flex: none; border-right: 1px solid var(--line); min-height: 0; background: color-mix(in srgb, var(--bg2) 50%, transparent); }
+.listTop { padding: 10px; }
+.runRow { display: flex; gap: 10px; align-items: flex-start; padding: 4px 0; }
+.runIcon { width: 22px; flex: none; padding-top: 1px; }
+.runBody { gap: 4px; }
+.metaWho { gap: 5px; font-size: var(--fs-xs); }
+.aiName { color: var(--purple); }
+
+.detail { padding: 20px; gap: 16px; }
+.detailTop { display: flex; gap: 12px; align-items: flex-start; }
+/* .h3 也設了 font-weight */
+.runNo.runNo { font-weight: 400; }
+.progressNarrow { max-width: 420px; }
+.split { display: flex; gap: 16px; align-items: flex-start; }
+.stack { display: flex; flex-direction: column; gap: 16px; align-items: stretch; }
+.jobsSide { width: 270px; flex: none; }
+.jobsFull { flex: none; }
+.jobBtn { padding: 5px 8px; border-radius: var(--r-md); }
+.jobOn { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.jobIcon { width: 16px; flex: none; }
+.noJobs { padding-left: 20px; }
+
+/* 階段圖(原 ox-stage / ox-conn) */
+.stages { display: flex; overflow-x: auto; align-items: flex-start; padding: 4px 2px; }
+.stageCell { display: flex; align-items: flex-start; }
+.stage { width: 168px; flex: none; padding: 10px; border-radius: var(--r-xl); display: flex; flex-direction: column; gap: 6px; border: 1px solid; }
+.stage.running { border-width: 2px; animation: pulse 1.8s ease-in-out infinite; }
+.conn { width: 34px; flex: none; display: flex; align-items: center; margin-top: 19px; height: 10px; }
+.conn > i { display: block; width: 26px; height: 2px; }
+.stageJob { padding: 2px 4px; border-radius: var(--r-sm); }
+.stageJobOn { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+
+/* 日誌(原 ox-log*) */
+.log { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-xl); display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.logHead { padding: 8px 12px; }
+.logTitle { min-width: 0; }
+.logSearch { max-width: 190px; }
+.search .logInput { font-size: var(--fs-sm); min-width: 70px; }
+.matchCount { font-size: var(--fs-xs); flex: none; }
+.placeholder { align-items: center; justify-content: center; min-height: 160px; }
+.logBody { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-sm); overflow: auto; min-height: 220px; max-height: 420px; padding: 8px 0; user-select: text; }
+.logLine { display: flex; gap: 10px; padding: 1px 10px; white-space: pre; }
+.logLine.wrap { white-space: pre-wrap; word-break: break-all; }
+.logLine.hit { background: color-mix(in srgb, var(--yellow) 10%, transparent); }
+.logLine mark { background: color-mix(in srgb, var(--yellow) 55%, transparent); color: black; }
+.lineNo { width: 34px; text-align: right; flex: none; }
+.cursor { width: 7px; height: 13px; background: var(--fg2); margin: 2px 0 2px 54px; animation: pulse 1.2s infinite; }
+
+/* AI 修復 */
+.stepNo { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-pill); color: var(--on-accent); font-weight: 600; flex: none; line-height: 1; width: 18px; height: 18px; font-size: var(--fs-xs); background: var(--purple); }
+.diagnosis { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--purple) 7%, transparent); }
+
+/* MARK: - 部署 */
+.kpis { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.rowSep { border-top: 1px solid var(--line); }
+.depRow { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; transition: background .4s; }
+.depRowHl { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.depIcon { width: 24px; flex: none; padding-top: 2px; }
+/* .mono 也設了 font-size */
+.versions.versions { font-size: var(--fs-base); user-select: text; }
+.depStatus { width: 200px; flex: none; align-items: flex-end; gap: 6px; }
+.depProgress { align-items: flex-end; gap: 3px; }
+.depRunning { color: var(--blue); font-weight: 500; }
+.depActions { width: 84px; flex: none; align-items: flex-end; gap: 6px; }
+
+/* MARK: - 環境 */
+.kpis180 { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.charts { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+.chart { height: 200px; }
+.chartEmpty { height: 180px; }
+
+.matrix th { background: transparent; }
+.matrix .thOff { font-weight: 400; }
+.matrix .thOn { font-weight: 700; color: var(--fg); }
+.svcCell { min-width: 130px; }
+.verCell { min-width: 110px; }
+.verBox { gap: 3px; padding: 5px 8px; border-radius: var(--r-md); }
+.verBehind { background: color-mix(in srgb, var(--orange) 10%, transparent); }
+.verCurrent { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+
+/* MARK: - 旁白發佈 */
+.code { background: color-mix(in srgb, var(--fg) 6%, transparent); padding: 8px; border-radius: var(--r-md); font-family: ui-monospace, Menlo, monospace; font-size: var(--fs-sm); margin: 0; overflow-x: auto; white-space: pre; }
+.dryOut { max-height: 380px; overflow: auto; user-select: text; }
+.jobId { font-weight: 600; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-sm); }
+
+/* .row 也設了 display */
+.summaryRow.summaryRow { display: inline-flex; color: var(--fg); }
+.clips { padding: 4px 0 4px 16px; }
+.clipLen { width: 56px; text-align: right; }
+.voiceLog { gap: 3px; padding-top: 4px; }
+.voiceLogLine { display: flex; gap: 8px; align-items: flex-start; }
+.flush { padding: 0; gap: 0; }
+.w180 { width: 180px; }

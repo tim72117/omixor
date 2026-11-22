@@ -1,0 +1,7 @@
+/* 根元素包在 :where() 裡(權重 0):呼叫端的 className 一定蓋得過 */
+:where(.root) { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: var(--h-md); border-radius: var(--r-md); min-width: 0; }
+.root input { border: 0; outline: 0; background: none; flex: 1; min-width: 0; font-size: var(--fs-base); }
+/* outlined:白底加框(bits 舊樣式) */
+:where(.outlined) { background: var(--bg2); border: 1px solid var(--line); }
+/* filled:淡灰底、無框(omixorKit 舊樣式) */
+:where(.filled) { background: color-mix(in srgb, var(--fg) 5%, transparent); }

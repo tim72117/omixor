@@ -1,0 +1,31 @@
+/* 開發 › 概覽 */
+/* 兩欄卡片列:左邊寬、右邊窄,放不下就換行 */
+.cards { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.wide { flex: 1 1 420px; min-width: 0; }
+.narrow { flex: 0 1 340px; min-width: 300px; }
+
+/* Sprint 橫幅 */
+.sprint { display: flex; gap: 16px; align-items: flex-start; }
+.sprintBars { width: 220px; flex: none; }
+.barLabel { width: 28px; }
+.barPct { width: 36px; text-align: right; }
+
+/* 圖表高度 */
+.h200 { height: 200px; }
+.h220 { height: 220px; }
+.h240 { height: 240px; }
+.blue { color: var(--blue); }
+
+/* 等我審查 */
+.allDone { align-items: center; padding: 30px 0; }
+.review { border: 0; background: none; padding: 7px 0; gap: 10px; text-align: left; font: inherit; color: inherit; cursor: default; }
+.review:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.review:focus-visible { outline-offset: -2px; }
+.review + .review { border-top: 1px solid var(--line); }
+.reviewText { gap: 2px; }
+.start { align-self: flex-start; }
+
+/* 工作類型分布 */
+.types { gap: 12px; }
+.typeBar { flex: 1; min-width: 0; height: 8px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--fg) 6%, transparent); overflow: hidden; position: relative; }
+.typeBar > div { position: absolute; left: 0; top: 0; bottom: 0; height: 100%; border-radius: var(--r-pill); }

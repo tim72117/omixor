@@ -1,15 +1,19 @@
 // Issue 的建立與編輯表單:所屬倉庫、所屬專案、版本衝突處理(編輯時記住讀到的 version,送出帶回去)。
 import { useEffect, useState } from "react";
 import { tool, useView } from "../../api";
-import type { Project } from "../../components/models";
+import { Banner } from "../../components/Callout";
 import { MdTextarea } from "../../components/MdTextarea";
-import { Banner, SIcon } from "../../components/omixorKit";
+import { SIcon } from "../../components/SIcon";
+import type { Project } from "../../models";
 import { repoKey } from "./devShared";
+import ds from "./devShared.module.css";
+import s from "./IssueForm.module.css";
 import { updateIssue, useProjects } from "./issueApi";
 import {
   conflictCurrent, CONFLICT_MESSAGE, PRIORITIES, PRIORITY, DRAFT_LABEL, draftChanges, draftDiff, draftOf, isVersionConflict, mergeLatest, splitLabels,
   type Draft, type Issue, type MergeConflict, type Priority,
 } from "./issueModel";
+import { ModalTitle } from "../../components/Modal";
 
 // 所屬倉庫(repo):owner/name(GitHub)或 group/sub/project(GitLab),可加 github:、gitlab: 前綴;"" = 未標記。
 // 格式同核心 model.CleanRepo(只允許英數與 - _ . / :,最長 200);存的時候核心會再檢查一次
@@ -40,7 +44,7 @@ export function RepoPicker({ value, onChange }: { value: string; onChange: (v: s
   const other = custom || (value !== "" && !known);
   const bad = !REPO_RE.test(value.trim());
   return (
-    <div className="row gap6" style={{ alignItems: "center" }}>
+    <div className="row gap6">
       <SIcon name="chevron.left.forwardslash.chevron.right" className="muted" />
       <select className="select" title="所屬倉庫" value={other ? "__other" : value} onChange={(e) => {
         if (e.target.value === "__other") { setCustom(true); return; }
@@ -51,7 +55,7 @@ export function RepoPicker({ value, onChange }: { value: string; onChange: (v: s
         <option value="__other">其他…</option>
       </select>
       {other && <input className="input grow" placeholder="owner/name 或 gitlab:group/project" value={value} onChange={(e) => onChange(e.target.value)} />}
-      {bad && <span className="caption" style={{ color: "var(--red)" }}>只能用英數與 - _ . / :(最長 200)</span>}
+      {bad && <span className={"caption " + ds.red}>只能用英數與 - _ . / :(最長 200)</span>}
     </div>
   );
 }
@@ -63,7 +67,7 @@ export const projectName = (p: Project) => (p.key ? `${p.name}(${p.key})` : p.na
 export function ProjectPicker({ value, onChange, projects, moving }: { value: string; onChange: (v: string) => void; projects: Project[]; moving?: boolean }) {
   const cur = projects.find((p) => p.id === value);
   return (
-    <div className="row gap6" style={{ alignItems: "center" }}>
+    <div className="row gap6">
       <SIcon name="square.stack.3d.up" className="muted" />
       <select className="select" title="所屬專案" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">組織(ISS-編號)</option>
@@ -134,7 +138,7 @@ export function IssueEditForm({ issue, onClose, onSaved }: { issue: Issue; onClo
         </div>
       )}
       {merged && !conflict && (
-        <div className="col gap6" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--fg) 5%, transparent)" }}>
+        <div className={"col gap6 " + s.merged}>
           <span className="caption">
             已載入最新內容(第 {merged.version ?? base.version ?? "?"} 版),你的編輯還在。
             {merged.adopted.length > 0 && `你沒改過的欄位(${merged.adopted.map((f) => DRAFT_LABEL[f]).join("、")})已換成最新內容。`}
@@ -142,18 +146,18 @@ export function IssueEditForm({ issue, onClose, onSaved }: { issue: Issue; onClo
           </span>
           {diff.map((d) => (
             <div key={d.field} className="col gap4">
-              <span className="caption" style={{ fontWeight: 600 }}>{DRAFT_LABEL[d.field]}</span>
-              <span className="caption muted" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>最新:{d.theirs || "(空)"}</span>
-              <span><button className="btn" style={{ fontSize: "var(--fs-sm)" }} onClick={() => set(d.field, d.theirs)}>改用最新的</button></span>
+              <span className={"caption " + ds.bold}>{DRAFT_LABEL[d.field]}</span>
+              <span className={"caption muted " + s.theirs}>最新:{d.theirs || "(空)"}</span>
+              <span><button className={"btn " + s.small} onClick={() => set(d.field, d.theirs)}>改用最新的</button></span>
             </div>
           ))}
         </div>
       )}
-      <input className="input" style={{ fontSize: "var(--fs-lg)" }} placeholder="標題" value={draft.title} onChange={(e) => set("title", e.target.value)} />
+      <input className={"input " + s.title} placeholder="標題" value={draft.title} onChange={(e) => set("title", e.target.value)} />
       <input className="input" placeholder="標籤(逗號分隔)" value={draft.labels} onChange={(e) => set("labels", e.target.value)} />
       <RepoPicker value={draft.repo} onChange={(v) => set("repo", v)} />
       <ProjectPicker value={draft.project} onChange={(v) => set("project", v)} projects={projects} moving={draft.project !== (base.project ?? "")} />
-      <MdTextarea style={{ minHeight: 220 }} value={draft.body} onChange={(v) => set("body", v)} />
+      <MdTextarea className={s.bodyTall} value={draft.body} onChange={(v) => set("body", v)} />
       {error && <Banner>{error}</Banner>}
       <div className="row gap8">
         <span className="caption muted">內文支援 Markdown</span>
@@ -183,7 +187,7 @@ export function NewIssue({ onDone, defaultProject = "" }: { onDone: (id?: string
   };
   return (
     <div className="col gap12">
-      <div className="modal-title">新增 Issue</div>
+      <ModalTitle>新增 Issue</ModalTitle>
       <input className="input" placeholder="標題" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
       <div className="row gap8">
         <label className="row gap6">優先度
@@ -193,7 +197,7 @@ export function NewIssue({ onDone, defaultProject = "" }: { onDone: (id?: string
       </div>
       <ProjectPicker value={project} onChange={setProject} projects={projects} />
       <RepoPicker value={repo} onChange={setRepo} />
-      <MdTextarea style={{ minHeight: 180 }} value={body} onChange={setBody} />
+      <MdTextarea className={s.body} value={body} onChange={setBody} />
       {error && <Banner>{error}</Banner>}
       <div className="row gap8">
         <span className="caption muted">內文支援 Markdown</span>

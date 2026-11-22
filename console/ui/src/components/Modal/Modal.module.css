@@ -1,0 +1,5 @@
+/* 根元素的基本樣式包在 :where() 裡(權重 0):呼叫端傳 className 一定蓋得過,不受 CSS 載入順序影響 */
+:where(.backdrop) { position: fixed; inset: 0; background: rgba(0,0,0,.3); display: flex; align-items: flex-start; justify-content: center; padding-top: 10vh; z-index: 50; }
+:where(.modal) { background: var(--bg2); border-radius: var(--r-xl); padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.35); display: flex; flex-direction: column; gap: 12px; max-height: 80vh; overflow-y: auto; }
+.modal:focus { outline: none; }
+:where(.title) { font-size: var(--fs-lg); font-weight: 600; }

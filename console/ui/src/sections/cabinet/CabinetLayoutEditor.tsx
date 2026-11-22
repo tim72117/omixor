@@ -1,9 +1,13 @@
 // 文件櫃結構編輯:區塊與頁籤可新增、改名、刪除(裡面還有文件時不能刪)(Swift 的 CabinetLayoutEditor)
 import { useState } from "react";
 import { ApiError, action, useRun, useView } from "../../api";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import type { CabinetDoc, CabinetSection, CabinetTab, OrgIndex } from "../../components/models";
-import { ErrorText, Modal } from "../../components/ui";
+import { iconButtonClass } from "../../components/IconButton";
+import { Modal, ModalTitle } from "../../components/Modal";
+import type { CabinetDoc, CabinetSection, CabinetTab, OrgIndex } from "../../models";
+import css from "./cabinet.module.css";
+import { Dropdown, menuItemClass } from "../../components/Menu";
 
 const T = (path: string, label: string, code?: string, group?: string): CabinetTab => ({ path, label, ...(code ? { code } : {}), ...(group ? { group } : {}) });
 const G = "做出自己的軟體";
@@ -108,43 +112,43 @@ export function CabinetLayoutEditor({ project = "", projectName, layout, layoutV
   const reload = () => { setDraft(JSON.parse(JSON.stringify(layout))); setBaseVersion(layoutVersion); setLatest(undefined); setErr(undefined); setError(undefined); };
   return (
     <Modal open onClose={onClose} width={640}>
-      <span className="modal-title">文件櫃結構({cur?.name ?? ""}{projectName ? ` › ${projectName}` : ""})</span>
+      <ModalTitle>文件櫃結構({cur?.name ?? ""}{projectName ? ` › ${projectName}` : ""})</ModalTitle>
       <span className="caption muted">區塊是第一層,頁籤是區塊底下的分類。角色的文件存取範圍以區塊或頁籤為單位。</span>
-      <div className="col gap8" style={{ minHeight: 380, maxHeight: "50vh", overflowY: "auto", border: "1px solid var(--line)", borderRadius: "var(--r-lg)", padding: 8 }}>
+      <div className={"col gap8 " + css.editor}>
         {draft.map((s) => (
-          <div key={s.id} className="col gap4" style={{ paddingBottom: 8, borderBottom: "1px solid var(--line)" }}>
+          <div key={s.id} className={"col gap4 " + css.section}>
             <div className="row gap6">
               <Icon name="folder" size={13} />
-              <input className="input grow" style={{ fontWeight: 600 }} placeholder="區塊名稱" value={s.label} onChange={(e) => upd(s.id, (x) => ({ ...x, label: e.target.value }))} />
+              <input className={"input grow " + css.sectionInput} placeholder="區塊名稱" value={s.label} onChange={(e) => upd(s.id, (x) => ({ ...x, label: e.target.value }))} />
               <span className="mono caption muted">{s.id}</span>
-              <button className="bx-icon-btn" onClick={() => move(s.id, -1)}><Icon name="arrow.up" size={12} /></button>
-              <button className="bx-icon-btn" onClick={() => move(s.id, 1)}><Icon name="arrow.down" size={12} /></button>
-              <button className="bx-icon-btn" onClick={() => setDraft((d) => d.filter((x) => x.id !== s.id))}><Icon name="trash" size={12} color="var(--red)" /></button>
+              <button className={iconButtonClass.normal} onClick={() => move(s.id, -1)}><Icon name="arrow.up" size={12} /></button>
+              <button className={iconButtonClass.normal} onClick={() => move(s.id, 1)}><Icon name="arrow.down" size={12} /></button>
+              <button className={iconButtonClass.normal} onClick={() => setDraft((d) => d.filter((x) => x.id !== s.id))}><Icon name="trash" size={12} color="var(--red)" /></button>
             </div>
             {s.tabs.map((t) => (
-              <div key={t.path} className="row gap6" style={{ paddingLeft: 20 }}>
+              <div key={t.path} className={"row gap6 " + css.tab}>
                 <Icon name="doc.text" size={12} className="muted" />
                 <input className="input grow" placeholder="頁籤名稱" value={t.label} onChange={(e) => upd(s.id, (x) => ({ ...x, tabs: x.tabs.map((y) => (y.path === t.path ? { ...y, label: e.target.value } : y)) }))} />
-                <span className="mono caption muted ellipsis" style={{ maxWidth: 180 }}>{t.path}</span>
-                <button className="bx-icon-btn" onClick={() => upd(s.id, (x) => ({ ...x, tabs: x.tabs.filter((y) => y.path !== t.path) }))}><Icon name="minus.circle" size={12} color="var(--red)" /></button>
+                <span className={"mono caption muted ellipsis " + css.path}>{t.path}</span>
+                <button className={iconButtonClass.normal} onClick={() => upd(s.id, (x) => ({ ...x, tabs: x.tabs.filter((y) => y.path !== t.path) }))}><Icon name="minus.circle" size={12} color="var(--red)" /></button>
               </div>
             ))}
-            <button className="btn link" style={{ alignSelf: "flex-start", marginLeft: 16 }} onClick={() => upd(s.id, (x) => ({ ...x, tabs: [...x.tabs, { path: newTabId(x), label: "新頁籤" }] }))}><Icon name="plus" size={11} />新增頁籤</button>
+            <button className={"btn link " + css.addTab} onClick={() => upd(s.id, (x) => ({ ...x, tabs: [...x.tabs, { path: newTabId(x), label: "新頁籤" }] }))}><Icon name="plus" size={11} />新增頁籤</button>
           </div>
         ))}
       </div>
-      {err && <span style={{ color: "var(--orange)" }}>{err}</span>}
+      {err && <span className={css.orange}>{err}</span>}
       {conflict
         ? <div className="row gap8"><ErrorText>{error}</ErrorText><button className="btn" disabled={stale} onClick={reload}>{stale ? "正在更新最新結構…" : "重新載入最新結構(放棄目前修改)"}</button></div>
         : <ErrorText>{error}</ErrorText>}
-      <div className="row gap8" style={{ position: "relative" }}>
+      <div className={"row gap8 " + css.footer}>
         <button className="btn" onClick={() => setDraft((d) => [...d, { id: newSectionId(), label: "新區塊", path: "", tabs: [] }])}><Icon name="folder.badge.plus" size={12} />新增區塊</button>
         <button className="btn" onClick={() => setTplOpen(!tplOpen)}>套用範本 <Icon name="chevron.down" size={10} /></button>
         {tplOpen && (
-          <div className="bx-menu" style={{ left: 110, bottom: 32 }} onMouseLeave={() => setTplOpen(false)}>
-            <button className="menu-item" onClick={() => { setDraft(JSON.parse(JSON.stringify(EVOLEAP_STUDIO))); setTplOpen(false); }}>evoleap 研發基地</button>
-            <button className="menu-item" onClick={() => { setDraft(JSON.parse(JSON.stringify(BLANK_LAYOUT))); setTplOpen(false); }}>空白(總覽、文件)</button>
-          </div>
+          <Dropdown className={css.tplMenu} onMouseLeave={() => setTplOpen(false)}>
+            <button className={menuItemClass} onClick={() => { setDraft(JSON.parse(JSON.stringify(EVOLEAP_STUDIO))); setTplOpen(false); }}>evoleap 研發基地</button>
+            <button className={menuItemClass} onClick={() => { setDraft(JSON.parse(JSON.stringify(BLANK_LAYOUT))); setTplOpen(false); }}>空白(總覽、文件)</button>
+          </Dropdown>
         )}
         <div className="grow" />
         <button className="btn" onClick={onClose}>取消</button>

@@ -2,10 +2,15 @@
 // 設定是這台機器的(存在組織資料夾的 agent-runner.json,不進核心);App 版照同一套。
 import { useState } from "react";
 import { action, useRun, useView } from "../../api";
+import { Card } from "../../components/Card";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import type { Agent, AgentRunConfig, AgentRunnerView, RunnerRecord } from "../../components/models";
-import { Card, ErrorText, Modal, Pill } from "../../components/ui";
+import { Modal, ModalTitle } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
 import { dateTime, duration, relative } from "../../fmt";
+import type { Agent, AgentRunConfig, AgentRunnerView, RunnerRecord } from "../../models";
+import css from "./automation.module.css";
+import { fieldClass } from "../../components/Field";
 
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const EFFORT_LABEL: Record<string, string> = { low: "低", medium: "中", high: "高", xhigh: "很高", max: "最高" };
@@ -36,14 +41,14 @@ export function AgentAutoRunCard({ agent }: { agent: Agent }) {
   return (
     <Card title="自動執行" subtitle="派發給這個角色時,在這台 Mac 上自動啟動 Claude Code 處理並回報"
       right={<button className="btn small" disabled={!v} onClick={() => setEditing(true)}>設定…</button>}>
-      <div className="row gap8" style={{ alignItems: "center" }}>
+      <div className="row gap8">
         <Icon name={cfg.autoRun ? "play.circle" : "xmark.circle"} size={15} color={cfg.autoRun ? "var(--green)" : "var(--fg2)"} />
         <span>{cfg.autoRun ? "已開啟" : "關閉(任務要在 Claude Code 手動領取)"}</span>
         {running && <Pill text={`處理中 ${running.taskId}`} color="blue" icon="arrow.triangle.2.circlepath" />}
       </div>
       {cfg.autoRun && <span className="caption muted">{runConfigSummary(cfg)}</span>}
-      {v?.disabled && cfg.autoRun && <span className="caption" style={{ color: "var(--orange)" }}>{v.disabledReason ?? "「自動執行」在系統設定裡關閉了,不會領新的任務"}</span>}
-      {v && !v.claudeFound && cfg.autoRun && <span className="caption" style={{ color: "var(--orange)" }}>找不到 claude(Claude Code CLI),任務會留在待領取</span>}
+      {v?.disabled && cfg.autoRun && <span className={"caption " + css.warn}>{v.disabledReason ?? "「自動執行」在系統設定裡關閉了,不會領新的任務"}</span>}
+      {v && !v.claudeFound && cfg.autoRun && <span className={"caption " + css.warn}>找不到 claude(Claude Code CLI),任務會留在待領取</span>}
       {editing && v && <AutoRunSheet agent={agent} original={cfg} efforts={v.efforts?.length ? v.efforts : EFFORTS} onClose={() => setEditing(false)} />}
     </Card>
   );
@@ -60,33 +65,33 @@ function AutoRunSheet({ agent, original, efforts, onClose }: { agent: Agent; ori
   });
   return (
     <Modal open onClose={onClose} width={560}>
-      <span className="modal-title">「{agent.name}」的自動執行</span>
+      <ModalTitle>「{agent.name}」的自動執行</ModalTitle>
       <label className="row gap6"><input type="checkbox" checked={draft.autoRun} onChange={(e) => set({ autoRun: e.target.checked })} />開啟自動執行(派發後自動領取並以這個角色身分處理)</label>
       <div className="grid g2">
-        <label className="bx-field"><span>模型</span>
+        <label className={fieldClass}><span>模型</span>
           <select className="select" value={customModel ? "custom" : draft.model} onChange={(e) => set({ model: e.target.value === "custom" ? "claude-" : e.target.value })}>
             {MODELS.map((m) => <option key={m} value={m}>{m || "CLI 預設"}</option>)}
             <option value="custom">完整 id…</option>
           </select>
           {customModel && <input className="input" value={draft.model} placeholder="例如 claude-opus-5-5" onChange={(e) => set({ model: e.target.value })} />}
         </label>
-        <label className="bx-field"><span>推論強度</span>
+        <label className={fieldClass}><span>推論強度</span>
           <select className="select" value={draft.effort} onChange={(e) => set({ effort: e.target.value })}>
             <option value="">CLI 預設</option>
             {efforts.map((x) => <option key={x} value={x}>{EFFORT_LABEL[x] ?? x}({x})</option>)}
           </select>
         </label>
       </div>
-      <label className="bx-field"><span>工作資料夾(這台 Mac 上的絕對路徑)</span>
+      <label className={fieldClass}><span>工作資料夾(這台 Mac 上的絕對路徑)</span>
         <input className="input mono" value={draft.workdir} placeholder="空白 = 不給檔案工具,只能用 omixor 工具" onChange={(e) => set({ workdir: e.target.value })} />
         <span className="caption muted">有設定時才開 Read、Glob、Grep、Edit、Write,在這個資料夾執行。資料夾要存在,不能包含 omixor 的資料或憑證資料夾。</span>
       </label>
-      <label className="row gap6" style={{ opacity: draft.workdir.trim() ? 1 : 0.5 }}>
+      <label className={"row gap6" + (draft.workdir.trim() ? "" : " " + css.inactive)}>
         <input type="checkbox" disabled={!draft.workdir.trim()} checked={draft.allowBash && !!draft.workdir.trim()} onChange={(e) => set({ allowBash: e.target.checked })} />
         允許執行指令(Bash)
       </label>
       <label className="row gap6">逾時
-        <input className="input" type="number" min={1} max={480} style={{ width: 80 }} value={draft.timeoutMinutes}
+        <input className={"input " + css.w80} type="number" min={1} max={480} value={draft.timeoutMinutes}
           onChange={(e) => set({ timeoutMinutes: Math.max(1, Math.min(480, +e.target.value || 30)) })} />分鐘(超過就停止並回報需要協助)
       </label>
       <ErrorText>{error}</ErrorText>
@@ -114,32 +119,32 @@ export function AgentRunnerCard({ openTask }: { openTask?: (taskId: string) => v
         {v.disabled && <Pill text="系統設定已關閉" color="orange" icon="slash.circle" />}
         {!v.loop && <Pill text="背景排程未啟動" color="gray" />}
       </div>}>
-      {v.disabled && <span className="caption" style={{ color: "var(--orange)" }}>{v.disabledReason ?? "「自動執行」在系統設定裡關閉了,不會領新的任務(進行中的會做完)"}</span>}
+      {v.disabled && <span className={"caption " + css.warn}>{v.disabledReason ?? "「自動執行」在系統設定裡關閉了,不會領新的任務(進行中的會做完)"}</span>}
       {v.error && <ErrorText>{v.error}</ErrorText>}
       {!v.claudeFound && <span className="caption muted">請先安裝 Claude Code 並用訂閱帳號登入(終端機執行 claude 再輸入 /login),或設定環境變數 OMIXOR_CLAUDE_BIN。</span>}
       <span className="caption muted">{on.length ? `開啟的角色:${on.map((a) => a.name).join("、")}` : "還沒有角色開啟自動執行(在「虛擬角色」的角色頁設定)"}</span>
-      {v.lastError && <span className="caption" style={{ color: "var(--orange)", userSelect: "text" }}>{v.lastError}</span>}
+      {v.lastError && <span className={"caption " + css.warn + " " + css.selectable}>{v.lastError}</span>}
       {cur ? (
-        <div className="col gap6" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--blue) 8%, transparent)" }}>
-          <div className="row gap8" style={{ alignItems: "center" }}>
+        <div className={"col gap6 " + css.runningBox}>
+          <div className="row gap8">
             <Icon name="arrow.triangle.2.circlepath" size={13} color="var(--blue)" />
             <button className="btn link mono" onClick={() => openTask?.(cur.taskId)}>{cur.taskId}</button>
             <span className="ellipsis grow">{cur.title}</span>
             <span className="caption muted">{cur.agentName} · {relative(cur.startedAt)}開始</span>
             <button className="btn small danger" disabled={busy} onClick={() => setConfirmStop(true)}>停止</button>
           </div>
-          {cur.lastOutput && <span className="caption muted" style={{ whiteSpace: "pre-wrap", userSelect: "text", maxHeight: 120, overflowY: "auto" }}>{cur.lastOutput}</span>}
+          {cur.lastOutput && <span className={"caption muted " + css.output}>{cur.lastOutput}</span>}
         </div>
       ) : <span className="muted">目前沒有在執行的任務</span>}
       <ErrorText>{error}</ErrorText>
       {v.history.length > 0 && (
         <div className="col">
-          <span className="caption muted" style={{ fontWeight: 600 }}>最近 {v.history.length} 筆</span>
+          <span className={"caption muted " + css.strong}>最近 {v.history.length} 筆</span>
           {v.history.map((r, i) => <RecordRow key={`${r.taskId}-${r.startedAt}-${i}`} r={r} openTask={openTask} />)}
         </div>
       )}
       <Modal open={confirmStop} onClose={() => setConfirmStop(false)} width={400} title={`停止 ${cur?.taskId ?? ""}?任務會回報「需要協助」(人工停止)。`}>
-        <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+        <div className={"row gap8 " + css.end}>
           <button className="btn" onClick={() => setConfirmStop(false)}>取消</button>
           <button className="btn red" disabled={busy} onClick={() => run(async () => { await action("agent_runner_stop"); setConfirmStop(false); })}>停止</button>
         </div>
@@ -151,15 +156,15 @@ export function AgentRunnerCard({ openTask }: { openTask?: (taskId: string) => v
 function RecordRow({ r, openTask }: { r: RunnerRecord; openTask?: (taskId: string) => void }) {
   const o = OUTCOME[r.outcome] ?? { label: r.outcome, color: "gray", icon: "questionmark.circle" };
   return (
-    <div className="row gap8" style={{ padding: "5px 0", borderBottom: "1px solid var(--line)", alignItems: "center" }}>
+    <div className={"row gap8 " + css.recordRow}>
       <Icon name={o.icon} size={13} color={`var(--${o.color})`} />
       <button className="btn link mono" onClick={() => openTask?.(r.taskId)}>{r.taskId}</button>
       <span className="ellipsis grow" title={r.error || r.title}>{r.title}{r.error ? <span className="caption muted"> · {r.error}</span> : null}</span>
-      <span className="caption muted ellipsis" style={{ width: 90 }}>{r.agentName}</span>
+      <span className={"caption muted ellipsis " + css.w90}>{r.agentName}</span>
       <Pill text={o.label} color={o.color} />
-      <span className="caption muted num" style={{ width: 80, textAlign: "right" }} title="耗時">{duration(r.durationSeconds)}</span>
-      <span className="caption muted num" style={{ width: 60, textAlign: "right" }} title="Claude 估計花費(換算成 API 價格;用訂閱不另外收費)">${(r.costUsd ?? 0).toFixed(2)}</span>
-      <span className="caption muted" style={{ width: 90, textAlign: "right" }}>{dateTime(r.finishedAt)}</span>
+      <span className={"caption muted num " + css.w80 + " " + css.right} title="耗時">{duration(r.durationSeconds)}</span>
+      <span className={"caption muted num " + css.w60 + " " + css.right} title="Claude 估計花費(換算成 API 價格;用訂閱不另外收費)">${(r.costUsd ?? 0).toFixed(2)}</span>
+      <span className={"caption muted " + css.w90 + " " + css.right}>{dateTime(r.finishedAt)}</span>
     </div>
   );
 }

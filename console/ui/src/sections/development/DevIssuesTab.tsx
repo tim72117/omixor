@@ -2,20 +2,37 @@
 // 建立、修改、留言、關閉走 MCP 工具(issue_create / issue_update),刪除是畫面專用的 issue_delete。
 import { useEffect, useRef, useState } from "react";
 import { action, useActionQuery, useDebounced } from "../../api";
-import { color, EmptyState, MetaFit, Modal, Pill, type FitItem } from "../../components/ui";
-import { MarkdownText, MenuButton, monthDayTime, Seg, SIcon, useAct, useConfirm, useList, useOmixor, type Agent } from "../../components/omixorKit";
+import { useConfirm } from "../../components/Confirm";
+import { EmptyState } from "../../components/EmptyState";
+import { MarkdownText } from "../../components/Markdown";
+import { MenuButton } from "../../components/Menu";
+import { MetaFit, type FitItem } from "../../components/MetaFit";
+import { Modal } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
+import { SIcon } from "../../components/SIcon";
+import { useAct } from "../../components/Toast";
+import { useOmixor } from "../../lib/directory";
+import { monthDayTime } from "../../lib/format";
+import { useList } from "../../lib/hooks";
+import { go } from "../../lib/nav";
 import { relative } from "../../fmt";
-import { RepoFilterSelect, usedRepos, useDev } from "./devShared";
+import { usedRepos, useDev } from "./devShared";
+import { issueFilterDefs, usedLabels } from "./issueFilters";
+import { FilterBar } from "../../components/FilterBar";
 import { JiraImport } from "./JiraImport";
-import { IssueEditForm, NewIssue, projectName } from "./IssueForm";
+import { IssueEditForm, NewIssue } from "./IssueForm";
 import { IssueTrash } from "./IssueTrash";
 import { resolveIssueRef, updateIssue, useIsOrgAdmin, useProjects } from "./issueApi";
 import {
   findIssue, issueKey, PRIORITIES, PRIORITY, PROJECT_ALL, PROJECT_ORG, showPriorityPill,
   type Counts, type Issue,
 } from "./issueModel";
-import { go } from "../../components/bits";
 import { MdTextarea } from "../../components/MdTextarea";
+import ds from "./devShared.module.css";
+import s from "./DevIssuesTab.module.css";
+import { AuthorIcon as SharedAuthorIcon } from "../../components/Avatar";
+import { cardTitleClass } from "../../components/Card";
+import { layoutClass } from "../../components/Layout";
 
 export { PRIORITY, showPriorityPill } from "./issueModel";
 export type { Issue, IssueComment } from "./issueModel";
@@ -28,26 +45,28 @@ type IssueQueryResult = { issues: Issue[]; total: number; counts: Record<"open" 
 export function DevIssuesTab() {
   const dev = useDev();
   const [issues, err, issuesReady] = useList<Issue>("issues"); // 全部(詳細資料、倉庫選單用);列表本身照 issue_query 的結果
-  const [filter, setFilter] = useState<Filter>("open");
-  const [query, setQuery] = useState("");
-  const [repo, setRepo] = useState(""); // "" = 全部倉庫;NO_REPO = 未標記;其他 = 只列這個倉庫(比對規則在核心的 model.RepoMatch)
+  // 篩選和看板共用(DevModel.issueFilters,切換分頁時保留)
+  const f = dev.issueFilters, set = dev.setIssueFilters;
+  const { query, label, priority, repo, project } = f; // repo:"" 全部、NO_REPO 未標記(比對規則在核心的 model.RepoMatch);project:"" 全部、"-" 只組織層級、PRJ-n
+  const filter = f.status;
+  const setFilter = (status: Filter) => set({ status });
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
-  const [project, setProject] = useState(PROJECT_ALL); // "" = 全部;"-" = 只看組織層級;PRJ-n = 只看那個專案(同後端 project 查詢參數)
   const projects = useProjects();
   const isAdmin = useIsOrgAdmin();
   const q = useDebounced(query, 250);
   // 篩選、搜尋、排序在後端(核心的 model.QueryIssues):未解決的在前 → 優先度 → 最近更新 → 編號
-  const [res, qErr] = useActionQuery<IssueQueryResult>("issue_query", { q, status: filter, repo, project, sort: "status" }, ["issues"]);
+  const [res, qErr] = useActionQuery<IssueQueryResult>("issue_query", { q, status: filter, label, priority, repo, project, sort: "status" }, ["issues"]);
   // 列表、各狀態數量(counts)、總數(total)都以後端回傳的為準(已依 project 計算),畫面不再自己篩、自己算
   const list = res?.issues ?? [];
   const counts: Counts = res?.counts ?? { all: 0, open: 0, closed: 0 };
   const total = res?.total ?? 0;
   const repos = usedRepos(issues);
-  const count = (f: Filter) => {
-    const n = counts[f] ?? 0;
-    return n > 0 ? ` ${n}` : "";
+  const statusOpt = (st: Filter) => {
+    const text = st === "open" ? "未解決" : st === "closed" ? "已關閉" : "全部";
+    const n = counts[st] ?? 0;
+    return { value: st, text, label: <>{text}{n > 0 && <span className={"muted num " + s.optCount}>{n}</span>}</> };
   };
   useEffect(() => {
     if (res && !dev.selectedIssue && list[0]) dev.setSelectedIssue(list[0].id);
@@ -66,40 +85,38 @@ export function DevIssuesTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dev.selectedIssue, issuesReady, sel?.id]);
   return (
-    <div className="ox-fill">
-      <div className="col" style={{ width: 320, flex: "none", borderRight: "1px solid var(--line)", minHeight: 0 }}>
-        <div className="col gap8" style={{ padding: 10 }}>
-          <Seg value={filter} onChange={setFilter} options={(["open", "closed", "all"] as Filter[]).map((f) => ({ value: f, label: (f === "open" ? "未解決" : f === "closed" ? "已關閉" : "全部") + count(f) }))} />
-          <div className="row gap6">
-            <input className="input grow" placeholder="搜尋編號、標題、內文、標籤、留言" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <button className="btn" title="新增 Issue" onClick={() => setCreating(true)}><SIcon name="plus" /></button>
-            <button className="btn" title="從 Jira 匯入" onClick={() => setImporting(true)}><SIcon name="square.and.arrow.down" /></button>
-            {isAdmin && <button className="btn" title="垃圾桶(已刪除的 Issue,只有組織管理員看得到)" onClick={() => setTrashOpen(true)}><SIcon name="trash" /></button>}
-          </div>
-          <select className="select" title="依專案篩選" value={project} onChange={(e) => setProject(e.target.value)}>
-            <option value={PROJECT_ALL}>全部專案</option>
-            <option value={PROJECT_ORG}>組織(未分專案)</option>
-            {projects.length > 0 && <option disabled>──────</option>}
-            {projects.map((p) => <option key={p.id} value={p.id}>{projectName(p)}</option>)}
-            {project !== PROJECT_ALL && project !== PROJECT_ORG && !projects.some((p) => p.id === project) && <option value={project}>{project}</option>}
-          </select>
-          <RepoFilterSelect value={repo} onChange={setRepo} repos={repos} />
+    <div className={layoutClass.page}>
+      <FilterBar search={{ value: query, onChange: (v) => set({ query: v }), placeholder: "搜尋編號、標題、內文、標籤、留言" }}
+        filters={[
+          { key: "status", label: "狀態", title: "依狀態篩選", options: (["open", "closed", "all"] as Filter[]).map(statusOpt), value: filter, defaultValue: "open", showDefault: true, onChange: (v: string) => setFilter(v as Filter) },
+          ...issueFilterDefs(f, set, { labels: usedLabels(issues), repos, projects }),
+        ]}
+        end={(compact) => (
+          <>
+            <button className="btn primary" title="新增 Issue" onClick={() => setCreating(true)}><SIcon name="plus" />{!compact && "新增 Issue"}</button>
+            <MenuButton label={<SIcon name="ellipsis" />} title="更多動作" align="right" items={[
+              { label: <><SIcon name="square.and.arrow.down" />從 Jira 匯入</>, onClick: () => setImporting(true) },
+              ...(isAdmin ? [{ label: <><SIcon name="trash" />垃圾桶(已刪除的 Issue)</>, onClick: () => setTrashOpen(true) }] : []),
+            ]} />
+          </>
+        )} />
+      <div className={layoutClass.fill}>
+        <div className={ds.sideList + " " + s.side}>
+          {(err || qErr) && !res ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={qErr ?? err} />
+            : !res ? null : list.length === 0 ? (
+              <EmptyState title={total === 0 ? "還沒有 Issue" : "沒有符合的 Issue"} icon="exclamationmark.bubble"
+                message={total === 0 ? "按「新增 Issue」、從 ⋯ 選單匯入 Jira,或讓 AI 透過 MCP 的 issue_create 存進來。" : undefined} />
+            ) : (
+              <div className="list">
+                {list.map((i) => <IssueRow key={i.id} issue={i} showRepo={!repo} on={i.id === dev.selectedIssue} onClick={() => dev.setSelectedIssue(i.id)} />)}
+              </div>
+            )}
         </div>
-        <div className="divider" />
-        {(err || qErr) && !res ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={qErr ?? err} />
-          : !res ? null : list.length === 0 ? (
-            <EmptyState title={total === 0 ? "還沒有 Issue" : "沒有符合的 Issue"} icon="exclamationmark.bubble"
-              message={total === 0 ? "按 + 新增、從 Jira 匯入,或讓 AI 透過 MCP 的 issue_create 存進來。" : undefined} />
-          ) : (
-            <div className="ox-list">
-              {list.map((i) => <IssueRow key={i.id} issue={i} showRepo={!repo} on={i.id === dev.selectedIssue} onClick={() => dev.setSelectedIssue(i.id)} />)}
-            </div>
+        <div className={layoutClass.scroll}>
+          {sel ? <IssueDetail key={sel.id} issue={sel} /> : (
+            <EmptyState title="選一個 Issue" icon="exclamationmark.bubble" message="Issue 存在這台 Mac 上(issues.json),重開 app 也還在。AI 可以用 MCP 建立、留言與關閉。" />
           )}
-      </div>
-      <div className="ox-scroll">
-        {sel ? <IssueDetail key={sel.id} issue={sel} /> : (
-          <EmptyState title="選一個 Issue" icon="exclamationmark.bubble" message="Issue 存在這台 Mac 上(issues.json),重開 app 也還在。AI 可以用 MCP 建立、留言與關閉。" />
-        )}
+        </div>
       </div>
       <Modal open={creating} onClose={() => setCreating(false)} width={560}>
         <NewIssue defaultProject={project !== PROJECT_ALL && project !== PROJECT_ORG ? project : ""} onDone={(id) => { setCreating(false); if (id) { dev.setSelectedIssue(id); setFilter("open"); } }} />
@@ -122,16 +139,12 @@ function useAuthor() {
       if (a.startsWith("agent:")) return o.name({ kind: "ai", id: a.slice(6) });
       return o.name({ kind: "person", id: a });
     },
-    agent: (a: string): Agent | undefined => (a.startsWith("agent:") ? o.agents.find((x) => x.id === a.slice(6)) : undefined),
   };
 }
 
+/** 作者圖示:角色的圖示是 lucide 額外圖示,用 SIcon 畫 */
 function AuthorIcon({ author, size = 18 }: { author: string; size?: number }) {
-  const { agent } = useAuthor();
-  const ag = agent(author);
-  if (ag) return <span className="ox-avatar" style={{ width: size, height: size, background: color(ag.color ?? "blue") }}><SIcon name={ag.symbol ?? "person.crop.circle"} size={size * 0.5} color="#fff" /></span>;
-  if (author === "mcp") return <SIcon name="sparkles" size={size * 0.8} color="purple" />;
-  return <SIcon name="person.crop.circle" size={size * 0.85} className="muted" />;
+  return <SharedAuthorIcon author={author} size={size} icon={SIcon} mcpScale={0.8} personScale={0.85} />;
 }
 
 function IssueRow({ issue, showRepo, on, onClick }: { issue: Issue; showRepo: boolean; on: boolean; onClick: () => void }) {
@@ -141,20 +154,20 @@ function IssueRow({ issue, showRepo, on, onClick }: { issue: Issue; showRepo: bo
   // 中段(倉庫、標籤)放得下幾個就完整顯示幾個:倉庫只顯示短名、最先拿掉(已篩單一倉庫時不顯示);標籤依序保留,放不下的收成「+N」
   const fit: FitItem[] = [];
   if (showRepo && issue.repo) fit.push({ key: "repo", drop: 100, shrink: 60, className: "caption mono muted", node: <span title={"倉庫:" + issue.repo}>{issue.repo.split("/").pop()}</span> });
-  (issue.labels ?? []).forEach((l, i) => fit.push({ key: "l:" + l, drop: i, label: l, node: <span title={l} style={{ display: "inline-flex" }}><Pill text={l} /></span> }));
+  (issue.labels ?? []).forEach((l, i) => fit.push({ key: "l:" + l, drop: i, label: l, node: <span title={l} className={ds.inlineFlex}><Pill text={l} /></span> }));
   const nComments = issue.comments?.length ?? 0;
   return (
-    <div className={"ox-list-row col gap4" + (on ? " on" : "")} onClick={onClick}>
-      <div className="row gap6" style={{ alignItems: "flex-start" }}>
-        <SIcon name={open ? "circle.dotted" : "checkmark.circle.fill"} color={open ? p.color : "secondary"} style={{ marginTop: 2 }} />
-        <span style={{ color: open ? undefined : "var(--fg2)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{issue.title}</span>
+    <div className={"list-row col gap4" + (on ? " on" : "")} onClick={onClick}>
+      <div className={ds.rowTop + " gap6"}>
+        <SIcon name={open ? "circle.dotted" : "checkmark.circle.fill"} color={open ? p.color : "secondary"} className={ds.rowIcon} />
+        <span className={ds.clamp2 + (open ? "" : " " + ds.secondary)}>{issue.title}</span>
       </div>
-      <div className="ox-meta gap6">
+      <div className="meta gap6">
         <span className="caption mono muted" title={issue.project ? "專案 " + issue.project : undefined}>{issueKey(issue)}</span>
         {isAIAuthor(issue.createdBy) && <span title={name(issue.createdBy)}><AuthorIcon author={issue.createdBy} size={14} /></span>}
         {showPriorityPill(issue.priority) && <Pill text={p.label} color={p.color} />}
         <MetaFit items={fit} />
-        {nComments > 0 && <span className="caption muted row" style={{ gap: 3 }} title={`${nComments} 則留言`}><SIcon name="bubble.left" size={11} />{nComments}</span>}
+        {nComments > 0 && <span className={"caption muted row " + s.gap3} title={`${nComments} 則留言`}><SIcon name="bubble.left" size={11} />{nComments}</span>}
         {nComments > 0 && <span className="caption faint">·</span>}
         <span className="caption muted">{relative(issue.updatedAt)}</span>
       </div>
@@ -180,15 +193,15 @@ function IssueDetail({ issue }: { issue: Issue }) {
   let linkHost: string | undefined;
   try { const u = new URL(issue.link); if (u.protocol.startsWith("http")) linkHost = u.host; } catch { /* 不是網址 */ }
   return (
-    <div className="col" style={{ padding: 20, gap: 16, maxWidth: 820 }}>
+    <div className={"col " + s.detail}>
       <div className="col gap8">
-        <div className="row gap8" style={{ alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div className={ds.rowTop + " gap8 wrap"}>
           {/* 標題至少保留 280px、可換行;按鈕群不換行、放不下時整組換到標題下一行,避免被擠成直排或把標題擠窄 */}
-          <div className="row gap8" style={{ alignItems: "baseline", minWidth: 0, flexWrap: "wrap", flex: "1 1 280px" }}>
-            <span className="h2" style={{ userSelect: "text", minWidth: 0, overflowWrap: "anywhere" }}>{issue.title}</span>
-            <span className="mono muted" style={{ fontSize: "var(--fs-lg)", whiteSpace: "nowrap" }}>{issueKey(issue)}</span>
+          <div className={s.titleRow + " gap8"}>
+            <span className={"h2 " + s.title}>{issue.title}</span>
+            <span className={"muted " + s.key}>{issueKey(issue)}</span>
           </div>
-          <div className="row gap8" style={{ flex: "0 0 auto", marginLeft: "auto", alignItems: "center", whiteSpace: "nowrap" }}>
+          <div className={"row gap8 " + s.actions}>
           <MenuButton className="btn" label={<SIcon name="ellipsis.circle" />} align="right" items={[
             { header: "優先度" },
             ...PRIORITIES.map((x) => ({ label: PRIORITY[x].label, checked: x === issue.priority, onClick: () => upd({ priority: x }) })),
@@ -228,17 +241,17 @@ function IssueDetail({ issue }: { issue: Issue }) {
         <IssueEditForm issue={issue} onClose={() => setEditing(false)} />
       ) : issue.body ? <MarkdownText source={issue.body} /> : <div className="muted">沒有內文</div>}
       {(issue.comments?.length > 0 || !editing) && (
-        <div className="col" style={{ gap: 10 }}>
-          <div className="card-title">留言</div>
+        <div className={"col " + s.comments}>
+          <div className={cardTitleClass}>留言</div>
           {(issue.comments ?? []).map((c) => (
-            <div key={c.id} className="col gap4" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--fg) 5%, transparent)" }}>
-              <div className="row gap6"><AuthorIcon author={c.author} /><span className="caption" style={{ fontWeight: 600 }}>{name(c.author)}</span><span className="caption muted">{relative(c.at)}</span></div>
+            <div key={c.id} className={"col gap4 " + s.comment}>
+              <div className="row gap6"><AuthorIcon author={c.author} /><span className={"caption " + ds.bold}>{name(c.author)}</span><span className="caption muted">{relative(c.at)}</span></div>
               <MarkdownText source={c.text} />
             </div>
           ))}
-          <div className="row gap8" style={{ alignItems: "flex-end" }}>
-            <MdTextarea style={{ minHeight: 34, fontFamily: "inherit" }} placeholder="寫留言…" value={comment} onChange={setComment} />
-            <button className="btn" style={{ whiteSpace: "nowrap" }} disabled={!comment.trim()} onClick={async () => { const r = await upd({ comment: comment.trim() }); if (r !== undefined) setComment(""); }}>送出</button>
+          <div className={s.composer + " gap8"}>
+            <MdTextarea className={s.commentBox} placeholder="寫留言…" value={comment} onChange={setComment} />
+            <button className="btn" disabled={!comment.trim()} onClick={async () => { const r = await upd({ comment: comment.trim() }); if (r !== undefined) setComment(""); }}>送出</button>
           </div>
         </div>
       )}

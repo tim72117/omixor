@@ -1,15 +1,32 @@
 // 告警分頁:依狀態分組(觸發中優先、依嚴重度排序),每列可確認/解除/靜音、建立事件、請 AI 分析(Swift 的 MonAlertsTab)
 import { useEffect, useMemo, useRef, useState } from "react";
 import { tool, useRun, useView } from "../../api";
-import { AICallout, ActorLabel, IconButton, SearchField, Spinner, ToggleChip, copyText, go, hm, shortDuration, useContextMenu, useDirectory, useNow } from "../../components/bits";
+import { ActorLabel } from "../../components/Avatar";
+import { AICallout } from "../../components/Callout";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
+import { IconButton } from "../../components/IconButton";
+import { useContextMenu } from "../../components/Menu";
+import { MetricTile } from "../../components/MetricTile";
+import { Pill } from "../../components/Pill";
+import { SearchField } from "../../components/SearchField";
+import { Spinner } from "../../components/Spinner";
+import { ToggleChip } from "../../components/ToggleChip";
+import { copyText } from "../../lib/clipboard";
+import { color } from "../../lib/color";
+import { useDirectory } from "../../lib/directory";
+import { dur, hm } from "../../lib/format";
+import { useNow } from "../../lib/hooks";
+import { go } from "../../lib/nav";
 import {
   ALERT_STATE_COLOR, ALERT_STATE_ICON, ALERT_STATE_LABEL, SEVERITIES, SEV_COLOR, SEV_ICON, SEV_LABEL, arr, sevRank,
   type Alert, type AlertState, type Deployment, type LogEntry, type Service, type Severity,
-} from "../../components/models";
-import { EmptyState, ErrorText, MetricTile, Pill, color } from "../../components/ui";
+} from "../../models";
+import css from "./monitoring.module.css";
 import { relative } from "../../fmt";
 import { canGo } from "../../features";
+import { rowButtonClass } from "../../components/RowButton";
 
 const STATE_ORDER: AlertState[] = ["firing", "acknowledged", "silenced", "resolved"];
 
@@ -102,9 +119,9 @@ export function AlertsTab({ selectedId, setSelectedId }: { selectedId?: string; 
               const open = !collapsed.has(state);
               return (
                 <div key={state} className="col gap8">
-                  <button className="bx-row-btn" style={{ padding: "2px 0" }}
+                  <button className={rowButtonClass + " " + css.padY2}
                     onClick={() => setCollapsed((c) => { const n = new Set(c); if (n.has(state)) n.delete(state); else n.add(state); return n; })}>
-                    <span style={{ transform: open ? "rotate(90deg)" : undefined, transition: "transform .15s", display: "inline-flex" }}>
+                    <span className={css.chevAnim + (open ? " " + css.chevOpen : "")}>
                       <Icon name="chevron.right" size={12} className="muted" />
                     </span>
                     <Icon name={ALERT_STATE_ICON[state]} size={14} color={color(ALERT_STATE_COLOR[state])} />
@@ -131,7 +148,7 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
 }) {
   const now = useNow(30000);
   const [hover, setHover] = useState(false);
-  const menu = useContextMenu();
+  const menu = useContextMenu("simple");
   const active = a.state === "firing" || a.state === "acknowledged";
   const sevCol = color(SEV_COLOR[a.severity]);
   const ref = useRef<HTMLDivElement>(null);
@@ -153,35 +170,32 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
         ...(canGo("infrastructure") ? [{ label: "前往服務", onClick: () => go("infrastructure", a.service) }] : []),
         { label: "複製告警 ID", onClick: () => copyText(a.id) },
       ])}
-      style={{
-        display: "flex", background: "var(--bg2)", borderRadius: "var(--r-xl)", overflow: "hidden",
-        border: selected ? "2px solid var(--accent)" : `1px solid color-mix(in srgb, var(--fg) ${hover ? 15 : 7}%, transparent)`,
-      }}
+      className={css.alert + (selected ? " " + css.sel : hover ? " " + css.hover : "")}
     >
-      <div style={{ width: 4, flex: "none", background: sevCol, opacity: a.state === "resolved" || a.state === "silenced" ? 0.4 : 1 }} />
-      <div className="col gap8 grow" style={{ padding: 12, gap: 10 }}>
+      <div className={css.sevBar + (a.state === "resolved" || a.state === "silenced" ? " " + css.dim : "")} style={{ background: sevCol }} />
+      <div className={"col gap8 grow " + css.alertBody}>
         <div className="row gap8">
           <Icon name={SEV_ICON[a.severity]} size={14} color={sevCol} />
-          <span style={{ fontWeight: 600, fontSize: "var(--fs-md)" }}>{a.title}</span>
+          <span className={css.strongMd}>{a.title}</span>
           <Pill text={SEV_LABEL[a.severity]} color={SEV_COLOR[a.severity]} />
           {a.state !== "firing" && <Pill text={ALERT_STATE_LABEL[a.state]} color={ALERT_STATE_COLOR[a.state]} icon={ALERT_STATE_ICON[a.state]} />}
           <div className="grow" />
-          <span className="mono" style={{ fontWeight: 600, fontSize: "var(--fs-base)", color: active ? sevCol : "var(--fg2)" }}>{a.value}</span>
+          <span className={"mono " + css.value} style={{ color: active ? sevCol : "var(--fg2)" }}>{a.value}</span>
           {!selected && (
-            <span className="row" style={{ opacity: hover ? 1 : 0.55 }}>
+            <span className={"row " + css.quick + (hover ? " " + css.on : "")}>
               {a.state === "firing" && <IconButton icon="eye" title="確認" onClick={() => onUpdate("acknowledge")} />}
               {a.state !== "resolved" && <IconButton icon="checkmark.circle" title="解除" onClick={() => onUpdate("resolve")} />}
               <IconButton icon="sparkles" title="讓 AI 分析" tint="purple" onClick={onAnalyze} />
             </span>
           )}
         </div>
-        <div className="row caption muted" style={{ gap: 14 }}>
+        <div className={"row caption muted " + css.meta}>
           <span className="row gap4 ellipsis"><Icon name="shippingbox" size={12} />{serviceName}</span>
-          <span className="row gap4 ellipsis" style={{ minWidth: 0 }}><Icon name="function" size={12} /><span className="mono ellipsis" style={{ fontSize: "var(--fs-xs)" }}>{a.rule}</span></span>
-          <span className="row gap4" style={{ flex: "none" }}><Icon name="clock" size={12} />
-            {active ? `持續 ${shortDuration((now - new Date(a.startedAt).getTime()) / 1000)}` : `開始於 ${relative(a.startedAt)}`}
+          <span className={"row gap4 ellipsis " + css.minw0}><Icon name="function" size={12} /><span className={"mono ellipsis " + css.monoXs}>{a.rule}</span></span>
+          <span className={"row gap4 " + css.none}><Icon name="clock" size={12} />
+            {active ? `持續 ${dur((now - new Date(a.startedAt).getTime()) / 1000)}` : `開始於 ${relative(a.startedAt)}`}
           </span>
-          {a.acknowledgedBy && a.state === "acknowledged" && <span className="row gap4" style={{ flex: "none" }}>確認者 <ActorLabel actor={a.acknowledgedBy} size={14} /></span>}
+          {a.acknowledgedBy && a.state === "acknowledged" && <span className={"row gap4 " + css.none}>確認者 <ActorLabel inline actor={a.acknowledgedBy} size={14} /></span>}
           <div className="grow" />
           {a.incidentId && (
             <button className="btn link caption" title={`前往事件 ${a.incidentId}`} onClick={canGo("incidents") ? (e) => { e.stopPropagation(); go("incidents", a.incidentId!); } : undefined}>
@@ -191,7 +205,7 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
         </div>
         {a.aiNote && <AICallout title="AI 初步判讀">{a.aiNote}</AICallout>}
         {analyzing ? (
-          <div className="row gap8" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--purple) 6%, transparent)", color: "var(--purple)" }}>
+          <div className={"row gap8 " + css.analyzing}>
             <Spinner size={12} /> AI 正在比對指標、日誌與最近部署…
           </div>
         ) : analysis ? <AICallout title="AI 分析結果">{analysis}</AICallout> : null}
@@ -200,7 +214,7 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
             <button className="btn" disabled={a.state !== "firing"} onClick={() => onUpdate("acknowledge")}><Icon name="eye" size={12} />確認</button>
             <button className="btn" disabled={a.state === "resolved"} onClick={() => onUpdate("resolve")}><Icon name="checkmark.circle" size={12} />解除</button>
             <button className="btn" disabled={a.state === "silenced" || a.state === "resolved"} onClick={() => onUpdate("silence")}><Icon name="bell.slash" size={12} />靜音</button>
-            <span style={{ width: 1, height: 16, background: "var(--line)" }} />
+            <span className={css.vsep} />
             {a.incidentId
               ? <button className="btn" onClick={canGo("incidents") ? () => go("incidents", a.incidentId!) : undefined}><Icon name="flame" size={12} />查看事件 {a.incidentId}</button>
               : <button className="btn" disabled={a.state === "resolved"} onClick={onCreateIncident}><Icon name="flame" size={12} />建立事件</button>}
@@ -234,7 +248,7 @@ export function analyzeAlert(a: Alert, services: Service[], logs: LogEntry[], de
   const d = deployments
     .filter((x) => x.service === a.service && new Date(x.startedAt).getTime() <= started && started - new Date(x.startedAt).getTime() < 6 * 3600000)
     .sort((x, y) => y.startedAt.localeCompare(x.startedAt))[0];
-  if (d) parts.push(`告警前 ${shortDuration((started - new Date(d.startedAt).getTime()) / 1000)} 有一次部署(${d.previousVersion} → ${d.version}),建議優先檢查這次變更,必要時回滾。`);
+  if (d) parts.push(`告警前 ${dur((started - new Date(d.startedAt).getTime()) / 1000)} 有一次部署(${d.previousVersion} → ${d.version}),建議優先檢查這次變更,必要時回滾。`);
   else parts.push("6 小時內沒有這個服務的部署紀錄。");
   if (svc?.dependencies?.length) {
     const bad = svc.dependencies.map((id) => services.find((s) => s.id === id)).filter((s): s is Service => !!s && s.health !== "healthy");

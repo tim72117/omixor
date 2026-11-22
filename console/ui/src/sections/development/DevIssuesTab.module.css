@@ -1,0 +1,18 @@
+/* 開發 › Issue */
+.side { width: 320px; }
+/* 狀態選項後面的數量 */
+.optCount { margin-left: 6px; }
+.gap3 { gap: 3px; }
+
+/* 詳細資料 */
+.detail { padding: 20px; gap: 16px; max-width: 820px; }
+/* 標題至少保留 280px、可換行;按鈕群不換行、放不下時整組換到標題下一行,避免被擠成直排或把標題擠窄 */
+.titleRow { display: flex; align-items: baseline; min-width: 0; flex-wrap: wrap; flex: 1 1 280px; }
+.title { user-select: text; min-width: 0; overflow-wrap: anywhere; }
+.key { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-lg); white-space: nowrap; }
+.actions { flex: 0 0 auto; margin-left: auto; white-space: nowrap; }
+.comments { gap: 10px; }
+.comment { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.composer { display: flex; align-items: flex-end; }
+/* 留言框:一行高、內文字型(textarea.x 蓋過全域 .textarea 的 min-height 與等寬字) */
+textarea.commentBox { min-height: 34px; font-family: inherit; }

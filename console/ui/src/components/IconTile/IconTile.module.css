@@ -1,0 +1,2 @@
+.tile { display: inline-flex; align-items: center; justify-content: center; flex: none; background: linear-gradient(135deg, var(--purple), var(--indigo)); }
+.dim { background: color-mix(in srgb, var(--gray) 35%, transparent); }

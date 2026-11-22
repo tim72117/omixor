@@ -1,0 +1,110 @@
+/* 監控與告警頁(告警、儀表板、日誌、規則、網站訪客)自己的樣式。
+   和全域 class(.row、.mono、.caption、.grid、.btn…)疊在同一個元素、又設定同一個屬性時,用重複的 class 提高權重(.x.x)。 */
+
+/* 共用小工具 */
+.fill { flex: 1; min-height: 0; }
+.tabBody { padding: 20px; gap: 12px; }
+.pad20 { padding: 20px; }
+.flex1 { flex: 1; }
+.full { height: 100%; }
+.rel { position: relative; }
+.none { flex: none; }
+.minw0 { min-width: 0; }
+.nowrap { white-space: nowrap; }
+.selectable { user-select: text; }
+.bold { font-weight: 600; }
+.medium { font-weight: 500; }
+.xs.xs { font-size: var(--fs-xs); }
+.red { color: var(--red); }
+.orange { color: var(--orange); }
+.green { color: var(--green); }
+.fg2 { color: var(--fg2); }
+.right { text-align: right; }
+.w44 { width: 44px; }
+.w70 { width: 70px; }
+.maxw260 { max-width: 260px; }
+.gap2 { gap: 2px; }
+.half { opacity: .5; }
+.top.top { align-items: flex-start; }
+.end { align-items: flex-end; }
+.center { justify-content: center; }
+.baseline.baseline { align-items: baseline; }
+.alignStart { align-items: start; }
+.strongBase { font-weight: 600; font-size: var(--fs-base); }
+.strongMd { font-weight: 600; font-size: var(--fs-md); }
+.strongXl { font-weight: 600; font-size: var(--fs-xl); }
+
+/* 可展開的列按鈕(RowButton,上下內距 2px) */
+.padY2 { padding: 2px 0; }
+.chevAnim { display: inline-flex; transition: transform .15s; }
+.chev { display: inline-flex; width: 10px; }
+.chevOpen { transform: rotate(90deg); }
+
+/* 告警 */
+.alert { display: flex; background: var(--bg2); border-radius: var(--r-xl); overflow: hidden; border: 1px solid color-mix(in srgb, var(--fg) 7%, transparent); }
+.alert.hover { border: 1px solid color-mix(in srgb, var(--fg) 15%, transparent); }
+.alert.sel { border: 2px solid var(--accent); }
+.sevBar { width: 4px; flex: none; }
+.sevBar.dim { opacity: .4; }
+.alertBody.alertBody { padding: 12px; gap: 10px; }
+.value.value { font-weight: 600; font-size: var(--fs-base); }
+.quick { opacity: .55; }
+.quick.on { opacity: 1; }
+.meta { gap: 14px; }
+.monoXs.monoXs { font-size: var(--fs-xs); }
+.analyzing { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--purple) 6%, transparent); color: var(--purple); }
+.vsep { width: 1px; height: 16px; background: var(--line); }
+
+/* 儀表板 */
+.panelGrid.panelGrid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.stats { gap: 18px; }
+
+/* 日誌 */
+.helpBtn { position: absolute; }
+/* 查詢語法選單(Dropdown,貼在搜尋框右下) */
+.helpMenu { right: 0; top: 32px; }
+.helpText { padding: 4px 8px; max-width: 300px; }
+.liveOn:global(.btn.primary) { background: var(--green); border-color: var(--green); }
+.histo { height: 110px; flex: none; }
+.histEmpty { height: 100%; justify-content: center; border-radius: var(--r-xl); background: color-mix(in srgb, var(--fg) 3%, transparent); }
+/* 時間篩選膠囊(原本全域 .pill 加淡 accent 底) */
+.slicePill { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); font-weight: 500; padding: 2px 7px; border-radius: var(--r-pill); white-space: nowrap;
+  color: color-mix(in srgb, var(--fg2) var(--tint-text), var(--fg)); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.p0 { padding: 0; }
+.logList { flex: 1; min-height: 0; overflow-y: auto; background: var(--bg2); border-radius: var(--r-xl); border: 1px solid var(--line); }
+.logRow.logRow { padding: 5px 10px; border-bottom: 1px solid color-mix(in srgb, var(--line) 40%, transparent); font-size: var(--fs-sm); }
+.logRow.err { background: color-mix(in srgb, var(--red) 4%, transparent); }
+.logRow.open { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.logLine.logLine { gap: 10px; align-items: baseline; }
+.level { width: 44px; flex: none; text-align: center; font-size: var(--fs-xs); font-weight: 700; border-radius: var(--r-sm); padding: 1px 0; }
+.svc { width: 110px; flex: none; color: var(--teal); }
+.preWrap { white-space: pre-wrap; }
+.detail { padding: 6px 0 4px 20px; }
+.kv { display: grid; align-items: center; column-gap: 14px; row-gap: 4px; grid-template-columns: auto 1fr; }
+.inheritFont { font-family: inherit; }
+
+/* 規則 */
+.tableCard { padding: 0; overflow: auto; flex: 1; min-height: 0; }
+.thSort { cursor: default; }
+.hl { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.odd { background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
+.expr { max-width: 320px; user-select: text; }
+
+/* 網站訪客 */
+.kpiGrid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.kpi { gap: 4px; }
+.kpiValue { font-size: var(--fs-2xl); font-weight: 600; }
+.funnel { height: 130px; }
+.countGrid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); align-items: start; }
+/* 表格(原本 bx-grid-table) */
+.gridTable { display: grid; align-items: center; column-gap: 14px; row-gap: 6px; }
+.gridTable > .h { font-size: var(--fs-xs); font-weight: 600; color: var(--fg2); white-space: nowrap; }
+.gridTable > .sep { grid-column: 1 / -1; height: 1px; background: var(--line); }
+.lessonTable { grid-template-columns: minmax(120px, 2fr) repeat(10, auto); justify-items: end; }
+.stayTable { grid-template-columns: repeat(4, auto) repeat(4, auto); justify-content: start; }
+.jStart { justify-self: start; }
+.jEnd { justify-self: end; }
+.pathCount { width: 52px; text-align: right; font-weight: 600; flex: none; }
+.steps { padding-left: 24px; gap: 2px; }
+.bar { height: 4px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--accent) 50%, transparent); }
+

@@ -4,8 +4,10 @@
 import { useState } from "react";
 import { action, useRun, useView } from "../api";
 import { Icon } from "../components/Icon";
+import css from "./auth.module.css";
 import { logout, useAuth } from "./auth";
 import { useConnect, type Account, type AccountServer } from "./ConnectGate";
+import { Dropdown, menuItemClass } from "../components/Menu";
 
 export function AccountBox() {
   const [acc] = useView<Account>("account", ["account", "orgs"]);
@@ -45,55 +47,55 @@ export function AccountBox() {
     });
   const err = error ?? out.error ?? (remote ? acc.error : undefined);
   return (
-    <div className="account-box">
-      <button className="account-current" onClick={() => { setChoosing(undefined); setOpen(!open); }} title={acc.error ?? undefined}>
+    <div className={css.box}>
+      <button className={css.current} onClick={() => { setChoosing(undefined); setOpen(!open); }} title={acc.error ?? undefined}>
         <Icon name={remote ? "cloud" : "person.crop.circle"} size={16} />
-        <div className="col grow" style={{ textAlign: "left", minWidth: 0 }}>
+        <div className={"col grow " + css.currentText}>
           <span className="ellipsis">{label}</span>
           <span className="caption muted ellipsis">{sub}</span>
         </div>
-        {acc.error && <span className="dot" style={{ background: "var(--orange)" }} />}
+        {acc.error && <span className={css.errDot} />}
         <Icon name="chevron.up.chevron.down" size={12} className="muted" />
       </button>
       {canLogout && (
-        <button className="account-logout" disabled={out.busy || busy} onClick={() => void doLogout()} title="登出並回到選擇連接對象或登入頁">
+        <button className={css.logout} disabled={out.busy || busy} onClick={() => void doLogout()} title="登出並回到選擇連接對象或登入頁">
           <Icon name="power" size={13} /> 登出
         </button>
       )}
       {open && (
-        <div className="menu account-menu">
+        <Dropdown className={css.menu}>
           {busy ? (
-            <div className="caption muted" style={{ padding: "6px 10px" }}>請在瀏覽器完成{pending ? ` ${pending} ` : ""}核准…</div>
+            <div className={"caption muted " + css.note6}>請在瀏覽器完成{pending ? ` ${pending} ` : ""}核准…</div>
           ) : choosing ? (
             <>
-              <div className="caption muted" style={{ padding: "4px 10px" }}>{choosing.name}:選擇登入方式</div>
+              <div className={"caption muted " + css.note4}>{choosing.name}:選擇登入方式</div>
               {choosing.auth.map((a) => (
-                <button key={a.id} className="menu-item" onClick={() => void go("remote", choosing, a.id, a.label)}>
+                <button key={a.id} className={menuItemClass + " " + css.wrap} onClick={() => void go("remote", choosing, a.id, a.label)}>
                   <Icon name="key.horizontal" size={14} /> {a.label}
                 </button>
               ))}
-              <button className="menu-item" onClick={() => setChoosing(undefined)}><Icon name="chevron.left" size={14} /> 返回</button>
+              <button className={menuItemClass + " " + css.wrap} onClick={() => setChoosing(undefined)}><Icon name="chevron.left" size={14} /> 返回</button>
             </>
           ) : (
             <>
-              <button className="menu-item" onClick={() => (remote ? void go("local") : done())}>
+              <button className={menuItemClass + " " + css.wrap} onClick={() => (remote ? void go("local") : done())}>
                 <Icon name="internaldrive" size={14} /> 本機 {!remote && <span className="muted">✓</span>}
                 <span className="caption muted">本機資料與登入</span>
               </button>
               {acc.servers.map((s) => (
-                <button key={s.id} className="menu-item" onClick={() => (remote && s.id === acc.serverId ? done() : pickServer(s))}>
+                <button key={s.id} className={menuItemClass + " " + css.wrap} onClick={() => (remote && s.id === acc.serverId ? done() : pickServer(s))}>
                   <Icon name="cloud" size={14} /> {s.name} {remote && s.id === acc.serverId && <span className="muted">✓</span>}
                 </button>
               ))}
               {remote && acc.loggedIn && (
-                <div className="caption muted" style={{ padding: "2px 10px" }}>{acc.name ? acc.name + " · " : ""}{acc.role === "admin" ? "伺服器管理員" : "成員"}</div>
+                <div className={"caption muted " + css.note2}>{acc.name ? acc.name + " · " : ""}{acc.role === "admin" ? "伺服器管理員" : "成員"}</div>
               )}
             </>
           )}
-          {err && <div className="caption" style={{ padding: "2px 10px", color: "var(--red)" }}>{err}</div>}
-        </div>
+          {err && <div className={"caption " + css.err}>{err}</div>}
+        </Dropdown>
       )}
-      {!open && out.error && <div className="caption" style={{ padding: "2px 10px", color: "var(--red)" }}>{out.error}</div>}
+      {!open && out.error && <div className={"caption " + css.err}>{out.error}</div>}
     </div>
   );
 }

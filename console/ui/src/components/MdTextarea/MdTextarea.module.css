@@ -1,0 +1,7 @@
+.root { min-width: 0; }
+textarea.over, textarea.over:focus { outline: 2px dashed var(--accent); }
+/* .btn.link 的 padding 權重是 0,2,0 */
+:global(.btn.link).insert { padding: 0; flex: none; white-space: nowrap; }
+.foot { align-items: center; }
+.hint { min-width: 0; }
+.error { color: var(--orange); }

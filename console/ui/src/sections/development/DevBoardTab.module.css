@@ -1,0 +1,32 @@
+/* 開發 › 看板(原本的全域 ox-board / ox-col / ox-work / ox-dashed / ox-count …) */
+
+.board { display: flex; gap: 12px; padding: 14px 20px; overflow-x: auto; flex: 1; min-height: 0; align-items: stretch; }
+.col { flex: 1 0 220px; display: flex; flex-direction: column; min-height: 0; border-radius: var(--r-xl); background: color-mix(in srgb, var(--fg) 3.5%, transparent); border: 2px solid transparent; }
+.col.target { background: color-mix(in srgb, var(--fg) 8%, transparent); border-color: var(--accent); }
+.colHead { padding: 9px 10px; }
+.count { font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; padding: 1px 6px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg2); }
+.colBody { flex: 1; overflow-y: auto; padding: 0 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+/* 欄內卡片保持自然高度、由欄捲動(.work 有 overflow:hidden,flex 的最小高度會變 0,不擋就被壓扁) */
+.colBody > * { flex-shrink: 0; }
+.colHint { margin: 0 8px 8px; padding: 6px 8px; border-radius: var(--r-md); font-size: var(--fs-sm); color: var(--fg2); background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.dashed { border: 1px dashed color-mix(in srgb, var(--fg) 22%, transparent); border-radius: var(--r-lg); padding: 24px 0; text-align: center; font-size: var(--fs-sm); color: var(--fg2); }
+
+/* 卡片 */
+.work { display: flex; background: var(--bg2); border-radius: var(--r-lg); border: 1px solid var(--line); overflow: hidden; box-shadow: 0 1px 1px rgba(0,0,0,.05); cursor: default; }
+.work:hover { border-color: color-mix(in srgb, var(--fg) 18%, transparent); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+/* 看板卡片可拖曳:hover 是抓手,按下 / 拖曳中是抓住(HTML5 拖曳途中的游標由 dropEffect 決定) */
+.work[draggable="true"] { cursor: grab; }
+.work[draggable="true"]:active, .work.dragging { cursor: grabbing; }
+.work.dragging { opacity: .5; }
+.stripe { width: 3px; flex: none; }
+.body { padding: 10px; gap: 6px; min-width: 0; }
+.title { overflow-wrap: anywhere; white-space: normal; }
+.closed { color: var(--fg2); }
+.tags { align-items: flex-start; min-width: 0; }
+.labels { flex-wrap: wrap; }
+
+/* 角色、倉庫、標籤的小標記 */
+.tag { font-size: 11px; padding: 1px 5px; border-radius: var(--r-sm); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent { color: var(--purple); background: color-mix(in srgb, var(--purple) 12%, transparent); }
+.repo { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--teal); background: color-mix(in srgb, var(--teal) 12%, transparent); }
+.label { max-width: 120px; background: color-mix(in srgb, var(--fg) 6%, transparent); }

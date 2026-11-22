@@ -1,0 +1,4 @@
+/* 表單欄位:上面小字標籤、下面撐滿寬度的控制項 */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field > span { font-size: var(--fs-sm); color: var(--fg2); }
+.field :global(.input), .field :global(.select), .field textarea { width: 100%; }

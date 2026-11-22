@@ -1,0 +1,33 @@
+/* 開發進度頁共用的版面(篩選列、清單欄)與 devShared.tsx 小元件的樣式;頁面骨架、表格、KPI 列改用 components 的 Layout / Table / KpiGrid */
+
+/* MARK: - 頁面骨架 */
+.filterbar { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+/* 左側清單欄(Issue、Repositories) */
+.sideList { display: flex; flex-direction: column; flex: none; border-right: 1px solid var(--line); min-height: 0; }
+/* 單行 / 兩行截斷的標題 */
+.clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* 清單列左邊的狀態圖示:和第一行文字對齊 */
+.rowIcon { margin-top: 2px; }
+/* 清單列:圖示在左、內容在右,上緣對齊 */
+.rowTop { display: flex; align-items: flex-start; }
+/* 清單列內容欄 */
+.rowBody { gap: 3px; min-width: 0; }
+.inlineFlex { display: inline-flex; }
+.selectable { user-select: text; }
+
+/* MARK: - 文字 */
+.bold { font-weight: 600; }
+.red { color: var(--red); }
+.green { color: var(--green); }
+.orange { color: var(--orange); }
+.purple { color: var(--purple); }
+.secondary { color: var(--fg2); }
+
+/* MARK: - devShared.tsx 的小元件 */
+.setupEmpty { align-items: center; gap: 10px; }
+.diff { font-size: var(--fs-base); }
+.fullWidth { width: 100%; }
+.coverage { width: 36px; text-align: right; flex: none; }
+.typeSwatch { width: 8px; height: 8px; border-radius: 2px; }
+.vulnBig { font-size: 16px; font-weight: 600; }
+.detailSection { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }

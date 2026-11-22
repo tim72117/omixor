@@ -1,0 +1,5 @@
+.header { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px 12px; border-bottom: 1px solid var(--line); flex: none; }
+.row { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+/* 標題至少保留 260px;右側內容不換字,放不下時整組換到下一行(超寬時可橫向捲動,不撐破版面) */
+.title { flex: 1 1 260px; min-width: 0; }
+.right { max-width: 100%; }

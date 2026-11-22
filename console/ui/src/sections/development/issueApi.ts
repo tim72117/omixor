@@ -1,7 +1,7 @@
 // Issue 的網路呼叫與資料 hook(純邏輯在 issueModel.ts)
 import { useState } from "react";
 import { action, refreshTopics, tool, useActionQuery, useView } from "../../api";
-import type { CabinetQuery, Project } from "../../components/models";
+import type { CabinetQuery, Project } from "../../models";
 import { CONFLICT_MESSAGE, isIssueRef, isVersionConflict, issueRefLabel, UUID_RE, type Issue } from "./issueModel";
 
 /** 修改 Issue;versioned 時帶上畫面讀到的 version(別人已經改過就丟出「這張 Issue 已被別人更新」,不會蓋掉)。留言不用帶 version(不算修改本體) */

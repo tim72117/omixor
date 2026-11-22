@@ -1,6 +1,10 @@
 // 設定 › 認證:LDAP 登入設定(只有管理員能看)
 import { useEffect, useState } from "react";
-import { Card, ErrorText, Pill, Segmented } from "../components/ui";
+import { Card } from "../components/Card";
+import { ErrorText } from "../components/ErrorText";
+import { Pill } from "../components/Pill";
+import { Segmented } from "../components/Segmented";
+import css from "./auth.module.css";
 import { getConfig, refreshAuth, saveConfig, testConfig, useAuth, type AuthUser, type LdapConfig } from "./auth";
 
 const PRESETS = {
@@ -52,7 +56,7 @@ export function AuthSettings() {
   );
 
   return (
-    <div className="col gap12" style={{ maxWidth: 760 }}>
+    <div className={"col gap12 " + css.settings}>
       <Card title="網頁版登入" subtitle="MCP 不受影響:MCP 和 Swift 版一樣只聽本機(127.0.0.1),不需要登入。">
         <Segmented
           value={cfg.mode}
@@ -134,7 +138,7 @@ export function AuthSettings() {
             {tested && (
               <div className="caption">
                 <Pill text="登入成功" color="green" icon="checkmark.circle" /> {tested.name}({tested.id}){tested.email && ` · ${tested.email}`}
-                {" · "}{tested.admin ? "管理員" : <span style={{ color: "var(--orange)" }}>不是管理員</span>}
+                {" · "}{tested.admin ? "管理員" : <span className={css.warn}>不是管理員</span>}
                 <div className="mono faint">{tested.dn}</div>
                 {tested.groups?.length ? <div className="faint">群組:{tested.groups.join("、")}</div> : null}
               </div>
@@ -148,7 +152,7 @@ export function AuthSettings() {
           onClick={() => run(async () => { await saveConfig(effective(), pw, tu, tp); setSaved(true); setBindPw(""); await refreshAuth(); })}>
           儲存
         </button>
-        {saved && <span className="caption" style={{ color: "var(--green)" }}>已儲存。所有人(包括你)要重新登入。</span>}
+        {saved && <span className={"caption " + css.ok}>已儲存。所有人(包括你)要重新登入。</span>}
         <ErrorText>{err}</ErrorText>
       </div>
     </div>

@@ -1,12 +1,14 @@
 // 設定 › 通知:依嚴重度選擇通知管道、事件與 AI 通知、勿擾時段(Swift 的 SettingsNotificationsPane)
 import { Fragment, useState } from "react";
 import { tool, useView } from "../../api";
-import { Switch, hm } from "../../components/bits";
 import { Icon } from "../../components/Icon";
-import { SEVERITIES, SEV_COLOR, SEV_LABEL, arr, type Integration, type Severity } from "../../components/models";
-import { color } from "../../components/ui";
+import { Switch } from "../../components/Switch";
+import { hm } from "../../lib/format";
+import { SEVERITIES, SEV_COLOR, SEV_LABEL, arr, type Integration, type Severity } from "../../models";
 import { Form, Row, Section } from "./form";
+import css from "./settings.module.css";
 import type { Pane } from "./SettingsView";
+import { StatusDot } from "../../components/StatusDot";
 
 type Channel = "slack" | "email" | "pagerduty" | "sms" | "desktop";
 const CHANNELS: { id: Channel; label: string; icon: string; key?: string }[] = [
@@ -42,15 +44,15 @@ export function SettingsNotifications({ setPane }: { setPane: (p: Pane) => void 
     <Form>
       <Section header="告警通知管道" icon="bell.badge" footer="每個嚴重度可以同時送到多個管道。Critical 建議至少開啟 PagerDuty 或簡訊,確保值班人員會被叫醒。">
         <Row>
-          <div style={{ display: "grid", gridTemplateColumns: `120px repeat(${CHANNELS.length}, 1fr)`, rowGap: 10, width: "100%", alignItems: "center" }}>
-            <span className="caption muted" style={{ fontWeight: 600 }}>嚴重度</span>
-            {CHANNELS.map((c) => <span key={c.id} className="col caption muted" style={{ alignItems: "center", fontWeight: 600, gap: 2 }}><Icon name={c.icon} size={13} />{c.label}</span>)}
-            <span style={{ gridColumn: "1 / -1", height: 1, background: "var(--line)" }} />
+          <div className={css.matrix} style={{ gridTemplateColumns: `120px repeat(${CHANNELS.length}, 1fr)` }}>
+            <span className={"caption muted " + css.strong}>嚴重度</span>
+            {CHANNELS.map((c) => <span key={c.id} className={"col caption muted " + css.matrixHead}><Icon name={c.icon} size={13} />{c.label}</span>)}
+            <span className={css.matrixSep} />
             {SEVERITIES.map((s) => (
               <Fragment key={s}>
-                <span className="row gap6"><span className="dot" style={{ width: 8, height: 8, background: color(SEV_COLOR[s]) }} />{SEV_LABEL[s]}</span>
+                <span className="row gap6"><StatusDot c={SEV_COLOR[s]} />{SEV_LABEL[s]}</span>
                 {CHANNELS.map((c) => (
-                  <span key={s + c.id} style={{ textAlign: "center" }}>
+                  <span key={s + c.id} className={css.center}>
                     <input type="checkbox" checked={matrix[s].has(c.id)} disabled={integ(c)?.connected === false} onChange={(e) => toggle(s, c.id, e.target.checked)} />
                   </span>
                 ))}
@@ -67,7 +69,7 @@ export function SettingsNotifications({ setPane }: { setPane: (p: Pane) => void 
         )}
         <Row label="Slack 頻道"><input className="input" value={slack} onChange={(e) => setSlack(e.target.value)} /></Row>
         <Row>
-          {lastTest && <span className="row gap4 caption" style={{ color: "var(--green)" }}><Icon name="checkmark.circle.fill" size={12} />已在 {hm(lastTest)} 送出測試通知</span>}
+          {lastTest && <span className={"row gap4 caption " + css.good}><Icon name="checkmark.circle.fill" size={12} />已在 {hm(lastTest)} 送出測試通知</span>}
           <div className="grow" />
           <button className="btn" onClick={sendTest}>傳送測試通知</button>
         </Row>

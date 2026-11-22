@@ -1,0 +1,98 @@
+/* 設定各分頁的樣式(phase 2 從 inline style 與全域 bx-* / ox-* class 搬來) */
+
+/* MARK: - 分組表單(原全域 .bx-form*;form.tsx) */
+.form { display: flex; flex-direction: column; gap: 14px; margin: 0 auto; padding: 20px; }
+.formSection { display: flex; flex-direction: column; gap: 6px; }
+.formHead { font-size: var(--fs-sm); font-weight: 600; color: var(--fg2); padding: 0 4px; display: flex; align-items: center; gap: 6px; }
+.formFoot { font-size: var(--fs-sm); color: var(--fg2); padding: 0 4px; }
+.formBox { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-xl); }
+.formRow { display: flex; align-items: center; gap: 10px; padding: 9px 12px; min-height: 38px; }
+.formRow + .formRow { border-top: 1px solid var(--line); }
+.formRow.alignTop { align-items: flex-start; }
+/* 標籤至少保留約 7 字寬,右側控制項(常有固定寬度的輸入框)不能把它擠成 0 */
+.formRow > :global(.label) { flex: 1 1 auto; min-width: 7em; }
+.formRow > :global(.input) { flex: 0 1 auto; max-width: 100%; }
+
+/* MARK: - 通用 */
+.loading { padding: 20px; }
+.page { flex: 1; min-height: 0; }
+.end { justify-content: flex-end; }
+.start { align-self: flex-start; }
+.medium { font-weight: 500; }
+.strong { font-weight: 600; }
+.selectable { user-select: text; }
+.right { text-align: right; }
+.center { text-align: center; }
+.none { flex: none; }
+.full { width: 100%; }
+.pt6 { padding-top: 6px; }
+.warn { color: var(--orange); }
+.good { color: var(--green); }
+/* 原本寫 var(--red, #d33) */
+.danger { color: var(--red, #d33); }
+.w36 { width: 36px; }
+.w70 { width: 70px; }
+.w84 { width: 84px; }
+.w110 { width: 110px; }
+.w180 { width: 180px; }
+.w260 { width: 260px; }
+.w280 { width: 280px; }
+.w290 { width: 290px; }
+.w360 { width: 360px; }
+.minW80 { min-width: 80px; }
+/* 全域 .select 有 min-width,要提高權重才蓋得過 */
+:global(.select).minW100 { min-width: 100px; }
+
+/* 左欄清單列(原全域 .bx-list-row) */
+.listRow { padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: default; display: flex; gap: 8px; align-items: center; }
+.listRow:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.listRow.on { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.listRow:focus-visible { outline-offset: -2px; }
+.listFoot { padding: 8px; border-top: 1px solid var(--line); }
+
+/* 原生三角形的版本(原全域 details.ox-disclosure) */
+details.nativeDisclosure > summary { cursor: default; font-size: var(--fs-sm); color: var(--fg2); list-style: revert; }
+
+/* MARK: - 設定頁骨架 */
+.paneBar { justify-content: center; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.paneTabs { max-width: 860px; width: 100%; text-align: center; }
+.paneTab { justify-content: center; }
+.narrow { max-width: 760px; margin: 0 auto; padding: 20px; }
+
+/* MARK: - 功能 */
+.featPage { gap: 16px; max-width: 860px; width: 100%; margin: 0 auto; padding: 20px; }
+:global(.row).top { align-items: flex-start; }
+.paneTitle { font-weight: 600; font-size: var(--fs-lg); }
+
+/* MARK: - 連線 */
+.connList { width: 240px; }
+
+/* MARK: - 組織 */
+.orgBadge { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+/* 圖示選擇鈕(蓋過全域 .btn 的內距、框色、底色,含 hover) */
+:global(.btn).symbolBtn { padding: 5px; }
+:global(.btn).symbolBtn.picked, :global(.btn).symbolBtn.picked:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+/* 顏色選擇圓點(底色是組織顏色,寫在 inline) */
+.swatch { width: 20px; height: 20px; border-radius: var(--r-pill); border: 2px solid transparent; }
+.swatch.picked { border-color: var(--fg); }
+
+/* MARK: - 整合 */
+.intIcon { width: 30px; height: 30px; border-radius: var(--r-md); display: inline-flex; align-items: center; justify-content: center; flex: none; background: color-mix(in srgb, var(--fg2) 12%, transparent); }
+.intIcon.on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.cmd { max-width: 380px; user-select: text; }
+
+/* MARK: - AI 治理 */
+.track { height: 6px; border-radius: var(--r-md); background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.fill { height: 6px; border-radius: var(--r-md); background: var(--green); }
+.fill.fillOrange { background: var(--orange); }
+.fill.fillRed { background: var(--red); }
+
+/* MARK: - 通知 */
+/* 嚴重度 × 管道的勾選表(欄數依 CHANNELS,寫在 inline) */
+.matrix { display: grid; row-gap: 10px; width: 100%; align-items: center; }
+.matrixHead { align-items: center; font-weight: 600; gap: 2px; }
+.matrixSep { grid-column: 1 / -1; height: 1px; background: var(--line); }
+
+/* MARK: - 程式碼倉庫 */
+.copyValue { user-select: text; word-break: break-all; }
+.dangerRed { color: var(--red); }

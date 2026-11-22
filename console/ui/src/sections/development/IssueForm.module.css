@@ -1,0 +1,9 @@
+/* Issue 的建立與編輯表單 */
+.merged { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--fg) 5%, transparent); }
+.theirs { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* button.small、input.title 提高權重:蓋過全域 .btn / .input 的字級 */
+button.small { font-size: var(--fs-sm); }
+input.title { font-size: var(--fs-lg); }
+/* textarea.x 提高權重:蓋過全域 .textarea 的 min-height */
+textarea.bodyTall { min-height: 220px; }
+textarea.body { min-height: 180px; }

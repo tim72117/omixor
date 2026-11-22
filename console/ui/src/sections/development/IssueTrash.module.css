@@ -1,0 +1,4 @@
+/* Issue 垃圾桶 */
+.list { max-height: 420px; overflow-y: auto; }
+.item { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.key { width: 80px; flex: none; }

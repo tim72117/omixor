@@ -1,17 +1,40 @@
 // 總覽:一眼看完服務狀態、需要處理的事、交付進度與最近動態。對應 Swift 版 Features/Overview/。
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { action, tool, useView } from "../../api";
-import { Card, color, Pill } from "../../components/ui";
+import { ActorAvatar } from "../../components/Avatar";
+import { AIBadge, EnvBadge, RunStatusBadge } from "../../components/Badge";
+import { Card, cardClass, CardHeader, cardTitleClass } from "../../components/Card";
+import { Sparkline } from "../../components/charts";
+import { useConfirm } from "../../components/Confirm";
+import { InlineEmpty } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
+import { useContextMenu } from "../../components/Menu";
+import { Pill } from "../../components/Pill";
+import { Bar, ProgressBar } from "../../components/ProgressBar";
+import { Segmented } from "../../components/Segmented";
+import { SIcon } from "../../components/SIcon";
+import { StatusDot } from "../../components/StatusDot";
+import { ViewLoading } from "../../components/ViewState";
+import { useAct } from "../../components/Toast";
+import { isAI } from "../../lib/actor";
+import { color } from "../../lib/color";
+import { OmixorProvider, useOmixor } from "../../lib/directory";
+import { dur, isToday, monthDayTime, now, pct, t } from "../../lib/format";
+import { useList, useWidth } from "../../lib/hooks";
 import {
-  ActorAvatar, AIBadge, Bar, CardHeader, ENV, EnvBadge, HEALTH, HEALTH_ORDER, healthRank, InlineEmpty, isAI, isToday,
-  OmixorProvider, ProgressBar, RISK, RUN, RunStatusBadge, SEVERITY, Seg, SIcon, Sparkline, StatusDot, TIME_RANGE, INCIDENT_STATUS,
-  WORK_STATUS, dur, monthDayTime, now, pct, t, useAct, useConfirm, useContextMenu, useList, useOmixor, useWidth,
+  ENV, HEALTH, HEALTH_ORDER, healthRank, INCIDENT_STATUS, RISK, RUN, SEVERITY, TIME_RANGE, WORK_STATUS,
   type ActivityItem, type Alert, type ApprovalRequest, type AutomationRun, type Deployment, type EnvKey, type Incident,
   type OnCallShift, type PipelineRun, type PullRequest, type Service, type Sprint, type WorkItem,
-} from "../../components/omixorKit";
+} from "../../models";
+import css from "./overview.module.css";
+
+/** 顏色給 module CSS 的 var(--c) */
+const tint = (c: string) => ({ "--c": c }) as CSSProperties;
 import { relative } from "../../fmt";
 import type { SectionProps } from "..";
 import { canGo, useCanGo } from "../../features";
+import { plainClass, tileClass } from "../../components/Tile";
+import { KpiGrid } from "../../components/KpiGrid";
 
 export default function OverviewView(_: SectionProps) {
   return <OmixorProvider><Overview /></OmixorProvider>;
@@ -32,18 +55,24 @@ const sevColor = (sev: number) => (sev === 1 ? "red" : sev === 2 ? "orange" : se
 
 function Overview() {
   const o = useOmixor();
-  const [services] = useList<Service>("services");
-  const [alerts] = useList<Alert>("alerts");
-  const [incidents] = useList<Incident>("incidents");
-  const [approvals] = useList<ApprovalRequest>("approvals");
-  const [deployments] = useList<Deployment>("deployments");
-  const [runs] = useList<PipelineRun>("pipeline_runs");
-  const [aiRuns] = useList<AutomationRun>("automation_runs");
-  const [work] = useList<WorkItem>("work_items");
-  const [sprint] = useView<Sprint>("sprint");
-  const [prs] = useList<PullRequest>("pull_requests");
-  const [onCall] = useList<OnCallShift>("on_call");
-  const [activity] = useList<ActivityItem>("activity");
+  const [services, servicesErr, servicesOk] = useList<Service>("services");
+  const [alerts, alertsErr, alertsOk] = useList<Alert>("alerts");
+  const [incidents, incidentsErr, incidentsOk] = useList<Incident>("incidents");
+  const [approvals, approvalsErr] = useList<ApprovalRequest>("approvals");
+  const [deployments, deploymentsErr] = useList<Deployment>("deployments");
+  const [runs, runsErr] = useList<PipelineRun>("pipeline_runs");
+  const [aiRuns, aiRunsErr] = useList<AutomationRun>("automation_runs");
+  const [work, workErr] = useList<WorkItem>("work_items");
+  const [sprint, sprintErr] = useView<Sprint>("sprint");
+  const [prs, prsErr] = useList<PullRequest>("pull_requests");
+  const [onCall, onCallErr] = useList<OnCallShift>("on_call");
+  const [activity, activityErr] = useList<ActivityItem>("activity");
+  // 讀不到的資料:卡片照常畫(空的),上方列出哪些讀不到,免得把「讀不到」看成「沒有」
+  const failed = ([
+    ["服務", servicesErr], ["告警", alertsErr], ["事件", incidentsErr], ["核准請求", approvalsErr], ["部署", deploymentsErr],
+    ["Pipeline", runsErr], ["AI 執行紀錄", aiRunsErr], ["工作項目", workErr], ["Sprint", sprintErr], ["Pull Request", prsErr],
+    ["值班", onCallErr], ["最近動態", activityErr],
+  ] as const).filter(([, e]) => e);
   const env = (o.nav?.env ?? "production") as EnvKey;
   const tr = TIME_RANGE[o.nav?.timeRange ?? "24h"]?.label ?? o.nav?.timeRange;
   const [ref, w] = useWidth<HTMLDivElement>();
@@ -69,7 +98,7 @@ function Overview() {
     show.infrastructure && <ServicesCard key="svc" d={d} />,
     show.pipelines && <DeliveryCard key="cd" d={d} />,
     (show.development || show.monitoring) && (
-      <div key="pair" className="row" style={{ gap: 16, alignItems: "flex-start" }}>
+      <div key="pair" className={"row " + css.columns}>
         {show.development && <div className="grow"><SprintCard d={d} /></div>}
         {show.monitoring && <div className="grow"><ErrorBudgetCard d={d} /></div>}
       </div>
@@ -88,7 +117,7 @@ function Overview() {
   return (
     <div className="page-scroll" ref={ref}>
       <div className="page-inner">
-        <div className="row" style={{ alignItems: "baseline" }}>
+        <div className={"row " + css.baseline}>
           <div className="col gap4">
             <div className="page-title">總覽</div>
             <div className="muted">{ENV[env].label} 環境 · 最近 {tr}</div>
@@ -99,12 +128,14 @@ function Overview() {
             <button className="btn" title="開啟指令面板" onClick={() => window.dispatchEvent(new CustomEvent("omixor-command-palette"))}><SIcon name="magnifyingglass" /> 搜尋</button>
           </div>
         </div>
-        {banner && <StatusBanner d={d} />}
+        {failed.length > 0 && <ErrorText>讀不到{failed.map(([n]) => n).join("、")}:{failed[0][1]}</ErrorText>}
+        {/* 狀態橫幅要服務、告警、事件都讀到才畫,否則載入中會短暫顯示「尚未取得監控資料」 */}
+        {banner && (servicesErr || alertsErr || incidentsErr ? null : servicesOk && alertsOk && incidentsOk ? <StatusBanner d={d} /> : <ViewLoading variant="inline" />)}
         <KPIRow d={d} />
         {two ? (
-          <div className="row gap12" style={{ alignItems: "flex-start", gap: 16 }}>
-            <div className="col grow" style={{ gap: 16 }}>{left}</div>
-            <div className="col" style={{ gap: 16, width: side, flex: "none" }}>{right}</div>
+          <div className={"row gap12 " + css.columns}>
+            <div className={"col grow " + css.gap16}>{left}</div>
+            <div className={"col " + css.gap16 + " " + css.none} style={{ width: side }}>{right}</div>
           </div>
         ) : (
           <>
@@ -114,7 +145,7 @@ function Overview() {
             {show.infrastructure && <ServicesCard d={d} />}
             {show.pipelines && <DeliveryCard d={d} />}
             {(show.development || show.monitoring) && (
-              <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+              <div className={css.autoGrid + " " + css.grid280}>
                 {show.development && <SprintCard d={d} />}
                 {show.monitoring && <ErrorBudgetCard d={d} />}
               </div>
@@ -157,16 +188,16 @@ function StatusBanner({ d }: { d: Data }) {
   }
   const col = color(c);
   return (
-    <div className="row gap12" style={{ padding: 14, borderRadius: "var(--r-xl)", background: `color-mix(in srgb, ${col} 9%, transparent)`, border: `1px solid color-mix(in srgb, ${col} 25%, transparent)` }}>
+    <div className={"row gap12 " + css.banner} style={tint(col)}>
       <SIcon name={icon} size={26} color={c} />
-      <div className="col gap4 grow" style={{ minWidth: 0 }}>
-        <div className="card-title">{title}</div>
-        <div className="muted" style={{ fontSize: "var(--fs-base)" }}>{detail}</div>
+      <div className="col gap4 grow">
+        <div className={cardTitleClass}>{title}</div>
+        <div className={"muted " + css.base}>{detail}</div>
       </div>
       {(level === "major" || level === "degraded") && (
         <>
           {d.open.length > 0 && canGo("incidents") && <button className="btn" onClick={() => o.go("incidents", d.open[0]?.id)}>查看事件</button>}
-          {canGo("monitoring") && <button className="btn" style={{ background: col, borderColor: col, color: "white" }} onClick={() => o.go("monitoring", d.firing[0]?.id)}>查看告警</button>}
+          {canGo("monitoring") && <button className={"btn " + css.white} style={{ background: col, borderColor: col }} onClick={() => o.go("monitoring", d.firing[0]?.id)}>查看告警</button>}
         </>
       )}
       {level === "ok" && canGo("infrastructure") && <button className="btn" onClick={() => o.go("infrastructure")}>服務列表</button>}
@@ -199,7 +230,7 @@ function KPIRow({ d }: { d: Data }) {
   if (!sh.monitoring && !sh.pipelines && !sh.incidents && !sh.automation) return null;
   const n = (sh.monitoring ? 3 : 0) + (sh.pipelines ? 1 : 0) + (sh.incidents ? 1 : 0) + (sh.automation ? 1 : 0);
   return (
-    <div className="ox-kpi-wrap"><div className="ox-kpi" data-n={n}>
+    <KpiGrid n={n}>
       {sh.monitoring && <>
       <KPITile title="可用性(30 天)" value={avgUptime != null ? pct(avgUptime, 2) : "—"} caption={`SLO ${pct(slo, 2)}`} captionColor={(avgUptime ?? 100) >= slo ? "green" : "red"} icon="checkmark.shield" tint="green" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
       <KPITile title="p95 延遲" value={p95 != null ? `${Math.round(p95)} ms` : "—"} caption={p95 != null ? (p95 > 500 ? "高於 500 ms 目標" : "在 500 ms 目標內") : "尚無資料"} captionColor={(p95 ?? 0) > 500 ? "orange" : "secondary"} icon="speedometer" tint="blue" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
@@ -208,16 +239,16 @@ function KPIRow({ d }: { d: Data }) {
       {sh.pipelines && <KPITile title="今日部署" value={String(deploysToday.length)} caption={deployCaption} captionColor={failed ? "red" : "secondary"} icon="shippingbox" tint="indigo" onClick={canGo("pipelines") ? () => o.go("pipelines") : undefined} />}
       {sh.incidents && <KPITile title="進行中事件" value={String(d.open.length)} caption={minSev != null ? `最高 SEV${minSev}` : "目前沒有事件"} captionColor={d.open.length ? "red" : "secondary"} icon="flame" tint={d.open.length ? "red" : "secondary"} onClick={canGo("incidents") ? () => o.go("incidents", d.open[0]?.id) : undefined} />}
       {sh.automation && <KPITile title="AI 今日動作" value={String(aiToday.length)} caption={aiHours > 0 ? `約省下 ${aiHours.toFixed(1)} 小時` : `${d.pending.length} 項等你決定`} captionColor="purple" icon="sparkles" tint="purple" onClick={canGo("automation") ? () => o.go("automation") : undefined} />}
-    </div></div>
+    </KpiGrid>
   );
 }
 
 function KPITile({ title, value, caption, captionColor, icon, tint, onClick }: { title: string; value: string; caption: string; captionColor: string; icon: string; tint: string; onClick?: () => void }) {
   return (
-    <button className="card ox-tile" style={{ gap: 6, cursor: onClick ? undefined : "default" }} onClick={onClick}>
-      <div className="row gap6 muted ellipsis" style={{ fontSize: "var(--fs-base)" }}><SIcon name={icon} color={tint} />{title}</div>
-      <div className="num" style={{ fontSize: "var(--fs-3xl)", fontWeight: 600 }}>{value}</div>
-      <div className="caption ellipsis" style={{ color: color(captionColor), fontWeight: 500 }}>{caption}</div>
+    <button className={cardClass + " " + tileClass + " " + css.gap6} onClick={onClick}>
+      <div className={"row gap6 muted ellipsis " + css.base}><SIcon name={icon} color={tint} />{title}</div>
+      <div className={"num " + css.big}>{value}</div>
+      <div className={"caption ellipsis " + css.medium} style={{ color: color(captionColor) }}>{caption}</div>
     </button>
   );
 }
@@ -236,26 +267,26 @@ function ServicesCard({ d }: { d: Data }) {
           <div className="row gap12 caption muted">
             {HEALTH_ORDER.map((h) => {
               const n = d.services.filter((s) => s.health === h).length;
-              return n > 0 ? <span key={h} className="row gap4"><span className="dot" style={{ background: color(HEALTH[h].color) }} />{HEALTH[h].label} {n}</span> : null;
+              return n > 0 ? <span key={h} className="row gap4"><StatusDot c={HEALTH[h].color} size={7} />{HEALTH[h].label} {n}</span> : null;
             })}
             <span className="grow" />
             <span className="num">{healthy}/{d.services.length} 正常</span>
           </div>
-          <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+          <div className={css.autoGrid + " " + css.grid180}>
             {sorted.map((s) => {
               const c = color(HEALTH[s.health].color);
               const ok = s.health === "healthy";
               return (
-                <button key={s.id} className="ox-tile col gap4" title={`${s.name}:${s.summary}`} onClick={canGo("infrastructure") ? () => o.go("infrastructure", s.id) : undefined}
-                  style={{ padding: 10, borderRadius: "var(--r-lg)", background: `color-mix(in srgb, ${c} ${ok ? 5 : 12}%, transparent)`, border: `1px solid color-mix(in srgb, ${c} ${ok ? 12 : 35}%, transparent)` }}>
-                  <div className="row gap6" style={{ width: "100%" }}>
+                <button key={s.id} className={tileClass + " col gap4 " + css.svcTile + (ok ? "" : " " + css.bad)} title={`${s.name}:${s.summary}`} onClick={canGo("infrastructure") ? () => o.go("infrastructure", s.id) : undefined}
+                  style={tint(c)}>
+                  <div className={"row gap6 " + css.wfull}>
                     <SIcon name={HEALTH[s.health].icon} color={HEALTH[s.health].color} />
-                    <span className="ellipsis" style={{ fontWeight: 500 }}>{s.name}</span>
+                    <span className={"ellipsis " + css.medium}>{s.name}</span>
                     <span className="grow" />
-                    {s.tier === 1 && <span className="muted" style={{ fontSize: "var(--fs-xs)", fontWeight: 700 }} title="第 1 級(最關鍵)服務">T1</span>}
+                    {s.tier === 1 && <span className={"muted " + css.tier} title="第 1 級(最關鍵)服務">T1</span>}
                   </div>
                   <div className="caption muted num ellipsis">p95 {Math.trunc(s.latencyP95)} ms&nbsp;&nbsp;錯誤 {pct(s.errorRate, 2)}</div>
-                  <div className="row gap4 faint mono ellipsis" style={{ fontSize: "var(--fs-xs)" }}><SIcon name="tag" size={10} />{s.versions?.[d.env] ?? `未部署到 ${ENV[d.env].short}`}</div>
+                  <div className={"row gap4 faint mono ellipsis " + css.xs}><SIcon name="tag" size={10} />{s.versions?.[d.env] ?? `未部署到 ${ENV[d.env].short}`}</div>
                 </button>
               );
             })}
@@ -280,7 +311,7 @@ function AlertsCard({ d }: { d: Data }) {
         <>
           <div className="col">
             {d.firing.slice(0, 5).map((a, i) => (
-              <div key={a.id} className="row gap8" style={{ alignItems: "flex-start", padding: "8px 0", borderTop: i ? "1px solid var(--line)" : undefined }}
+              <div key={a.id} className={"row gap8 " + css.alertRow + (i ? " " + css.sepTop : "")}
                 onContextMenu={menu.open([
                   { label: "確認", onClick: () => upd(a.id, "acknowledge") },
                   { label: "靜音", onClick: () => upd(a.id, "silence") },
@@ -289,11 +320,11 @@ function AlertsCard({ d }: { d: Data }) {
                   ...(canGo("monitoring") ? [{ label: "在監控頁開啟", onClick: () => o.go("monitoring", a.id) }] : []),
                   ...(a.incidentId && canGo("incidents") ? [{ label: `開啟事件 ${a.incidentId}`, onClick: () => o.go("incidents", a.incidentId) }] : []),
                 ])}>
-                <span style={{ paddingTop: 5 }}><StatusDot c={SEVERITY[a.severity].color} pulsing={a.severity === "critical"} /></span>
-                <div className="col gap4 grow" style={{ minWidth: 0 }}>
-                  <button className="ox-plain" style={{ fontWeight: 500 }} onClick={canGo("monitoring") ? () => o.go("monitoring", a.id) : undefined}>{a.title}</button>
+                <span className={css.pt5}><StatusDot c={SEVERITY[a.severity].color} pulsing={a.severity === "critical"} /></span>
+                <div className="col gap4 grow">
+                  <button className={plainClass + " " + css.medium} onClick={canGo("monitoring") ? () => o.go("monitoring", a.id) : undefined}>{a.title}</button>
                   <div className="caption muted ellipsis">{o.service(a.service)?.name ?? a.service} · <span className="num">{a.value}</span> · {relative(a.startedAt)}</div>
-                  {a.aiNote && <div className="caption muted row gap4" style={{ alignItems: "flex-start" }}><SIcon name="sparkles" color="purple" size={12} /><span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{a.aiNote}</span></div>}
+                  {a.aiNote && <div className={"caption muted row gap4 " + css.top}><SIcon name="sparkles" color="purple" size={12} /><span className={css.clamp2}>{a.aiNote}</span></div>}
                 </div>
                 <button className="btn small" title="確認這則告警,表示你正在處理" onClick={() => upd(a.id, "acknowledge")}>確認</button>
               </div>
@@ -317,7 +348,7 @@ function ApprovalsCard({ d }: { d: Data }) {
       <CardHeader icon={<SIcon name="sparkles" color="purple" />} title="AI 需要你決定" count={pending.length} countColor="purple" onLink={canGo("automation") ? () => o.go("automation") : undefined} />
       {pending.length === 0 ? <InlineEmpty icon="checkmark.seal" text="沒有等待核准的 AI 動作" c="green" /> : (
         <>
-          <div className="col gap8" style={{ gap: 10 }}>{pending.slice(0, 3).map((r) => <ApprovalRow key={r.id} r={r} />)}</div>
+          <div className={"col gap8 " + css.gap10}>{pending.slice(0, 3).map((r) => <ApprovalRow key={r.id} r={r} />)}</div>
           {pending.length > 3 && <div className="caption muted">還有 {pending.length - 3} 項等待核准</div>}
         </>
       )}
@@ -332,28 +363,28 @@ function ApprovalRow({ r }: { r: ApprovalRequest }) {
   const { run, toastEl } = useAct();
   const decide = (approve: boolean) => run(() => action("approval_decide", { id: r.id, approve }));
   const left = t(r.expiresAt) - now();
-  const clamp = (n: number) => (expanded ? {} : { display: "-webkit-box", WebkitLineClamp: n, WebkitBoxOrient: "vertical" as const, overflow: "hidden" });
+  const clamp = expanded ? "" : " " + css.clamp2;
   return (
-    <div className="col gap8" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--purple) 5%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 18%, transparent)" }}>
+    <div className={"col gap8 " + css.approval}>
       <div className="row gap6">
         <Pill text={RISK[r.risk].label} color={RISK[r.risk].color} />
         <span className="caption muted ellipsis">{o.automations.find((a) => a.id === r.automation)?.name ?? "AI 自動化"}</span>
         <span className="grow" />
-        <span className="caption" style={{ color: left < 900_000 ? "var(--orange)" : "var(--fg2)" }}>{left < 0 ? "已逾期" : `${relative(r.expiresAt)}到期`}</span>
+        <span className={"caption " + (left < 900_000 ? css.orange : css.fg2)}>{left < 0 ? "已逾期" : `${relative(r.expiresAt)}到期`}</span>
       </div>
-      <div style={{ fontWeight: 600 }}>{r.title}</div>
-      <div className="caption muted" style={clamp(2)}>{r.rationale}</div>
-      <div className="mono" style={{ fontSize: "var(--fs-sm)", padding: 8, borderRadius: "var(--r-md)", background: "color-mix(in srgb, var(--fg) 5%, transparent)", userSelect: "text", ...clamp(2) }}>{r.action}</div>
+      <div className={css.bold}>{r.title}</div>
+      <div className={"caption muted" + clamp}>{r.rationale}</div>
+      <div className={"mono " + css.actionCode + clamp}>{r.action}</div>
       {expanded && (
         <>
           {r.evidence.length > 0 && (
             <div className="col gap4">
-              <div className="caption" style={{ fontWeight: 600 }}>依據</div>
-              {r.evidence.map((e) => <div key={e} className="caption muted row gap4" style={{ alignItems: "flex-start" }}><SIcon name="checkmark.circle" size={12} />{e}</div>)}
+              <div className={"caption " + css.bold}>依據</div>
+              {r.evidence.map((e) => <div key={e} className={"caption muted row gap4 " + css.top}><SIcon name="checkmark.circle" size={12} />{e}</div>)}
             </div>
           )}
           <div className="col gap4">
-            <div className="caption" style={{ fontWeight: 600 }}>回滾計畫</div>
+            <div className={"caption " + css.bold}>回滾計畫</div>
             <div className="caption muted">{r.rollbackPlan}</div>
           </div>
         </>
@@ -389,19 +420,19 @@ function IncidentsCard({ d }: { d: Data }) {
           {open.slice(0, 3).map((inc) => {
             const c = color(sevColor(inc.sev));
             return (
-              <button key={inc.id} className="ox-tile col gap6" onClick={canGo("incidents") ? () => o.go("incidents", inc.id) : undefined}
-                style={{ padding: 10, borderRadius: "var(--r-lg)", background: `color-mix(in srgb, ${c} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${c} 25%, transparent)` }}>
-                <div className="row gap6" style={{ width: "100%" }}>
+              <button key={inc.id} className={tileClass + " col gap6 " + css.incTile} onClick={canGo("incidents") ? () => o.go("incidents", inc.id) : undefined}
+                style={tint(c)}>
+                <div className={"row gap6 " + css.wfull}>
                   <Pill text={`SEV${inc.sev}`} color={sevColor(inc.sev)} />
                   <span className="caption mono muted">{inc.id}</span>
                   <span className="grow" />
                   <Pill text={INCIDENT_STATUS[inc.status].label} color={INCIDENT_STATUS[inc.status].color} />
                 </div>
-                <div style={{ fontWeight: 600 }}>{inc.title}</div>
-                {inc.impact && <div className="caption muted" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{inc.impact}</div>}
-                {inc.aiSummary && <div className="caption muted row gap4" style={{ alignItems: "flex-start" }}><SIcon name="sparkles" color="purple" size={12} /><span style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{inc.aiSummary}</span></div>}
-                <div className="row gap6 caption muted" style={{ width: "100%" }}>
-                  <ActorAvatar actor={{ kind: "person", id: inc.commander }} size={16} />
+                <div className={css.bold}>{inc.title}</div>
+                {inc.impact && <div className={"caption muted " + css.clamp2}>{inc.impact}</div>}
+                {inc.aiSummary && <div className={"caption muted row gap4 " + css.top}><SIcon name="sparkles" color="purple" size={12} /><span className={css.clamp3}>{inc.aiSummary}</span></div>}
+                <div className={"row gap6 caption muted " + css.wfull}>
+                  <ActorAvatar plainAI actor={{ kind: "person", id: inc.commander }} size={16} />
                   指揮官 {o.person(inc.commander)?.name ?? inc.commander}
                   <span className="grow" />
                   <SIcon name="clock" size={12} />已持續 {dur((now() - t(inc.startedAt)) / 1000)}
@@ -423,15 +454,15 @@ function OnCallCard({ d }: { d: Data }) {
   const current = d.onCall.filter((s) => t(s.start) <= n && t(s.end) > n).sort((a, b) => a.role.localeCompare(b.role));
   const next = d.onCall.filter((s) => t(s.start) > n).sort((a, b) => t(a.start) - t(b.start))[0];
   const row = (s: OnCallShift, caption: string) => (
-    <div key={s.id} className="row gap8" style={{ gap: 10 }}>
-      <ActorAvatar actor={{ kind: "person", id: s.person }} size={28} />
-      <div className="col grow" style={{ gap: 1 }}>
-        <span style={{ fontWeight: 500 }}>{o.person(s.person)?.name ?? s.person}</span>
+    <div key={s.id} className={"row gap8 " + css.gap10}>
+      <ActorAvatar plainAI actor={{ kind: "person", id: s.person }} size={28} />
+      <div className={"col grow " + css.gap1}>
+        <span className={css.medium}>{o.person(s.person)?.name ?? s.person}</span>
         <span className="caption muted">{o.person(s.person)?.role ?? ""}</span>
       </div>
-      <div className="col" style={{ alignItems: "flex-end", gap: 1 }}>
+      <div className={"col " + css.end + " " + css.gap1}>
         <Pill text={s.role} color={s.role === "Primary" ? "var(--accent)" : "secondary"} />
-        <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{caption}</span>
+        <span className={"muted " + css.xs}>{caption}</span>
       </div>
     </div>
   );
@@ -458,20 +489,20 @@ function DeliveryCard({ d }: { d: Data }) {
   const runs = [...inEnv.filter(isActive).sort(byStart), ...inEnv.filter((r) => !isActive(r)).sort(byStart)].slice(0, 4);
   const deps = d.deployments.filter((x) => x.env === d.env).sort(byStart).slice(0, 4);
   const runningCount = d.runs.filter((r) => r.status === "running" || r.status === "queued").length;
-  const label = (text: string, icon: string) => <div className="row gap4 caption muted" style={{ fontWeight: 600, paddingBottom: 2 }}><SIcon name={icon} size={12} />{text}</div>;
+  const label = (text: string, icon: string) => <div className={"row gap4 caption muted " + css.sectionLabel}><SIcon name={icon} size={12} />{text}</div>;
   return (
     <Card>
       <CardHeader title="CI/CD" count={runningCount} countColor="blue" linkTitle="所有流程" onLink={canGo("pipelines") ? () => o.go("pipelines") : undefined} />
       {runs.length === 0 && deps.length === 0 ? <InlineEmpty icon="arrow.triangle.branch" text="最近沒有流程執行或部署" /> : (
-        <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, alignItems: "start" }}>
+        <div className={css.autoGrid + " " + css.grid300}>
           <div className="col gap4">
             {label("流程執行", "gearshape.2")}
-            {runs.length === 0 && <div className="caption muted" style={{ padding: "6px 0" }}>沒有流程執行</div>}
+            {runs.length === 0 && <div className={"caption muted " + css.py6}>沒有流程執行</div>}
             {runs.map((r, i) => <RunRow key={r.id} run={r} first={i === 0} />)}
           </div>
           <div className="col gap4">
             {label(`部署 · ${ENV[d.env].label}`, "shippingbox")}
-            {deps.length === 0 && <div className="caption muted" style={{ padding: "6px 0" }}>{ENV[d.env].label} 最近沒有部署</div>}
+            {deps.length === 0 && <div className={"caption muted " + css.py6}>{ENV[d.env].label} 最近沒有部署</div>}
             {deps.map((x, i) => <DeployRow key={x.id} d={x} first={i === 0} />)}
           </div>
         </div>
@@ -487,10 +518,10 @@ function RunRow({ run, first }: { run: PipelineRun; first: boolean }) {
   const progress = run.stages.length ? Math.min(1, (done + (run.stages.some((s) => s.status === "running") ? 0.5 : 0)) / run.stages.length) : run.status === "succeeded" ? 1 : 0;
   const upd = (a: string) => act(() => tool("pipeline_update", { run_id: run.id, action: a }));
   return (
-    <div className="col gap4" style={{ padding: "6px 0", borderTop: first ? undefined : "1px solid var(--line)", gap: 5 }} onClick={canGo("pipelines") ? () => o.go("pipelines", String(run.id)) : undefined}>
+    <div className={"col gap4 " + css.runRow + (first ? "" : " " + css.sepTop)} onClick={canGo("pipelines") ? () => o.go("pipelines", String(run.id)) : undefined}>
       <div className="row gap6">
-        <SIcon name={RUN[run.status].icon} color={RUN[run.status].color} className={run.status === "running" ? "ox-pulse" : undefined} />
-        <span className="ellipsis" style={{ fontWeight: 500 }}>{run.pipeline}</span>
+        <SIcon name={RUN[run.status].icon} color={RUN[run.status].color} className={run.status === "running" ? css.pulse : undefined} />
+        <span className={"ellipsis " + css.medium}>{run.pipeline}</span>
         <span className="caption muted num">#{run.id}</span>
         <span className="grow" />
         {isAI(run.triggeredBy) && <AIBadge />}
@@ -498,15 +529,15 @@ function RunRow({ run, first }: { run: PipelineRun; first: boolean }) {
         {(run.status === "running" || run.status === "queued") && <button className="btn small" onClick={(e) => { e.stopPropagation(); upd("cancel"); }}>取消</button>}
       </div>
       <div className="caption muted ellipsis">{run.commitMessage}</div>
-      <div className="row" style={{ gap: 3 }}>
-        {run.stages.map((s) => <span key={s.id} title={`${s.name}:${RUN[s.status].label}`} style={{ flex: 1, height: 5, borderRadius: "var(--r-sm)", background: `color-mix(in srgb, ${color(RUN[s.status].color)} ${s.status === "queued" ? 25 : 85}%, transparent)` }} />)}
+      <div className={"row " + css.stages}>
+        {run.stages.map((s) => <span key={s.id} title={`${s.name}:${RUN[s.status].label}`} className={css.stage} style={{ background: `color-mix(in srgb, ${color(RUN[s.status].color)} ${s.status === "queued" ? 25 : 85}%, transparent)` }} />)}
       </div>
-      <div className="row gap6 muted" style={{ fontSize: "var(--fs-xs)" }}>
+      <div className={"row gap6 muted " + css.xs}>
         <SIcon name="arrow.triangle.branch" size={10} /><span className="ellipsis">{run.branch}</span><span className="mono">{run.commitSHA.slice(0, 7)}</span>
         <span className="grow" />
         <span className="num">{run.status === "running" ? `${Math.trunc(progress * 100)}%` : run.duration != null ? dur(run.duration) : relative(run.startedAt)}</span>
       </div>
-      {run.status === "failed" && run.aiDiagnosis && <div className="caption muted row gap4" style={{ alignItems: "flex-start" }}><SIcon name="sparkles" color="purple" size={12} /><span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{run.aiDiagnosis}</span></div>}
+      {run.status === "failed" && run.aiDiagnosis && <div className={"caption muted row gap4 " + css.top}><SIcon name="sparkles" color="purple" size={12} /><span className={css.clamp2}>{run.aiDiagnosis}</span></div>}
       {toastEl}
     </div>
   );
@@ -517,21 +548,21 @@ function DeployRow({ d, first }: { d: Deployment; first: boolean }) {
   const { run, toastEl } = useAct();
   const menu = useContextMenu();
   return (
-    <div className="col" style={{ padding: "6px 0", gap: 5, borderTop: first ? undefined : "1px solid var(--line)" }} onClick={canGo("pipelines") ? () => o.go("pipelines", d.id) : undefined}
+    <div className={"col " + css.runRow + (first ? "" : " " + css.sepTop)} onClick={canGo("pipelines") ? () => o.go("pipelines", d.id) : undefined}
       onContextMenu={menu.open([
         ...(canGo("pipelines") ? [{ label: "在 CI/CD 開啟", onClick: () => o.go("pipelines", d.id) }] : []),
         ...(d.status === "succeeded" || d.status === "failed" ? [{ label: `回滾到 ${d.previousVersion}`, onClick: () => run(() => action("deployment_rollback", { id: d.id })) }] : []),
       ])}>
       <div className="row gap6">
         <SIcon name={RUN[d.status].icon} color={RUN[d.status].color} />
-        <span className="ellipsis" style={{ fontWeight: 500 }}>{o.service(d.service)?.name ?? d.service}</span>
+        <span className={"ellipsis " + css.medium}>{o.service(d.service)?.name ?? d.service}</span>
         <span className="caption mono muted">{d.version}</span>
         <span className="grow" />
         {d.status === "waitingApproval" ? <button className="btn small primary" onClick={(e) => { e.stopPropagation(); run(() => action("deployment_approve", { id: d.id })); }}>核准部署</button> : <RunStatusBadge s={d.status} />}
       </div>
       {d.status === "running" && <ProgressBar value={d.progress} showLabel={false} />}
-      <div className="row gap6 muted" style={{ fontSize: "var(--fs-xs)" }}>
-        <ActorAvatar actor={d.by} size={14} /><span className="ellipsis">{o.name(d.by)}</span>·<span>{d.strategy}</span>
+      <div className={"row gap6 muted " + css.xs}>
+        <ActorAvatar plainAI actor={d.by} size={14} /><span className="ellipsis">{o.name(d.by)}</span>·<span>{d.strategy}</span>
         {d.canaryPercent != null && d.status === "running" && <span>canary {d.canaryPercent}%</span>}
         <span className="grow" />{relative(d.startedAt)}
       </div>
@@ -559,21 +590,21 @@ function SprintCard({ d }: { d: Data }) {
       <CardHeader title={sp?.name || "Sprint"} linkTitle="開發進度" onLink={canGo("development") ? () => o.go("development") : undefined} />
       {d.work.length === 0 ? <InlineEmpty icon="list.bullet.rectangle" text="這個 Sprint 還沒有工作項目" /> : (
         <>
-          {sp?.goal && <div className="caption muted" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{sp.goal}</div>}
-          <div className="row gap6" style={{ alignItems: "baseline" }}>
-            <span className="num" style={{ fontSize: "var(--fs-3xl)", fontWeight: 600 }}>{done}</span>
+          {sp?.goal && <div className={"caption muted " + css.clamp2}>{sp.goal}</div>}
+          <div className={"row gap6 " + css.baseline}>
+            <span className={"num " + css.big}>{done}</span>
             <span className="muted">/ {total} 點</span>
             <span className="grow" />
             <span className="caption muted">{daysLeft > 0 ? `剩 ${daysLeft} 天` : "今天結束"}</span>
           </div>
           <Bar value={progress} c={behind ? "orange" : "green"} />
-          {behind && <div className="caption row gap4" style={{ color: "var(--orange)" }}><SIcon name="tortoise" size={12} />進度落後時程 {Math.trunc((timeProgress - progress) * 100)}%</div>}
+          {behind && <div className={"caption row gap4 " + css.orange}><SIcon name="tortoise" size={12} />進度落後時程 {Math.trunc((timeProgress - progress) * 100)}%</div>}
           {sp && sp.burndown.length > 1 && <div title="燃盡圖(剩餘點數)"><Sparkline values={sp.burndown.map((p) => p.value)} c="indigo" height={34} /></div>}
-          <div className="row" style={{ gap: 10 }}>
+          <div className={"row " + css.gap10}>
             {(["todo", "inProgress", "review", "done"] as const).map((st) => (
-              <div key={st} className="col grow" style={{ gap: 1 }}>
-                <span className="num" style={{ fontWeight: 600 }}>{d.work.filter((w) => w.status === st).length}</span>
-                <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{WORK_STATUS[st].label}</span>
+              <div key={st} className={"col grow " + css.gap1}>
+                <span className={"num " + css.bold}>{d.work.filter((w) => w.status === st).length}</span>
+                <span className={"muted " + css.xs}>{WORK_STATUS[st].label}</span>
               </div>
             ))}
           </div>
@@ -605,16 +636,16 @@ function ErrorBudgetCard({ d }: { d: Data }) {
       <CardHeader title="錯誤預算" linkTitle="SLO" onLink={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
       {s.length === 0 ? <InlineEmpty icon="gauge.with.dots.needle.33percent" text="沒有設定 SLO 的服務" /> : (
         <>
-          <div className="row" style={{ gap: 16 }}>
-            <div style={{ position: "relative", width: 84, height: 84, flex: "none" }}>
+          <div className={"row " + css.gap16}>
+            <div className={css.donut}>
               <svg width={84} height={84} viewBox="0 0 84 84">
                 <circle cx={42} cy={42} r={R} fill="none" stroke="color-mix(in srgb, var(--fg) 8%, transparent)" strokeWidth={9} />
                 <circle cx={42} cy={42} r={R} fill="none" stroke={color(c(overall))} strokeWidth={9} strokeLinecap="round"
                   strokeDasharray={`${C * Math.min(1, Math.max(0, overall))} ${C}`} transform="rotate(-90 42 42)" />
               </svg>
-              <div className="col" style={{ position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" }}>
-                <span className="num" style={{ fontSize: "var(--fs-xl)", fontWeight: 600 }}>{Math.round(overall * 100)}%</span>
-                <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>剩餘</span>
+              <div className={"col " + css.donutLabel}>
+                <span className={"num " + css.bigXl}>{Math.round(overall * 100)}%</span>
+                <span className={"muted " + css.xs}>剩餘</span>
               </div>
             </div>
             <div className="col gap4">
@@ -624,10 +655,10 @@ function ErrorBudgetCard({ d }: { d: Data }) {
           </div>
           <div className="col gap6">
             {lowest.map((x) => (
-              <button key={x.id} className="ox-plain row gap8" onClick={canGo("infrastructure") ? () => o.go("infrastructure", x.id) : undefined}>
-                <span className="caption ellipsis" style={{ width: 96, flex: "none" }}>{x.name}</span>
+              <button key={x.id} className={plainClass + " row gap8"} onClick={canGo("infrastructure") ? () => o.go("infrastructure", x.id) : undefined}>
+                <span className={"caption ellipsis " + css.budgetName}>{x.name}</span>
                 <Bar value={x.errorBudgetRemaining} c={c(x.errorBudgetRemaining)} />
-                <span className="caption muted num" style={{ width: 36, textAlign: "right", flex: "none" }}>{Math.round(x.errorBudgetRemaining * 100)}%</span>
+                <span className={"caption muted num " + css.budgetPct}>{Math.round(x.errorBudgetRemaining * 100)}%</span>
               </button>
             ))}
           </div>
@@ -649,9 +680,9 @@ function ActivityCard({ d }: { d: Data }) {
   return (
     <Card>
       <div className="row">
-        <span className="card-title">最近動態</span>
+        <span className={cardTitleClass}>最近動態</span>
         <span className="grow" />
-        <div style={{ width: 180 }}><Seg value={filter} onChange={setFilter} options={[{ value: "all", label: "全部" }, { value: "people", label: "人員" }, { value: "ai", label: "AI" }]} /></div>
+        <div className={css.w180}><Segmented value={filter} onChange={setFilter} options={[{ value: "all", label: "全部" }, { value: "people", label: "人員" }, { value: "ai", label: "AI" }]} /></div>
       </div>
       {shown.length === 0 ? <InlineEmpty icon="clock.arrow.circlepath" text="還沒有任何動態" /> : (
         <>
@@ -659,23 +690,23 @@ function ActivityCard({ d }: { d: Data }) {
             {shown.map((item, i) => {
               const ai = item.actor.kind === "ai";
               return (
-                <button key={item.id} className="ox-plain row gap8" style={{ alignItems: "flex-start", padding: "7px 0", gap: 10, borderTop: i ? "1px solid var(--line)" : undefined }}
+                <button key={item.id} className={plainClass + " row gap8 " + css.actRow + (i ? " " + css.sepTop : "")}
                   title={`前往「${titles[item.section] ?? item.section}」`} onClick={canGo(item.section) ? () => o.go(item.section) : undefined}>
-                  <ActorAvatar actor={item.actor} size={24} />
-                  <div className="col grow" style={{ gap: 2, minWidth: 0 }}>
+                  <ActorAvatar plainAI actor={item.actor} size={24} />
+                  <div className={"col grow " + css.gap2}>
                     <div className="row gap6">
-                      <span className="ellipsis" style={{ fontWeight: 500 }}>{o.name(item.actor)}</span>
+                      <span className={"ellipsis " + css.medium}>{o.name(item.actor)}</span>
                       {ai && <AIBadge />}
                       <span className="grow" />
-                      <span className="caption muted" style={{ flex: "none" }}>{relative(item.date)}</span>
+                      <span className={"caption muted " + css.none}>{relative(item.date)}</span>
                     </div>
-                    <div className="caption muted row gap4" style={{ alignItems: "flex-start" }}><SIcon name={item.icon} color={ai ? "purple" : "secondary"} size={12} /><span>{item.text}</span></div>
+                    <div className={"caption muted row gap4 " + css.top}><SIcon name={item.icon} color={ai ? "purple" : "secondary"} size={12} /><span>{item.text}</span></div>
                   </div>
                 </button>
               );
             })}
           </div>
-          {list.length > 8 && <button className="btn link caption" style={{ alignSelf: "flex-start" }} onClick={() => setShowAll(!showAll)}>{showAll ? "顯示較少" : `顯示更多(共 ${list.length} 筆)`}</button>}
+          {list.length > 8 && <button className={"btn link caption " + css.selfStart} onClick={() => setShowAll(!showAll)}>{showAll ? "顯示較少" : `顯示更多(共 ${list.length} 筆)`}</button>}
         </>
       )}
     </Card>

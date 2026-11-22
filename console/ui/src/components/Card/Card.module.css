@@ -1,0 +1,6 @@
+/* .card 包在 :where() 裡(權重 0):傳 className 或和 cardClass 疊的 class 一定蓋得過,不受 CSS 載入順序影響 */
+:where(.card) { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+:where(.title) { font-weight: 600; font-size: var(--fs-md); }
+/* CardHeader 的數量徽章 */
+.count { font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; padding: 1px 6px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg2); }

@@ -1,0 +1,27 @@
+/* 開發 › Pull Requests */
+/* input.search 提高權重:蓋過全域 .input 的 min-width */
+input.search { min-width: 120px; max-width: 220px; flex: 1; }
+.rel { position: relative; }
+.column { flex-direction: column; }
+.titleCell { gap: 2px; min-width: 0; }
+.minw0 { min-width: 0; }
+
+/* 詳細資料:寬的時候在右邊(寬度依畫面,寫在 style),窄的時候在下面 */
+.sideDetail { flex: none; border-left: 1px solid var(--line); overflow-y: auto; background: var(--bg); }
+.bottomDetail { height: 380px; flex: none; border-top: 1px solid var(--line); overflow-y: auto; }
+.detail { padding: 16px; gap: 14px; }
+/* textarea.note 提高權重:蓋過全域 .textarea 的高度與字型 */
+textarea.note { min-height: 34px; height: 40px; font-family: inherit; }
+.start { align-self: flex-start; }
+.aiReview { padding: 12px; border-radius: var(--r-xl); background: color-mix(in srgb, var(--purple) 7%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 18%, transparent); }
+.finding { display: flex; align-items: baseline; }
+
+/* CI 階段 */
+.stage { gap: 3px; min-width: 0; }
+.stageBar { height: 5px; border-radius: var(--r-sm); }
+.stageName { font-size: var(--fs-xs); text-align: center; }
+
+/* 相關工作項目 */
+.stripe { width: 3px; height: 30px; border-radius: 2px; flex: none; }
+.gap2 { gap: 2px; }
+.who { width: 50px; }

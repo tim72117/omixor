@@ -1,0 +1,64 @@
+/* 文件櫃(CabinetView、ProjectBar、CabinetLayoutEditor) */
+.orange { color: var(--orange); }
+.red { color: var(--red); }
+.end { justify-content: flex-end; }
+.loading { padding: 20px; }
+.selectable { user-select: text; }
+.none { flex: none; }
+
+/* MARK: - 三欄:左兩欄隨寬度縮,右側內容至少保有可讀寬度(原本的全域 cab-split / cab-nav / cab-docs) */
+.split > :global(.split-list) { flex: 0 1 auto; min-width: 120px; }
+.split > :global(.split-detail) { min-width: 260px; }
+.nav { width: clamp(150px, 22%, 250px); background: var(--side); }
+.docs { width: clamp(180px, 28%, 300px); }
+
+/* MARK: - 左欄:專案切換 + 區塊/頁籤樹 */
+.projectBar { padding: 8px 8px 6px; border-bottom: 1px solid var(--line); }
+/* select.projectSelect 提高權重:蓋過全域 .select 的 min-width */
+select.projectSelect { min-width: 0; }
+.failed { padding: 8px 10px; }
+.layoutError { padding: 6px 10px; }
+.tree { overflow-y: auto; padding-top: 6px; }
+.navFoot { padding: 8px; border-top: 1px solid var(--line); }
+
+/* 樹的一列(區塊或頁籤) */
+.node { display: flex; align-items: center; gap: 6px; padding: 5px 10px; margin: 0 6px; border-radius: var(--r-md); cursor: default; }
+.node:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.node.on { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.node:focus-visible { outline-offset: -2px; }
+.indent { padding-left: 28px; }
+/* 展開/收合區塊的小按鈕 */
+.toggle { border: 0; background: none; padding: 0; border-radius: var(--r-sm); display: inline-flex; align-items: center; justify-content: center; color: var(--fg2); }
+.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.chevron { display: inline-flex; transition: transform .15s; }
+.chevron.open { transform: rotate(90deg); }
+.spacer { width: 16px; }
+/* 可以存取這裡的角色頭像:疊在一起,只能讀的淡一點 */
+.reader { display: inline-flex; }
+.reader + .reader { margin-left: -4px; }
+.readOnly { opacity: .45; }
+
+/* MARK: - 中欄:文件清單 */
+.docsHead { padding: 10px; border-bottom: 1px solid var(--line); }
+.docsTitle { font-size: var(--fs-md); font-weight: 600; }
+
+/* MARK: - 右欄:文件 */
+.doc { padding: 20px; display: flex; flex-direction: column; gap: 12px; max-width: 820px; }
+.title { user-select: text; flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+/* input.titleInput、textarea.body 提高權重:蓋過全域 .input / .textarea 的字級與高度 */
+input.titleInput { font-size: var(--fs-lg); flex: 1 1 220px; }
+textarea.body { min-height: 360px; }
+textarea.newBody { min-height: 260px; }
+textarea.description { min-height: 80px; }
+.frame { width: 100%; border: 0; border-radius: var(--r-xl); }
+
+/* MARK: - 結構編輯 */
+.editor { min-height: 380px; max-height: 50vh; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-lg); padding: 8px; }
+.section { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.sectionInput { font-weight: 600; }
+.tab { padding-left: 20px; }
+.path { max-width: 180px; }
+.addTab { align-self: flex-start; margin-left: 16px; }
+.footer { position: relative; }
+/* 套用範本的選單(Dropdown) */
+.tplMenu { left: 110px; bottom: 32px; }

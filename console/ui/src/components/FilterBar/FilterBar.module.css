@@ -1,0 +1,40 @@
+/* 篩選列:根元素包在 :where() 裡(權重 0),呼叫端的 className 一定蓋得過 */
+:where(.root) { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 8px 20px; border-bottom: 1px solid var(--line); min-width: 0; flex: none; }
+/* 搜尋框:寬的時候固定寬度,收合時撐滿剩下的空間 */
+.search { flex: 0 1 240px; min-width: 140px; }
+.compact .search { flex: 1 1 140px; }
+/* 右側:結果數與動作按鈕,靠右 */
+.end { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* 膠囊 */
+.wrap { position: relative; display: inline-flex; flex: none; min-width: 0; max-width: 100%; }
+.pill { display: inline-flex; align-items: center; height: var(--h-md); max-width: 260px; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--bg2); font-size: var(--fs-sm); }
+.pill.on { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 10%, var(--bg2)); }
+.main { display: inline-flex; align-items: center; gap: 4px; height: 100%; min-width: 0; padding: 0 10px; border: 0; background: none; border-radius: var(--r-pill); white-space: nowrap; }
+.main:hover { background: var(--hover); }
+.on .main { padding-right: 4px; }
+.name { color: var(--fg2); flex: none; }
+.on .name { color: var(--fg); }
+.value { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chev { color: var(--fg2); }
+.clear { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 4px; flex: none; border: 0; background: none; border-radius: var(--r-pill); color: var(--fg2); }
+.clear:hover { background: var(--hover); color: var(--fg); }
+
+/* 下拉:貼在膠囊下方(靠右放不下時往左展開) */
+.pop { top: calc(100% + 4px); left: 0; min-width: 200px; max-width: min(320px, calc(100vw - 32px)); display: flex; flex-direction: column; }
+.pop.right { left: auto; right: 0; }
+.options { display: flex; flex-direction: column; min-width: 0; }
+.scroll { max-height: 300px; overflow-y: auto; }
+/* input.find 提高權重:蓋過全域 .input 的 min-width */
+input.find { width: 100%; min-width: 0; margin-bottom: 4px; }
+.none { padding: 8px; font-size: var(--fs-sm); color: var(--fg2); }
+
+/* 收合面板 */
+.panel { width: 280px; }
+.panelRow { display: flex; align-items: center; gap: 2px; }
+.panelItem { flex: 1; min-width: 0; }
+.panelName { flex: none; }
+.panelValue { flex: 1; min-width: 0; text-align: right; color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panelOn { color: var(--accent); font-weight: 500; }
+.panelItem:hover .panelValue, .panelItem:hover .chev { color: inherit; }
+.back { font-weight: 600; }

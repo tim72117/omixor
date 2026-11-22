@@ -2,9 +2,13 @@
 // 打開哪個分頁記在 localStorage(PANE_KEY);其他頁用 navigate 帶 focusId = 分頁 id 跳過來,例如開發進度的「前往設定」帶 "repos"。
 import { useEffect } from "react";
 import { action, useView } from "../../api";
-import { ActorAvatar, Switch, useDirectory, useStored } from "../../components/bits";
+import { ActorAvatar } from "../../components/Avatar";
+import { EmptyState } from "../../components/EmptyState";
 import { Icon } from "../../components/Icon";
-import { EmptyState, Segmented } from "../../components/ui";
+import { Segmented } from "../../components/Segmented";
+import { Switch } from "../../components/Switch";
+import { useDirectory } from "../../lib/directory";
+import { useStored } from "../../lib/hooks";
 import { useAssistantVisible } from "../../assistant/store";
 import { useAuth } from "../../auth/auth";
 import { useFeatures } from "../../features";
@@ -12,6 +16,7 @@ import { AuthSettings } from "../../auth/AuthSettings";
 import type { Nav } from "../../types";
 import type { SectionProps } from "../index";
 import { Form, Row, Section } from "./form";
+import css from "./settings.module.css";
 import { SettingsAI } from "./SettingsAI";
 import { SettingsConnections } from "./SettingsConnections";
 import { SettingsFeatures } from "./SettingsFeatures";
@@ -45,13 +50,13 @@ export default function SettingsView({ focusId, clearFocus }: SectionProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId]);
   return (
-    <div className="col" style={{ flex: 1, minHeight: 0 }}>
-      <div className="row" style={{ justifyContent: "center", padding: "12px 20px", borderBottom: "1px solid var(--line)" }}>
-        <div className="ox-tabscroll" style={{ maxWidth: 860, width: "100%", textAlign: "center" }}>
-          <Segmented value={pane} onChange={setPane} options={panes.map((p) => ({ value: p.id, label: <span className="row gap4" style={{ justifyContent: "center" }}><Icon name={p.icon} size={12} />{p.title}</span> }))} />
+    <div className={"col " + css.page}>
+      <div className={"row " + css.paneBar}>
+        <div className={"tabscroll " + css.paneTabs}>
+          <Segmented value={pane} onChange={setPane} options={panes.map((p) => ({ value: p.id, label: <span className={"row gap4 " + css.paneTab}><Icon name={p.icon} size={12} />{p.title}</span> }))} />
         </div>
       </div>
-      <div className="col" style={{ flex: 1, minHeight: 0 }}>
+      <div className={"col " + css.page}>
         {pane === "orgs" && <SettingsOrgs setPane={setPane} />}
         {pane === "features" && <SettingsFeatures />}
         {pane === "auth" && <AuthPane />}
@@ -70,11 +75,11 @@ export default function SettingsView({ focusId, clearFocus }: SectionProps) {
 /** 設定 › 認證:只有管理員能看 */
 function AuthPane() {
   const auth = useAuth();
-  if (!auth) return <div className="muted" style={{ padding: 20 }}>載入中…</div>;
+  if (!auth) return <div className={"muted " + css.loading}>載入中…</div>;
   if (!auth.user?.admin) return <EmptyState title="只有管理員可以改認證設定" icon="lock" />;
   return (
     <div className="page-scroll">
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: 20 }}><AuthSettings /></div>
+      <div className={css.narrow}><AuthSettings /></div>
     </div>
   );
 }

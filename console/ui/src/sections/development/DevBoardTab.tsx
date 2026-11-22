@@ -7,17 +7,25 @@
 // 待處理 ↔ 進行中 另外在欄內顯示一行提示。dragover 時讀不到 dataTransfer 的資料,所以 dragstart 時把 Issue 記在 dragging。
 import { useState } from "react";
 import { useActionQuery, useDebounced } from "../../api";
-import { color, EmptyState, Pill } from "../../components/ui";
-import { boardDropStatus } from "../../components/models";
-import { copyText, SIcon, useAct, useContextMenu, useList, useOmixor } from "../../components/omixorKit";
-import { RepoFilterSelect, usedRepos, useDev } from "./devShared";
+import { EmptyState } from "../../components/EmptyState";
+import { useContextMenu } from "../../components/Menu";
+import { Pill } from "../../components/Pill";
+import { SIcon } from "../../components/SIcon";
+import { useAct } from "../../components/Toast";
+import { copyText } from "../../lib/clipboard";
+import { color } from "../../lib/color";
+import { useOmixor } from "../../lib/directory";
+import { useList } from "../../lib/hooks";
+import { boardDropStatus } from "../../models";
+import s from "./DevBoardTab.module.css";
+import { usedRepos, useDev } from "./devShared";
 import { PRIORITY, showPriorityPill, type Issue } from "./DevIssuesTab";
-import { issueKey, PROJECT_ALL, PROJECT_ORG } from "./issueModel";
+import { issueKey, PROJECT_ALL } from "./issueModel";
 import { updateIssue, useProjects } from "./issueApi";
-import { projectName } from "./IssueForm";
-
-type Priority = Issue["priority"];
-const PRIORITIES: Priority[] = ["urgent", "high", "normal", "low"];
+import { issueFilterDefs } from "./issueFilters";
+import { FilterBar } from "../../components/FilterBar";
+import { cardTitleClass } from "../../components/Card";
+import { layoutClass } from "../../components/Layout";
 
 export type BoardColumnKey = "todo" | "doing" | "done";
 /** issue_board 回傳的一欄(同核心的 model.BoardColumn) */
@@ -36,11 +44,10 @@ const look = (k: string) => COLUMN_LOOK[k] ?? { icon: "circle", color: "secondar
 // MARK: - 畫面
 
 export function DevBoardTab() {
-  const [query, setQuery] = useState("");
-  const [label, setLabel] = useState("");
-  const [priority, setPriority] = useState<Priority | "">("");
-  const [repo, setRepo] = useState(""); // "" = 全部倉庫;NO_REPO = 未標記;其他 = 只列這個倉庫(比對規則在核心的 model.RepoMatch)
-  const [project, setProject] = useState(PROJECT_ALL); // 同 Issue 分頁:"" 全部、"-" 只組織層級、PRJ-n
+  const dev = useDev();
+  // 篩選和 Issue 分頁共用(DevModel.issueFilters,切換分頁時保留);看板依狀態分欄,不用 status
+  const f = dev.issueFilters, set = dev.setIssueFilters;
+  const { query, label, priority, repo, project } = f; // repo:"" 全部、NO_REPO 未標記(比對規則在核心的 model.RepoMatch);project:"" 全部、"-" 只組織層級、PRJ-n
   const projects = useProjects();
   const [issues] = useList<Issue>("issues"); // 全部(倉庫選單用,同 Issue 分頁);看板本身照 issue_board 的結果
   const q = useDebounced(query, 250);
@@ -57,53 +64,34 @@ export function DevBoardTab() {
   const labels = board?.labels ?? [];
   const total = board?.total ?? 0;
   const hasFilter = !!query || !!label || !!priority || !!repo || project !== PROJECT_ALL;
-  const setStatus = (i: Issue, s: "open" | "closed") => {
-    if (i.status !== s) run(() => updateIssue(i, { status: s }));
+  const setStatus = (i: Issue, st: "open" | "closed") => {
+    if (i.status !== st) run(() => updateIssue(i, { status: st }));
   };
   // 只有能放的欄會觸發 drop(不能放的 dragover 設了 dropEffect = none);仍照 dropStatus 再判斷一次
   const drop = (id: string, col: BoardColumn) => {
     const i = columns.flatMap((c) => c.issues).find((x) => x.id === id);
-    const s = i && boardDropStatus(col.dropStatus, i.status);
-    if (i && s) setStatus(i, s);
+    const st = i && boardDropStatus(col.dropStatus, i.status);
+    if (i && st) setStatus(i, st);
   };
   const endDrag = () => { setDragging(undefined); setTargeted(undefined); setBlocked(undefined); };
 
   return (
-    <div className="ox-page">
-      <div className="ox-filterbar">
-        <input className="input" style={{ minWidth: 140, maxWidth: 240, flex: 1 }} placeholder="搜尋編號、標題、內文、標籤、留言" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <select className="select" value={label} onChange={(e) => setLabel(e.target.value)} title="依標籤篩選">
-          <option value="">全部標籤</option>
-          {labels.length > 0 && <option disabled>──────</option>}
-          {labels.map((l) => <option key={l} value={l}>{l}</option>)}
-          {/* 篩選中的標籤已經沒有 Issue 用了:仍列出來,選單才不會是空白 */}
-          {label && !labels.some((l) => l.toLowerCase() === label.toLowerCase()) && <option value={label}>{label}</option>}
-        </select>
-        <select className="select" value={priority} onChange={(e) => setPriority(e.target.value as Priority | "")} title="依優先度篩選">
-          <option value="">全部優先度</option><option disabled>──────</option>
-          {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY[p].label}</option>)}
-        </select>
-        <select className="select" title="依專案篩選" value={project} onChange={(e) => setProject(e.target.value)}>
-          <option value={PROJECT_ALL}>全部專案</option><option value={PROJECT_ORG}>組織(未分專案)</option>
-          {projects.map((p) => <option key={p.id} value={p.id}>{projectName(p)}</option>)}
-        </select>
-        <RepoFilterSelect value={repo} onChange={setRepo} repos={usedRepos(issues)} />
-        {hasFilter && <button className="btn link" onClick={() => { setQuery(""); setLabel(""); setPriority(""); setRepo(""); setProject(PROJECT_ALL); }}>清除</button>}
-        <span className="grow" />
-        {board && <span className="muted num">{hasFilter ? `${columns.reduce((n, c) => n + c.issues.length, 0)} / ${total} 個 Issue` : `${total} 個 Issue`}</span>}
-      </div>
+    <div className={layoutClass.page}>
+      <FilterBar search={{ value: query, onChange: (v) => set({ query: v }), placeholder: "搜尋編號、標題、內文、標籤、留言" }}
+        filters={issueFilterDefs(f, set, { labels, repos: usedRepos(issues), projects })}
+        end={board && <span className="muted num">{hasFilter ? `${columns.reduce((n, c) => n + c.issues.length, 0)} / ${total} 個 Issue` : `${total} 個 Issue`}</span>} />
       {err && !board ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={err} />
         : !board ? null : total === 0 ? (
           <EmptyState title="這個組織還沒有 Issue" icon="rectangle.split.3x1" message="到「Issue」分頁新增,或讓 AI 透過 MCP 的 issue_create 建立;建立後會依狀態出現在看板上。" />
         ) : (
-          <div className="ox-board">
+          <div className={s.board}>
             {columns.map((col) => {
               const items = col.issues;
               const isTarget = targeted === col.key;
               const isBlocked = blocked === col.key;
               const lk = look(col.key);
               return (
-                <div key={col.key} className={"ox-col" + (isTarget ? " target" : "")}
+                <div key={col.key} className={s.col + (isTarget ? " " + s.target : "")}
                   onDragOver={(e) => {
                     const ok = !!dragging && !!boardDropStatus(col.dropStatus, dragging.issue.status);
                     if (ok) {
@@ -128,19 +116,19 @@ export function DevBoardTab() {
                     endDrag();
                     drop(id, col);
                   }}>
-                  <div className="row gap6" style={{ padding: "9px 10px" }} title={lk.help}>
+                  <div className={"row gap6 " + s.colHead} title={lk.help}>
                     <SIcon name={lk.icon} color={lk.color} />
-                    <span className="card-title">{col.title}</span>
-                    <span className="ox-count">{items.length}</span>
+                    <span className={cardTitleClass}>{col.title}</span>
+                    <span className={s.count}>{items.length}</span>
                   </div>
-                  {isBlocked && <div className="ox-col-hint">待處理 ↔ 進行中 由指派角色決定,請到 Issue 分頁改指派</div>}
-                  <div className="ox-col-body">
+                  {isBlocked && <div className={s.colHint}>待處理 ↔ 進行中 由指派角色決定,請到 Issue 分頁改指派</div>}
+                  <div className={s.colBody}>
                     {items.map((i) => (
-                      <IssueCard key={i.id} issue={i} onStatus={(s) => setStatus(i, s)}
+                      <IssueCard key={i.id} issue={i} onStatus={(st) => setStatus(i, st)}
                         dragging={dragging?.issue.id === i.id}
                         onDragStart={() => setDragging({ issue: i, from: col.key })} onDragEnd={endDrag} />
                     ))}
-                    {items.length === 0 && <div className="ox-dashed">{isTarget ? `放開以移到「${col.title}」` : hasFilter ? "沒有符合的 Issue" : "沒有 Issue"}</div>}
+                    {items.length === 0 && <div className={s.dashed}>{isTarget ? `放開以移到「${col.title}」` : hasFilter ? "沒有符合的 Issue" : "沒有 Issue"}</div>}
                   </div>
                 </div>
               );
@@ -151,11 +139,6 @@ export function DevBoardTab() {
     </div>
   );
 }
-
-const tagStyle: React.CSSProperties = {
-  fontSize: 11, padding: "1px 5px", borderRadius: "var(--r-sm)", maxWidth: "100%",
-  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-};
 
 function IssueCard({ issue, onStatus, dragging, onDragStart, onDragEnd }: {
   issue: Issue; onStatus: (s: "open" | "closed") => void;
@@ -172,7 +155,7 @@ function IssueCard({ issue, onStatus, dragging, onDragStart, onDragEnd }: {
   const labels = issue.labels ?? [];
   return (
     <>
-      <div className={"ox-work" + (dragging ? " dragging" : "")} draggable title="按一下在 Issue 分頁打開;拖到其他欄改狀態"
+      <div className={s.work + (dragging ? " " + s.dragging : "")} draggable title="按一下在 Issue 分頁打開;拖到其他欄改狀態"
         onDragStart={(e) => { e.dataTransfer.setData("text/plain", issue.id); e.dataTransfer.effectAllowed = "move"; onDragStart(); }}
         onDragEnd={onDragEnd}
         onClick={() => dev.showIssue(issue.id)}
@@ -183,33 +166,33 @@ function IssueCard({ issue, onStatus, dragging, onDragStart, onDragEnd }: {
           "sep",
           { label: "複製編號", onClick: () => copyText(issueKey(issue)) },
         ])}>
-        <div style={{ width: 3, flex: "none", background: color(p.color) }} title={`優先度:${p.label}`} />
-        <div className="col grow" style={{ padding: 10, gap: 6, minWidth: 0 }}>
+        <div className={s.stripe} style={{ background: color(p.color) }} title={`優先度:${p.label}`} />
+        <div className={"col grow " + s.body}>
           <div className="row gap6">
             <span className="caption mono muted">{issueKey(issue)}</span>
             <span className="grow" />
             {issue.comments?.length > 0 && <span className="caption muted row gap4"><SIcon name="bubble.left" size={11} />{issue.comments.length}</span>}
             {showPriorityPill(issue.priority) && <Pill text={p.label} color={p.color} />}
           </div>
-          <div style={{ color: open ? undefined : "var(--fg2)", overflowWrap: "anywhere", whiteSpace: "normal" }}>{issue.title}</div>
+          <div className={s.title + (open ? "" : " " + s.closed)}>{issue.title}</div>
           {(agentName || issue.repo) && (
-            <div className="col gap4" style={{ alignItems: "flex-start", minWidth: 0 }}>
+            <div className={"col gap4 " + s.tags}>
               {agentName && (
-                <span className="row gap4" title={`指派給角色:${agentName}`} style={{ ...tagStyle, color: color("purple"), background: `color-mix(in srgb, ${color("purple")} 12%, transparent)` }}>
+                <span className={"row gap4 " + s.tag + " " + s.agent} title={`指派給角色:${agentName}`}>
                   <SIcon name="person.crop.circle" size={10} />{agentName}
                 </span>
               )}
               {issue.repo && (
-                <span className="row gap4 mono" title={`倉庫:${issue.repo}`} style={{ ...tagStyle, color: color("teal"), background: `color-mix(in srgb, ${color("teal")} 12%, transparent)` }}>
+                <span className={"row gap4 " + s.tag + " " + s.repo} title={`倉庫:${issue.repo}`}>
                   <SIcon name="chevron.left.forwardslash.chevron.right" size={10} />{issue.repo}
                 </span>
               )}
             </div>
           )}
           {labels.length > 0 && (
-            <div className="row gap4" style={{ flexWrap: "wrap" }} title={labels.join("、")}>
+            <div className={"row gap4 " + s.labels} title={labels.join("、")}>
               {labels.slice(0, 3).map((l) => (
-                <span key={l} className="row gap4 muted" style={{ ...tagStyle, maxWidth: 120, background: "color-mix(in srgb, var(--fg) 6%, transparent)" }}>
+                <span key={l} className={"row gap4 muted " + s.tag + " " + s.label}>
                   <SIcon name="tag" size={10} />{l}
                 </span>
               ))}

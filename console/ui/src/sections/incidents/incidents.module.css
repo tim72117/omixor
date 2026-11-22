@@ -1,0 +1,116 @@
+/* 事件頁(列表、詳情、值班、統計)自己的樣式。
+   和全域 class(.row、.mono、.h2/.h3、.list-item、.input、.grid…)疊在同一個元素、又設定同一個屬性時,用重複的 class 提高權重(.x.x)。 */
+
+/* 共用小工具 */
+.fill { flex: 1; min-height: 0; }
+.rel { position: relative; }
+.selectable { user-select: text; }
+.nowrap { white-space: nowrap; }
+.bold { font-weight: 600; }
+.medium { font-weight: 500; }
+.xs.xs { font-size: var(--fs-xs); }
+.lg { font-size: var(--fs-lg); }
+.fg2 { color: var(--fg2); }
+.orange { color: var(--orange); }
+.purple { color: var(--purple); }
+.white { color: white; }
+.gap1 { gap: 1px; }
+.gap2 { gap: 2px; }
+.gap10.gap10 { gap: 10px; }
+.gap16 { gap: 16px; }
+.pb12 { padding-bottom: 12px; }
+.alignStart { align-items: start; }
+.baseline.baseline { align-items: baseline; }
+.endRow { justify-content: flex-end; }
+.g2Wide.g2Wide { gap: 16px; align-items: start; }
+.h3md.h3md { font-size: var(--fs-md); }
+.para { white-space: pre-wrap; line-height: 1.6; user-select: text; }
+/* 列按鈕(RowButton)靠上對齊 */
+.top { align-items: flex-start; }
+
+/* SEV 標章、服務標籤(incSupport) */
+.sev.sev { font-size: var(--fs-xs); font-weight: 700; padding: 2px 5px; border-radius: var(--r-sm); flex: none; color: white; }
+.sev.sevLg { font-size: var(--fs-sm); padding: 3px 8px; }
+.sev.sevDark { color: rgba(0,0,0,.75); }
+/* 原本 bx-chip + 淡底 */
+.serviceChip { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-sm); font-weight: 500; padding: 3px 9px; border-radius: var(--r-pill); border: 1px solid var(--line); cursor: default;
+  background: color-mix(in srgb, var(--fg) 6%, transparent); }
+
+/* 左側列表 */
+.listPane { width: clamp(260px, 32%, 360px); }
+.listBg { min-height: 100%; background: color-mix(in srgb, var(--bg2) 40%, transparent); }
+.listTop { padding: 10px; border-bottom: 1px solid var(--line); }
+.incRow.incRow { gap: 5px; }
+/* SEV 篩選選單(Dropdown) */
+.sevMenu { right: 0; top: 28px; width: 300px; }
+
+/* 宣告事件 */
+
+.svcList { max-height: 150px; overflow-y: auto; padding: 4px; }
+
+/* 詳情 */
+.detail { max-width: 1100px; }
+.tabSeg { max-width: 280px; }
+.wideRow.wideRow { align-items: flex-start; gap: 16px; }
+.sideCol { width: 290px; flex: none; }
+.title.title { font-size: var(--fs-2xl); }
+.stepper { gap: 14px; padding: 12px; flex-direction: row; }
+.stepTrack { min-width: 0; overflow-x: auto; }
+.conn { flex: 1; min-width: 12px; height: 2px; background: color-mix(in srgb, var(--fg) 12%, transparent); }
+.stepBtn { border: 0; background: none; padding: 0 4px; }
+.stepDot { width: 22px; height: 22px; border-radius: var(--r-pill); display: inline-flex; align-items: center; justify-content: center; flex: none;
+  background: transparent; border: 1.5px solid color-mix(in srgb, var(--fg) 25%, transparent); }
+.impact { user-select: text; line-height: 1.5; }
+.aiBox { padding: 14px; border-radius: var(--r-xl); background: linear-gradient(135deg, color-mix(in srgb, var(--purple) 12%, transparent), color-mix(in srgb, var(--indigo) 6%, transparent)); border: 1px solid color-mix(in srgb, var(--purple) 25%, transparent); }
+.aiNote { color: color-mix(in srgb, var(--purple) 80%, transparent); }
+.done { text-decoration: line-through; }
+.addLink { align-self: flex-start; margin-top: 4px; }
+
+/* 時間軸 */
+.emptyTl { text-align: center; padding: 16px 0; }
+.composer.composer { align-items: flex-end; padding-top: 4px; }
+.note.note { resize: vertical; border-radius: var(--r-lg); }
+.tlRow.tlRow { align-items: stretch; gap: 10px; }
+.tlTime { width: 54px; align-items: flex-end; padding-top: 2px; flex: none; }
+.tlRail { width: 24px; align-items: center; flex: none; }
+.railTop { width: 2px; height: 4px; background: color-mix(in srgb, var(--fg) 12%, transparent); }
+.railBottom { width: 2px; flex: 1; background: color-mix(in srgb, var(--fg) 12%, transparent); }
+.railTop.clear, .railBottom.clear { background: transparent; }
+.node { width: 24px; height: 24px; border-radius: var(--r-pill); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.plainEvent { padding: 2px; }
+.aiEvent { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--purple) 6%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 15%, transparent); }
+.aiEvent.finding { background: color-mix(in srgb, var(--purple) 12%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent); }
+.evText { user-select: text; line-height: 1.5; white-space: pre-wrap; }
+
+/* 檢討報告 */
+.pmBanner { padding: 14px; border-radius: var(--r-xl); background: color-mix(in srgb, var(--purple) 8%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 20%, transparent); }
+.pmDate { width: 92px; flex: none; }
+.pmWho { width: 90px; flex: none; font-weight: 600; }
+.bullet { width: 5px; height: 5px; border-radius: var(--r-pill); display: inline-block; flex: none; }
+
+/* 統計 */
+.chart { height: 180px; }
+.w260 { width: 260px; flex: none; }
+.durBar { display: block; height: 8px; border-radius: var(--r-lg); min-width: 4px; }
+.durText { width: 64px; text-align: right; }
+
+/* 值班 */
+.personCard { position: relative; overflow: hidden; }
+.tintBar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+.nameLg { font-size: var(--fs-lg); font-weight: 600; }
+.swatch { width: 12px; height: 6px; border-radius: 2px; }
+.dayCol { position: absolute; top: 0; bottom: 0; }
+.dayCol.even { background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
+.dayCol.today { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.dayLabel { text-align: center; font-size: var(--fs-xs); padding-top: 2px; font-weight: 400; color: var(--fg2); }
+.today .dayLabel { font-weight: 600; color: var(--accent); }
+.personLabel { position: absolute; left: 0; }
+.shift { position: absolute; border-radius: var(--r-sm); color: white; font-size: var(--fs-xs); font-weight: 600; padding-left: 5px; display: flex; align-items: center; overflow: hidden; }
+.nowLine { position: absolute; top: 16px; bottom: 0; width: 1.5px; background: var(--red); }
+.nowDot { position: absolute; top: 13px; width: 7px; height: 7px; border-radius: var(--r-md); background: var(--red); }
+.step.step { align-items: stretch; gap: 12px; }
+.stepRail { align-items: center; flex: none; }
+.stepIcon { width: 26px; height: 26px; border-radius: var(--r-pill); display: inline-flex; align-items: center; justify-content: center; }
+.stepLine { width: 2px; flex: 1; background: color-mix(in srgb, var(--fg) 12%, transparent); }
+.stepBody { padding-bottom: 14px; }
+.delay { font-weight: 600; padding: 1px 6px; border-radius: var(--r-pill); }

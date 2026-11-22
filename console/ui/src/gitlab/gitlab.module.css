@@ -1,0 +1,23 @@
+/* gitlab/ 自己的樣式;原本是 omixorKit.css 的 ox-code / ox-disclosure 與各處的 inline style */
+.detail { padding: 20px; gap: 12px; max-width: 860px; }
+.baseline { display: flex; align-items: baseline; }
+.selectable { user-select: text; }
+.iid { font-size: var(--fs-lg); }
+.job { gap: 6px; }
+.failed { font-weight: 600; }
+.red { color: var(--red); }
+.ok { color: var(--green); }
+.warn { color: var(--orange); }
+.center { justify-content: center; }
+.selfStart { align-self: flex-start; }
+.fileStatus { width: 44px; }
+.mt4 { margin-top: 4px; }
+.pt6 { padding-top: 6px; }
+.gap12 { gap: 12px; }
+
+/* 程式碼區塊(原 ox-code) */
+.code { background: color-mix(in srgb, var(--fg) 6%, transparent); padding: 8px; border-radius: var(--r-md); font-family: ui-monospace, Menlo, monospace; font-size: var(--fs-sm); margin: 0; overflow-x: auto; white-space: pre; }
+.log { font-size: var(--fs-xs); user-select: text; max-height: 420px; overflow: auto; }
+
+.copyLabel { width: 150px; }
+.copyValue { user-select: text; word-break: break-all; }

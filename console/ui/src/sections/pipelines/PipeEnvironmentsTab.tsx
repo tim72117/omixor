@@ -1,13 +1,26 @@
 // CI/CD › 環境:DORA 指標、服務 × 環境版本矩陣、每日執行(Swift 的 PipeEnvironmentsTab.swift)
 import { Area, Bar as RBar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { action } from "../../api";
-import { Card, color, EmptyState } from "../../components/ui";
-import {
-  axisStyle, Check, dur, ENV, HealthBadge, Metric, monthDay, now, pct, RUN, SIcon, startOfDay, t, useAct, useConfirm, useList, useOmixor,
-  type Deployment, type EnvKey, type Incident, type PipelineRun, type Service,
-} from "../../components/omixorKit";
+import { HealthBadge } from "../../components/Badge";
+import { Card, cardTitleClass } from "../../components/Card";
+import { Metric } from "../../components/charts";
+import { axisStyle } from "../../components/charts/theme";
+import { Check } from "../../components/Check";
+import { useConfirm } from "../../components/Confirm";
+import { EmptyState } from "../../components/EmptyState";
+import { SIcon } from "../../components/SIcon";
+import { useAct } from "../../components/Toast";
+import { color } from "../../lib/color";
+import { useOmixor } from "../../lib/directory";
+import { dur, monthDay, now, pct, startOfDay, t } from "../../lib/format";
+import { useList } from "../../lib/hooks";
+import { ENV, RUN, type Deployment, type EnvKey, type Incident, type PipelineRun, type Service } from "../../models";
 import { useState } from "react";
+import css from "./pipelines.module.css";
 import { depIsActive, depIsRollback, StatusIcon } from "./pipeShared";
+import { StatusDot } from "../../components/StatusDot";
+import { tableClass } from "../../components/Table";
+import { plainClass } from "../../components/Tile";
 
 const ENV_ORDER: EnvKey[] = ["development", "staging", "production"];
 const previous = (e: EnvKey): EnvKey | undefined => (e === "staging" ? "development" : e === "production" ? "staging" : undefined);
@@ -69,7 +82,7 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
       buttons: [{
         label: to === "production" ? "建立部署(需核准)" : "開始部署", primary: true,
         onClick: async () => {
-          const r: any = await run(() => action("deployment_promote", { service: s.id, to }));
+          const r = await run(() => action<Deployment>("deployment_promote", { service: s.id, to }));
           if (to === "production" && r?.id) openDeployments(r.id);
         },
       }],
@@ -99,8 +112,8 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
     <div className="page-scroll">
       <div className="page-inner">
         <div className="col gap8">
-          <div className="row gap8" style={{ alignItems: "baseline" }}><span className="card-title">DORA 指標</span><span className="caption muted">Production · 最近 7 天</span></div>
-          <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
+          <div className={css.baseline + " gap8"}><span className={cardTitleClass}>DORA 指標</span><span className="caption muted">Production · 最近 7 天</span></div>
+          <div className={css.kpis180}>
             <Metric title="部署頻率" value={perDay >= 1 ? `${perDay.toFixed(1)} 次/天` : `${prodOK.length} 次/週`} delta={freqRating.label} deltaGood={freqRating.good} icon="shippingbox" tint="blue" series={daily} />
             <Metric title="變更前置時間" value={dur(leadTime)} delta={leadTime != null ? lead(leadTime).label : null} deltaGood={leadTime != null ? lead(leadTime).good : true} icon="hourglass" tint="teal" />
             <Metric title="變更失敗率" value={failureRate != null ? pct(failureRate * 100, 0) : "—"} delta={failureRate != null ? cfr(failureRate).label : null} deltaGood={failureRate != null ? cfr(failureRate).good : true} icon="exclamationmark.triangle" tint="orange" />
@@ -108,39 +121,39 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
           </div>
         </div>
         <Card>
-          <div className="row" style={{ alignItems: "baseline" }}>
-            <div className="col" style={{ gap: 2 }}>
-              <span className="card-title">版本矩陣</span>
-              <span className="caption" style={{ color: driftCount === 0 ? "var(--fg2)" : "var(--orange)" }}>{driftCount === 0 ? "所有服務的 Staging 與 Production 版本一致" : `${driftCount} 個服務的 Production 落後 Staging`}</span>
+          <div className={css.baseline}>
+            <div className={"col " + css.gap2}>
+              <span className={cardTitleClass}>版本矩陣</span>
+              <span className={"caption " + (driftCount === 0 ? "muted" : css.warn)}>{driftCount === 0 ? "所有服務的 Staging 與 Production 版本一致" : `${driftCount} 個服務的 Production 落後 Staging`}</span>
             </div>
             <span className="grow" />
             <Check on={onlyDrift} onChange={setOnlyDrift}><span className="caption">只看版本不一致</span></Check>
           </div>
-          {o.services.length === 0 ? <div style={{ minHeight: 160, display: "flex" }}><EmptyState title="沒有服務" icon="square.stack.3d.up.slash" /></div>
-            : services.length === 0 ? <div className="muted" style={{ padding: "8px 0" }}>沒有版本不一致的服務</div> : (
-              <div style={{ overflowX: "auto" }}>
-                <table className="ox-table" style={{ fontSize: "var(--fs-base)" }}>
+          {o.services.length === 0 ? <div className={css.emptyBox}><EmptyState title="沒有服務" icon="square.stack.3d.up.slash" /></div>
+            : services.length === 0 ? <div className={"muted " + css.padY8}>沒有版本不一致的服務</div> : (
+              <div className={css.scrollX}>
+                <table className={tableClass.data + " " + css.matrix}>
                   <thead><tr>
-                    <th style={{ background: "transparent" }}>服務</th>
-                    {ENV_ORDER.map((e) => <th key={e} style={{ background: "transparent", fontWeight: e === env ? 700 : 400, color: e === env ? "var(--fg)" : undefined }}><span className="row gap4"><span className="dot" style={{ width: 6, height: 6, background: color(ENV[e].color) }} />{ENV[e].label}</span></th>)}
-                    <th style={{ background: "transparent" }} />
+                    <th>服務</th>
+                    {ENV_ORDER.map((e) => <th key={e} className={e === env ? css.thOn : css.thOff}><span className="row gap4"><StatusDot c={ENV[e].color} size={6} />{ENV[e].label}</span></th>)}
+                    <th />
                   </tr></thead>
                   <tbody>
                     {services.map((s) => (
                       <tr key={s.id}>
-                        <td style={{ minWidth: 130 }}><span className="row gap6"><HealthBadge h={s.health} compact /><span className="col" style={{ gap: 1 }}><span style={{ fontWeight: 500 }}>{s.name}</span><span className="muted" style={{ fontSize: "var(--fs-xs)" }}>Tier {s.tier} · {s.team}</span></span></span></td>
+                        <td className={css.svcCell}><span className="row gap6"><HealthBadge h={s.health} compact /><span className={"col " + css.gap1}><span className={css.medium}>{s.name}</span><span className={"muted " + css.xs}>Tier {s.tier} · {s.team}</span></span></span></td>
                         {ENV_ORDER.map((e) => {
                           const v = s.versions?.[e];
                           const behind = isBehind(s, e);
                           const d = active(s, e);
                           return (
-                            <td key={e} style={{ minWidth: 110 }}>
-                              <div className="col" style={{ gap: 3, padding: "5px 8px", borderRadius: "var(--r-md)", background: behind ? "color-mix(in srgb, var(--orange) 10%, transparent)" : e === env ? "color-mix(in srgb, var(--accent) 6%, transparent)" : undefined }}>
-                                <span className="row gap4 mono" style={{ color: !v ? "var(--fg2)" : behind ? "var(--orange)" : undefined }}>
+                            <td key={e} className={css.verCell}>
+                              <div className={"col " + css.verBox + (behind ? " " + css.verBehind : e === env ? " " + css.verCurrent : "")}>
+                                <span className={"row gap4 mono" + (!v ? " muted" : behind ? " " + css.warn : "")}>
                                   {v ?? "—"}{behind && <span title={`落後上一個環境(${s.versions?.[previous(e)!] ?? "—"})`}><SIcon name="arrow.down.circle.fill" size={12} color="orange" /></span>}
                                 </span>
                                 {d && (
-                                  <button className="ox-plain row gap4 num" style={{ fontSize: "var(--fs-xs)", color: color(RUN[d.status].color) }} title="查看部署" onClick={() => openDeployments(d.id)}>
+                                  <button className={plainClass + " row gap4 num " + css.xs} style={{ color: color(RUN[d.status].color) }} title="查看部署" onClick={() => openDeployments(d.id)}>
                                     <StatusIcon s={d.status} size={10} />{d.status === "waitingApproval" ? `${d.version} 待核准` : `→ ${d.version} ${Math.trunc(d.progress * 100)}%`}
                                   </button>
                                 )}
@@ -148,8 +161,8 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
                             </td>
                           );
                         })}
-                        <td style={{ textAlign: "right" }}>
-                          <span className="row gap6" style={{ justifyContent: "flex-end" }}>
+                        <td className={css.right}>
+                          <span className={"row gap6 " + css.end}>
                             {canPromote(s, "staging") && <button className="btn small" title={`把 ${s.versions?.development ?? ""} 部署到 Staging`} onClick={() => promote(s, "staging")}><SIcon name="arrow.up.forward" size={11} />推進到 stg</button>}
                             {canPromote(s, "production") && <button className="btn small primary" title={`把 ${s.versions?.staging ?? ""} 推進到 Production(需核准)`} onClick={() => promote(s, "production")}><SIcon name="arrow.up.forward.circle.fill" size={11} />推進到 prod</button>}
                             {!canPromote(s, "staging") && !canPromote(s, "production") && <span className="caption muted row gap4"><SIcon name="checkmark" size={11} />一致</span>}
@@ -162,10 +175,10 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
               </div>
             )}
         </Card>
-        <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 16 }}>
+        <div className={css.charts}>
           <Card title="每日執行次數" subtitle={`最近 14 天 · 共 ${total} 次`}>
-            {total === 0 ? <div className="muted" style={{ height: 180 }}>最近 14 天沒有執行紀錄</div> : (
-              <div style={{ height: 200 }}>
+            {total === 0 ? <div className={"muted " + css.chartEmpty}>最近 14 天沒有執行紀錄</div> : (
+              <div className={css.chart}>
                 <ResponsiveContainer>
                   <BarChart data={buckets} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
                     <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -182,8 +195,8 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
             )}
           </Card>
           <Card title="成功率" subtitle={overall != null ? `整體 ${pct(overall * 100, 0)},不含取消與執行中` : "還沒有完成的執行"}>
-            {rates.length === 0 ? <div className="muted" style={{ height: 180 }}>沒有資料</div> : (
-              <div style={{ height: 200 }}>
+            {rates.length === 0 ? <div className={"muted " + css.chartEmpty}>沒有資料</div> : (
+              <div className={css.chart}>
                 <ResponsiveContainer>
                   <ComposedChart data={rates} margin={{ top: 14, right: 10, left: -18, bottom: 0 }}>
                     <CartesianGrid stroke="var(--line)" vertical={false} />

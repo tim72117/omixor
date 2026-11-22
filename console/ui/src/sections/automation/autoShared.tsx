@@ -1,12 +1,14 @@
 // AI 自動化畫面內共用的小元件與輔助函式(Swift 的 AutoShared)
 import { createContext, useContext } from "react";
-import { useNow } from "../../components/bits";
 import { Icon } from "../../components/Icon";
+import { Pill } from "../../components/Pill";
+import { Spinner } from "../../components/Spinner";
+import { useNow } from "../../lib/hooks";
 import {
   AUTONOMY_COLOR, AUTONOMY_ICON, AUTONOMY_LABEL, RISK_COLOR, RISK_LABEL,
   type AgentsView, type Approval, type Automation, type AutomationRun, type Autonomy, type Risk,
-} from "../../components/models";
-import { Pill } from "../../components/ui";
+} from "../../models";
+import css from "./automation.module.css";
 
 export type AutoData = {
   automations: Automation[]; runs: AutomationRun[]; approvals: Approval[]; agents?: AgentsView; agentsError?: string; loaded: boolean;
@@ -33,7 +35,7 @@ export const AutonomyBadge = ({ autonomy }: { autonomy: Autonomy }) => (
 );
 
 export function StepIcon({ status }: { status: string }) {
-  if (status === "running") return <span className="bx-spinner" style={{ width: 14, height: 14 }} />;
+  if (status === "running") return <Spinner size={14} />;
   const m: Record<string, [string, string]> = {
     done: ["checkmark.circle.fill", "var(--green)"], pending: ["circle.dashed", "var(--fg2)"], failed: ["xmark.circle.fill", "var(--red)"], skipped: ["arrow.uturn.right.circle", "var(--fg2)"],
   };
@@ -54,8 +56,7 @@ export function Countdown({ expiresAt }: { expiresAt: string }) {
   const left = (new Date(expiresAt).getTime() - now) / 1000;
   const urgent = left < 15 * 60;
   return (
-    <span className="row gap4 caption" title={`到期時間 ${new Date(expiresAt).toLocaleString("zh-TW")}`}
-      style={{ fontWeight: 500, color: left <= 0 ? "var(--fg2)" : urgent ? "var(--red)" : "var(--orange)" }}>
+    <span className={"row gap4 caption " + css.medium + " " + (left <= 0 ? "muted" : urgent ? css.danger : css.warn)} title={`到期時間 ${new Date(expiresAt).toLocaleString("zh-TW")}`}>
       <Icon name="hourglass" size={11} />
       <span className="num">{left <= 0 ? "已逾時" : `剩 ${fmtCountdown(left)}`}</span>
     </span>

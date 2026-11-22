@@ -1,13 +1,34 @@
 // CI/CD › 執行紀錄:左邊列表、右邊詳情(Swift 的 PipeRunsTab / PipeRunDetail / PipeStageGraph / PipeLogViewer)
 import { useEffect, useState, type ReactNode } from "react";
 import { action, tool } from "../../api";
-import { Card, color, EmptyState, MetaFit, Modal } from "../../components/ui";
-import {
-  ActorAvatar, ActorLabel, AIBadge, Callout, Check, copyText, dur, ENV, EnvBadge, MenuButton, ProgressBar, RUN, RUN_ORDER, RunStatusBadge, SIcon,
-  t, useAct, useConfirm, useContextMenu, useList, useOmixor, useWidth, type PipelineJob, type PipelineRun, type RunStatusKey,
-} from "../../components/omixorKit";
+import { ActorAvatar, ActorLabel } from "../../components/Avatar";
+import { AIBadge, EnvBadge, RunStatusBadge } from "../../components/Badge";
+import { Callout } from "../../components/Callout";
+import { Card, cardTitleClass } from "../../components/Card";
+import { Check } from "../../components/Check";
+import { useConfirm } from "../../components/Confirm";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
+import { iconButtonClass } from "../../components/IconButton";
+import { MenuButton, useContextMenu } from "../../components/Menu";
+import { MetaFit } from "../../components/MetaFit";
+import { Modal } from "../../components/Modal";
+import { ProgressBar } from "../../components/ProgressBar";
+import { SIcon } from "../../components/SIcon";
+import { useAct } from "../../components/Toast";
+import { copyText } from "../../lib/clipboard";
+import { color } from "../../lib/color";
+import { useOmixor } from "../../lib/directory";
+import { dur, t } from "../../lib/format";
+import { useList, useWidth } from "../../lib/hooks";
+import { ENV, RUN, RUN_ORDER, type PipelineJob, type PipelineRun, type RunStatusKey } from "../../models";
 import { relative } from "../../fmt";
+import s from "./pipelines.module.css";
 import { ElapsedText, focusJob, pipelineUpdate, runIsActive, runIsAI, runJobs, runProgress, shortSHA, stageDuration, StatusIcon } from "./pipeShared";
+import { StatusDot } from "../../components/StatusDot";
+import { layoutClass } from "../../components/Layout";
+import { plainClass } from "../../components/Tile";
+import { SearchField } from "../../components/SearchField";
 
 export function PipeRunsTab({ selected, setSelected }: { selected?: number; setSelected: (n?: number) => void }) {
   const o = useOmixor();
@@ -40,14 +61,10 @@ export function PipeRunsTab({ selected, setSelected }: { selected?: number; setS
   }, [filtered.map((r) => r.id).join(",")]);
 
   return (
-    <div ref={ref} className="ox-fill">
-      <div className="col" style={{ width: Math.min(400, Math.max(230, w * 0.32)), flex: "none", borderRight: "1px solid var(--line)", minHeight: 0, background: "color-mix(in srgb, var(--bg2) 50%, transparent)" }}>
-        <div className="col gap8" style={{ padding: 10 }}>
-          <div className="ox-search" style={{ background: "var(--bg2)", border: "1px solid var(--line)" }}>
-            <SIcon name="magnifyingglass" className="muted" />
-            <input value={query} placeholder="搜尋 pipeline、分支、commit…" onChange={(e) => setQuery(e.target.value)} />
-            {query && <button className="ox-icon-btn" onClick={() => setQuery("")}><SIcon name="xmark.circle.fill" className="muted" /></button>}
-          </div>
+    <div ref={ref} className={layoutClass.fill}>
+      <div className={s.listPane} style={{ width: Math.min(400, Math.max(230, w * 0.32)) }}>
+        <div className={"col gap8 " + s.listTop}>
+          <SearchField variant="filled" className={s.searchBox} value={query} onChange={setQuery} placeholder="搜尋 pipeline、分支、commit…" />
           <div className="row gap8">
             <select className="select grow" disabled={onlyFailed} value={status} onChange={(e) => setStatus(e.target.value as RunStatusKey | "")}>
               <option value="">所有狀態</option><option disabled>──────</option>
@@ -58,7 +75,7 @@ export function PipeRunsTab({ selected, setSelected }: { selected?: number; setS
               {repoIds.map((r) => <option key={r} value={r}>{repoName(r)}</option>)}
             </select>
           </div>
-          <div className="row" style={{ gap: 14 }}>
+          <div className={"row " + s.gap14}>
             <Check on={onlyFailed} onChange={setOnlyFailed}>只看失敗</Check>
             <Check on={onlyAI} onChange={setOnlyAI}><SIcon name="sparkles" size={12} />AI 觸發</Check>
           </div>
@@ -67,9 +84,9 @@ export function PipeRunsTab({ selected, setSelected }: { selected?: number; setS
         {filtered.length === 0 ? (
           <EmptyState title={err && !runs.length ? "讀不到執行紀錄" : runs.length === 0 ? "還沒有任何執行" : "沒有符合的執行"} icon="arrow.triangle.branch" message={err && !runs.length ? err : hasFilters ? "調整篩選條件試試看" : undefined} />
         ) : (
-          <div className="ox-list">
+          <div className="list">
             {filtered.map((r) => (
-              <div key={r.id} className={"ox-list-row" + (r.id === selected ? " on" : "")} onClick={() => setSelected(r.id)}
+              <div key={r.id} className={"list-row" + (r.id === selected ? " on" : "")} onClick={() => setSelected(r.id)}
                 onContextMenu={menu.open([
                   { label: "重新執行", disabled: runIsActive(r), onClick: () => act(() => pipelineUpdate(r.id, "retry")) },
                   ...(runIsActive(r) ? [{ label: "取消", onClick: () => act(() => pipelineUpdate(r.id, "cancel")) }] : []),
@@ -82,12 +99,12 @@ export function PipeRunsTab({ selected, setSelected }: { selected?: number; setS
             ))}
           </div>
         )}
-        <div className="ox-list-foot">
+        <div className="list-foot">
           <span>{filtered.length} 筆執行</span><span className="grow" />
           {hasFilters && <button className="btn link caption" onClick={() => { setStatus(""); setRepo(""); setOnlyFailed(false); setOnlyAI(false); setQuery(""); }}>清除篩選</button>}
         </div>
       </div>
-      <div className="ox-scroll">
+      <div className={layoutClass.scroll}>
         {selected != null && runs.some((r) => r.id === selected)
           ? <RunDetail key={selected} run={runs.find((r) => r.id === selected)!} runs={runs} onOpenRun={setSelected} />
           : <EmptyState title="選一筆執行" icon="sidebar.left" message="左邊選一筆執行就能看到階段、工作與日誌" />}
@@ -100,12 +117,12 @@ export function PipeRunsTab({ selected, setSelected }: { selected?: number; setS
 function RunRow({ run }: { run: PipelineRun }) {
   const o = useOmixor();
   return (
-    <div className="row" style={{ gap: 10, alignItems: "flex-start", padding: "4px 0" }}>
-      <span style={{ width: 22, flex: "none", paddingTop: 1 }}><StatusIcon s={run.status} size={17} /></span>
-      <div className="col grow" style={{ gap: 4, minWidth: 0 }}>
-        <div className="row gap6"><span className="ellipsis" style={{ fontWeight: 600 }}>{run.pipeline}</span><span className="grow" /><span className="caption muted num">#{run.id}</span></div>
+    <div className={s.runRow}>
+      <span className={s.runIcon}><StatusIcon s={run.status} size={17} /></span>
+      <div className={"col grow " + s.runBody}>
+        <div className="row gap6"><span className={"ellipsis " + s.bold}>{run.pipeline}</span><span className="grow" /><span className="caption muted num">#{run.id}</span></div>
         <div className="caption muted ellipsis">{run.commitMessage}</div>
-        <div className="ox-meta gap6 muted" style={{ fontSize: "var(--fs-xs)" }}>
+        <div className={"meta gap6 muted " + s.xs}>
           <SIcon name="arrow.triangle.branch" size={10} />
           {/* 分支最重要(可縮成省略號,至少 60px);再來是環境;放不下先拿掉 SHA */}
           <MetaFit items={[
@@ -115,10 +132,10 @@ function RunRow({ run }: { run: PipelineRun }) {
           ]} />
         </div>
         {run.status === "running" && <ProgressBar value={runProgress(run)} />}
-        <div className="ox-meta muted" style={{ gap: 5, fontSize: "var(--fs-xs)" }}>
-          <ActorAvatar actor={run.triggeredBy} size={14} />
+        <div className={"meta muted " + s.metaWho}>
+          <ActorAvatar actor={run.triggeredBy} size={14} plainAI />
           <MetaFit items={[
-            { key: "who", shrink: 60, node: <span title={o.name(run.triggeredBy)} style={{ color: runIsAI(run) ? "var(--purple)" : undefined }}>{o.name(run.triggeredBy)}</span> },
+            { key: "who", shrink: 60, node: <span title={o.name(run.triggeredBy)} className={runIsAI(run) ? s.aiName : undefined}>{o.name(run.triggeredBy)}</span> },
             { key: "trigger", drop: 1, node: <span title={run.trigger}><span className="faint">·</span> {run.trigger}</span> },
           ]} />
           <span>{relative(run.startedAt)}</span>
@@ -170,41 +187,41 @@ function RunDetail({ run, runs, onOpenRun }: { run: PipelineRun; runs: PipelineR
   const done = run.stages.filter((s) => s.status === "succeeded").length;
   const meta = (icon: string, content: ReactNode, title?: string) => <span className="row gap4" title={title}><SIcon name={icon} size={12} />{content}</span>;
   return (
-    <div ref={ref} className="col" style={{ padding: 20, gap: 16 }}>
-      <div className="col" style={{ gap: 10 }}>
-        <div className="row gap12" style={{ alignItems: "flex-start" }}>
-          <div className="col gap6 grow" style={{ minWidth: 0 }}>
+    <div ref={ref} className={"col " + s.detail}>
+      <div className={"col " + s.gap10}>
+        <div className={s.detailTop}>
+          <div className="col gap6 grow">
             <div className="row gap8 wrap">
-              <span className="h3 ellipsis">{run.pipeline}</span><span className="h3 muted num" style={{ fontWeight: 400 }}>#{run.id}</span>
+              <span className="h3 ellipsis">{run.pipeline}</span><span className={"h3 muted num " + s.runNo}>#{run.id}</span>
               <RunStatusBadge s={run.status} />
               {run.targetEnv && <EnvBadge env={run.targetEnv} />}
               {runIsAI(run) && <AIBadge text="AI 觸發" />}
             </div>
-            <div style={{ userSelect: "text" }}>{run.commitMessage}</div>
+            <div className={s.selectable}>{run.commitMessage}</div>
           </div>
-          <div className="row gap8" style={{ flex: "none" }}>
+          <div className={"row gap8 " + s.noShrink}>
             {run.status === "waitingApproval" && <button className="btn purple" onClick={askApprove}><SIcon name="checkmark.seal" size={12} />核准部署</button>}
             {(runIsActive(run) || run.status === "waitingApproval") && <button className="btn danger" onClick={askCancel}><SIcon name="stop.circle" size={12} />取消</button>}
             <button className="btn" disabled={runIsActive(run)} title={runIsActive(run) ? "執行中,完成或取消後才能重新執行" : "用同一個 commit 重新執行"} onClick={retry}><SIcon name="arrow.clockwise" size={12} />重新執行</button>
           </div>
         </div>
-        <div className="row gap12 wrap caption muted" style={{ gap: 14 }}>
+        <div className={"row wrap caption muted " + s.gap14}>
           {meta("arrow.triangle.branch", run.branch)}
-          <button className="ox-plain row gap4 mono" title="複製完整 SHA" onClick={() => copyText(run.commitSHA)}><SIcon name="number" size={12} />{shortSHA(run)}</button>
+          <button className={plainClass + " row gap4 mono"} title="複製完整 SHA" onClick={() => copyText(run.commitSHA)}><SIcon name="number" size={12} />{shortSHA(run)}</button>
           {meta("shippingbox", o.repos.find((r) => r.id === run.repo)?.name ?? run.repo)}
           {meta("bolt", run.trigger)}
-          <ActorLabel actor={run.triggeredBy} />
+          <ActorLabel actor={run.triggeredBy} plainAI />
           {meta("clock", relative(run.startedAt))}
           {meta("timer", <ElapsedText run={run} />)}
         </div>
-        {run.status === "running" && <div style={{ maxWidth: 420 }}><ProgressBar value={runProgress(run)} /></div>}
+        {run.status === "running" && <div className={s.progressNarrow}><ProgressBar value={runProgress(run)} /></div>}
       </div>
       {run.status === "failed" && (
         <Callout tint="purple" icon="sparkles">
-          <div className="row gap8"><span className="card-title">AI 診斷</span><AIBadge text="自動分析" /></div>
+          <div className="row gap8"><span className={cardTitleClass}>AI 診斷</span><AIBadge text="自動分析" /></div>
           {run.aiDiagnosis ? (
             <>
-              <div style={{ userSelect: "text" }}>{run.aiDiagnosis}</div>
+              <div className={s.selectable}>{run.aiDiagnosis}</div>
               <div className="row gap8">
                 <button className="btn purple" onClick={() => setShowFix(true)}><SIcon name="wand.and.stars" size={12} />交給 AI 修復</button>
                 {jobs.find((j) => j.status === "failed") && <button className="btn" onClick={() => setSelectedJob(jobs.find((j) => j.status === "failed")!.id)}>查看失敗日誌</button>}
@@ -213,7 +230,7 @@ function RunDetail({ run, runs, onOpenRun }: { run: PipelineRun; runs: PipelineR
           ) : (
             <>
               <div className="muted">這次失敗還沒有 AI 分析。AI 會讀取失敗的日誌與本次變更,整理出可能原因。</div>
-              <button className="btn" style={{ alignSelf: "flex-start" }} disabled={analyzing} onClick={diagnose}>
+              <button className={"btn " + s.selfStart} disabled={analyzing} onClick={diagnose}>
                 {analyzing && <SIcon name="arrow.triangle.2.circlepath" spin size={12} />}{analyzing ? "分析中…" : "請 AI 分析"}
               </button>
             </>
@@ -222,7 +239,7 @@ function RunDetail({ run, runs, onOpenRun }: { run: PipelineRun; runs: PipelineR
       )}
       {run.status === "waitingApproval" && (
         <Callout tint="purple" icon="hand.raised.fill">
-          <div className="card-title">等待核准</div>
+          <div className={cardTitleClass}>等待核准</div>
           <div className="muted">前面的階段都已通過。部署到 {target} 前需要有人核准。</div>
           <div className="row gap8">
             <button className="btn purple" onClick={askApprove}><SIcon name="checkmark.seal" size={12} />核准部署</button>
@@ -233,22 +250,21 @@ function RunDetail({ run, runs, onOpenRun }: { run: PipelineRun; runs: PipelineR
       <Card title="階段" subtitle={`${done}/${run.stages.length} 個階段完成 · ${jobs.length} 個工作`}>
         {run.stages.length === 0 ? <div className="muted">這次執行沒有階段資料</div> : <StageGraph run={run} selected={current?.id} onSelect={setSelectedJob} />}
       </Card>
-      <div className={w > 860 ? "row" : "col"} style={{ gap: 16, alignItems: w > 860 ? "flex-start" : "stretch" }}>
-        <div style={{ width: w > 860 ? 270 : undefined, flex: "none" }}>
+      <div className={w > 860 ? s.split : s.stack}>
+        <div className={w > 860 ? s.jobsSide : s.jobsFull}>
           <Card title="工作">
-            <div className="col" style={{ gap: 10 }}>
-              {run.stages.map((s) => (
-                <div key={s.id} className="col" style={{ gap: 2 }}>
-                  <div className="row gap6"><SIcon name={RUN[s.status].icon} color={RUN[s.status].color} size={12} /><span className="caption muted" style={{ fontWeight: 600 }}>{s.name}</span><span className="grow" /><span className="faint num" style={{ fontSize: "var(--fs-xs)" }}>{dur(stageDuration(s.jobs))}</span></div>
-                  {s.jobs.map((j) => (
-                    <button key={j.id} className="ox-plain row gap8" onClick={() => setSelectedJob(j.id)}
-                      style={{ padding: "5px 8px", borderRadius: "var(--r-md)", background: j.id === current?.id ? "color-mix(in srgb, var(--accent) 18%, transparent)" : undefined }}>
-                      <span style={{ width: 16, flex: "none" }}><StatusIcon s={j.status} /></span>
+            <div className={"col " + s.gap10}>
+              {run.stages.map((st) => (
+                <div key={st.id} className={"col " + s.gap2}>
+                  <div className="row gap6"><SIcon name={RUN[st.status].icon} color={RUN[st.status].color} size={12} /><span className={"caption muted " + s.bold}>{st.name}</span><span className="grow" /><span className={"faint num " + s.xs}>{dur(stageDuration(st.jobs))}</span></div>
+                  {st.jobs.map((j) => (
+                    <button key={j.id} className={plainClass + " row gap8 " + s.jobBtn + (j.id === current?.id ? " " + s.jobOn : "")} onClick={() => setSelectedJob(j.id)}>
+                      <span className={s.jobIcon}><StatusIcon s={j.status} /></span>
                       <span className="ellipsis grow">{j.name}</span>
                       <span className="caption muted num">{dur(j.duration)}</span>
                     </button>
                   ))}
-                  {s.jobs.length === 0 && <span className="caption faint" style={{ paddingLeft: 20 }}>沒有工作</span>}
+                  {st.jobs.length === 0 && <span className={"caption faint " + s.noJobs}>沒有工作</span>}
                 </div>
               ))}
             </div>
@@ -266,7 +282,7 @@ function RunDetail({ run, runs, onOpenRun }: { run: PipelineRun; runs: PipelineR
 
 function StageGraph({ run, selected, onSelect }: { run: PipelineRun; selected?: string; onSelect: (id: string) => void }) {
   return (
-    <div className="row" style={{ overflowX: "auto", alignItems: "flex-start", padding: "4px 2px" }}>
+    <div className={s.stages}>
       {run.stages.map((stage, i) => {
         const prev = i > 0 ? run.stages[i - 1] : undefined;
         const tint = stage.status === "canceled" ? "var(--gray)" : color(RUN[stage.status].color);
@@ -274,20 +290,19 @@ function StageGraph({ run, selected, onSelect }: { run: PipelineRun; selected?: 
         if (prev?.status === "succeeded") conn = stage.status === "queued" ? "color-mix(in srgb, var(--fg2) 40%, transparent)" : "color-mix(in srgb, var(--green) 70%, transparent)";
         if (prev?.status === "failed") conn = "color-mix(in srgb, var(--red) 50%, transparent)";
         return (
-          <div key={stage.id} className="row" style={{ alignItems: "flex-start" }}>
-            {prev && <div className="ox-conn"><i style={{ background: conn }} /><SIcon name="chevron.right" size={9} color={conn} /></div>}
-            <div className={"ox-stage" + (stage.status === "running" ? " running" : "")}
+          <div key={stage.id} className={s.stageCell}>
+            {prev && <div className={s.conn}><i style={{ background: conn }} /><SIcon name="chevron.right" size={9} color={conn} /></div>}
+            <div className={s.stage + (stage.status === "running" ? " " + s.running : "")}
               style={{ background: `color-mix(in srgb, ${tint} ${stage.status === "queued" ? 4 : 9}%, transparent)`, borderColor: `color-mix(in srgb, ${tint} ${stage.status === "running" ? 70 : 35}%, transparent)` }}>
-              <div className="row gap6"><StatusIcon s={stage.status} /><span className="ellipsis" style={{ fontWeight: 600 }}>{stage.name}</span></div>
-              <div className="row muted" style={{ fontSize: "var(--fs-xs)" }}><span>{RUN[stage.status].label}</span><span className="grow" /><span className="num">{dur(stageDuration(stage.jobs))}</span></div>
+              <div className="row gap6"><StatusIcon s={stage.status} /><span className={"ellipsis " + s.bold}>{stage.name}</span></div>
+              <div className={"row muted " + s.xs}><span>{RUN[stage.status].label}</span><span className="grow" /><span className="num">{dur(stageDuration(stage.jobs))}</span></div>
               {stage.jobs.length > 0 && (
                 <>
                   <div className="divider" />
-                  <div className="col" style={{ gap: 2 }}>
+                  <div className={"col " + s.gap2}>
                     {stage.jobs.map((j) => (
-                      <button key={j.id} className="ox-plain row gap6" title={`${j.name} · ${RUN[j.status].label} · ${dur(j.duration)}`} onClick={() => onSelect(j.id)}
-                        style={{ padding: "2px 4px", borderRadius: "var(--r-sm)", background: selected === j.id ? "color-mix(in srgb, var(--accent) 20%, transparent)" : undefined }}>
-                        <span className="dot" style={{ width: 6, height: 6, background: j.status === "canceled" ? "var(--gray)" : color(RUN[j.status].color) }} />
+                      <button key={j.id} className={plainClass + " row gap6 " + s.stageJob + (selected === j.id ? " " + s.stageJobOn : "")} title={`${j.name} · ${RUN[j.status].label} · ${dur(j.duration)}`} onClick={() => onSelect(j.id)}>
+                        <StatusDot c={j.status === "canceled" ? "gray" : RUN[j.status].color} size={6} />
                         <span className="caption ellipsis">{j.name}</span>
                       </button>
                     ))}
@@ -330,27 +345,27 @@ function LogViewer({ job, stageName }: { job?: PipelineJob; stageName?: string }
     return out;
   };
   const placeholder = (text: string, icon: string, spin?: boolean) => (
-    <div className="col gap8" style={{ alignItems: "center", justifyContent: "center", minHeight: 160 }}>
+    <div className={"col gap8 " + s.placeholder}>
       <SIcon name={spin ? "arrow.triangle.2.circlepath" : icon} size={20} spin={spin} className="faint" /><span className="muted">{text}</span>
     </div>
   );
   return (
-    <div className="ox-log">
-      <div className="row gap8" style={{ padding: "8px 12px" }}>
+    <div className={s.log}>
+      <div className={"row gap8 " + s.logHead}>
         <SIcon name="terminal" className="muted" />
-        <div className="col" style={{ minWidth: 0 }}>
-          <span className="ellipsis" style={{ fontWeight: 600 }}>{job?.name ?? "日誌"}</span>
-          {stageName && <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{stageName} · {lines.length} 行</span>}
+        <div className={"col " + s.logTitle}>
+          <span className={"ellipsis " + s.bold}>{job?.name ?? "日誌"}</span>
+          {stageName && <span className={"muted " + s.xs}>{stageName} · {lines.length} 行</span>}
         </div>
         {job && <RunStatusBadge s={job.status} />}
         <span className="grow" />
-        <div className="ox-search" style={{ maxWidth: 190 }}>
+        <div className={s.search + " " + s.logSearch}>
           <SIcon name="magnifyingglass" size={12} className="muted" />
-          <input style={{ fontSize: "var(--fs-sm)", minWidth: 70 }} placeholder="搜尋日誌" value={query} onChange={(e) => setQuery(e.target.value)} />
-          {query && <><span className="muted num" style={{ fontSize: "var(--fs-xs)", flex: "none" }}>{matchCount} 筆</span><button className="ox-icon-btn" onClick={() => setQuery("")}><SIcon name="xmark.circle.fill" size={12} className="muted" /></button></>}
+          <input className={s.logInput} placeholder="搜尋日誌" value={query} onChange={(e) => setQuery(e.target.value)} />
+          {query && <><span className={"muted num " + s.matchCount}>{matchCount} 筆</span><button className={iconButtonClass.bare} onClick={() => setQuery("")}><SIcon name="xmark.circle.fill" size={12} className="muted" /></button></>}
         </div>
         <Check on={onlyMatches} onChange={setOnlyMatches} disabled={!query}><span className="caption">只顯示符合</span></Check>
-        <MenuButton className="ox-icon-btn" align="right" label={<SIcon name="ellipsis.circle" />} items={[
+        <MenuButton className={iconButtonClass.bare} align="right" label={<SIcon name="ellipsis.circle" />} items={[
           { label: "自動換行", checked: wrap, onClick: () => setWrap(!wrap) },
           { label: "複製全部日誌", disabled: !lines.length, onClick: () => copyText(lines.map((l) => l.text).join("\n")) },
         ]} />
@@ -360,14 +375,14 @@ function LogViewer({ job, stageName }: { job?: PipelineJob; stageName?: string }
         : lines.length === 0 ? (job.status === "running" ? placeholder("等待輸出…", "ellipsis", true)
           : job.status === "queued" || job.status === "waitingApproval" ? placeholder("工作還沒開始", "clock") : placeholder("這個工作沒有日誌", "doc"))
           : (
-            <div className="ox-log-body">
+            <div className={s.logBody}>
               {shown.map((l) => (
-                <div key={l.id} className={"ox-log-line" + (wrap ? " wrap" : "") + (matches(l.text) ? " hit" : "")}>
-                  <span className="faint" style={{ width: 34, textAlign: "right", flex: "none" }}>{l.id}</span>
+                <div key={l.id} className={s.logLine + (wrap ? " " + s.wrap : "") + (matches(l.text) ? " " + s.hit : "")}>
+                  <span className={"faint " + s.lineNo}>{l.id}</span>
                   <span style={{ color: lineColor(l.text) }}>{hl(l.text)}</span>
                 </div>
               ))}
-              {job.status === "running" && <div className="ox-cursor" />}
+              {job.status === "running" && <div className={s.cursor} />}
             </div>
           )}
     </div>
@@ -383,27 +398,27 @@ function AIFixSheet({ run, close, onStarted }: { run: PipelineRun; close: () => 
   const fixerActor = { kind: "ai" as const, id: fixer?.id ?? "ci-fixer" };
   const branch = `ai/fix-run-${run.id}`;
   const step = (n: number, text: string) => (
-    <div className="row gap8"><span className="ox-avatar" style={{ width: 18, height: 18, fontSize: "var(--fs-xs)", background: "var(--purple)" }}>{n}</span>{text}</div>
+    <div className="row gap8"><span className={s.stepNo}>{n}</span>{text}</div>
   );
   const start = async () => {
     try {
-      const r: any = await action("pipeline_ai_fix", { id: run.id, openPR, rerun });
+      const r = await action<{ runId: number | null }>("pipeline_ai_fix", { id: run.id, openPR, rerun });
       if (r?.runId) onStarted(r.runId);
       close();
     } catch (e: any) { setError(String(e?.message ?? e)); }
   };
   return (
-    <div className="col" style={{ gap: 16 }}>
-      <div className="row" style={{ gap: 10 }}>
-        <ActorAvatar actor={fixerActor} size={32} />
-        <div className="col" style={{ gap: 2 }}>
+    <div className={"col " + s.gap16}>
+      <div className={"row " + s.gap10}>
+        <ActorAvatar actor={fixerActor} size={32} plainAI />
+        <div className={"col " + s.gap2}>
           <span className="h3">交給 AI 修復</span>
           <span className="muted">{run.pipeline} #{run.id} · {o.name(fixerActor)}</span>
         </div>
       </div>
-      {run.aiDiagnosis && <div style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--purple) 7%, transparent)" }}>{run.aiDiagnosis}</div>}
+      {run.aiDiagnosis && <div className={s.diagnosis}>{run.aiDiagnosis}</div>}
       <div className="col gap8">
-        <div className="card-title">AI 會依序執行</div>
+        <div className={cardTitleClass}>AI 會依序執行</div>
         {step(1, "讀取失敗日誌與本次 commit 的差異")}
         {step(2, `從 ${run.branch} 開出分支 ${branch}`)}
         {step(3, "修改程式碼並在本機跑相關測試")}
@@ -415,8 +430,8 @@ function AIFixSheet({ run, close, onStarted }: { run: PipelineRun; close: () => 
         <Check on={rerun} onChange={setRerun}>在修復分支重新執行 CI</Check>
       </div>
       <div className="caption muted row gap4"><SIcon name="lock.shield" size={12} />AI 不會直接推送到 {run.branch},所有變更都要經過 PR 審查。</div>
-      {error && <div className="error-text">{error}</div>}
-      <div className="row gap8" style={{ justifyContent: "flex-end" }}>
+      <ErrorText>{error}</ErrorText>
+      <div className={"row gap8 " + s.end}>
         <button className="btn" onClick={close}>取消</button>
         <button className="btn purple" onClick={start}><SIcon name="wand.and.stars" size={12} />開始修復</button>
       </div>

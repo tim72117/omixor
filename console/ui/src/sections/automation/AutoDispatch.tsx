@@ -1,14 +1,21 @@
 // AI 自動化 › 派發:看哪一個角色被派了哪些任務(跨所有角色的總表),以及每個角色目前的負載
 import { useState } from "react";
-import { AgentAvatar, go, useDirectory } from "../../components/bits";
+import { AgentAvatar } from "../../components/Avatar";
+import { Card } from "../../components/Card";
+import { EmptyState } from "../../components/EmptyState";
 import { Icon } from "../../components/Icon";
-import { PRIORITY_COLOR, PRIORITY_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, leaseLabel, taskOpen, type AgentTask, type AgentTaskStatus } from "../../components/models";
-import { Card, EmptyState, Pill, color } from "../../components/ui";
+import { Pill } from "../../components/Pill";
+import { color } from "../../lib/color";
+import { useDirectory } from "../../lib/directory";
+import { go } from "../../lib/nav";
+import { PRIORITY_COLOR, PRIORITY_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, leaseLabel, taskOpen, type AgentTask, type AgentTaskStatus } from "../../models";
 import { relative } from "../../fmt";
 import { AgentRunnerCard } from "./AutoRunner";
+import css from "./automation.module.css";
 import { useAuto } from "./autoShared";
 import { useIssueLabel, useIsIssueRef } from "../development/issueApi";
 import { canGo, useFeatures } from "../../features";
+import { rowButtonClass } from "../../components/RowButton";
 
 type Scope = "open" | "all";
 
@@ -20,7 +27,7 @@ export function AutoDispatch({ openTask }: { openTask: (task: AgentTask) => void
   const [scope, setScope] = useState<Scope>("open");
   const [agentId, setAgentId] = useState("");
   if (!d.agents) {
-    return d.agentsError ? <EmptyState title="讀不到虛擬角色" icon="exclamationmark.triangle" message={d.agentsError} /> : <div className="muted" style={{ padding: 20 }}>載入中…</div>;
+    return d.agentsError ? <EmptyState title="讀不到虛擬角色" icon="exclamationmark.triangle" message={d.agentsError} /> : <div className={"muted " + css.loading}>載入中…</div>;
   }
   const { agents, tasks } = d.agents;
   const byId = new Map(agents.map((a) => [a.id, a]));
@@ -31,7 +38,7 @@ export function AutoDispatch({ openTask }: { openTask: (task: AgentTask) => void
   const issueOf = (t: AgentTask) => t.links.find((l) => isIssueRef(l));
 
   return (
-    <div className="col gap12" style={{ padding: 16, overflowY: "auto", flex: 1, minHeight: 0 }}>
+    <div className={"col gap12 " + css.tabPage}>
       {runnerOn && <AgentRunnerCard openTask={(id) => { const t = tasks.find((x) => x.id === id); if (t) openTask(t); }} />}
       <Card title="各角色目前的派發" subtitle="點角色可只看他被派的任務">
         {agents.length === 0 && <span className="muted">還沒有角色</span>}
@@ -39,15 +46,15 @@ export function AutoDispatch({ openTask }: { openTask: (task: AgentTask) => void
           {agents.map((a) => {
             const open = tasks.filter((t) => t.agentId === a.id && taskOpen(t.status)).length;
             return (
-              <button key={a.id} className="bx-row-btn" style={{ opacity: a.active ? 1 : 0.5, background: agentId === a.id ? "var(--hover)" : undefined }}
+              <button key={a.id} className={rowButtonClass + (a.active ? "" : " " + css.inactive) + (agentId === a.id ? " " + css.agentPicked : "")}
                 onClick={() => setAgentId(agentId === a.id ? "" : a.id)}>
                 <AgentAvatar agent={a} size={24} />
-                <span className="grow ellipsis" style={{ textAlign: "left" }}>{a.name}<span className="caption muted"> · {a.role}</span></span>
+                <span className={"grow ellipsis " + css.left}>{a.name}<span className="caption muted"> · {a.role}</span></span>
                 {!a.active && <Pill text="停用" color="gray" />}
                 <Pill text={`待領取 ${count(a.id, "queued")}`} color="secondary" />
                 <Pill text={`進行中 ${count(a.id, "inProgress")}`} color="blue" />
                 {count(a.id, "blocked") > 0 && <Pill text={`需要協助 ${count(a.id, "blocked")}`} color="orange" />}
-                <span className="caption muted num" style={{ width: 60, textAlign: "right" }}>{open} 件未完成</span>
+                <span className={"caption muted num " + css.w60 + " " + css.right}>{open} 件未完成</span>
               </button>
             );
           })}
@@ -67,22 +74,22 @@ export function AutoDispatch({ openTask }: { openTask: (task: AgentTask) => void
           const a = byId.get(t.agentId);
           const iss = issueOf(t);
           return (
-            <div key={t.id} className="row gap8" style={{ padding: "6px 0", borderBottom: "1px solid var(--line)", alignItems: "center" }}>
-              <div className="row gap6" style={{ width: 150, alignItems: "center" }}>
+            <div key={t.id} className={"row gap8 " + css.lineRow}>
+              <div className={"row gap6 " + css.w150}>
                 {a ? <AgentAvatar agent={a} size={22} /> : <Icon name="person.crop.circle" size={20} className="muted" />}
                 <span className="ellipsis">{a?.name ?? t.agentId}</span>
               </div>
-              <button className="bx-row-btn grow" style={{ minWidth: 0 }} onClick={() => openTask(t)}>
+              <button className={rowButtonClass + " grow"} onClick={() => openTask(t)}>
                 <Icon name={TASK_ICON[t.status]} size={13} color={color(TASK_COLOR[t.status])} />
                 <span className="mono caption muted">{t.id}</span>
-                <span className="ellipsis grow" style={{ textAlign: "left", color: taskOpen(t.status) ? undefined : "var(--fg2)" }}>{t.title}</span>
+                <span className={"ellipsis grow " + css.left + (taskOpen(t.status) ? "" : " muted")}>{t.title}</span>
                 {leaseLabel(t) && <span className="caption muted ellipsis" title="領取租約:鎖定期間不能被其他人領取">{leaseLabel(t)}</span>}
               </button>
               {iss && canGo("development") && <button className="btn link" onClick={() => go("development", iss)}>{issueLabel(iss)}</button>}
               {(t.priority === "urgent" || t.priority === "high") && <Pill text={PRIORITY_LABEL[t.priority]} color={PRIORITY_COLOR[t.priority]} />}
               <Pill text={TASK_LABEL[t.status]} color={TASK_COLOR[t.status]} />
-              <span className="caption muted ellipsis" style={{ width: 110 }} title="派發者">{dir.authorName(t.createdBy)}</span>
-              <span className="caption muted" style={{ width: 70, textAlign: "right" }}>{relative(t.updatedAt)}</span>
+              <span className={"caption muted ellipsis " + css.w110} title="派發者">{dir.authorName(t.createdBy)}</span>
+              <span className={"caption muted " + css.w70 + " " + css.right}>{relative(t.updatedAt)}</span>
             </div>
           );
         })}

@@ -10,7 +10,7 @@ import type { Issue, IssueComment } from "../src/sections/development/DevIssuesT
 import type {
   Agent, AgentRoutine, AgentTask, CabinetDoc, CabinetSection, CabinetTab, Channel, ChannelMessage, ChannelPage, ChainEdge,
   Decision, DecisionOption, Incident, IncidentEvent, IssueItem, OrgChain, Organization, Project, ProjectMember, ProjectRepo,
-} from "../src/components/models";
+} from "../src/models/domain";
 import type { Actor, ActorView } from "../src/types";
 
 import issue from "../../../core/model/testdata/contract/issue.json";

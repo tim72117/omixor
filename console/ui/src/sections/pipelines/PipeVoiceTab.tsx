@@ -2,10 +2,22 @@
 // 送出/試算走 MCP 工具 voice_submit;發佈只能由人按(action voice_publish)。
 import { useRef, useState } from "react";
 import { action, tool, useView } from "../../api";
-import { Card, EmptyState, Modal, Pill } from "../../components/ui";
-import { Check, hhmm, SIcon, useAct, useConfirm, useList, useOmixor } from "../../components/omixorKit";
+import { Card, cardTitleClass } from "../../components/Card";
+import { Check } from "../../components/Check";
+import { useConfirm } from "../../components/Confirm";
+import { EmptyState } from "../../components/EmptyState";
+import { iconButtonClass } from "../../components/IconButton";
+import { Modal } from "../../components/Modal";
+import { Pill } from "../../components/Pill";
+import { SIcon } from "../../components/SIcon";
+import { useAct } from "../../components/Toast";
+import { useOmixor } from "../../lib/directory";
+import { hhmm } from "../../lib/format";
+import { useList } from "../../lib/hooks";
 import { relative } from "../../fmt";
 import type { Connection, ConnState } from "../development/DevGitHubTab";
+import css from "./pipelines.module.css";
+import { disclosureClass } from "../../components/Disclosure";
 
 type VoiceState = "queued" | "submitting" | "processing" | "collecting" | "ready" | "publishing" | "published" | "nothingToDo" | "failed" | "canceled";
 const STATE: Record<VoiceState, { label: string; icon: string }> = {
@@ -59,9 +71,9 @@ export function PipeVoiceTab() {
         <ConnectionCard connections={connections} target={target} state={tstate} settings={settings} />
         <NewBatchCard />
         {err && jobs.length === 0 ? (
-          <Card><div style={{ minHeight: 160, display: "flex" }}><EmptyState title="讀不到旁白批次" icon="waveform" message={err} /></div></Card>
+          <Card><div className={css.emptyBox}><EmptyState title="讀不到旁白批次" icon="waveform" message={err} /></div></Card>
         ) : jobs.length === 0 ? (
-          <Card><div style={{ minHeight: 160, display: "flex" }}><EmptyState title="還沒有旁白批次" icon="waveform" message="在上面送出批次,或讓 AI 透過 MCP 的 voice_submit 分派過來。" /></div></Card>
+          <Card><div className={css.emptyBox}><EmptyState title="還沒有旁白批次" icon="waveform" message="在上面送出批次,或讓 AI 透過 MCP 的 voice_submit 分派過來。" /></div></Card>
         ) : jobs.map((j) => <VoiceJobCard key={j.id} job={j} target={target} loggedIn={!!tstate?.account || !!settings?.hasToken} playing={playing} toggle={toggle} />)}
       </div>
     </div>
@@ -87,9 +99,9 @@ function ConnectionCard({ connections, target, state, settings }: { connections:
         <span className="grow" />
         <button className="btn" onClick={() => o.go("settings", "connections")}>管理連線…</button>
       </div>
-      {state?.error && <div className="caption row gap4" style={{ color: "var(--orange)" }}><SIcon name="exclamationmark.triangle.fill" size={12} />{state.error}</div>}
+      {state?.error && <div className={"caption row gap4 " + css.warn}><SIcon name="exclamationmark.triangle.fill" size={12} />{state.error}</div>}
       <div className="row gap12 wrap">
-        <span className="row gap6"><span className="muted">shuttle 專案</span><span className="caption mono" style={{ userSelect: "text" }}>{settings?.shuttlePath ?? "—"}</span></span>
+        <span className="row gap6"><span className="muted">shuttle 專案</span><span className={"caption mono " + css.selectable}>{settings?.shuttlePath ?? "—"}</span></span>
         <span className="row gap6">
           <span>每 {poll} 分鐘查一次</span>
           <button className="btn small" disabled={poll <= 1} onClick={() => run(() => action("voice_settings", { pollMinutes: poll - 1 }))}>−</button>
@@ -116,7 +128,7 @@ function NewBatchCard() {
   const dryRun = async () => {
     setDryRunning(true);
     try {
-      const r: any = await tool("voice_submit", { ...args(), dry_run: true });
+      const r = await tool<string | { output?: string }>("voice_submit", { ...args(), dry_run: true });
       setDry(typeof r === "string" ? r : r?.output ?? JSON.stringify(r, null, 2));
       setFormError(undefined);
     } catch (e: any) { setFormError(String(e?.message ?? e)); }
@@ -134,14 +146,14 @@ function NewBatchCard() {
         </span>
       </div>
       <div className="row gap8">
-        {formError && <span className="caption row gap4" style={{ color: "var(--red)" }}><SIcon name="exclamationmark.triangle.fill" size={12} />{formError}</span>}
+        {formError && <span className={"caption row gap4 " + css.err}><SIcon name="exclamationmark.triangle.fill" size={12} />{formError}</span>}
         <span className="grow" />
         <button className="btn" disabled={dryRunning} onClick={dryRun}>{dryRunning ? <SIcon name="arrow.triangle.2.circlepath" spin size={12} /> : "試算"}</button>
         <button className="btn primary" onClick={submit}>送出批次</button>
       </div>
       <Modal open={dry != null} onClose={() => setDry(undefined)} width={720}>
-        <div className="card-title">試算結果(沒有呼叫 API,不花錢)</div>
-        <pre className="ox-code" style={{ maxHeight: 380, overflow: "auto", userSelect: "text" }}>{dry}</pre>
+        <div className={cardTitleClass}>試算結果(沒有呼叫 API,不花錢)</div>
+        <pre className={css.code + " " + css.dryOut}>{dry}</pre>
         <div className="row"><span className="grow" /><button className="btn primary" onClick={() => setDry(undefined)}>關閉</button></div>
       </Modal>
     </Card>
@@ -157,18 +169,18 @@ function VoiceJobCard({ job, target, loggedIn, playing, toggle }: { job: VoiceJo
   const isProd = target?.isProduction ?? true;
   const by = job.by === "external" ? "終端機送出" : job.by === "mcp" ? "MCP 用戶端" : o.person(job.by)?.name ?? job.by;
   const pending = (job.changes ?? []).filter((x) => x.publish !== "ok");
-  const info = (k: string, v: string) => <span className="row gap4"><span className="muted">{k}</span><span className="num ellipsis" style={{ userSelect: "text" }}>{v}</span></span>;
+  const info = (k: string, v: string) => <span className="row gap4"><span className="muted">{k}</span><span className={"num ellipsis " + css.selectable}>{v}</span></span>;
   const totalAdded = (job.changes ?? []).reduce((a, x) => a + x.added.reduce((b, y) => b + y.ms, 0), 0);
   return (
     <Card>
-      <div className="row gap8" style={{ alignItems: "baseline" }}>
-        <span className="card-title mono">{job.id}</span>
-        <span className="card-title ellipsis">{jobTitle(job)}</span>
+      <div className={css.baseline + " gap8"}>
+        <span className={css.jobId}>{job.id}</span>
+        <span className={cardTitleClass + " ellipsis"}>{jobTitle(job)}</span>
         <Pill text={st.label} color={c} icon={st.icon} />
         <span className="grow" />
-        <span className="caption muted" style={{ flex: "none" }}>{by} · {relative(job.createdAt)}</span>
+        <span className={"caption muted " + css.noShrink}>{by} · {relative(job.createdAt)}</span>
       </div>
-      <div className="row gap12 wrap caption" style={{ gap: 16 }}>
+      <div className={"row wrap caption " + css.gap16}>
         {job.clipCount != null && info("段落", String(job.clipCount))}
         {job.batchName && info("批次", job.batchName)}
         {job.batchState && info("狀態", job.batchState.replace("JOB_STATE_", ""))}
@@ -176,27 +188,27 @@ function VoiceJobCard({ job, target, loggedIn, playing, toggle }: { job: VoiceJo
         {job.state === "processing" && job.nextCheckAt && info("下次查", Date.parse(job.nextCheckAt) <= Date.now() ? "馬上" : relative(job.nextCheckAt))}
         {job.publishedAt && info("發佈於", `${relative(job.publishedAt)} → ${job.publishedTo ?? ""}`)}
       </div>
-      {job.error && (!isFinal(job.state) || job.state === "failed") && <div className="caption row gap4" style={{ color: "var(--orange)", userSelect: "text" }}><SIcon name="exclamationmark.triangle.fill" size={12} />{job.error}</div>}
+      {job.error && (!isFinal(job.state) || job.state === "failed") && <div className={"caption row gap4 " + css.warn + " " + css.selectable}><SIcon name="exclamationmark.triangle.fill" size={12} />{job.error}</div>}
       {job.changes?.length > 0 && (
         <div className="col gap6">
-          <div className="row gap8"><span style={{ fontWeight: 600 }}>變動的旁白清單</span><span className="caption muted">新增 {job.changes.reduce((a, x) => a + x.added.length, 0)} 段,共 {(totalAdded / 1000).toFixed(0)} 秒</span></div>
+          <div className="row gap8"><span className={css.bold}>變動的旁白清單</span><span className="caption muted">新增 {job.changes.reduce((a, x) => a + x.added.length, 0)} 段,共 {(totalAdded / 1000).toFixed(0)} 秒</span></div>
           {job.changes.map((ch) => (
-            <details key={ch.path} className="ox-disclosure">
+            <details key={ch.path} className={disclosureClass.native}>
               <summary>
-                <span className="row gap8 wrap" style={{ display: "inline-flex", color: "var(--fg)" }}>
+                <span className={"row gap8 wrap " + css.summaryRow}>
                   <span className="mono">{ch.path}</span>
                   <Pill text={ch.isNew ? "新檔" : "更新"} color={ch.isNew ? "teal" : "blue"} />
-                  {ch.course && ch.lesson ? <span className="caption muted">{ch.course} / {ch.lesson}</span> : <span className="caption" style={{ color: "var(--orange)" }}>不屬於任何一課(會放進研發基地)</span>}
+                  {ch.course && ch.lesson ? <span className="caption muted">{ch.course} / {ch.lesson}</span> : <span className={"caption " + css.warn}>不屬於任何一課(會放進研發基地)</span>}
                   <span className="caption muted">+{ch.added.length} 段 −{ch.removed} 段 · 共 {ch.clips} 段 {(ch.totalMs / 1000).toFixed(0)} 秒</span>
                   {ch.publish === "ok" ? <Pill text="已發佈" color="green" icon="checkmark" /> : ch.publish ? <span title={ch.publish}><Pill text="失敗" color="red" icon="xmark" /></span> : null}
                 </span>
               </summary>
-              <div className="col gap4" style={{ padding: "4px 0 4px 16px" }}>
+              <div className={"col gap4 " + css.clips}>
                 {ch.added.map((clip) => (
                   <div key={clip.file} className="row gap8 caption">
-                    <button className="ox-icon-btn" onClick={() => toggle(clip)}><SIcon name={playing === clip.file ? "stop.circle.fill" : "play.circle.fill"} color="var(--accent)" /></button>
-                    <span className="muted num" style={{ width: 56, textAlign: "right" }}>{(clip.ms / 1000).toFixed(1)} 秒</span>
-                    <span style={{ userSelect: "text" }}>{clip.text}</span>
+                    <button className={iconButtonClass.bare} onClick={() => toggle(clip)}><SIcon name={playing === clip.file ? "stop.circle.fill" : "play.circle.fill"} color="var(--accent)" /></button>
+                    <span className={"muted num " + css.clipLen}>{(clip.ms / 1000).toFixed(1)} 秒</span>
+                    <span className={css.selectable}>{clip.text}</span>
                   </div>
                 ))}
                 {ch.added.length === 0 && <span className="caption muted">沒有新增段落(只有內容順序或長度改變)</span>}
@@ -206,8 +218,8 @@ function VoiceJobCard({ job, target, loggedIn, playing, toggle }: { job: VoiceJo
         </div>
       )}
       {job.failedClips?.length > 0 && (
-        <details className="ox-disclosure"><summary>{job.failedClips.length} 段產生失敗(重送一次會補上)</summary>
-          {job.failedClips.map((f) => <div key={f} className="caption mono" style={{ userSelect: "text" }}>{f}</div>)}
+        <details className={disclosureClass.native}><summary>{job.failedClips.length} 段產生失敗(重送一次會補上)</summary>
+          {job.failedClips.map((f) => <div key={f} className={"caption mono " + css.selectable}>{f}</div>)}
         </details>
       )}
       <div className="row gap8">
@@ -227,10 +239,10 @@ function VoiceJobCard({ job, target, loggedIn, playing, toggle }: { job: VoiceJo
           </>
         )}
       </div>
-      <details className="ox-disclosure">
+      <details className={disclosureClass.native}>
         <summary>紀錄({job.log?.length ?? 0})</summary>
-        <div className="col" style={{ gap: 3, paddingTop: 4 }}>
-          {[...(job.log ?? [])].reverse().map((l, i) => <div key={i} className="row gap8 caption mono" style={{ alignItems: "flex-start" }}><span className="muted">{hhmm(l.date)}</span><span style={{ userSelect: "text" }}>{l.text}</span></div>)}
+        <div className={"col " + css.voiceLog}>
+          {[...(job.log ?? [])].reverse().map((l, i) => <div key={i} className={css.voiceLogLine + " caption mono"}><span className="muted">{hhmm(l.date)}</span><span className={css.selectable}>{l.text}</span></div>)}
         </div>
       </details>
       {dlg}{toastEl}

@@ -1,8 +1,17 @@
 // 服務地圖:依相依深度分層排列,上層呼叫下層。節點顏色代表健康狀態(Swift 的 InfraMapTab.swift)
 import { useState } from "react";
-import { color, EmptyState } from "../../components/ui";
-import { HEALTH, HealthBadge, num, pct, SIcon, useOmixor, useWidth, type HealthKey, type Service } from "../../components/omixorKit";
+import { HealthBadge } from "../../components/Badge";
+import { EmptyState } from "../../components/EmptyState";
+import { SIcon } from "../../components/SIcon";
+import { color } from "../../lib/color";
+import { useOmixor } from "../../lib/directory";
+import { num, pct } from "../../lib/format";
+import { useWidth } from "../../lib/hooks";
+import { HEALTH, type HealthKey, type Service } from "../../models";
+import css from "./infrastructure.module.css";
 import { TierPill } from "./infraShared";
+import { cardTitleClass } from "../../components/Card";
+import { layoutClass } from "../../components/Layout";
 
 function graphModel(services: Service[]) {
   const byId = new Map(services.map((s) => [s.id, s]));
@@ -63,15 +72,15 @@ export function InfraMapTab({ selection, setSelection, onOpenService }: { select
   const sel = selection ? o.service(selection) : undefined;
 
   return (
-    <div className="ox-page">
-      <div className="row caption muted" style={{ gap: 14, padding: "8px 16px", borderBottom: "1px solid var(--line)" }}>
-        {(["healthy", "degraded", "down", "maintenance"] as HealthKey[]).map((h) => <span key={h} className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: "var(--r-sm)", background: color(HEALTH[h].color) }} />{HEALTH[h].label}</span>)}
+    <div className={layoutClass.page}>
+      <div className={"row caption muted " + css.legend}>
+        {(["healthy", "degraded", "down", "maintenance"] as HealthKey[]).map((h) => <span key={h} className={"row " + css.gap5}><span className={css.swatch} style={{ background: color(HEALTH[h].color) }} />{HEALTH[h].label}</span>)}
         <span className="grow" />
         <span className="row gap4"><SIcon name="arrow.down" size={11} />箭頭由呼叫方指向被依賴的服務</span>
       </div>
-      <div ref={ref} className="ox-scroll" style={{ background: "color-mix(in srgb, var(--bg2) 35%, transparent)" }}>
-        <div style={{ position: "relative", width, height }} onClick={() => setSelection(undefined)}>
-          <svg width={width} height={height} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+      <div ref={ref} className={layoutClass.scroll + " " + css.mapBg}>
+        <div className={css.canvas} style={{ width, height }} onClick={() => setSelection(undefined)}>
+          <svg width={width} height={height} className={css.edges}>
             {edges.map((e) => {
               const a = pos.get(e.from), b = pos.get(e.to);
               if (!a || !b) return null;
@@ -103,7 +112,7 @@ export function InfraMapTab({ selection, setSelection, onOpenService }: { select
             const selected = selection === s.id;
             const dimmed = !!focus && !related.has(s.id);
             return (
-              <div key={s.id} className="ox-map-node" title={`${s.name}:${HEALTH[s.health].label}。點兩下查看詳情`}
+              <div key={s.id} className={css.mapNode} title={`${s.name}:${HEALTH[s.health].label}。點兩下查看詳情`}
                 style={{
                   left: p.x, top: p.y, width: nodeW, height: NODE_H, opacity: dimmed ? 0.4 : 1,
                   background: `linear-gradient(color-mix(in srgb, ${c} ${s.health === "healthy" ? 4 : 12}%, transparent), color-mix(in srgb, ${c} ${s.health === "healthy" ? 4 : 12}%, transparent)), var(--bg2)`,
@@ -113,23 +122,23 @@ export function InfraMapTab({ selection, setSelection, onOpenService }: { select
                 onClick={(e) => { e.stopPropagation(); setSelection(selection === s.id ? undefined : s.id); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onOpenService(s.id); }}
                 onMouseEnter={() => setHovered(s.id)} onMouseLeave={() => setHovered((h) => (h === s.id ? undefined : h))}>
-                <div className="row" style={{ gap: 5 }}>
+                <div className={"row " + css.gap5}>
                   <SIcon name={HEALTH[s.health].icon} color={HEALTH[s.health].color} size={12} />
-                  <span className="ellipsis" style={{ fontWeight: 600 }}>{s.name}</span><span className="grow" />
-                  <span className="muted" style={{ fontSize: "var(--fs-xs)", fontWeight: 600 }}>T{s.tier}</span>
+                  <span className={"ellipsis " + css.bold}>{s.name}</span><span className="grow" />
+                  <span className={"muted " + css.tierTag}>T{s.tier}</span>
                 </div>
-                <span className="muted num ellipsis" style={{ fontSize: "var(--fs-xs)" }}>p95 {Math.trunc(s.latencyP95)}ms · {pct(s.errorRate, 2)}</span>
+                <span className={"muted num ellipsis " + css.xs}>p95 {Math.trunc(s.latencyP95)}ms · {pct(s.errorRate, 2)}</span>
               </div>
             );
           })}
         </div>
       </div>
       {sel && (
-        <div className="row" style={{ gap: 12, padding: "10px 16px", borderTop: "1px solid var(--line)", background: "var(--bg2)" }}>
+        <div className={"row " + css.selBar}>
           <HealthBadge h={sel.health} />
-          <span className="card-title ellipsis">{sel.name}</span>
+          <span className={cardTitleClass + " ellipsis"}>{sel.name}</span>
           <TierPill tier={sel.tier} />
-          <span className="row muted num ellipsis" style={{ gap: 12 }}>
+          <span className="row gap12 muted num ellipsis">
             <span>依賴 {sel.dependencies.length} · 被依賴 {o.services.filter((s) => s.dependencies.includes(sel.id)).length}</span>
             <span>p95 {Math.trunc(sel.latencyP95)}ms</span><span>錯誤 {pct(sel.errorRate, 2)}</span><span>{num(sel.rps)} rps</span>
           </span>

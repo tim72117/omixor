@@ -5,10 +5,13 @@
 import { useState } from "react";
 import { action, useRun } from "../../api";
 import { Icon } from "../../components/Icon";
-import { Card, EmptyState, ErrorText } from "../../components/ui";
+import { Card } from "../../components/Card";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
 import { dateTime } from "../../fmt";
 import { reloadFeatures, saveFeature, useFeatures, type FeatureState, type SystemView as SysView } from "../../features";
 import { FeatureList, type FeatureItem } from "../system/FeatureList";
+import css from "./settings.module.css";
 
 export function SettingsFeatures() {
   const flags = useFeatures();
@@ -33,10 +36,10 @@ export function SettingsFeatures() {
 
   return (
     <div className="page-scroll">
-      <div className="col" style={{ gap: 16, maxWidth: 860, width: "100%", margin: "0 auto", padding: 20 }}>
-        <div className="row gap8" style={{ alignItems: "flex-start" }}>
+      <div className={"col " + css.featPage}>
+        <div className={"row gap8 " + css.top}>
           <div className="col gap4 grow">
-            <div style={{ fontWeight: 600, fontSize: "var(--fs-lg)" }}>功能</div>
+            <div className={css.paneTitle}>功能</div>
             <div className="caption muted">選擇這個組織要開啟哪些功能。關掉的功能不會出現在側邊欄、頁面分頁、搜尋(⌘K)、AI 助理的建議與跨頁連結。</div>
           </div>
           <button className="btn" disabled={reloading} onClick={() => run(reloadFeatures)}><Icon name="arrow.clockwise" size={12} />重新讀取</button>
@@ -64,8 +67,8 @@ function Status({ v }: { v: SysView }) {
     const noDB = v.mode === "local" && /OMIXOR_DATABASE_URL|OPS_DATABASE_URL/.test(v.error);
     return (
       <Card>
-        <div className="row gap6" style={{ color: "var(--orange)", fontWeight: 500 }}><Icon name="exclamationmark.triangle.fill" size={14} />讀不到 omixor 的功能設定</div>
-        {v.error && <div style={{ userSelect: "text" }}>{v.error}</div>}
+        <div className={"row gap6 " + css.warn + " " + css.medium}><Icon name="exclamationmark.triangle.fill" size={14} />讀不到 omixor 的功能設定</div>
+        {v.error && <div className={css.selectable}>{v.error}</div>}
         {noDB && <div className="caption muted">本機模式的功能開關存在本機核心的資料庫(和 Issue、事件同一個);沒有資料庫時各裝置都只能用預設。</div>}
         <div className="caption muted">
           {v.source === "cached" ? "目前照這次執行最後一次讀到的設定顯示,暫時不能修改。" : "目前用預設:已實作的功能開、實驗功能關,暫時不能修改。"}

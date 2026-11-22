@@ -5,13 +5,17 @@
 // 對應 App 的 Features/System/SystemView.swift。
 import { useState } from "react";
 import { action, useRun } from "../../api";
-import { PageHeader } from "../../components/bits";
+import { Card } from "../../components/Card";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
-import { Card, EmptyState, ErrorText, PageScroll } from "../../components/ui";
+import { PageScroll } from "../../components/Layout";
+import { PageHeader } from "../../components/PageHeader";
 import { dateTime } from "../../fmt";
 import { reloadFeatures, saveServerFeature, useFeatures, type ServerFeatureState, type ServerView } from "../../features";
 import type { SectionProps } from "../index";
 import { FeatureList, type FeatureItem } from "./FeatureList";
+import css from "./system.module.css";
 
 export default function SystemView(_: SectionProps) {
   const flags = useFeatures();
@@ -35,7 +39,7 @@ export default function SystemView(_: SectionProps) {
   }));
 
   return (
-    <div className="col" style={{ flex: 1, minHeight: 0 }}>
+    <div className={"col " + css.page}>
       <PageHeader
         title="系統"
         subtitle="選擇這台伺服器開放哪些功能(所有組織共用)。沒開放的功能各組織都看不到、也不能開;各組織要用哪些,由組織管理員在 設定 › 功能 決定。"
@@ -47,7 +51,7 @@ export default function SystemView(_: SectionProps) {
         }
       />
       <PageScroll>
-        <div className="col" style={{ gap: 16, maxWidth: 860, width: "100%", margin: "0 auto" }}>
+        <div className={"col " + css.body}>
           {!sv ? <EmptyState title="讀取中…" icon="switch.2" /> : <>
             <Status sv={sv} mode={flags.view?.mode} />
             {reloadErr && <ErrorText>重新讀取失敗:{reloadErr}</ErrorText>}
@@ -66,8 +70,8 @@ function Status({ sv, mode }: { sv: ServerView; mode?: string }) {
     const noDB = mode === "local" && /OMIXOR_DATABASE_URL|OPS_DATABASE_URL/.test(sv.error);
     return (
       <Card>
-        <div className="row gap6" style={{ color: "var(--orange)", fontWeight: 500 }}><Icon name="exclamationmark.triangle.fill" size={14} />讀不到這台伺服器開放的功能</div>
-        {sv.error && <div style={{ userSelect: "text" }}>{sv.error}</div>}
+        <div className={"row gap6 " + css.warn}><Icon name="exclamationmark.triangle.fill" size={14} />讀不到這台伺服器開放的功能</div>
+        {sv.error && <div className={css.selectable}>{sv.error}</div>}
         {noDB && <div className="caption muted">本機模式的功能開關存在本機核心的資料庫(和 Issue、事件同一個)。</div>}
         {mode === "remote" && <div className="caption muted">omixor server 可能是舊版(還沒有系統層的功能設定),請更新 server。</div>}
         <div className="caption muted">
