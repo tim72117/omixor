@@ -17,8 +17,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X omixor-core/version.Vers
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /omixor-server /omixor-server
-# 對外的形象網站(英文版):只放對外的檔案(zh.html、pricing.zh.html、og.html、README.md 不放;清單同 server/site.go 的 sitePublicFiles)
-COPY site/index.html site/pricing.html site/favicon.svg site/og.png site/robots.txt site/sitemap.xml site/llms.txt /site/
+# 對外的形象網站(英文版):只放對外的檔案(zh.html、pricing.zh.html、og.html、README.md 不放;清單同 server/site.go 的 sitePublicFiles,另加 404 頁 site404File)
+COPY site/index.html site/pricing.html site/404.html site/favicon.svg site/og.png site/robots.txt site/sitemap.xml site/llms.txt /site/
 ENV OMIXOR_SITE_DIR=/site
 ENV PORT=8080
 EXPOSE 8080

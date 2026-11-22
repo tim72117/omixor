@@ -20,7 +20,8 @@
 //
 // 路由:
 //
-//	/                              形象網站英文首頁(site/index.html;另有 /pricing、/favicon.svg、/og.png、/robots.txt、/sitemap.xml、/llms.txt)
+//	/                              形象網站英文首頁(site/index.html;另有 /pricing、/favicon.svg、/og.png、/robots.txt、/sitemap.xml、/llms.txt;
+//	                               文字檔有 gzip;其他找不到的頁面回 site/404.html)
 //	/health                        健康檢查
 //	/api/…                         核心 HTTP API(core/api)
 //	/mcp/agent                     角色端點:Authorization: Bearer <agentId>:<secret>(領取任務時發的憑證),白名單工具(含文件櫃,依角色的 docAccess)
@@ -92,7 +93,10 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 		},
 	}))
 	// 對外的形象網站(英文版;只有設了 OMIXOR_SITE_DIR 才提供,見 site.go)
-	mountSite(mux, cfg.Str(config.SiteDir))
+	// 有掛上網站時,找不到的頁面回 site/404.html(不影響 /api/、/mcp/、/health 與既有路由)
+	if dir := cfg.Str(config.SiteDir); mountSite(mux, dir) {
+		return siteNotFound(mux, dir)
+	}
 	return mux
 }
 
