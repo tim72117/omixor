@@ -162,7 +162,7 @@ function IncRow({ inc, on, onClick }: { inc: Incident; on: boolean; onClick: () 
         <span style={{ fontWeight: 500, color: color(INC_STATUS_COLOR[inc.status]) }}>{INC_STATUS_LABEL[inc.status]}</span>
         {inc.services.length > 0 && <><span className="faint">·</span><span className="muted ellipsis">{inc.services.map((id) => services.find((s) => s.id === id)?.name ?? id).join("、")}</span></>}
         <div className="grow" />
-        {act ? <ActorAvatar actor={{ kind: "person", id: inc.commander }} size={16} /> : <span className="faint" style={{ fontSize: 10.5 }}>{relative(inc.resolvedAt ?? inc.startedAt)}</span>}
+        {act ? <ActorAvatar actor={{ kind: "person", id: inc.commander }} size={16} /> : <span className="faint" style={{ fontSize: "var(--fs-xs)" }}>{relative(inc.resolvedAt ?? inc.startedAt)}</span>}
       </div>
     </div>
   );

@@ -23,7 +23,7 @@ export const sevMeaning = (s: number) =>
 export function SevBadge({ sev, large }: { sev: number; large?: boolean }) {
   return (
     <span title={sevMeaning(sev)} className="mono" style={{
-      fontSize: large ? 12 : 10, fontWeight: 700, padding: large ? "3px 8px" : "2px 5px", borderRadius: 4, flex: "none",
+      fontSize: large ? "var(--fs-sm)" : "var(--fs-xs)", fontWeight: 700, padding: large ? "3px 8px" : "2px 5px", borderRadius: "var(--r-sm)", flex: "none",
       color: sev === 3 ? "rgba(0,0,0,.75)" : "white", background: color(sevColor(sev)),
     }}>{sevLabel(sev)}</span>
   );

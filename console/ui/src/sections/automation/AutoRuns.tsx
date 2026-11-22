@@ -66,14 +66,14 @@ function RunDetail({ run, openApproval, openAutomation }: { run: AutomationRun; 
       <div className="row gap12" style={{ alignItems: "flex-start" }}>
         <IconTile icon={a?.icon ?? "sparkles"} size={40} />
         <div className="col gap4 grow">
-          <span className="row gap8"><span className="h3" style={{ fontSize: 16 }}>{a?.name ?? run.automation}</span><Pill text={RUN_LABEL[run.status]} color={RUN_COLOR[run.status]} icon={RUN_ICON[run.status]} /></span>
+          <span className="row gap8"><span className="h3" style={{ fontSize: "var(--fs-lg)" }}>{a?.name ?? run.automation}</span><Pill text={RUN_LABEL[run.status]} color={RUN_COLOR[run.status]} icon={RUN_ICON[run.status]} /></span>
           <span className="muted" style={{ userSelect: "text" }}>{run.summary}</span>
           <span className="row gap6 caption"><span className="muted">對象</span><Chip text={run.target} /><span className="faint">· 執行 {run.id}</span></span>
         </div>
         {a && <button className="btn small" onClick={() => openAutomation(run.automation)}>流程設定</button>}
       </div>
       {run.status === "waitingApproval" && (
-        <div className="row gap8" style={{ padding: 12, borderRadius: 10, background: "color-mix(in srgb, var(--purple) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 30%, transparent)" }}>
+        <div className="row gap8" style={{ padding: 12, borderRadius: "var(--r-xl)", background: "color-mix(in srgb, var(--purple) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 30%, transparent)" }}>
           <Icon name="hand.raised.fill" size={18} color="var(--purple)" />
           <div className="col grow"><span style={{ fontWeight: 600 }}>這次執行在等人核准</span><span className="caption muted">{approval?.title ?? "AI 已準備好動作,核准後才會繼續。"}</span></div>
           {approval && <button className="btn purple" onClick={() => openApproval(approval.id)}>前往核准</button>}

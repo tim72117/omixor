@@ -65,7 +65,7 @@ export function InfraMapTab({ selection, setSelection, onOpenService }: { select
   return (
     <div className="ox-page">
       <div className="row caption muted" style={{ gap: 14, padding: "8px 16px", borderBottom: "1px solid var(--line)" }}>
-        {(["healthy", "degraded", "down", "maintenance"] as HealthKey[]).map((h) => <span key={h} className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: color(HEALTH[h].color) }} />{HEALTH[h].label}</span>)}
+        {(["healthy", "degraded", "down", "maintenance"] as HealthKey[]).map((h) => <span key={h} className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: "var(--r-sm)", background: color(HEALTH[h].color) }} />{HEALTH[h].label}</span>)}
         <span className="grow" />
         <span className="row gap4"><SIcon name="arrow.down" size={11} />箭頭由呼叫方指向被依賴的服務</span>
       </div>
@@ -116,9 +116,9 @@ export function InfraMapTab({ selection, setSelection, onOpenService }: { select
                 <div className="row" style={{ gap: 5 }}>
                   <SIcon name={HEALTH[s.health].icon} color={HEALTH[s.health].color} size={12} />
                   <span className="ellipsis" style={{ fontWeight: 600 }}>{s.name}</span><span className="grow" />
-                  <span className="muted" style={{ fontSize: 10, fontWeight: 600 }}>T{s.tier}</span>
+                  <span className="muted" style={{ fontSize: "var(--fs-xs)", fontWeight: 600 }}>T{s.tier}</span>
                 </div>
-                <span className="muted num ellipsis" style={{ fontSize: 10.5 }}>p95 {Math.trunc(s.latencyP95)}ms · {pct(s.errorRate, 2)}</span>
+                <span className="muted num ellipsis" style={{ fontSize: "var(--fs-xs)" }}>p95 {Math.trunc(s.latencyP95)}ms · {pct(s.errorRate, 2)}</span>
               </div>
             );
           })}

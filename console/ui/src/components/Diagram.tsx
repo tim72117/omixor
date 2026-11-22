@@ -64,7 +64,7 @@ export function DiagramBlock({ kind, source }: { kind: DiagramKind; source: stri
     <div className={`diagram diagram-${kind} col gap8`} style={{ margin: "8px 0" }}>
       {r?.error ? <span className="caption" style={{ color: "var(--red)" }}>{name.noun}畫不出來:{r.error}</span>
         : src ? (
-          <div style={{ overflowX: zoom ? "auto" : "hidden", border: "1px solid var(--line)", borderRadius: 8, background: "#fff" }}>
+          <div style={{ overflowX: zoom ? "auto" : "hidden", border: "1px solid var(--line)", borderRadius: "var(--r-lg)", background: "#fff" }}>
             <img src={src} alt={name.noun} title={zoom ? "點一下縮成版面寬度" : "點一下看原始大小"} onClick={() => setZoom(!zoom)}
               style={{ display: "block", width: zoom ? r?.width : "100%", maxWidth: zoom ? "none" : r?.width, height: "auto", cursor: zoom ? "zoom-out" : "zoom-in" }} />
           </div>

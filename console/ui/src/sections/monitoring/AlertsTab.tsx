@@ -154,7 +154,7 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
         { label: "複製告警 ID", onClick: () => copyText(a.id) },
       ])}
       style={{
-        display: "flex", background: "var(--bg2)", borderRadius: 10, overflow: "hidden",
+        display: "flex", background: "var(--bg2)", borderRadius: "var(--r-xl)", overflow: "hidden",
         border: selected ? "2px solid var(--accent)" : `1px solid color-mix(in srgb, var(--fg) ${hover ? 15 : 7}%, transparent)`,
       }}
     >
@@ -162,11 +162,11 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
       <div className="col gap8 grow" style={{ padding: 12, gap: 10 }}>
         <div className="row gap8">
           <Icon name={SEV_ICON[a.severity]} size={14} color={sevCol} />
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>{a.title}</span>
+          <span style={{ fontWeight: 600, fontSize: "var(--fs-md)" }}>{a.title}</span>
           <Pill text={SEV_LABEL[a.severity]} color={SEV_COLOR[a.severity]} />
           {a.state !== "firing" && <Pill text={ALERT_STATE_LABEL[a.state]} color={ALERT_STATE_COLOR[a.state]} icon={ALERT_STATE_ICON[a.state]} />}
           <div className="grow" />
-          <span className="mono" style={{ fontWeight: 600, fontSize: 13, color: active ? sevCol : "var(--fg2)" }}>{a.value}</span>
+          <span className="mono" style={{ fontWeight: 600, fontSize: "var(--fs-base)", color: active ? sevCol : "var(--fg2)" }}>{a.value}</span>
           {!selected && (
             <span className="row" style={{ opacity: hover ? 1 : 0.55 }}>
               {a.state === "firing" && <IconButton icon="eye" title="確認" onClick={() => onUpdate("acknowledge")} />}
@@ -177,7 +177,7 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
         </div>
         <div className="row caption muted" style={{ gap: 14 }}>
           <span className="row gap4 ellipsis"><Icon name="shippingbox" size={12} />{serviceName}</span>
-          <span className="row gap4 ellipsis" style={{ minWidth: 0 }}><Icon name="function" size={12} /><span className="mono ellipsis" style={{ fontSize: 11 }}>{a.rule}</span></span>
+          <span className="row gap4 ellipsis" style={{ minWidth: 0 }}><Icon name="function" size={12} /><span className="mono ellipsis" style={{ fontSize: "var(--fs-xs)" }}>{a.rule}</span></span>
           <span className="row gap4" style={{ flex: "none" }}><Icon name="clock" size={12} />
             {active ? `持續 ${shortDuration((now - new Date(a.startedAt).getTime()) / 1000)}` : `開始於 ${relative(a.startedAt)}`}
           </span>
@@ -191,7 +191,7 @@ function AlertRow({ alert: a, serviceName, selected, analysis, analyzing, onSele
         </div>
         {a.aiNote && <AICallout title="AI 初步判讀">{a.aiNote}</AICallout>}
         {analyzing ? (
-          <div className="row gap8" style={{ padding: 10, borderRadius: 8, background: "color-mix(in srgb, var(--purple) 6%, transparent)", color: "var(--purple)" }}>
+          <div className="row gap8" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--purple) 6%, transparent)", color: "var(--purple)" }}>
             <Spinner size={12} /> AI 正在比對指標、日誌與最近部署…
           </div>
         ) : analysis ? <AICallout title="AI 分析結果">{analysis}</AICallout> : null}

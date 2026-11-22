@@ -180,7 +180,7 @@ export function LogsTab() {
         {expanded.size > 0 && <button className="btn link caption" onClick={() => setExpanded(new Set())}>全部收合</button>}
         {live && <span style={{ color: "var(--green)" }}>已接收 {tailed.length} 筆新日誌</span>}
       </div>
-      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", background: "var(--bg2)", borderRadius: 10, border: "1px solid var(--line)" }}>
+      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", background: "var(--bg2)", borderRadius: "var(--r-xl)", border: "1px solid var(--line)" }}>
         {logsRaw === undefined ? <div className="muted" style={{ padding: 20 }}>載入中…</div>
           : rows.length === 0 ? (
             <EmptyState title={all.length === 0 ? "沒有日誌" : "沒有符合條件的日誌"} icon="text.magnifyingglass"
@@ -195,7 +195,7 @@ export function LogsTab() {
 
 function Histogram({ entries, selection, onSelect }: { entries: LogEntry[]; selection?: [number, number]; onSelect: (r?: [number, number]) => void }) {
   if (!entries.length) {
-    return <div className="row caption muted" style={{ height: "100%", justifyContent: "center", borderRadius: 10, background: "color-mix(in srgb, var(--fg) 3%, transparent)" }}>這段時間沒有日誌</div>;
+    return <div className="row caption muted" style={{ height: "100%", justifyContent: "center", borderRadius: "var(--r-xl)", background: "color-mix(in srgb, var(--fg) 3%, transparent)" }}>這段時間沒有日誌</div>;
   }
   const ts = entries.map((e) => new Date(e.date).getTime());
   const lo = Math.min(...ts), hi = Math.max(...ts);
@@ -219,10 +219,10 @@ function Histogram({ entries, selection, onSelect }: { entries: LogEntry[]; sele
         <BarChart data={bins} onClick={click} barCategoryGap={1} margin={{ top: 0, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="var(--line)" strokeOpacity={0.5} vertical={false} />
           <XAxis dataKey="start" tickFormatter={(v) => new Date(v).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false })}
-            tick={{ fontSize: 10, fill: "var(--fg2)" }} interval={7} stroke="var(--line)" />
-          <YAxis tick={{ fontSize: 10, fill: "var(--fg2)" }} width={30} tickCount={3} allowDecimals={false} stroke="var(--line)" />
+            tick={{ fontSize: 11, fill: "var(--fg2)" }} interval={7} stroke="var(--line)" />
+          <YAxis tick={{ fontSize: 11, fill: "var(--fg2)" }} width={30} tickCount={3} allowDecimals={false} stroke="var(--line)" />
           <Tooltip cursor={{ fill: "color-mix(in srgb, var(--fg) 6%, transparent)" }} content={() => null} />
-          <Legend verticalAlign="top" align="right" height={18} iconSize={8} wrapperStyle={{ fontSize: 10 }} />
+          <Legend verticalAlign="top" align="right" height={18} iconSize={8} wrapperStyle={{ fontSize: "var(--fs-xs)" }} />
           {(["error", "warn", "info", "debug"] as LogLevel[]).map((l) => (
             <Bar key={l} dataKey={label(l)} stackId="a" fill={color(LOG_COLOR[l])} isAnimationActive={false}>
               {bins.map((b) => <Cell key={b.i} fillOpacity={sel(b) ? 1 : 0.3} />)}
@@ -245,7 +245,7 @@ function LogRow({ e, expanded, serviceName, onToggle, onFilter }: { e: LogEntry;
       <div className="row" style={{ gap: 10, alignItems: "baseline" }}>
         <span style={{ transform: expanded ? "rotate(90deg)" : undefined, display: "inline-flex", width: 10 }}><Icon name="chevron.right" size={9} className="faint" /></span>
         <span className="muted" style={{ flex: "none" }}>{timeMs(e.date)}</span>
-        <span style={{ width: 44, flex: "none", textAlign: "center", fontSize: 10, fontWeight: 700, color: lc, background: `color-mix(in srgb, ${lc} 12%, transparent)`, borderRadius: 3, padding: "1px 0" }}>{label(e.level)}</span>
+        <span style={{ width: 44, flex: "none", textAlign: "center", fontSize: "var(--fs-xs)", fontWeight: 700, color: lc, background: `color-mix(in srgb, ${lc} 12%, transparent)`, borderRadius: "var(--r-sm)", padding: "1px 0" }}>{label(e.level)}</span>
         <span className="ellipsis" style={{ width: 110, flex: "none", color: "var(--teal)" }}>{e.service}</span>
         <span className={expanded ? "grow" : "grow ellipsis"} style={{ color: e.level === "error" ? "var(--red)" : e.level === "debug" ? "var(--fg2)" : undefined, whiteSpace: expanded ? "pre-wrap" : undefined }}>{e.message}</span>
       </div>
@@ -253,7 +253,7 @@ function LogRow({ e, expanded, serviceName, onToggle, onFilter }: { e: LogEntry;
         <div className="col gap6" style={{ padding: "6px 0 4px 20px" }} onClick={(ev) => ev.stopPropagation()}>
           <div className="bx-grid-table" style={{ gridTemplateColumns: "auto 1fr", rowGap: 4 }}>
             {([["時間", e.date], ["服務", `${e.service}(${serviceName})`], ["主機", e.host], ["Trace ID", e.traceId ?? "—"]] as const).map(([k, v]) => (
-              <Fragment key={k}><span className="muted" style={{ fontSize: 11 }}>{k}</span><span style={{ userSelect: "text" }}>{v}</span></Fragment>
+              <Fragment key={k}><span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{k}</span><span style={{ userSelect: "text" }}>{v}</span></Fragment>
             ))}
           </div>
           <div className="row gap8 caption" style={{ fontFamily: "inherit" }}>

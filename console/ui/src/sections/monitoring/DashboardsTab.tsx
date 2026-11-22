@@ -104,21 +104,21 @@ function PanelCard({ panel, height, prominent }: { panel: Panel; height: number;
   const includeZero = panel.series.unit === "%" || (st.min ?? 0) < (st.max ?? 0) * 0.3;
   const gid = "g-" + panel.series.id.replace(/[^a-zA-Z0-9]/g, "");
   return (
-    <div className="card" style={{ borderRadius: 12 }}>
+    <div className="card" style={{ borderRadius: "var(--r-xl)" }}>
       <div className="row" style={{ alignItems: "flex-start" }}>
         <div className="col gap4 grow">
-          <div style={{ fontWeight: 600, fontSize: prominent ? 14 : 13 }}>{panel.series.name}</div>
-          {panel.usedFallback && <div className="caption" style={{ color: "var(--orange)", fontSize: 10.5 }}>選取的時間範圍內沒有資料,顯示全部</div>}
+          <div style={{ fontWeight: 600, fontSize: prominent ? "var(--fs-md)" : "var(--fs-base)" }}>{panel.series.name}</div>
+          {panel.usedFallback && <div className="caption" style={{ color: "var(--orange)", fontSize: "var(--fs-xs)" }}>選取的時間範圍內沒有資料,顯示全部</div>}
         </div>
         {hover ? (
           <div className="col" style={{ alignItems: "flex-end" }}>
-            <span className="num" style={{ fontWeight: 600, fontSize: prominent ? 17 : 13.5 }}>{fmtValue(panel.series.unit, hover.value)}</span>
-            <span className="caption muted" style={{ fontSize: 10.5 }}>{new Date(hover.t).toLocaleString("zh-TW", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+            <span className="num" style={{ fontWeight: 600, fontSize: prominent ? "var(--fs-xl)" : "var(--fs-md)" }}>{fmtValue(panel.series.unit, hover.value)}</span>
+            <span className="caption muted" style={{ fontSize: "var(--fs-xs)" }}>{new Date(hover.t).toLocaleString("zh-TW", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
           </div>
         ) : st.latest != null ? (
           <div className="col" style={{ alignItems: "flex-end" }}>
-            <span className="num" style={{ fontWeight: 600, fontSize: prominent ? 17 : 13.5, color: over ? "var(--red)" : undefined }}>{fmtValue(panel.series.unit, st.latest)}</span>
-            <span className="caption muted" style={{ fontSize: 10.5 }}>目前</span>
+            <span className="num" style={{ fontWeight: 600, fontSize: prominent ? "var(--fs-xl)" : "var(--fs-md)", color: over ? "var(--red)" : undefined }}>{fmtValue(panel.series.unit, st.latest)}</span>
+            <span className="caption muted" style={{ fontSize: "var(--fs-xs)" }}>目前</span>
           </div>
         ) : null}
       </div>
@@ -137,9 +137,9 @@ function PanelCard({ panel, height, prominent }: { panel: Panel; height: number;
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="var(--line)" strokeOpacity={0.6} vertical={false} />
-              <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={xFmt} tick={{ fontSize: 10, fill: "var(--fg2)" }}
+              <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={xFmt} tick={{ fontSize: 11, fill: "var(--fg2)" }}
                 tickCount={prominent ? 8 : 4} stroke="var(--line)" />
-              <YAxis tickFormatter={axisLabel} tick={{ fontSize: 10, fill: "var(--fg2)" }} width={44} tickCount={prominent ? 5 : 3}
+              <YAxis tickFormatter={axisLabel} tick={{ fontSize: 11, fill: "var(--fg2)" }} width={44} tickCount={prominent ? 5 : 3}
                 domain={includeZero ? [0, "auto"] : ["auto", "auto"]} stroke="var(--line)" />
               <Tooltip content={() => null} cursor={{ stroke: "var(--fg3)", strokeWidth: 1 }} />
               <Area type="monotone" dataKey="value" stroke="none" fill={`url(#${gid})`} isAnimationActive={false} />
@@ -147,7 +147,7 @@ function PanelCard({ panel, height, prominent }: { panel: Panel; height: number;
                 activeDot={{ r: prominent ? 4 : 3, fill: col }} isAnimationActive={false} />
               {t != null && (
                 <ReferenceLine y={t} stroke="var(--red)" strokeOpacity={0.7} strokeDasharray="4 3"
-                  label={{ value: `門檻 ${fmtValue(panel.series.unit, t)}`, position: "insideTopLeft", fill: "var(--red)", fontSize: 10 }} />
+                  label={{ value: `門檻 ${fmtValue(panel.series.unit, t)}`, position: "insideTopLeft", fill: "var(--red)", fontSize: 11 }} />
               )}
             </ComposedChart>
           </ResponsiveContainer>
@@ -157,7 +157,7 @@ function PanelCard({ panel, height, prominent }: { panel: Panel; height: number;
         <div className="row" style={{ gap: 18 }}>
           {([["平均", st.avg], ["最低", st.min], ["最高", st.max]] as const).map(([k, v]) => (
             <div key={k} className="col">
-              <span className="muted" style={{ fontSize: 10.5 }}>{k}</span>
+              <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{k}</span>
               <span className="caption num" style={{ fontWeight: 500 }}>{v == null ? "—" : fmtValue(panel.series.unit, v)}</span>
             </div>
           ))}
@@ -165,7 +165,7 @@ function PanelCard({ panel, height, prominent }: { panel: Panel; height: number;
             const n = panel.points.filter((p) => p.value >= t).length;
             return (
               <div className="col">
-                <span className="muted" style={{ fontSize: 10.5 }}>超過門檻</span>
+                <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>超過門檻</span>
                 <span className="caption num" style={{ fontWeight: 500, color: n > 0 ? "var(--red)" : undefined }}>
                   {panel.points.length ? `${((n / panel.points.length) * 100).toFixed(0)}%` : "—"}
                 </span>

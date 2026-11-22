@@ -25,14 +25,14 @@ export function DevOverviewTab() {
     <div className="page-scroll">
       <div className="page-inner">
         <SprintBanner sprint={sprint} work={work} />
-        <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
+        <div className="ox-kpi-wrap"><div className="ox-kpi" data-n={6}>
           <Metric title="Sprint 完成度" value={pts.total > 0 ? pct(completion, 0) : "—"} delta={pts.total > 0 ? `${pts.done}/${pts.total} 點` : null} icon="flag.checkered" tint="green" />
           <Metric title="PR 週期時間" value={hours(cycleTimeHours(prs))} delta="開啟 → 合併" icon="timer" tint="blue" />
           <Metric title="進行中 PR" value={String(openPRs.length)} delta={openPRs.length ? `${openPRs.filter((p) => p.status === "open").length} 個待審` : null} icon="arrow.triangle.pull" tint="indigo" />
           <Metric title="平均等待審查" value={hours(wait)} delta={(wait ?? 0) > 24 ? "超過 1 天" : null} deltaGood={false} icon="hourglass" tint="orange" />
           <Metric title="AI 撰寫的 PR" value={share != null ? pct(share * 100, 0) : "—"} delta={prs.length ? `${prs.filter((p) => p.author.kind === "ai").length} 個` : null} icon="sparkles" tint="purple" />
           <Metric title="平均測試覆蓋率" value={coverage != null ? pct(coverage, 0) : "—"} delta={low > 0 ? `${low} 個低於 60%` : null} deltaGood={false} icon="checkmark.shield" tint="teal" />
-        </div>
+        </div></div>
         <div className="row" style={{ gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 420px", minWidth: 0 }}><BurndownCard sprint={sprint} /></div>
           <div style={{ flex: "0 1 340px", minWidth: 300 }}><MyReviewsCard prs={prs} /></div>
@@ -102,12 +102,12 @@ function BurndownCard({ sprint: s }: { sprint?: Sprint }) {
                 <CartesianGrid stroke="var(--line)" vertical={false} />
                 <XAxis dataKey="x" type="number" scale="time" domain={["dataMin", "dataMax"]} tick={axisStyle} stroke="var(--line)" tickFormatter={(v) => `${new Date(v).getMonth() + 1}/${new Date(v).getDate()}`} minTickGap={24} />
                 <YAxis tick={axisStyle} stroke="var(--line)" />
-                <Tooltip labelFormatter={(v) => monthDay(Number(v))} contentStyle={{ fontSize: 12, background: "var(--bg2)", border: "1px solid var(--line)" }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
+                <Tooltip labelFormatter={(v) => monthDay(Number(v))} contentStyle={{ fontSize: "var(--fs-sm)", background: "var(--bg2)", border: "1px solid var(--line)" }} />
+                <Legend wrapperStyle={{ fontSize: "var(--fs-xs)" }} iconSize={8} />
                 <Area dataKey="actual" name="實際" tooltipType="none" stroke="none" fill="var(--blue)" fillOpacity={0.1} legendType="none" connectNulls isAnimationActive={false} />
                 <Line dataKey="ideal" name="理想" stroke="var(--gray)" strokeDasharray="5 4" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
                 <Line dataKey="actual" name="實際" stroke="var(--blue)" strokeWidth={2.5} dot={{ r: 2.5, fill: "var(--blue)" }} connectNulls isAnimationActive={false} />
-                {s && t(s.start) <= now() && t(s.end) >= now() && <ReferenceLine x={today} stroke="var(--fg2)" strokeOpacity={0.5} strokeDasharray="2 3" label={{ value: "今天", position: "insideTopLeft", fontSize: 10, fill: "var(--fg2)" }} />}
+                {s && t(s.start) <= now() && t(s.end) >= now() && <ReferenceLine x={today} stroke="var(--fg2)" strokeOpacity={0.5} strokeDasharray="2 3" label={{ value: "今天", position: "insideTopLeft", fontSize: 11, fill: "var(--fg2)" }} />}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -179,8 +179,8 @@ function CommitActivityCard({ repos }: { repos: Repository[] }) {
               <CartesianGrid stroke="var(--line)" vertical={false} />
               <XAxis dataKey="x" tick={axisStyle} stroke="var(--line)" tickFormatter={(v) => `${new Date(v).getMonth() + 1}/${new Date(v).getDate()}`} interval={1} />
               <YAxis tick={axisStyle} stroke="var(--line)" />
-              <Tooltip labelFormatter={(v) => `${monthDay(Number(v))} 那週`} contentStyle={{ fontSize: 12, background: "var(--bg2)", border: "1px solid var(--line)" }} cursor={{ fill: "color-mix(in srgb, var(--fg) 5%, transparent)" }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} align="left" />
+              <Tooltip labelFormatter={(v) => `${monthDay(Number(v))} 那週`} contentStyle={{ fontSize: "var(--fs-sm)", background: "var(--bg2)", border: "1px solid var(--line)" }} cursor={{ fill: "color-mix(in srgb, var(--fg) 5%, transparent)" }} />
+              <Legend wrapperStyle={{ fontSize: "var(--fs-xs)" }} iconSize={8} align="left" />
               {repos.map((r, i) => <RBar key={r.id} dataKey={r.name} stackId="a" fill={SERIES_COLORS[i % SERIES_COLORS.length]} isAnimationActive={false} />)}
             </BarChart>
           </ResponsiveContainer>

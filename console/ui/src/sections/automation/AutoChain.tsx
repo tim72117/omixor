@@ -220,7 +220,7 @@ function ChainGraph({ edges, name, agentById }: { edges: ChainEdge[]; name: (n: 
                 <path d={report} fill="none" stroke={REPORT} strokeWidth={1.4} strokeDasharray="5 4" markerEnd="url(#chain-report)" opacity={0.85} />
                 <path d={dispatch} fill="none" stroke={DISPATCH} strokeWidth={2} markerEnd="url(#chain-arrow)" />
                 <rect x={lx - tw / 2} y={ly - 10} width={tw} height={20} rx={10} fill="var(--bg2)" stroke={DISPATCH} strokeWidth={1} />
-                <text x={lx} y={ly + 4} textAnchor="middle" fontSize={11.5} fill="var(--fg)">{text}</text>
+                <text x={lx} y={ly + 4} textAnchor="middle" fontSize={12} fill="var(--fg)">{text}</text>
               </g>
             );
           })}
@@ -233,7 +233,7 @@ function ChainGraph({ edges, name, agentById }: { edges: ChainEdge[]; name: (n: 
             <div key={n} title={n} className="row gap6"
               style={{
                 position: "absolute", left: p.x, top: p.y, width: NODE_W, height: NODE_H, boxSizing: "border-box", padding: "0 10px",
-                alignItems: "center", background: "var(--bg2)", border: `1px solid ${a || isUser ? "var(--line)" : "var(--orange)"}`, borderRadius: 10,
+                alignItems: "center", background: "var(--bg2)", border: `1px solid ${a || isUser ? "var(--line)" : "var(--orange)"}`, borderRadius: "var(--r-xl)",
                 boxShadow: "0 1px 2px rgba(0,0,0,.06)",
               }}>
               {a ? <AgentAvatar agent={a} size={26} />

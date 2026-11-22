@@ -146,11 +146,11 @@ export function AssistantPanel() {
       <div className="col gap8" style={{ padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
         <div className="row gap8">
           <span className="bx-avatar bx-ai" style={{ width: 24, height: 24 }}><Icon name="sparkles" size={12} color="white" /></span>
-          <span className="h3 grow" style={{ fontSize: 14 }}>AI 助理</span>
+          <span className="h3 grow" style={{ fontSize: "var(--fs-md)" }}>AI 助理</span>
           <button className="bx-icon-btn" title="清除對話" disabled={!msgs.length} onClick={clear}><Icon name="trash" size={13} /></button>
           <button className="bx-icon-btn" title="隱藏 AI 助理(⌘J)" onClick={() => setVisible(false)}><Icon name="sidebar.trailing" size={14} /></button>
         </div>
-        <span className="row gap4" title="助理會依照目前的頁面回答" style={{ alignSelf: "flex-start", maxWidth: "100%", color: "var(--indigo)", padding: "4px 8px", borderRadius: 99, background: "color-mix(in srgb, var(--indigo) 10%, transparent)" }}>
+        <span className="row gap4" title="助理會依照目前的頁面回答" style={{ alignSelf: "flex-start", maxWidth: "100%", color: "var(--indigo)", padding: "4px 8px", borderRadius: "var(--r-pill)", background: "color-mix(in srgb, var(--indigo) 10%, transparent)" }}>
           <Icon name={sec?.icon} size={12} />
           <span style={{ fontWeight: 500, whiteSpace: "nowrap" }}>正在看:{brief?.sectionTitle ?? sec?.title}</span>
           {focusLabel && <><span className="muted">·</span><span className="ellipsis">{focusLabel}</span></>}
@@ -162,7 +162,7 @@ export function AssistantPanel() {
             <button className="btn link" style={{ color: "var(--indigo)" }} onClick={() => ask("總結目前狀況")}>詳細說明</button></div>
           {brief ? (
             <>
-              <span className="row gap6"><span className="dot" style={{ width: 8, height: 8, background: color(brief.tone) }} /><span style={{ fontWeight: 600, fontSize: 13.5 }}>{brief.headline}</span></span>
+              <span className="row gap6"><span className="dot" style={{ width: 8, height: 8, background: color(brief.tone) }} /><span style={{ fontWeight: 600, fontSize: "var(--fs-md)" }}>{brief.headline}</span></span>
               <div className="col" style={{ gap: 5 }}>
                 {arr<Line>(brief.lines).map((l, i) => (
                   <span key={i} className="row gap6" style={{ alignItems: "baseline" }}><span style={{ width: 14, flex: "none" }}><Icon name={l.icon} size={12} color={color(l.color)} /></span><span>{l.text}</span></span>
@@ -174,7 +174,7 @@ export function AssistantPanel() {
         <div className="card" style={{ padding: 11, gap: 6 }}>
           <div className="row gap6">
             <span className="row gap4" style={{ fontWeight: 600, color: pending.length ? "var(--purple)" : "var(--fg2)" }}><Icon name="hand.raised.fill" size={12} />待你決定</span>
-            {pending.length > 0 && <span className="num" style={{ fontSize: 11, fontWeight: 700, color: "white", background: "var(--purple)", borderRadius: 99, padding: "1px 6px" }}>{pending.length}</span>}
+            {pending.length > 0 && <span className="num" style={{ fontSize: "var(--fs-xs)", fontWeight: 700, color: "white", background: "var(--purple)", borderRadius: "var(--r-pill)", padding: "1px 6px" }}>{pending.length}</span>}
             <div className="grow" />
             {canGo("automation") && <button className="btn link" style={{ color: "var(--indigo)" }} onClick={() => go("automation")}>全部查看</button>}
           </div>
@@ -186,7 +186,7 @@ export function AssistantPanel() {
               <Icon name="chevron.right" size={10} className="faint" />
             </button>
           ))}
-          {pending.length > 3 && <span className="muted" style={{ fontSize: 11 }}>還有 {pending.length - 3} 個</span>}
+          {pending.length > 3 && <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>還有 {pending.length - 3} 個</span>}
         </div>
         {brief && arr<string>(brief.suggestions).length > 0 && (
           <div className="col gap6">
@@ -195,7 +195,7 @@ export function AssistantPanel() {
           </div>
         )}
         {msgs.length > 0 && (
-          <div className="row gap8"><div className="divider grow" /><span className="faint" style={{ fontSize: 11 }}>對話</span><div className="divider grow" /></div>
+          <div className="row gap8"><div className="divider grow" /><span className="faint" style={{ fontSize: "var(--fs-xs)" }}>對話</span><div className="divider grow" /></div>
         )}
         {msgs.map((m) => m.role === "user" ? <div key={m.id} className="assist-user">{m.text}</div> : (
           <div key={m.id} className="assist-bot">
@@ -230,7 +230,7 @@ export function AssistantPanel() {
             <Icon name="arrow.up.circle.fill" size={20} color={!draft.trim() || busy ? "var(--fg3)" : "var(--indigo)"} />
           </button>
         </div>
-        <span className="row gap4 faint" style={{ fontSize: 11 }}><Icon name="info.circle" size={11} />目前為模擬回應,尚未連接模型</span>
+        <span className="row gap4 faint" style={{ fontSize: "var(--fs-xs)" }}><Icon name="info.circle" size={11} />目前為模擬回應,尚未連接模型</span>
       </div>
     </aside>
   );

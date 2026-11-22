@@ -120,14 +120,14 @@ export function ChecksIcon({ s, showLabel }: { s: CheckKey; showLabel?: boolean 
 }
 
 export function DiffStat({ a, d }: { a: number; d: number }) {
-  return <span className="row gap6 num" style={{ fontSize: 12.5 }}><span style={{ color: "var(--green)" }}>+{a}</span><span style={{ color: "var(--red)" }}>−{d}</span></span>;
+  return <span className="row gap6 num" style={{ fontSize: "var(--fs-base)" }}><span style={{ color: "var(--green)" }}>+{a}</span><span style={{ color: "var(--red)" }}>−{d}</span></span>;
 }
 
 export function AvatarStack({ ids, size = 20 }: { ids: string[]; size?: number }) {
   return (
     <span className="row">
       <span className="ox-avatar-stack">{ids.slice(0, 4).map((id) => <ActorAvatar key={id} actor={{ kind: "person", id }} size={size} />)}</span>
-      {ids.length > 4 && <span className="muted" style={{ fontSize: 10.5, paddingLeft: 8 }}>+{ids.length - 4}</span>}
+      {ids.length > 4 && <span className="muted" style={{ fontSize: "var(--fs-xs)", paddingLeft: 8 }}>+{ids.length - 4}</span>}
     </span>
   );
 }
@@ -149,7 +149,7 @@ export function TypeTag({ type }: { type: WorkTypeKey }) {
 }
 
 export function VulnLabel({ count, big }: { count: number; big?: boolean }) {
-  const st = big ? { fontSize: 15, fontWeight: 600 } : undefined;
+  const st = big ? { fontSize: 16, fontWeight: 600 } : undefined;
   if (count === 0) return <span className="row gap4 num" style={{ color: "var(--green)", ...st }}><SIcon name="checkmark.shield" color="green" />0</span>;
   const c = count >= 3 ? "red" : "orange";
   return <span className="row gap4 num" style={{ color: color(c), ...st }}><SIcon name="exclamationmark.shield.fill" color={c} />{count}</span>;
@@ -157,7 +157,7 @@ export function VulnLabel({ count, big }: { count: number; big?: boolean }) {
 
 export function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="card" style={{ padding: 12, gap: 8, borderRadius: 10 }}>
+    <div className="card" style={{ padding: 12, gap: 8, borderRadius: "var(--r-xl)" }}>
       <div className="muted" style={{ fontWeight: 600 }}>{title}</div>
       {children}
     </div>

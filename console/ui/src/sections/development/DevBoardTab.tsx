@@ -153,7 +153,7 @@ export function DevBoardTab() {
 }
 
 const tagStyle: React.CSSProperties = {
-  fontSize: 10.5, padding: "1px 5px", borderRadius: 4, maxWidth: "100%",
+  fontSize: 11, padding: "1px 5px", borderRadius: "var(--r-sm)", maxWidth: "100%",
   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
 };
 

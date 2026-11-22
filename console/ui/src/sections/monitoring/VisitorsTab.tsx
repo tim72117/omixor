@@ -110,7 +110,7 @@ export function VisitorsTab() {
   return (
     <div className="page-scroll">
       <div className="page-inner">
-        <div className="row gap12">
+        <div className="row gap12 wrap">
           <select className="select" value={connId} onChange={(e) => { setConnId(e.target.value); setData(undefined); }}>
             {!conn && <option value={connId}>{connId}</option>}
             {conns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -121,7 +121,7 @@ export function VisitorsTab() {
           <div className="grow" />
           <Segmented value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r.id, label: r.label }))} />
           <button className="btn" title="重新整理" disabled={loading || !loggedIn} onClick={load}>{loading ? <Spinner size={12} /> : <Icon name="arrow.clockwise" size={13} />}</button>
-          {updatedAt && <span className="caption muted">{hm(updatedAt)}</span>}
+          {updatedAt && <span className="caption muted" style={{ whiteSpace: "nowrap" }}>{hm(updatedAt)}</span>}
         </div>
         {(cvErr || loginErr) && <Card><span className="row gap6" style={{ color: "var(--orange)" }}><Icon name="exclamationmark.triangle.fill" size={13} />{loginErr ?? `讀不到連線:${cvErr}`}</span></Card>}
         {error && <Card><span className="row gap6" style={{ color: "var(--orange)", userSelect: "text" }}><Icon name="exclamationmark.triangle.fill" size={13} />{error}</span></Card>}
@@ -146,7 +146,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
 
   return (
     <>
-      <div className="grid" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
         <Kpi title={range === "all" ? "會員" : "新會員"} value={d.users} sub={`有進度 ${d.activeUsers}`} />
         <Kpi title="訪客" value={d.guests} sub="不同的訪客代號" />
         <Kpi title="課程頁打開" value={f.tracked} sub={`真人;爬蟲另有 ${f.bots}`} />
@@ -161,7 +161,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
               <YAxis type="category" dataKey="name" width={64} tick={{ fontSize: 11, fill: "var(--fg2)" }} axisLine={false} tickLine={false} />
               <Bar dataKey="v" isAnimationActive={false} barSize={18}>
                 {steps.map((x) => <Cell key={x.name} fill={x.c} />)}
-                <LabelList dataKey="label" position="right" style={{ fontSize: 11, fill: "var(--fg2)" }} />
+                <LabelList dataKey="label" position="right" style={{ fontSize: "var(--fs-xs)", fill: "var(--fg2)" }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -169,7 +169,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
       </Card>
       <Card title="各課概況" subtitle="訪客的漏斗與會員的進度;只列有紀錄的課">
         {rows.length === 0 ? <span className="muted">這段時間沒有紀錄</span> : (
-          <div className="bx-grid-table num" style={{ gridTemplateColumns: "minmax(120px, 2fr) repeat(10, auto)", justifyItems: "end" }}>
+          <div className="hscroll"><div className="bx-grid-table num" style={{ gridTemplateColumns: "minmax(120px, 2fr) repeat(10, auto)", justifyItems: "end" }}>
             {["課", "訪客", "打開", "載入", "播放", "失敗", "平均載入", "訪客播放", "會員", "看完", "平均進度"].map((h, i) => (
               <span key={h} className="h" style={i === 0 ? { justifySelf: "start" } : undefined}>{h}</span>
             ))}
@@ -189,10 +189,10 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
                 <span>{l.learners > 0 ? `${l.avgPercent.toFixed(0)}%` : "—"}</span>
               </Fragment>
             ))}
-          </div>
+          </div></div>
         )}
       </Card>
-      <div className="grid" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))", alignItems: "start" }}>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", alignItems: "start" }}>
         <CountCard title="裝置" subtitle="每種裝置打開幾次(含爬蟲)" items={g.devices} />
         <CountCard title="進站來源" subtitle="真人從哪裡進來" items={g.sources} />
         <CountCard title="沒播放的停留" subtitle="打開後沒播放,頁面在前景多久" items={g.idleVisible} />
@@ -215,7 +215,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
       <Card title="首頁停留" subtitle="每個真人訪客在首頁停留多久(頁面在前景的時間),最近來過的在前">
         {g.homeStays.length === 0 ? <span className="caption muted">沒有資料</span> : (
           <>
-            <div className="bx-grid-table num" style={{ gridTemplateColumns: "repeat(4, auto) repeat(4, auto)", justifyContent: "start" }}>
+            <div className="hscroll"><div className="bx-grid-table num" style={{ gridTemplateColumns: "repeat(4, auto) repeat(4, auto)", justifyContent: "start" }}>
               {["最後造訪", "訪客", "裝置", "來源", "次數", "合計", "最長", "捲動"].map((h) => <span key={h} className="h">{h}</span>)}
               <span className="sep" />
               {g.homeStays.slice(0, 20).map((h, i) => (
@@ -230,7 +230,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
                   <span style={{ justifySelf: "end" }}>{h.maxScroll}%</span>
                 </Fragment>
               ))}
-            </div>
+            </div></div>
             {g.homeStays.length > 20 && <span className="caption muted">還有 {g.homeStays.length - 20} 人</span>}
           </>
         )}
@@ -248,7 +248,7 @@ function Body({ d, range }: { d: Overview; range: RangeId }) {
           <div className="col gap4">
             {g.idleVisits.map((v, i) => (
               <details key={i} className="bx-disclosure">
-                <summary>
+                <summary style={{ flexWrap: "wrap" }}>
                   <span className="caption muted" style={{ width: 70 }}>{v.openedAt ? relative(v.openedAt) : "—"}</span>
                   <span className="mono">{v.lesson}</span>
                   <span className="caption muted">{v.device} · {v.source || "直接"}</span>
@@ -276,7 +276,7 @@ function Kpi({ title, value, sub }: { title: string; value: ReactNode; sub: stri
   return (
     <div className="card" style={{ gap: 4 }}>
       <span className="caption muted">{title}</span>
-      <span className="num" style={{ fontSize: 22, fontWeight: 600 }}>{value}</span>
+      <span className="num ellipsis" style={{ fontSize: "var(--fs-2xl)", fontWeight: 600 }}>{value}</span>
       <span className="caption muted ellipsis">{sub}</span>
     </div>
   );

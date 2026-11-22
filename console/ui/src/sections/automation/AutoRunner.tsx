@@ -120,7 +120,7 @@ export function AgentRunnerCard({ openTask }: { openTask?: (taskId: string) => v
       <span className="caption muted">{on.length ? `開啟的角色:${on.map((a) => a.name).join("、")}` : "還沒有角色開啟自動執行(在「虛擬角色」的角色頁設定)"}</span>
       {v.lastError && <span className="caption" style={{ color: "var(--orange)", userSelect: "text" }}>{v.lastError}</span>}
       {cur ? (
-        <div className="col gap6" style={{ padding: 10, borderRadius: 8, background: "color-mix(in srgb, var(--blue) 8%, transparent)" }}>
+        <div className="col gap6" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--blue) 8%, transparent)" }}>
           <div className="row gap8" style={{ alignItems: "center" }}>
             <Icon name="arrow.triangle.2.circlepath" size={13} color="var(--blue)" />
             <button className="btn link mono" onClick={() => openTask?.(cur.taskId)}>{cur.taskId}</button>

@@ -33,14 +33,14 @@ function PersonCard({ title, shift, tint, now, upcoming }: { title: string; shif
   const dir = useDirectory();
   const p = dir.person(shift?.person);
   return (
-    <div className="card" style={{ borderRadius: 12, position: "relative", overflow: "hidden" }}>
+    <div className="card" style={{ borderRadius: "var(--r-xl)", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: color(tint) }} />
       <span className="row gap6 muted">{!upcoming && shift && <StatusDot c="green" pulsing />}{title}</span>
       {shift ? (
         <>
           <div className="row gap8">
             <ActorAvatar actor={{ kind: "person", id: shift.person }} size={36} />
-            <div className="col"><span style={{ fontSize: 16, fontWeight: 600 }}>{p?.name ?? shift.person}</span><span className="caption muted">{p?.role ?? ""}</span></div>
+            <div className="col"><span style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{p?.name ?? shift.person}</span><span className="caption muted">{p?.role ?? ""}</span></div>
           </div>
           <span className="caption muted">
             {upcoming ? `${fmtDateTime(shift.start)} 開始(${fmtDuration((t(shift.start) - now) / 1000)} 後)` : `到 ${fmtDateTime(shift.end)},還有 ${fmtDuration((t(shift.end) - now) / 1000)}`}
@@ -48,7 +48,7 @@ function PersonCard({ title, shift, tint, now, upcoming }: { title: string; shif
         </>
       ) : (
         <>
-          <span className="faint" style={{ fontSize: 16 }}>沒有排班</span>
+          <span className="faint" style={{ fontSize: "var(--fs-lg)" }}>沒有排班</span>
           <span className="caption muted">{upcoming ? "未來沒有排定的班表" : "這個時段沒有人值班"}</span>
         </>
       )}
@@ -85,14 +85,14 @@ function WeekSchedule({ now }: { now: number }) {
     <Card title="本週排班" subtitle={`${fmtDay(rangeStart)} – ${fmtDay(days[6])}`}>
       {shifts.length === 0 ? <EmptyState title="沒有排班資料" icon="calendar.badge.exclamationmark" message="這一週還沒有值班排程。" /> : (
         <div className="col gap6">
-          <div className="row gap12 muted" style={{ fontSize: 10.5 }}>{legend("主要", "blue")}{legend("次要", "teal")}{legend("現在", "red")}</div>
+          <div className="row gap12 muted" style={{ fontSize: "var(--fs-xs)" }}>{legend("主要", "blue")}{legend("次要", "teal")}{legend("現在", "red")}</div>
           <div ref={ref} style={{ position: "relative", height: h }}>
             {days.map((d, i) => {
               const isToday = d.toDateString() === new Date(now).toDateString();
               return (
                 <div key={i} style={{ position: "absolute", left: nameW + (i * w) / 7, width: w / 7, top: 0, bottom: 0,
                   background: isToday ? "color-mix(in srgb, var(--accent) 6%, transparent)" : i % 2 === 0 ? "color-mix(in srgb, var(--fg) 2.5%, transparent)" : undefined }}>
-                  <div style={{ textAlign: "center", fontSize: 10.5, paddingTop: 2, fontWeight: isToday ? 600 : 400, color: isToday ? "var(--accent)" : "var(--fg2)" }}>{fmtDay(d)}</div>
+                  <div style={{ textAlign: "center", fontSize: "var(--fs-xs)", paddingTop: 2, fontWeight: isToday ? 600 : 400, color: isToday ? "var(--accent)" : "var(--fg2)" }}>{fmtDay(d)}</div>
                 </div>
               );
             })}
@@ -110,9 +110,9 @@ function WeekSchedule({ now }: { now: number }) {
                     const live = t(s.start) <= now && t(s.end) > now;
                     return (
                       <div key={s.id} title={`${dir.person(pid)?.name ?? pid} · ${primary ? "主要" : "次要"}值班\n${fmtDateTime(s.start)} – ${fmtDateTime(s.end)}`}
-                        style={{ position: "absolute", left: x0 + 1, top: y + 6, width: Math.max(3, x1 - x0 - 2), height: rowH - 12, borderRadius: 5,
+                        style={{ position: "absolute", left: x0 + 1, top: y + 6, width: Math.max(3, x1 - x0 - 2), height: rowH - 12, borderRadius: "var(--r-sm)",
                           background: `color-mix(in srgb, ${color(primary ? "blue" : "teal")} ${live ? 90 : 55}%, transparent)`,
-                          color: "white", fontSize: 10.5, fontWeight: 600, paddingLeft: 5, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                          color: "white", fontSize: 11, fontWeight: 600, paddingLeft: 5, display: "flex", alignItems: "center", overflow: "hidden" }}>
                         {x1 - x0 > 34 ? (primary ? "主要" : "次要") : ""}
                       </div>
                     );
@@ -123,7 +123,7 @@ function WeekSchedule({ now }: { now: number }) {
             {now > rangeStart.getTime() && now < rangeEnd.getTime() && (
               <>
                 <div style={{ position: "absolute", left: x(now), top: 16, bottom: 0, width: 1.5, background: "var(--red)" }} />
-                <div style={{ position: "absolute", left: x(now) - 3, top: 13, width: 7, height: 7, borderRadius: 7, background: "var(--red)" }} />
+                <div style={{ position: "absolute", left: x(now) - 3, top: 13, width: 7, height: 7, borderRadius: "var(--r-md)", background: "var(--red)" }} />
               </>
             )}
           </div>
@@ -153,14 +153,14 @@ function Escalation({ now }: { now: number }) {
         {steps.map((s, i) => (
           <div key={i} className="row" style={{ alignItems: "stretch", gap: 12 }}>
             <div className="col" style={{ alignItems: "center", flex: "none" }}>
-              <span style={{ width: 26, height: 26, borderRadius: 26, background: color(s.tint), display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ width: 26, height: 26, borderRadius: "var(--r-pill)", background: color(s.tint), display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
                 <Icon name={s.icon} size={12} color="white" />
               </span>
               {i < steps.length - 1 && <div style={{ width: 2, flex: 1, background: "color-mix(in srgb, var(--fg) 12%, transparent)" }} />}
             </div>
             <div className="col gap4" style={{ paddingBottom: 14 }}>
               <div className="row gap8">
-                <span className="caption" style={{ fontWeight: 600, color: color(s.tint), padding: "1px 6px", borderRadius: 99, background: `color-mix(in srgb, ${color(s.tint)} 12%, transparent)` }}>{s.delay}</span>
+                <span className="caption" style={{ fontWeight: 600, color: color(s.tint), padding: "1px 6px", borderRadius: "var(--r-pill)", background: `color-mix(in srgb, ${color(s.tint)} 12%, transparent)` }}>{s.delay}</span>
                 {s.actor && <ActorAvatar actor={s.actor} size={16} />}
                 <span style={{ fontWeight: 500 }}>{s.who}</span>
                 {i === 0 && <AIBadge />}

@@ -161,7 +161,7 @@ function SettingsForm({ st, onSaved, onCancel }: { st: GCPSettings; onSaved: () 
 }
 
 function stat(label: string, value: string, c?: string) {
-  return <div className="col" style={{ gap: 2 }}><span className="caption muted">{label}</span><span className="num" style={{ fontSize: 15, fontWeight: 600, color: c ? `var(--${c})` : undefined }}>{value}</span></div>;
+  return <div className="col" style={{ gap: 2 }}><span className="caption muted">{label}</span><span className="num" style={{ fontSize: "var(--fs-lg)", fontWeight: 600, color: c ? `var(--${c})` : undefined }}>{value}</span></div>;
 }
 
 function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
@@ -228,7 +228,7 @@ function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
                     <XAxis dataKey="x" tick={axisStyle} stroke="var(--line)" tickFormatter={fmtX} minTickGap={30} />
                     <YAxis tick={axisStyle} stroke="var(--line)" />
                     <Tooltip {...tip} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
+                    <Legend wrapperStyle={{ fontSize: "var(--fs-xs)" }} iconSize={8} />
                     {["2xx", "3xx", "4xx", "5xx", "其他"].filter((k) => reqData.some((r) => r[k] != null)).map((k) => <RBar key={k} dataKey={k} stackId="a" fill={color(SERIES_COLOR[k])} isAnimationActive={false} />)}
                   </BarChart>
                 </ResponsiveContainer>
@@ -240,7 +240,7 @@ function ServiceDetail({ s, st }: { s: GCPService; st: GCPSettings }) {
                   <LineChart data={latData} margin={{ top: 4, right: 6, left: -6, bottom: 0 }}>
                     <CartesianGrid stroke="var(--line)" vertical={false} />
                     <XAxis dataKey="x" tick={axisStyle} stroke="var(--line)" tickFormatter={fmtX} minTickGap={30} />
-                    <YAxis tick={axisStyle} stroke="var(--line)" label={{ value: "p95 延遲 (ms)", angle: -90, position: "insideLeft", fontSize: 10, fill: "var(--fg2)" }} />
+                    <YAxis tick={axisStyle} stroke="var(--line)" label={{ value: "p95 延遲 (ms)", angle: -90, position: "insideLeft", fontSize: 11, fill: "var(--fg2)" }} />
                     <Tooltip {...tip} formatter={(v: any) => `${Number(v).toFixed(0)} ms`} />
                     <Line dataKey="v" name="p95" stroke="var(--blue)" dot={false} isAnimationActive={false} />
                   </LineChart>
@@ -290,7 +290,7 @@ function LogList({ logs, error }: { logs?: GCPLogEntry[]; error?: string }) {
             return (
               <div key={l.id} className="row gap6" style={{ padding: "4px 0", borderBottom: "1px solid var(--line)", alignItems: "flex-start" }}
                 onClick={() => setExpanded((s) => { const n = new Set(s); if (open) n.delete(l.id); else n.add(l.id); return n; })}>
-                <span style={{ width: 58, flex: "none", fontSize: 10.5, fontWeight: 700, color: color(sevColor(l.severity)) }}>{l.severity}</span>
+                <span style={{ width: 58, flex: "none", fontSize: "var(--fs-xs)", fontWeight: 700, color: color(sevColor(l.severity)) }}>{l.severity}</span>
                 {l.timestamp && <span className="caption muted num" style={{ flex: "none" }}>{new Date(l.timestamp).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</span>}
                 {l.httpStatus != null && l.httpStatus > 0 && <span className="caption mono" style={{ color: l.httpStatus >= 500 ? "var(--red)" : "var(--fg2)", flex: "none" }}>{l.httpStatus}</span>}
                 <span className={"caption mono" + (open ? "" : " ellipsis")} style={{ userSelect: "text", whiteSpace: open ? "pre-wrap" : undefined, wordBreak: "break-all" }}>{l.text}</span>

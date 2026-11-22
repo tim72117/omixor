@@ -8,7 +8,7 @@ import { Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine,
 import { useView } from "../api";
 import { guardedNavigate, useFeatures } from "../features";
 import { Icon } from "./Icon";
-import { color, Modal, Pill } from "./ui";
+import { color, Modal, Pill, useTabScroll } from "./ui";
 import type { Actor, Nav, SectionId } from "../types";
 export type { Actor };
 import "./omixorKit.css";
@@ -328,7 +328,7 @@ export function StatusDot({ c, pulsing }: { c: string; pulsing?: boolean }) {
 }
 
 export function personColor(p?: Person) {
-  if (!p) return "var(--gray)";
+  if (!p) return "var(--avatar-fill)";
   return `#${p.colorHex.toString(16).padStart(6, "0")}`;
 }
 
@@ -377,7 +377,7 @@ export function ProgressBar({ value, c = "blue", showLabel = true, style }: { va
   return (
     <div className="row gap6" style={{ width: "100%", ...style }}>
       <div className="ox-bar" style={{ height: 6 }}><div style={{ width: `${Math.max(2, Math.min(1, Math.max(0, value)) * 100)}%`, background: color(c), transition: "width .6s" }} /></div>
-      {showLabel && <span className="num faint" style={{ fontSize: 10.5, width: 32, textAlign: "right", flex: "none" }}>{Math.round(value * 100)}%</span>}
+      {showLabel && <span className="num faint" style={{ fontSize: "var(--fs-xs)", width: 32, textAlign: "right", flex: "none" }}>{Math.round(value * 100)}%</span>}
     </div>
   );
 }
@@ -407,7 +407,7 @@ export function Sparkline({ values, c = "blue", height = 28 }: { values: number[
 }
 
 export const SERIES_COLORS = ["var(--blue)", "var(--green)", "var(--orange)", "var(--purple)", "var(--pink)", "var(--teal)", "var(--indigo)", "var(--red)", "var(--yellow)", "var(--gray)"];
-export const axisStyle = { fontSize: 10.5, fill: "var(--fg2)" };
+export const axisStyle = { fontSize: 11, fill: "var(--fg2)" };
 
 /** 時間序列折線圖(SeriesChart) */
 export function SeriesChart({ series, height = 180, threshold, yDomain, yFormat, colors }: {
@@ -430,10 +430,10 @@ export function SeriesChart({ series, height = 180, threshold, yDomain, yFormat,
           <CartesianGrid stroke="var(--line)" vertical={false} />
           <XAxis dataKey="x" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={fmtX} tick={axisStyle} stroke="var(--line)" minTickGap={30} />
           <YAxis tick={axisStyle} stroke="var(--line)" domain={yDomain ?? ["auto", "auto"]} tickFormatter={yFormat} width={48} />
-          <Tooltip labelFormatter={(v) => monthDayTime(Number(v))} formatter={(v: any) => (typeof v === "number" ? (yFormat ? yFormat(v) : v.toFixed(2)) : v)} contentStyle={{ fontSize: 12, background: "var(--bg2)", border: "1px solid var(--line)" }} />
-          {series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />}
+          <Tooltip labelFormatter={(v) => monthDayTime(Number(v))} formatter={(v: any) => (typeof v === "number" ? (yFormat ? yFormat(v) : v.toFixed(2)) : v)} contentStyle={{ fontSize: "var(--fs-sm)", background: "var(--bg2)", border: "1px solid var(--line)" }} />
+          {series.length > 1 && <Legend wrapperStyle={{ fontSize: "var(--fs-xs)" }} iconSize={8} />}
           {series.map((s, i) => <Line key={s.name} dataKey={s.name} type="monotone" dot={false} strokeWidth={1.6} stroke={colors?.[i] ?? SERIES_COLORS[i % SERIES_COLORS.length]} isAnimationActive={false} />)}
-          {threshold != null && <ReferenceLine y={threshold} stroke="var(--red)" strokeOpacity={0.6} strokeDasharray="4 3" label={{ value: "門檻", position: "insideTopRight", fontSize: 10, fill: "var(--red)" }} />}
+          {threshold != null && <ReferenceLine y={threshold} stroke="var(--red)" strokeOpacity={0.6} strokeDasharray="4 3" label={{ value: "門檻", position: "insideTopRight", fontSize: 11, fill: "var(--red)" }} />}
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -446,9 +446,9 @@ export function Metric({ title, value, delta, deltaGood = true, icon, tint = "bl
 }) {
   return (
     <div className="card" style={{ gap: 6 }}>
-      <div className="row gap6 muted" style={{ fontSize: 12.5 }}>{icon && <SIcon name={icon} color={tint} />}<span className="ellipsis">{title}</span></div>
+      <div className="row gap6 muted" style={{ fontSize: "var(--fs-base)" }}>{icon && <SIcon name={icon} color={tint} />}<span className="ellipsis">{title}</span></div>
       <div className="row gap8 wrap" style={{ alignItems: "baseline", rowGap: 0 }}>
-        <span className="num" style={{ fontSize: 26, fontWeight: 600, whiteSpace: "nowrap" }}>{value}</span>
+        <span className="num" style={{ fontSize: "var(--fs-3xl)", fontWeight: 600, whiteSpace: "nowrap" }}>{value}</span>
         {delta && <span className="caption" style={{ fontWeight: 500, color: deltaGood ? "var(--green)" : "var(--red)" }}>{delta}</span>}
       </div>
       {series && series.length > 0 && <Sparkline values={series} c={tint} height={28} />}
@@ -487,7 +487,7 @@ export function CardHeader({ title, count, countColor = "secondary", linkTitle =
 
 /** 卡片內的小空狀態 */
 export function InlineEmpty({ icon, text, c = "secondary" }: { icon: string; text: string; c?: string }) {
-  return <div className="row gap8 muted" style={{ justifyContent: "center", padding: "14px 0", fontSize: 12.5 }}><SIcon name={icon} color={c} />{text}</div>;
+  return <div className="row gap8 muted" style={{ justifyContent: "center", padding: "14px 0", fontSize: "var(--fs-base)" }}><SIcon name={icon} color={c} />{text}</div>;
 }
 
 /** 錯誤或後端尚未提供時的提示列 */
@@ -611,8 +611,9 @@ export function useAct() {
 
 /** 點擊列(List 的一列) */
 export function Seg<T extends string>({ value, options, onChange }: { value: T; options: { value: T; label: ReactNode; title?: string }[]; onChange: (v: T) => void }) {
+  const ref = useTabScroll<HTMLDivElement>(value);
   return (
-    <div className="segmented">
+    <div ref={ref} className="segmented">
       {options.map((o) => <button key={o.value} title={o.title} className={o.value === value ? "on" : ""} onClick={() => onChange(o.value)}>{o.label}</button>)}
     </div>
   );
@@ -646,8 +647,8 @@ export function SearchField({ value, onChange, placeholder, style }: { value: st
 /** 頁首:標題、副標、右側內容 */
 export function PageTitle({ title, subtitle, children }: { title: string; subtitle?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="row gap12" style={{ alignItems: "center" }}>
-      <div className="col gap4" style={{ minWidth: 0 }}>
+    <div className="row gap12 wrap" style={{ alignItems: "center" }}>
+      <div className="col gap4" style={{ minWidth: 0, flex: "1 1 220px" }}>
         <div className="page-title">{title}</div>
         {subtitle && <div className="muted">{subtitle}</div>}
       </div>
@@ -697,10 +698,11 @@ export function MarkdownText({ source }: { source: string }) {
   if (code) out.push({ k: "code", t: (code as string[]).join("\n") });
   flush();
   return (
-    <div className="col gap6" style={{ userSelect: "text" }}>
+    // overflowWrap anywhere:長識別字 / 網址 / 環境變數名放不下時斷行,不撐出父層的橫向捲動
+    <div className="col gap6" style={{ userSelect: "text", overflowWrap: "anywhere", minWidth: 0 }}>
       {out.map((b, i) => {
-        if (b.k === "h") return <div key={i} style={{ fontWeight: 600, fontSize: b.l <= 1 ? 16 : b.l === 2 ? 14 : 13, marginTop: 4 }}><Inline s={b.t} /></div>;
-        if (b.k === "li") return <div key={i} className="row gap6" style={{ alignItems: "baseline" }}><span className="muted">{b.m}</span><span><Inline s={b.t} /></span></div>;
+        if (b.k === "h") return <div key={i} style={{ fontWeight: 600, fontSize: b.l <= 1 ? "var(--fs-lg)" : b.l === 2 ? "var(--fs-md)" : "var(--fs-base)", marginTop: 4 }}><Inline s={b.t} /></div>;
+        if (b.k === "li") return <div key={i} className="row gap6" style={{ alignItems: "baseline" }}><span className="muted" style={{ flex: "none" }}>{b.m}</span><span style={{ minWidth: 0 }}><Inline s={b.t} /></span></div>;
         if (b.k === "code") return <pre key={i} className="ox-code">{b.t}</pre>;
         return <div key={i} style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}><Inline s={b.t} /></div>;
       })}
@@ -717,7 +719,7 @@ function MdImage({ alt, src }: { alt: string; src: string }) {
   return (
     <a href={src} target="_blank" rel="noreferrer" title={alt ? `${alt}(點一下看原圖)` : "點一下看原圖"} style={{ display: "inline-block", maxWidth: "100%" }}>
       <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer"
-        style={{ maxWidth: "100%", maxHeight: 420, borderRadius: 6, border: "1px solid var(--line)", display: "block", cursor: "zoom-in" }} />
+        style={{ maxWidth: "100%", maxHeight: 420, borderRadius: "var(--r-md)", border: "1px solid var(--line)", display: "block", cursor: "zoom-in" }} />
     </a>
   );
 }

@@ -22,7 +22,7 @@ export function IncStats({ onSelect }: { onSelect: (id: string) => void }) {
   });
   const resolved = recent.filter((i) => i.resolvedAt).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const maxD = Math.max(1, ...resolved.map((i) => durationOf(i)));
-  const axis = { tick: { fontSize: 10, fill: "var(--fg2)" }, stroke: "var(--line)" };
+  const axis = { tick: { fontSize: 11, fill: "var(--fg2)" }, stroke: "var(--line)" };
   return (
     <div className="page-scroll">
       <div className="page-inner">
@@ -43,7 +43,7 @@ export function IncStats({ onSelect }: { onSelect: (id: string) => void }) {
                     <YAxis allowDecimals={false} tickCount={4} {...axis} />
                     <Bar dataKey="n" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                       {bySev.map((b) => <Cell key={b.sev} fill={b.c} />)}
-                      <LabelList dataKey="n" position="top" style={{ fontSize: 10, fill: "var(--fg2)" }} />
+                      <LabelList dataKey="n" position="top" style={{ fontSize: "var(--fs-xs)", fill: "var(--fg2)" }} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -57,7 +57,7 @@ export function IncStats({ onSelect }: { onSelect: (id: string) => void }) {
                   <CartesianGrid stroke="var(--line)" vertical={false} />
                   <XAxis dataKey="week" {...axis} />
                   <YAxis allowDecimals={false} tickCount={4} {...axis} />
-                  <Legend iconSize={8} wrapperStyle={{ fontSize: 10.5 }} />
+                  <Legend iconSize={8} wrapperStyle={{ fontSize: "var(--fs-xs)" }} />
                   {SEVS.map((s) => <Bar key={s} dataKey={sevLabel(s)} stackId="a" fill={color(sevColor(s))} isAnimationActive={false} />)}
                 </BarChart>
               </ResponsiveContainer>
@@ -72,7 +72,7 @@ export function IncStats({ onSelect }: { onSelect: (id: string) => void }) {
                   <SevBadge sev={i.sev} />
                   <span className="ellipsis" style={{ width: 260, flex: "none" }}>{i.title}</span>
                   <span className="grow">
-                    <span style={{ display: "block", height: 8, borderRadius: 8, width: `${Math.max(1, (durationOf(i) / maxD) * 100)}%`, minWidth: 4, background: `color-mix(in srgb, ${color(sevColor(i.sev))} 70%, transparent)` }} />
+                    <span style={{ display: "block", height: 8, borderRadius: "var(--r-lg)", width: `${Math.max(1, (durationOf(i) / maxD) * 100)}%`, minWidth: 4, background: `color-mix(in srgb, ${color(sevColor(i.sev))} 70%, transparent)` }} />
                   </span>
                   <span className="caption num muted" style={{ width: 64, textAlign: "right" }}>{fmtShort(durationOf(i))}</span>
                 </button>

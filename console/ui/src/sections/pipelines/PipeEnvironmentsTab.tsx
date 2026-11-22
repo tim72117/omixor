@@ -119,7 +119,7 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
           {o.services.length === 0 ? <div style={{ minHeight: 160, display: "flex" }}><EmptyState title="沒有服務" icon="square.stack.3d.up.slash" /></div>
             : services.length === 0 ? <div className="muted" style={{ padding: "8px 0" }}>沒有版本不一致的服務</div> : (
               <div style={{ overflowX: "auto" }}>
-                <table className="ox-table" style={{ fontSize: 12.5 }}>
+                <table className="ox-table" style={{ fontSize: "var(--fs-base)" }}>
                   <thead><tr>
                     <th style={{ background: "transparent" }}>服務</th>
                     {ENV_ORDER.map((e) => <th key={e} style={{ background: "transparent", fontWeight: e === env ? 700 : 400, color: e === env ? "var(--fg)" : undefined }}><span className="row gap4"><span className="dot" style={{ width: 6, height: 6, background: color(ENV[e].color) }} />{ENV[e].label}</span></th>)}
@@ -128,19 +128,19 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
                   <tbody>
                     {services.map((s) => (
                       <tr key={s.id}>
-                        <td style={{ minWidth: 130 }}><span className="row gap6"><HealthBadge h={s.health} compact /><span className="col" style={{ gap: 1 }}><span style={{ fontWeight: 500 }}>{s.name}</span><span className="muted" style={{ fontSize: 10.5 }}>Tier {s.tier} · {s.team}</span></span></span></td>
+                        <td style={{ minWidth: 130 }}><span className="row gap6"><HealthBadge h={s.health} compact /><span className="col" style={{ gap: 1 }}><span style={{ fontWeight: 500 }}>{s.name}</span><span className="muted" style={{ fontSize: "var(--fs-xs)" }}>Tier {s.tier} · {s.team}</span></span></span></td>
                         {ENV_ORDER.map((e) => {
                           const v = s.versions?.[e];
                           const behind = isBehind(s, e);
                           const d = active(s, e);
                           return (
                             <td key={e} style={{ minWidth: 110 }}>
-                              <div className="col" style={{ gap: 3, padding: "5px 8px", borderRadius: 6, background: behind ? "color-mix(in srgb, var(--orange) 10%, transparent)" : e === env ? "color-mix(in srgb, var(--accent) 6%, transparent)" : undefined }}>
+                              <div className="col" style={{ gap: 3, padding: "5px 8px", borderRadius: "var(--r-md)", background: behind ? "color-mix(in srgb, var(--orange) 10%, transparent)" : e === env ? "color-mix(in srgb, var(--accent) 6%, transparent)" : undefined }}>
                                 <span className="row gap4 mono" style={{ color: !v ? "var(--fg2)" : behind ? "var(--orange)" : undefined }}>
                                   {v ?? "—"}{behind && <span title={`落後上一個環境(${s.versions?.[previous(e)!] ?? "—"})`}><SIcon name="arrow.down.circle.fill" size={12} color="orange" /></span>}
                                 </span>
                                 {d && (
-                                  <button className="ox-plain row gap4 num" style={{ fontSize: 10.5, color: color(RUN[d.status].color) }} title="查看部署" onClick={() => openDeployments(d.id)}>
+                                  <button className="ox-plain row gap4 num" style={{ fontSize: "var(--fs-xs)", color: color(RUN[d.status].color) }} title="查看部署" onClick={() => openDeployments(d.id)}>
                                     <StatusIcon s={d.status} size={10} />{d.status === "waitingApproval" ? `${d.version} 待核准` : `→ ${d.version} ${Math.trunc(d.progress * 100)}%`}
                                   </button>
                                 )}
@@ -172,7 +172,7 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
                     <XAxis dataKey="x" tick={axisStyle} stroke="var(--line)" tickFormatter={tickDay} interval={1} />
                     <YAxis tick={axisStyle} stroke="var(--line)" allowDecimals={false} />
                     <Tooltip {...tip} cursor={{ fill: "color-mix(in srgb, var(--fg) 5%, transparent)" }} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
+                    <Legend wrapperStyle={{ fontSize: "var(--fs-xs)" }} iconSize={8} />
                     <RBar dataKey="成功" stackId="a" fill="var(--green)" isAnimationActive={false} />
                     <RBar dataKey="失敗" stackId="a" fill="var(--red)" isAnimationActive={false} />
                     <RBar dataKey="其他" stackId="a" fill="color-mix(in srgb, var(--gray) 50%, transparent)" isAnimationActive={false} />
@@ -192,7 +192,7 @@ export function PipeEnvironmentsTab({ openDeployments }: { openDeployments: (id:
                     <Tooltip {...tip} formatter={(v: any) => `${Number(v).toFixed(0)}%`} />
                     <Area dataKey="rate" tooltipType="none" type="monotone" stroke="none" fill="var(--green)" fillOpacity={0.12} isAnimationActive={false} />
                     <Line dataKey="rate" name="成功率" type="monotone" stroke="var(--green)" dot={{ r: 2.5, fill: "var(--green)" }} isAnimationActive={false} />
-                    <ReferenceLine y={90} stroke="var(--fg2)" strokeOpacity={0.6} strokeDasharray="4 3" label={{ value: "目標 90%", position: "insideTopLeft", fontSize: 10, fill: "var(--fg2)" }} />
+                    <ReferenceLine y={90} stroke="var(--fg2)" strokeOpacity={0.6} strokeDasharray="4 3" label={{ value: "目標 90%", position: "insideTopLeft", fontSize: 11, fill: "var(--fg2)" }} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>

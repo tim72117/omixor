@@ -2,7 +2,7 @@
 // 建立、修改、留言、關閉走 MCP 工具(issue_create / issue_update),刪除是畫面專用的 issue_delete。
 import { useEffect, useRef, useState } from "react";
 import { action, useActionQuery, useDebounced } from "../../api";
-import { color, EmptyState, Modal, Pill } from "../../components/ui";
+import { color, EmptyState, MetaFit, Modal, Pill, type FitItem } from "../../components/ui";
 import { MarkdownText, MenuButton, monthDayTime, Seg, SIcon, useAct, useConfirm, useList, useOmixor, type Agent } from "../../components/omixorKit";
 import { relative } from "../../fmt";
 import { RepoFilterSelect, usedRepos, useDev } from "./devShared";
@@ -92,7 +92,7 @@ export function DevIssuesTab() {
               message={total === 0 ? "按 + 新增、從 Jira 匯入,或讓 AI 透過 MCP 的 issue_create 存進來。" : undefined} />
           ) : (
             <div className="ox-list">
-              {list.map((i) => <IssueRow key={i.id} issue={i} on={i.id === dev.selectedIssue} onClick={() => dev.setSelectedIssue(i.id)} />)}
+              {list.map((i) => <IssueRow key={i.id} issue={i} showRepo={!repo} on={i.id === dev.selectedIssue} onClick={() => dev.setSelectedIssue(i.id)} />)}
             </div>
           )}
       </div>
@@ -134,25 +134,29 @@ function AuthorIcon({ author, size = 18 }: { author: string; size?: number }) {
   return <SIcon name="person.crop.circle" size={size * 0.85} className="muted" />;
 }
 
-function IssueRow({ issue, on, onClick }: { issue: Issue; on: boolean; onClick: () => void }) {
+function IssueRow({ issue, showRepo, on, onClick }: { issue: Issue; showRepo: boolean; on: boolean; onClick: () => void }) {
   const { name } = useAuthor();
   const open = issue.status === "open";
   const p = PRIORITY[issue.priority] ?? PRIORITY.normal;
+  // 中段(倉庫、標籤)放得下幾個就完整顯示幾個:倉庫只顯示短名、最先拿掉(已篩單一倉庫時不顯示);標籤依序保留,放不下的收成「+N」
+  const fit: FitItem[] = [];
+  if (showRepo && issue.repo) fit.push({ key: "repo", drop: 100, shrink: 60, className: "caption mono muted", node: <span title={"倉庫:" + issue.repo}>{issue.repo.split("/").pop()}</span> });
+  (issue.labels ?? []).forEach((l, i) => fit.push({ key: "l:" + l, drop: i, label: l, node: <span title={l} style={{ display: "inline-flex" }}><Pill text={l} /></span> }));
+  const nComments = issue.comments?.length ?? 0;
   return (
     <div className={"ox-list-row col gap4" + (on ? " on" : "")} onClick={onClick}>
       <div className="row gap6" style={{ alignItems: "flex-start" }}>
         <SIcon name={open ? "circle.dotted" : "checkmark.circle.fill"} color={open ? p.color : "secondary"} style={{ marginTop: 2 }} />
         <span style={{ color: open ? undefined : "var(--fg2)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{issue.title}</span>
       </div>
-      <div className="row gap6">
+      <div className="ox-meta gap6">
         <span className="caption mono muted" title={issue.project ? "專案 " + issue.project : undefined}>{issueKey(issue)}</span>
         {isAIAuthor(issue.createdBy) && <span title={name(issue.createdBy)}><AuthorIcon author={issue.createdBy} size={14} /></span>}
         {showPriorityPill(issue.priority) && <Pill text={p.label} color={p.color} />}
-        {issue.repo && <span className="caption mono muted" title={"倉庫:" + issue.repo} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>{issue.repo}</span>}
-        {(issue.labels ?? []).slice(0, 3).map((l) => <Pill key={l} text={l} />)}
-        <span className="grow" />
-        {issue.comments?.length > 0 && <span className="caption muted row gap4"><SIcon name="bubble.left" size={11} />{issue.comments.length}</span>}
-        <span className="caption muted" style={{ flex: "none" }}>{relative(issue.updatedAt)}</span>
+        <MetaFit items={fit} />
+        {nComments > 0 && <span className="caption muted row" style={{ gap: 3 }} title={`${nComments} 則留言`}><SIcon name="bubble.left" size={11} />{nComments}</span>}
+        {nComments > 0 && <span className="caption faint">·</span>}
+        <span className="caption muted">{relative(issue.updatedAt)}</span>
       </div>
     </div>
   );
@@ -182,7 +186,7 @@ function IssueDetail({ issue }: { issue: Issue }) {
           {/* 標題至少保留 280px、可換行;按鈕群不換行、放不下時整組換到標題下一行,避免被擠成直排或把標題擠窄 */}
           <div className="row gap8" style={{ alignItems: "baseline", minWidth: 0, flexWrap: "wrap", flex: "1 1 280px" }}>
             <span className="h2" style={{ userSelect: "text", minWidth: 0, overflowWrap: "anywhere" }}>{issue.title}</span>
-            <span className="mono muted" style={{ fontSize: 15, whiteSpace: "nowrap" }}>{issueKey(issue)}</span>
+            <span className="mono muted" style={{ fontSize: "var(--fs-lg)", whiteSpace: "nowrap" }}>{issueKey(issue)}</span>
           </div>
           <div className="row gap8" style={{ flex: "0 0 auto", marginLeft: "auto", alignItems: "center", whiteSpace: "nowrap" }}>
           <MenuButton className="btn" label={<SIcon name="ellipsis.circle" />} align="right" items={[
@@ -227,7 +231,7 @@ function IssueDetail({ issue }: { issue: Issue }) {
         <div className="col" style={{ gap: 10 }}>
           <div className="card-title">留言</div>
           {(issue.comments ?? []).map((c) => (
-            <div key={c.id} className="col gap4" style={{ padding: 10, borderRadius: 8, background: "color-mix(in srgb, var(--fg) 5%, transparent)" }}>
+            <div key={c.id} className="col gap4" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--fg) 5%, transparent)" }}>
               <div className="row gap6"><AuthorIcon author={c.author} /><span className="caption" style={{ fontWeight: 600 }}>{name(c.author)}</span><span className="caption muted">{relative(c.at)}</span></div>
               <MarkdownText source={c.text} />
             </div>

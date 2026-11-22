@@ -81,7 +81,7 @@ function HostCard({ s, selected, drained, onClick }: { s: Server; selected: bool
   const bad = s.containers.filter((c) => c.status !== "healthy").length;
   const hc = color(HEALTH[s.health].color);
   return (
-    <button className="ox-tile col gap8" onClick={onClick} style={{ padding: 12, borderRadius: 12, background: "var(--bg2)", border: selected ? "2px solid var(--accent)" : `1px solid ${s.health === "healthy" ? "var(--line)" : `color-mix(in srgb, ${hc} 45%, transparent)`}` }}>
+    <button className="ox-tile col gap8" onClick={onClick} style={{ padding: 12, borderRadius: "var(--r-xl)", background: "var(--bg2)", border: selected ? "2px solid var(--accent)" : `1px solid ${s.health === "healthy" ? "var(--line)" : `color-mix(in srgb, ${hc} 45%, transparent)`}` }}>
       <div className="row" style={{ gap: 7, width: "100%" }}>
         <StatusDot c={HEALTH[s.health].color} pulsing={s.health === "down"} />
         <span className="card-title ellipsis">{s.name}</span><span className="grow" />
@@ -108,7 +108,7 @@ function ServerDetail({ s, drained, setDrained, onClose, onOpenService }: { s: S
   const post = (icon: string, text: string) => tool("activity_post", { icon, text, section: "infrastructure" });
   const list = o.services.filter((x) => x.hostIds.includes(s.id));
   const liveStat = (title: string, v: string, c: string) => (
-    <div className="col" style={{ gap: 1 }}><span className="row gap4 caption muted"><span className="dot" style={{ width: 6, height: 6, background: color(c) }} />{title}</span><span className="num" style={{ fontSize: 15, fontWeight: 500 }}>{v}</span></div>
+    <div className="col" style={{ gap: 1 }}><span className="row gap4 caption muted"><span className="dot" style={{ width: 6, height: 6, background: color(c) }} />{title}</span><span className="num" style={{ fontSize: "var(--fs-lg)", fontWeight: 500 }}>{v}</span></div>
   );
   const spec = (k: string, v: string, mono?: boolean) => <><span className="muted">{k}</span><span className={mono ? "mono" : undefined} style={{ userSelect: "text" }}>{v}</span></>;
   return (
@@ -157,7 +157,7 @@ function ServerDetail({ s, drained, setDrained, onClose, onOpenService }: { s: S
             <tbody>
               {s.containers.map((c) => (
                 <tr key={c.id}>
-                  <td style={{ maxWidth: 180 }}><div className="col" style={{ gap: 1 }}><span className="ellipsis" style={{ fontWeight: 500 }}>{c.name}</span><span className="mono muted ellipsis" style={{ fontSize: 10.5 }} title={c.image}>{c.image}</span></div></td>
+                  <td style={{ maxWidth: 180 }}><div className="col" style={{ gap: 1 }}><span className="ellipsis" style={{ fontWeight: 500 }}>{c.name}</span><span className="mono muted ellipsis" style={{ fontSize: "var(--fs-xs)" }} title={c.image}>{c.image}</span></div></td>
                   <td><HealthBadge h={c.status} compact /></td>
                   <td className="num" style={{ textAlign: "right", color: c.restarts > 3 ? "var(--orange)" : undefined, fontWeight: c.restarts > 3 ? 600 : undefined }}>{c.restarts}</td>
                   <td className="num" style={{ textAlign: "right" }}>{c.cpu.toFixed(0)}%</td>
@@ -170,7 +170,7 @@ function ServerDetail({ s, drained, setDrained, onClose, onOpenService }: { s: S
       </Card>
       {s.tags.length > 0 && (
         <Card title="標籤">
-          <div className="row gap6 wrap">{s.tags.map((t) => <span key={t} className="mono" style={{ fontSize: 11, padding: "3px 7px", borderRadius: 5, background: "color-mix(in srgb, var(--fg) 6%, transparent)" }}>{t}</span>)}</div>
+          <div className="row gap6 wrap">{s.tags.map((t) => <span key={t} className="mono" style={{ fontSize: "var(--fs-xs)", padding: "3px 7px", borderRadius: "var(--r-sm)", background: "color-mix(in srgb, var(--fg) 6%, transparent)" }}>{t}</span>)}</div>
         </Card>
       )}
       {dlg}{toastEl}

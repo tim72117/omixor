@@ -6,7 +6,7 @@
 // 連線、登入與追蹤的 repo / 專案在 設定 › 程式碼倉庫;沒設定或沒登入時只顯示空狀態與「前往設定」。
 import { useEffect, useState } from "react";
 import { action, useView } from "../../api";
-import { EmptyState, Pill } from "../../components/ui";
+import { EmptyState, MetaFit, Pill } from "../../components/ui";
 import { Banner, Check, Seg, SIcon, useAct } from "../../components/omixorKit";
 import { relative } from "../../fmt";
 import { ManageReposButton, RepoSetupEmpty, useDev } from "./devShared";
@@ -168,12 +168,14 @@ function RepoRow({ r, on, onClick }: { r: CodeRepo; on: boolean; onClick: () => 
       <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
         <span className="row gap6"><span className="ellipsis" style={{ fontWeight: 600 }}>{r.name}</span><PlatformTag platform={r.platform} /></span>
         {r.error ? <span className="caption ellipsis" style={{ color: "var(--orange)" }} title={r.error}>{r.error}</span> : (
-          <div className="row gap6 caption muted">
-            {r.lastBuild ? <span style={{ color: r.lastBuild.state === "failure" ? "var(--red)" : undefined }}>{r.lastBuild.label}</span> : <span>{r.loaded ? "沒有建置" : "讀取中…"}</span>}
-            {r.defaultBranch && <span className="mono ellipsis">{r.defaultBranch}</span>}
-            <span>{r.openPulls} 個 {pr}{r.failingPulls > 0 && <span style={{ color: "var(--red)" }}>({r.failingPulls} 個失敗)</span>}</span>
-            <span className="grow" />
-            {r.lastBuild?.at && <span style={{ flex: "none" }}>{relative(r.lastBuild.at)}</span>}
+          <div className="ox-meta gap6 caption muted">
+            {/* 放不下時先拿掉分支、再拿掉建置文字(左邊圖示已表示建置狀態);PR 數一律保留 */}
+            <MetaFit items={[
+              { key: "build", drop: 1, shrink: 64, node: r.lastBuild ? <span title={r.lastBuild.label} style={{ color: r.lastBuild.state === "failure" ? "var(--red)" : undefined }}>{r.lastBuild.label}</span> : <span>{r.loaded ? "沒有建置" : "讀取中…"}</span> },
+              ...(r.defaultBranch ? [{ key: "branch", drop: 2, shrink: 56, className: "mono", node: <span title={r.defaultBranch}>{r.defaultBranch}</span> }] : []),
+              { key: "pulls", node: <span>{r.openPulls} 個 {pr}{r.failingPulls > 0 && <span style={{ color: "var(--red)" }}>({r.failingPulls} 個失敗)</span>}</span> },
+            ]} />
+            {r.lastBuild?.at && <span>{relative(r.lastBuild.at)}</span>}
           </div>
         )}
       </div>
@@ -258,9 +260,13 @@ function GitHubRepoDetail({ repo }: { repo: string }) {
                   <SIcon name={icon} color={c} style={{ marginTop: 2 }} />
                   <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
                     <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{x.title}</span>
-                    <div className="row gap6 caption muted">
-                      <span>{x.workflow} #{x.runNumber}</span><span className="mono ellipsis">{x.branch}</span><span>{eventLabel(x.event)}</span>
-                      <span className="grow" />{x.createdAt && <span style={{ flex: "none" }}>{relative(x.createdAt)}</span>}
+                    <div className="ox-meta gap6 caption muted">
+                      <MetaFit items={[
+                        { key: "wf", shrink: 80, node: <span title={`${x.workflow} #${x.runNumber}`}>{x.workflow} #{x.runNumber}</span> },
+                        { key: "branch", drop: 1, shrink: 56, className: "mono", node: <span title={x.branch}>{x.branch}</span> },
+                        { key: "event", drop: 2, node: <span>{eventLabel(x.event)}</span> },
+                      ]} />
+                      {x.createdAt && <span>{relative(x.createdAt)}</span>}
                     </div>
                   </div>
                 </div>
@@ -277,10 +283,15 @@ function GitHubRepoDetail({ repo }: { repo: string }) {
                 <SIcon name="arrow.triangle.pull" color={x.draft ? "secondary" : "green"} style={{ marginTop: 2 }} />
                 <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
                   <span className="row gap4"><span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{x.title}</span>{x.draft && <Pill text="草稿" />}</span>
-                  <div className="row gap6 caption muted">
-                    <span className="mono">#{x.number}</span><span>{x.author}</span><span className="mono ellipsis">{x.branch}</span>
-                    <span className="row gap4" title={checksLabel(x.checks)}><SIcon name={icon} color={c} size={12} />{checksLabel(x.checks)}</span>
-                    <span className="grow" />{x.updatedAt && <span style={{ flex: "none" }}>{relative(x.updatedAt)}</span>}
+                  <div className="ox-meta gap6 caption muted">
+                    <span className="mono">#{x.number}</span>
+                    <span title={checksLabel(x.checks)} style={{ display: "inline-flex" }}><SIcon name={icon} color={c} size={12} /></span>
+                    <MetaFit items={[
+                      { key: "checks", drop: 1, node: <span>{checksLabel(x.checks)}</span> },
+                      { key: "author", drop: 2, shrink: 60, node: <span title={x.author}>{x.author}</span> },
+                      { key: "branch", drop: 3, shrink: 56, className: "mono", node: <span title={x.branch}>{x.branch}</span> },
+                    ]} />
+                    {x.updatedAt && <span>{relative(x.updatedAt)}</span>}
                   </div>
                 </div>
               </div>
@@ -325,9 +336,13 @@ function GitLabRepoDetail({ project, name }: { project: string; name: string }) 
                   <SIcon name={icon} color={c} style={{ marginTop: 2 }} />
                   <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
                     <span className="row gap6"><span className="mono ellipsis">{x.ref}</span><span className="caption muted">#{x.iid || x.id}</span><span className="caption">{x.statusLabel}</span></span>
-                    <div className="row gap6 caption muted">
-                      <span>{x.sourceLabel}</span>{x.user && <span>{x.user}</span>}<span className="mono">{x.sha.slice(0, 8)}</span>
-                      <span className="grow" />{x.createdAt && <span style={{ flex: "none" }}>{relative(x.createdAt)}</span>}
+                    <div className="ox-meta gap6 caption muted">
+                      <MetaFit items={[
+                        { key: "src", shrink: 60, node: <span title={x.sourceLabel}>{x.sourceLabel}</span> },
+                        ...(x.user ? [{ key: "user", drop: 1, shrink: 60, node: <span title={x.user}>{x.user}</span> }] : []),
+                        { key: "sha", drop: 2, className: "mono", node: <span>{x.sha.slice(0, 8)}</span> },
+                      ]} />
+                      {x.createdAt && <span>{relative(x.createdAt)}</span>}
                     </div>
                   </div>
                 </div>
@@ -344,11 +359,16 @@ function GitLabRepoDetail({ project, name }: { project: string; name: string }) 
                 <SIcon name="arrow.triangle.pull" color={x.draft ? "secondary" : "green"} style={{ marginTop: 2 }} />
                 <div className="col grow" style={{ gap: 3, minWidth: 0 }}>
                   <span className="row gap4"><span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{x.title}</span>{x.draft && <Pill text="草稿" />}</span>
-                  <div className="row gap6 caption muted">
-                    <span className="mono">!{x.iid}</span><span>{x.author}</span><span className="mono ellipsis">{x.sourceBranch}</span>
-                    <span className="row gap4" title={`pipeline:${statusLabel(x.pipeline?.status)}`}><SIcon name={icon} color={c} size={12} />{statusLabel(x.pipeline?.status)}</span>
+                  <div className="ox-meta gap6 caption muted">
+                    <span className="mono">!{x.iid}</span>
+                    <span title={`pipeline:${statusLabel(x.pipeline?.status)}`} style={{ display: "inline-flex" }}><SIcon name={icon} color={c} size={12} /></span>
                     <ApprovalMark a={x.approval} />
-                    <span className="grow" />{x.updatedAt && <span style={{ flex: "none" }}>{relative(x.updatedAt)}</span>}
+                    <MetaFit items={[
+                      { key: "pipeline", drop: 1, node: <span>{statusLabel(x.pipeline?.status)}</span> },
+                      { key: "author", drop: 2, shrink: 60, node: <span title={x.author}>{x.author}</span> },
+                      { key: "branch", drop: 3, shrink: 56, className: "mono", node: <span title={x.sourceBranch}>{x.sourceBranch}</span> },
+                    ]} />
+                    {x.updatedAt && <span>{relative(x.updatedAt)}</span>}
                   </div>
                 </div>
               </div>

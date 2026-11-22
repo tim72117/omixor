@@ -81,7 +81,7 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
   const failed = err && data.project !== project;
 
   const nodeRow = (title: string, icon: string, count: number, rs: [Agent, DocAccess][], id: string, indent: number, toggle?: () => void, open?: boolean) => (
-    <div key={id} className={"bx-list-row" + (node === id ? " on" : "")} style={{ border: 0, padding: "5px 10px", paddingLeft: 10 + indent, alignItems: "center", gap: 6, borderRadius: 6, margin: "0 6px" }}
+    <div key={id} className={"bx-list-row" + (node === id ? " on" : "")} style={{ border: 0, padding: "5px 10px", paddingLeft: 10 + indent, alignItems: "center", gap: 6, borderRadius: "var(--r-md)", margin: "0 6px" }}
       onClick={() => { setNode(id); setSelectedDoc(undefined); }}>
       {toggle ? (
         <button className="bx-icon-btn" style={{ padding: 0 }} onClick={(e) => { e.stopPropagation(); toggle(); }}>
@@ -100,8 +100,8 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
   );
 
   return (
-    <div className="split">
-      <div className="split-list" style={{ width: 250, background: "var(--side)" }}>
+    <div className="split cab-split">
+      <div className="split-list cab-nav" style={{ background: "var(--side)" }}>
         <ProjectBar project={project} projects={projects} projectsError={data.projectsError} onChange={switchProject} />
         {failed && <div style={{ padding: "8px 10px" }}><ErrorText>{err}</ErrorText></div>}
         {data.error && shown === "" && <div className="caption" style={{ padding: "6px 10px", color: "var(--orange)" }}>{data.error}</div>}
@@ -121,9 +121,9 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
           <button className="btn link" onClick={() => setEditingLayout(true)}><Icon name="slider.horizontal.3" size={12} />編輯結構</button>
         </div>
       </div>
-      <div className="split-list" style={{ width: 300 }}>
+      <div className="split-list cab-docs">
         <div className="col gap8" style={{ padding: 10, borderBottom: "1px solid var(--line)" }}>
-          <div className="row"><span className="h3 ellipsis grow" style={{ fontSize: 14 }}>{tab ? tabTitle(tab) : section?.label}</span>
+          <div className="row"><span className="h3 ellipsis grow" style={{ fontSize: "var(--fs-md)" }}>{tab ? tabTitle(tab) : section?.label}</span>
             <button className="bx-icon-btn" title="新增文件" onClick={() => setCreating(true)}><Icon name="plus" size={14} /></button></div>
           <span className="mono caption muted">位置 {tab?.path ?? section?.path ?? ""}</span>
           {(() => {
@@ -173,7 +173,7 @@ function DocFrame({ html }: { html: string }) {
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
   }, [frame]);
-  return <iframe ref={setFrame} title="文件" sandbox="allow-scripts" srcDoc={html} style={{ width: "100%", height, border: 0, borderRadius: 10 }} />;
+  return <iframe ref={setFrame} title="文件" sandbox="allow-scripts" srcDoc={html} style={{ width: "100%", height, border: 0, borderRadius: "var(--r-xl)" }} />;
 }
 
 /** 文件開頭的欄位(--- 之間的 key: value);沒有範本時顯示成一行小字,內文照舊用 Markdown */
@@ -205,9 +205,10 @@ function DocDetail({ doc, layout, projects, version, onDeleted, onMoved }: { doc
   const del = () => run(async () => { await action("cabinet_doc_delete", { id: doc.id }); onDeleted(); });
   return (
     <div className="page-inner" style={{ maxWidth: 820, gap: 12 }}>
-      <div className="row gap8">
-        {editing ? <input className="input grow" style={{ fontSize: 16 }} value={title} onChange={(e) => setTitle(e.target.value)} />
-          : <span className="page-title grow" style={{ userSelect: "text" }}>{doc.title}</span>}
+      <div className="row gap8 wrap">
+        {editing ? <input className="input" style={{ fontSize: "var(--fs-lg)", flex: "1 1 220px" }} value={title} onChange={(e) => setTitle(e.target.value)} />
+          : <span className="page-title" style={{ userSelect: "text", flex: "1 1 220px", minWidth: 0, overflowWrap: "anywhere" }}>{doc.title}</span>}
+        <div className="ox-actions">
         {editing ? (
           <>
             <button className="btn" onClick={() => setEditing(false)}>取消</button>
@@ -220,6 +221,7 @@ function DocDetail({ doc, layout, projects, version, onDeleted, onMoved }: { doc
             <button className="btn danger" onClick={() => setConfirmDel(true)}>刪除</button>
           </>
         )}
+        </div>
       </div>
       <div className="row gap8 wrap">
         {doc.project && <Pill text={projectLabel(doc.project, projects)} icon="square.stack.3d.up" color="blue" />}

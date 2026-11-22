@@ -125,7 +125,7 @@ export function PipelineDetail({ p, projectName }: { p: GLPipeline; projectName:
                 {logJob === j.id && (
                   <>
                     {logError && <div className="caption" style={{ color: "var(--orange)" }}>{logError}</div>}
-                    {log != null ? <pre className="ox-code" style={{ fontSize: 11, userSelect: "text", maxHeight: 420, overflow: "auto" }}>{log}</pre> : !logError && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
+                    {log != null ? <pre className="ox-code" style={{ fontSize: "var(--fs-xs)", userSelect: "text", maxHeight: 420, overflow: "auto" }}>{log}</pre> : !logError && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
                   </>
                 )}
               </div>
@@ -150,7 +150,7 @@ export function MRDetail({ m }: { m: GLMR }) {
   return (
     <div className="col" style={{ padding: 20, gap: 12, maxWidth: 860 }}>
       <div className="row gap8" style={{ alignItems: "baseline" }}>
-        <span className="h3" style={{ userSelect: "text" }}>{m.title}</span><span className="muted" style={{ fontSize: 15 }}>!{m.iid}</span><span className="grow" />
+        <span className="h3" style={{ userSelect: "text" }}>{m.title}</span><span className="muted" style={{ fontSize: "var(--fs-lg)" }}>!{m.iid}</span><span className="grow" />
         {m.url && <button className="btn" onClick={() => openURL(m.url)}>在 GitLab 打開</button>}
       </div>
       <div className="row gap8 wrap">

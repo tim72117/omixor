@@ -115,7 +115,7 @@ function ServiceDetail({ s, servers, onSelectService, onOpenServer }: { s: Servi
     return x ? <Chip key={id} text={x.name} c={HEALTH[x.health].color} icon={HEALTH[x.health].icon} title={`${x.name}:${HEALTH[x.health].label}`} onClick={() => onSelectService(x.id)} />
       : <Chip key={id} text={id} c="gray" icon="questionmark.circle" title="服務目錄裡找不到這個服務" />;
   };
-  const stat = (title: string, v: string) => <div className="col" style={{ gap: 2 }}><span className="caption muted">{title}</span><span className="num" style={{ fontSize: 15, fontWeight: 500 }}>{v}</span></div>;
+  const stat = (title: string, v: string) => <div className="col" style={{ gap: 2 }}><span className="caption muted">{title}</span><span className="num" style={{ fontSize: "var(--fs-lg)", fontWeight: 500 }}>{v}</span></div>;
   const prod = s.versions?.production, stg = s.versions?.staging;
   return (
     <div className="col" style={{ padding: 18, gap: 14 }}>
@@ -218,7 +218,7 @@ function ServiceDetail({ s, servers, onSelectService, onOpenServer }: { s: Servi
         <div className="card-title">調整 {s.name} 副本數</div>
         <div className="row gap8"><span>副本數</span><span className="grow" />
           <button className="btn small" disabled={replicas <= 1} onClick={() => setReplicas(replicas - 1)}>−</button>
-          <span className="num" style={{ fontSize: 16, fontWeight: 600, minWidth: 28, textAlign: "center" }}>{replicas}</span>
+          <span className="num" style={{ fontSize: "var(--fs-lg)", fontWeight: 600, minWidth: 28, textAlign: "center" }}>{replicas}</span>
           <button className="btn small" disabled={replicas >= 64} onClick={() => setReplicas(replicas + 1)}>+</button>
         </div>
         <div className="caption muted">目前分佈在 {s.hostIds.length} 台主機。調整後會依負載自動排程。</div>

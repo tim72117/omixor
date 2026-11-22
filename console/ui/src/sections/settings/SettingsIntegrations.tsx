@@ -52,7 +52,7 @@ export function SettingsIntegrations() {
         <Section key={c} header={c}>
           {filtered.filter((i) => i.category === c).map((i) => (
             <Row key={i.id}>
-              <span style={{ width: 30, height: 30, borderRadius: 7, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none",
+              <span style={{ width: 30, height: 30, borderRadius: "var(--r-md)", display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none",
                 background: `color-mix(in srgb, ${i.connected ? "var(--accent)" : "var(--fg2)"} 12%, transparent)` }}>
                 <Icon name={i.icon} size={15} color={i.connected ? "var(--accent)" : "var(--fg2)"} />
               </span>

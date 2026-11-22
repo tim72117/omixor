@@ -63,10 +63,10 @@ export function MdTextarea({ value, onChange, placeholder, style, autoFocus }: {
           if (files.length) { e.preventDefault(); void insert(files); }
         }} />
       <div className="row gap8 caption muted" style={{ alignItems: "center" }}>
-        <button type="button" className="btn link" style={{ padding: 0 }} disabled={busy > 0} onClick={() => file.current?.click()}>
+        <button type="button" className="btn link" style={{ padding: 0, flex: "none", whiteSpace: "nowrap" }} disabled={busy > 0} onClick={() => file.current?.click()}>
           <SIcon name="photo" size={12} /> 插入圖片
         </button>
-        <span>{busy > 0 ? "上傳中…" : "也可以直接貼上或拖曳圖片"}</span>
+        <span className="ellipsis" style={{ minWidth: 0 }}>{busy > 0 ? "上傳中…" : "也可以直接貼上或拖曳圖片"}</span>
         {error && <span style={{ color: "var(--orange)" }}>{error}</span>}
       </div>
       <input ref={file} type="file" accept={ACCEPT} multiple hidden

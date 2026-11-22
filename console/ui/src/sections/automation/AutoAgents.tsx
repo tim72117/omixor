@@ -119,17 +119,22 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
   });
   return (
     <div className="page-inner" style={{ maxWidth: 900 }}>
-      <div className="row gap12">
-        <AgentAvatar agent={agent} size={44} />
-        <div className="col grow">
-          <span className="row gap8"><span className="page-title">{agent.name}</span><span className="mono caption muted">{agent.id}</span>{!agent.active && <Pill text="停用" color="gray" />}</span>
-          <span className="muted">{agent.role}</span>
+      {/* 標題欄至少保留 220px;按鈕群不換字、放不下時整組換到下一行,避免標題被擠成一字一行 */}
+      <div className="row gap12 wrap">
+        <div className="row gap12" style={{ flex: "1 1 220px", minWidth: 0 }}>
+          <span style={{ flex: "none", display: "inline-flex" }}><AgentAvatar agent={agent} size={44} /></span>
+          <div className="col grow">
+            <span className="row gap8" style={{ minWidth: 0 }}><span className="page-title ellipsis" title={agent.name}>{agent.name}</span><span className="mono caption muted ellipsis" style={{ flexShrink: 2 }}>{agent.id}</span>{!agent.active && <Pill text="停用" color="gray" />}</span>
+            <span className="muted" style={{ overflowWrap: "anywhere" }}>{agent.role}</span>
+          </div>
         </div>
+        <div className="ox-actions">
         <button className="btn" title="複製一段話,貼到 Claude Code 就會以這個角色領取所有待領取任務" onClick={() => copyPrompt("all")}>
           <Icon name="doc.on.clipboard" size={12} />{copied === "all" ? "已複製" : "複製給 Claude Code"}
         </button>
         <button className="btn" disabled={tasks.length === 0} title={tasks.length === 0 ? "這個角色名下沒有任務" : "把名下的任務轉給另一個角色(不刪角色)"} onClick={() => setTransferring(true)}>轉移任務…</button>
         <button className="btn" onClick={edit}>編輯…</button>
+        </div>
       </div>
       {transferring && <TransferTasksModal mode="transfer" from={agent} agents={allAgents} counts={taskCounts} onClose={() => setTransferring(false)} onDone={() => setTransferring(false)} />}
       <ErrorText>{error}</ErrorText>
@@ -193,7 +198,7 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
                   </span>
                 ))}
                 {tk.result && (
-                  <div className="col gap4" style={{ padding: 10, borderRadius: 8, background: "color-mix(in srgb, var(--green) 8%, transparent)" }}>
+                  <div className="col gap4" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--green) 8%, transparent)" }}>
                     <span className="row gap4 caption" style={{ fontWeight: 600, color: "var(--green)" }}><Icon name="checkmark.seal" size={12} />結果</span>
                     <Markdown text={tk.result} />
                   </div>
@@ -266,7 +271,7 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
       </div>
       <div className="bx-field"><span>顏色</span>
         <div className="row gap6">{PALETTE.map((c) => (
-          <button key={c} title={c} onClick={() => set({ color: c })} style={{ width: 20, height: 20, borderRadius: 20, background: color(c), border: draft.color === c ? "2px solid var(--fg)" : "2px solid transparent" }} />
+          <button key={c} title={c} onClick={() => set({ color: c })} style={{ width: 20, height: 20, borderRadius: "var(--r-pill)", background: color(c), border: draft.color === c ? "2px solid var(--fg)" : "2px solid transparent" }} />
         ))}</div>
       </div>
       <label className="row gap6"><input type="checkbox" checked={draft.active} onChange={(e) => set({ active: e.target.checked })} />啟用(停用時例行任務不會排)</label>
@@ -279,7 +284,7 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
       <div className="bx-field">
         <span>例行任務</span>
         {draft.routines.map((r) => (
-          <div key={r.id} className="col gap6" style={{ padding: 8, borderRadius: 8, border: "1px solid var(--line)" }}>
+          <div key={r.id} className="col gap6" style={{ padding: 8, borderRadius: "var(--r-lg)", border: "1px solid var(--line)" }}>
             <div className="row gap6">
               <input type="checkbox" checked={r.enabled} onChange={(e) => setRoutine(r.id, { enabled: e.target.checked })} />
               <input className="input grow" placeholder="例行任務標題" value={r.title} onChange={(e) => setRoutine(r.id, { title: e.target.value })} />
@@ -329,9 +334,9 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
 /** 角色的文件櫃存取範圍編輯器(Swift 的 DocAccessEditor) */
 export function DocAccessEditor({ layout, access, onChange }: { layout: CabinetSection[]; access: Record<string, DocAccess>; onChange: (a: Record<string, DocAccess>) => void }) {
   const picker = (title: string, key: string, inherited?: DocAccess, indent?: boolean) => (
-    <div key={key} className="row gap8" style={{ padding: "3px 0", paddingLeft: indent ? 20 : 0 }}>
-      <span className="grow">{title}</span>
-      <select className="select" value={access[key] ?? ""} onChange={(e) => {
+    <div key={key} className="row gap8" style={{ flex: 1, minWidth: 0, padding: "3px 0", paddingLeft: indent ? 20 : 0 }}>
+      <span className="grow" style={{ minWidth: 96, overflowWrap: "anywhere" }}>{title}</span>
+      <select className="select" style={{ width: "auto", flex: "0 1 auto", maxWidth: "60%" }} value={access[key] ?? ""} onChange={(e) => {
         const n = { ...access };
         if (e.target.value) n[key] = e.target.value as DocAccess; else delete n[key];
         onChange(n);
@@ -345,7 +350,7 @@ export function DocAccessEditor({ layout, access, onChange }: { layout: CabinetS
   );
   if (!layout.length) return <span className="caption muted">讀不到文件櫃結構</span>;
   return (
-    <div className="col" style={{ padding: 8, borderRadius: 8, border: "1px solid var(--line)" }}>
+    <div className="col" style={{ padding: 8, borderRadius: "var(--r-lg)", border: "1px solid var(--line)" }}>
       {layout.map((s) => s.tabs.length === 0 ? picker(s.label, s.id) : (
         <Fragment key={s.id}>
           <details className="bx-disclosure">

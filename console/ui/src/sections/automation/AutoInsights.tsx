@@ -10,7 +10,7 @@ import { AutonomyBadge, seedUnit, useAuto } from "./autoShared";
 type Sort = "hours" | "runs" | "success" | "cost";
 const SORTS: { value: Sort; label: string }[] = [{ value: "hours", label: "省下時間" }, { value: "runs", label: "執行次數" }, { value: "success", label: "成功率" }, { value: "cost", label: "成本" }];
 const PALETTE = ["var(--indigo)", "var(--purple)", "var(--teal)", "var(--orange)", "var(--pink)", "var(--gray)"];
-const axis = { tick: { fontSize: 10, fill: "var(--fg2)" }, stroke: "var(--line)" };
+const axis = { tick: { fontSize: 11, fill: "var(--fg2)" }, stroke: "var(--line)" };
 
 export function AutoInsights({ openAutomation }: { openAutomation: (id: string) => void }) {
   const d = useAuto();
@@ -71,8 +71,8 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
                   <CartesianGrid stroke="var(--line)" vertical={false} />
                   <XAxis dataKey="day" interval={1} {...axis} />
                   <YAxis allowDecimals={false} {...axis} />
-                  <Tooltip contentStyle={{ background: "var(--bg2)", border: "1px solid var(--line)", fontSize: 11 }} />
-                  <Legend iconSize={8} wrapperStyle={{ fontSize: 10.5 }} />
+                  <Tooltip contentStyle={{ background: "var(--bg2)", border: "1px solid var(--line)", fontSize: "var(--fs-xs)" }} />
+                  <Legend iconSize={8} wrapperStyle={{ fontSize: "var(--fs-xs)" }} />
                   {series.map((s, i) => <Bar key={s} dataKey={s} stackId="a" fill={PALETTE[i % PALETTE.length]} isAnimationActive={false} />)}
                 </BarChart>
               </ResponsiveContainer>
@@ -87,7 +87,7 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
                   <XAxis type="number" {...axis} />
                   <YAxis type="category" dataKey="name" width={120} {...axis} />
                   <Bar dataKey="timeSavedHours" fill="url(#aiGrad)" radius={[0, 4, 4, 0]} isAnimationActive={false}>
-                    <LabelList dataKey="timeSavedHours" position="right" formatter={(v: number) => v.toFixed(1)} style={{ fontSize: 10, fill: "var(--fg2)" }} />
+                    <LabelList dataKey="timeSavedHours" position="right" formatter={(v: number) => v.toFixed(1)} style={{ fontSize: "var(--fs-xs)", fill: "var(--fg2)" }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -103,7 +103,7 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
                   <ReferenceLine x={90} stroke="var(--fg2)" strokeDasharray="4 3" />
                   <Bar dataKey="v" radius={[0, 4, 4, 0]} isAnimationActive={false}>
                     {successData.map((x) => <Cell key={x.name} fill={x.v >= 95 ? "var(--green)" : x.v >= 90 ? "var(--orange)" : "var(--red)"} />)}
-                    <LabelList dataKey="v" position="right" formatter={(v: number) => `${v.toFixed(0)}%`} style={{ fontSize: 10, fill: "var(--fg2)" }} />
+                    <LabelList dataKey="v" position="right" formatter={(v: number) => `${v.toFixed(0)}%`} style={{ fontSize: "var(--fs-xs)", fill: "var(--fg2)" }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -124,7 +124,7 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
           </Card>
         </div>
         <Card>
-          <div className="row"><span className="h3 grow" style={{ fontSize: 14 }}>流程排行</span><div style={{ width: 320 }}><Segmented value={sort} onChange={setSort} options={SORTS} /></div></div>
+          <div className="row"><span className="h3 grow" style={{ fontSize: "var(--fs-md)" }}>流程排行</span><div style={{ width: 320 }}><Segmented value={sort} onChange={setSort} options={SORTS} /></div></div>
           <table className="table">
             <thead><tr><th>流程</th><th>自主程度</th><th style={{ textAlign: "right" }}>執行</th><th style={{ textAlign: "right" }}>成功率</th><th style={{ textAlign: "right" }}>省下</th><th style={{ textAlign: "right" }}>成本</th></tr></thead>
             <tbody>
@@ -149,10 +149,10 @@ export function AutoInsights({ openAutomation }: { openAutomation: (id: string) 
 function Tile({ title, value, delta, icon, tint, spark }: { title: string; value: string; delta?: string; icon: string; tint: string; spark?: { i: number; v: number }[] }) {
   const c = `var(--${tint})`;
   return (
-    <div className="card metric" style={{ gap: 6, borderRadius: 12 }}>
+    <div className="card metric" style={{ gap: 6, borderRadius: "var(--r-xl)" }}>
       <div className="caption muted row gap4"><IconInline name={icon} c={c} />{title}</div>
       <div className="row gap8" style={{ alignItems: "baseline" }}>
-        <span className="metric-value" style={{ fontSize: 24 }}>{value}</span>
+        <span className="metric-value" style={{ fontSize: "var(--fs-3xl)" }}>{value}</span>
         {delta && <span className="caption" style={{ color: "var(--green)", fontWeight: 500 }}>{delta}</span>}
       </div>
       {spark && (

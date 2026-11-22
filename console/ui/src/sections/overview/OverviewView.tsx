@@ -157,11 +157,11 @@ function StatusBanner({ d }: { d: Data }) {
   }
   const col = color(c);
   return (
-    <div className="row gap12" style={{ padding: 14, borderRadius: 12, background: `color-mix(in srgb, ${col} 9%, transparent)`, border: `1px solid color-mix(in srgb, ${col} 25%, transparent)` }}>
+    <div className="row gap12" style={{ padding: 14, borderRadius: "var(--r-xl)", background: `color-mix(in srgb, ${col} 9%, transparent)`, border: `1px solid color-mix(in srgb, ${col} 25%, transparent)` }}>
       <SIcon name={icon} size={26} color={c} />
       <div className="col gap4 grow" style={{ minWidth: 0 }}>
         <div className="card-title">{title}</div>
-        <div className="muted" style={{ fontSize: 12.5 }}>{detail}</div>
+        <div className="muted" style={{ fontSize: "var(--fs-base)" }}>{detail}</div>
       </div>
       {(level === "major" || level === "degraded") && (
         <>
@@ -197,8 +197,9 @@ function KPIRow({ d }: { d: Data }) {
   const minSev = d.open.length ? Math.min(...d.open.map((i) => i.sev)) : undefined;
   const sh = d.show;
   if (!sh.monitoring && !sh.pipelines && !sh.incidents && !sh.automation) return null;
+  const n = (sh.monitoring ? 3 : 0) + (sh.pipelines ? 1 : 0) + (sh.incidents ? 1 : 0) + (sh.automation ? 1 : 0);
   return (
-    <div className="ox-grid-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
+    <div className="ox-kpi-wrap"><div className="ox-kpi" data-n={n}>
       {sh.monitoring && <>
       <KPITile title="可用性(30 天)" value={avgUptime != null ? pct(avgUptime, 2) : "—"} caption={`SLO ${pct(slo, 2)}`} captionColor={(avgUptime ?? 100) >= slo ? "green" : "red"} icon="checkmark.shield" tint="green" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
       <KPITile title="p95 延遲" value={p95 != null ? `${Math.round(p95)} ms` : "—"} caption={p95 != null ? (p95 > 500 ? "高於 500 ms 目標" : "在 500 ms 目標內") : "尚無資料"} captionColor={(p95 ?? 0) > 500 ? "orange" : "secondary"} icon="speedometer" tint="blue" onClick={canGo("monitoring") ? () => o.go("monitoring") : undefined} />
@@ -207,15 +208,15 @@ function KPIRow({ d }: { d: Data }) {
       {sh.pipelines && <KPITile title="今日部署" value={String(deploysToday.length)} caption={deployCaption} captionColor={failed ? "red" : "secondary"} icon="shippingbox" tint="indigo" onClick={canGo("pipelines") ? () => o.go("pipelines") : undefined} />}
       {sh.incidents && <KPITile title="進行中事件" value={String(d.open.length)} caption={minSev != null ? `最高 SEV${minSev}` : "目前沒有事件"} captionColor={d.open.length ? "red" : "secondary"} icon="flame" tint={d.open.length ? "red" : "secondary"} onClick={canGo("incidents") ? () => o.go("incidents", d.open[0]?.id) : undefined} />}
       {sh.automation && <KPITile title="AI 今日動作" value={String(aiToday.length)} caption={aiHours > 0 ? `約省下 ${aiHours.toFixed(1)} 小時` : `${d.pending.length} 項等你決定`} captionColor="purple" icon="sparkles" tint="purple" onClick={canGo("automation") ? () => o.go("automation") : undefined} />}
-    </div>
+    </div></div>
   );
 }
 
 function KPITile({ title, value, caption, captionColor, icon, tint, onClick }: { title: string; value: string; caption: string; captionColor: string; icon: string; tint: string; onClick?: () => void }) {
   return (
     <button className="card ox-tile" style={{ gap: 6, cursor: onClick ? undefined : "default" }} onClick={onClick}>
-      <div className="row gap6 muted ellipsis" style={{ fontSize: 12.5 }}><SIcon name={icon} color={tint} />{title}</div>
-      <div className="num" style={{ fontSize: 26, fontWeight: 600 }}>{value}</div>
+      <div className="row gap6 muted ellipsis" style={{ fontSize: "var(--fs-base)" }}><SIcon name={icon} color={tint} />{title}</div>
+      <div className="num" style={{ fontSize: "var(--fs-3xl)", fontWeight: 600 }}>{value}</div>
       <div className="caption ellipsis" style={{ color: color(captionColor), fontWeight: 500 }}>{caption}</div>
     </button>
   );
@@ -246,15 +247,15 @@ function ServicesCard({ d }: { d: Data }) {
               const ok = s.health === "healthy";
               return (
                 <button key={s.id} className="ox-tile col gap4" title={`${s.name}:${s.summary}`} onClick={canGo("infrastructure") ? () => o.go("infrastructure", s.id) : undefined}
-                  style={{ padding: 10, borderRadius: 8, background: `color-mix(in srgb, ${c} ${ok ? 5 : 12}%, transparent)`, border: `1px solid color-mix(in srgb, ${c} ${ok ? 12 : 35}%, transparent)` }}>
+                  style={{ padding: 10, borderRadius: "var(--r-lg)", background: `color-mix(in srgb, ${c} ${ok ? 5 : 12}%, transparent)`, border: `1px solid color-mix(in srgb, ${c} ${ok ? 12 : 35}%, transparent)` }}>
                   <div className="row gap6" style={{ width: "100%" }}>
                     <SIcon name={HEALTH[s.health].icon} color={HEALTH[s.health].color} />
                     <span className="ellipsis" style={{ fontWeight: 500 }}>{s.name}</span>
                     <span className="grow" />
-                    {s.tier === 1 && <span className="muted" style={{ fontSize: 10, fontWeight: 700 }} title="第 1 級(最關鍵)服務">T1</span>}
+                    {s.tier === 1 && <span className="muted" style={{ fontSize: "var(--fs-xs)", fontWeight: 700 }} title="第 1 級(最關鍵)服務">T1</span>}
                   </div>
                   <div className="caption muted num ellipsis">p95 {Math.trunc(s.latencyP95)} ms&nbsp;&nbsp;錯誤 {pct(s.errorRate, 2)}</div>
-                  <div className="row gap4 faint mono ellipsis" style={{ fontSize: 10.5 }}><SIcon name="tag" size={10} />{s.versions?.[d.env] ?? `未部署到 ${ENV[d.env].short}`}</div>
+                  <div className="row gap4 faint mono ellipsis" style={{ fontSize: "var(--fs-xs)" }}><SIcon name="tag" size={10} />{s.versions?.[d.env] ?? `未部署到 ${ENV[d.env].short}`}</div>
                 </button>
               );
             })}
@@ -333,7 +334,7 @@ function ApprovalRow({ r }: { r: ApprovalRequest }) {
   const left = t(r.expiresAt) - now();
   const clamp = (n: number) => (expanded ? {} : { display: "-webkit-box", WebkitLineClamp: n, WebkitBoxOrient: "vertical" as const, overflow: "hidden" });
   return (
-    <div className="col gap8" style={{ padding: 10, borderRadius: 8, background: "color-mix(in srgb, var(--purple) 5%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 18%, transparent)" }}>
+    <div className="col gap8" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--purple) 5%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 18%, transparent)" }}>
       <div className="row gap6">
         <Pill text={RISK[r.risk].label} color={RISK[r.risk].color} />
         <span className="caption muted ellipsis">{o.automations.find((a) => a.id === r.automation)?.name ?? "AI 自動化"}</span>
@@ -342,7 +343,7 @@ function ApprovalRow({ r }: { r: ApprovalRequest }) {
       </div>
       <div style={{ fontWeight: 600 }}>{r.title}</div>
       <div className="caption muted" style={clamp(2)}>{r.rationale}</div>
-      <div className="mono" style={{ fontSize: 11.5, padding: 8, borderRadius: 6, background: "color-mix(in srgb, var(--fg) 5%, transparent)", userSelect: "text", ...clamp(2) }}>{r.action}</div>
+      <div className="mono" style={{ fontSize: "var(--fs-sm)", padding: 8, borderRadius: "var(--r-md)", background: "color-mix(in srgb, var(--fg) 5%, transparent)", userSelect: "text", ...clamp(2) }}>{r.action}</div>
       {expanded && (
         <>
           {r.evidence.length > 0 && (
@@ -389,7 +390,7 @@ function IncidentsCard({ d }: { d: Data }) {
             const c = color(sevColor(inc.sev));
             return (
               <button key={inc.id} className="ox-tile col gap6" onClick={canGo("incidents") ? () => o.go("incidents", inc.id) : undefined}
-                style={{ padding: 10, borderRadius: 8, background: `color-mix(in srgb, ${c} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${c} 25%, transparent)` }}>
+                style={{ padding: 10, borderRadius: "var(--r-lg)", background: `color-mix(in srgb, ${c} 6%, transparent)`, border: `1px solid color-mix(in srgb, ${c} 25%, transparent)` }}>
                 <div className="row gap6" style={{ width: "100%" }}>
                   <Pill text={`SEV${inc.sev}`} color={sevColor(inc.sev)} />
                   <span className="caption mono muted">{inc.id}</span>
@@ -430,7 +431,7 @@ function OnCallCard({ d }: { d: Data }) {
       </div>
       <div className="col" style={{ alignItems: "flex-end", gap: 1 }}>
         <Pill text={s.role} color={s.role === "Primary" ? "var(--accent)" : "secondary"} />
-        <span className="muted" style={{ fontSize: 10.5 }}>{caption}</span>
+        <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{caption}</span>
       </div>
     </div>
   );
@@ -498,9 +499,9 @@ function RunRow({ run, first }: { run: PipelineRun; first: boolean }) {
       </div>
       <div className="caption muted ellipsis">{run.commitMessage}</div>
       <div className="row" style={{ gap: 3 }}>
-        {run.stages.map((s) => <span key={s.id} title={`${s.name}:${RUN[s.status].label}`} style={{ flex: 1, height: 5, borderRadius: 5, background: `color-mix(in srgb, ${color(RUN[s.status].color)} ${s.status === "queued" ? 25 : 85}%, transparent)` }} />)}
+        {run.stages.map((s) => <span key={s.id} title={`${s.name}:${RUN[s.status].label}`} style={{ flex: 1, height: 5, borderRadius: "var(--r-sm)", background: `color-mix(in srgb, ${color(RUN[s.status].color)} ${s.status === "queued" ? 25 : 85}%, transparent)` }} />)}
       </div>
-      <div className="row gap6 muted" style={{ fontSize: 10.5 }}>
+      <div className="row gap6 muted" style={{ fontSize: "var(--fs-xs)" }}>
         <SIcon name="arrow.triangle.branch" size={10} /><span className="ellipsis">{run.branch}</span><span className="mono">{run.commitSHA.slice(0, 7)}</span>
         <span className="grow" />
         <span className="num">{run.status === "running" ? `${Math.trunc(progress * 100)}%` : run.duration != null ? dur(run.duration) : relative(run.startedAt)}</span>
@@ -529,7 +530,7 @@ function DeployRow({ d, first }: { d: Deployment; first: boolean }) {
         {d.status === "waitingApproval" ? <button className="btn small primary" onClick={(e) => { e.stopPropagation(); run(() => action("deployment_approve", { id: d.id })); }}>核准部署</button> : <RunStatusBadge s={d.status} />}
       </div>
       {d.status === "running" && <ProgressBar value={d.progress} showLabel={false} />}
-      <div className="row gap6 muted" style={{ fontSize: 10.5 }}>
+      <div className="row gap6 muted" style={{ fontSize: "var(--fs-xs)" }}>
         <ActorAvatar actor={d.by} size={14} /><span className="ellipsis">{o.name(d.by)}</span>·<span>{d.strategy}</span>
         {d.canaryPercent != null && d.status === "running" && <span>canary {d.canaryPercent}%</span>}
         <span className="grow" />{relative(d.startedAt)}
@@ -560,7 +561,7 @@ function SprintCard({ d }: { d: Data }) {
         <>
           {sp?.goal && <div className="caption muted" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{sp.goal}</div>}
           <div className="row gap6" style={{ alignItems: "baseline" }}>
-            <span className="num" style={{ fontSize: 24, fontWeight: 600 }}>{done}</span>
+            <span className="num" style={{ fontSize: "var(--fs-3xl)", fontWeight: 600 }}>{done}</span>
             <span className="muted">/ {total} 點</span>
             <span className="grow" />
             <span className="caption muted">{daysLeft > 0 ? `剩 ${daysLeft} 天` : "今天結束"}</span>
@@ -572,7 +573,7 @@ function SprintCard({ d }: { d: Data }) {
             {(["todo", "inProgress", "review", "done"] as const).map((st) => (
               <div key={st} className="col grow" style={{ gap: 1 }}>
                 <span className="num" style={{ fontWeight: 600 }}>{d.work.filter((w) => w.status === st).length}</span>
-                <span className="muted" style={{ fontSize: 10.5 }}>{WORK_STATUS[st].label}</span>
+                <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{WORK_STATUS[st].label}</span>
               </div>
             ))}
           </div>
@@ -612,8 +613,8 @@ function ErrorBudgetCard({ d }: { d: Data }) {
                   strokeDasharray={`${C * Math.min(1, Math.max(0, overall))} ${C}`} transform="rotate(-90 42 42)" />
               </svg>
               <div className="col" style={{ position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" }}>
-                <span className="num" style={{ fontSize: 18, fontWeight: 600 }}>{Math.round(overall * 100)}%</span>
-                <span className="muted" style={{ fontSize: 10 }}>剩餘</span>
+                <span className="num" style={{ fontSize: "var(--fs-xl)", fontWeight: 600 }}>{Math.round(overall * 100)}%</span>
+                <span className="muted" style={{ fontSize: "var(--fs-xs)" }}>剩餘</span>
               </div>
             </div>
             <div className="col gap4">

@@ -36,7 +36,7 @@ export function SettingsFeatures() {
       <div className="col" style={{ gap: 16, maxWidth: 860, width: "100%", margin: "0 auto", padding: 20 }}>
         <div className="row gap8" style={{ alignItems: "flex-start" }}>
           <div className="col gap4 grow">
-            <div style={{ fontWeight: 600, fontSize: 15 }}>功能</div>
+            <div style={{ fontWeight: 600, fontSize: "var(--fs-lg)" }}>功能</div>
             <div className="caption muted">選擇這個組織要開啟哪些功能。關掉的功能不會出現在側邊欄、頁面分頁、搜尋(⌘K)、AI 助理的建議與跨頁連結。</div>
           </div>
           <button className="btn" disabled={reloading} onClick={() => run(reloadFeatures)}><Icon name="arrow.clockwise" size={12} />重新讀取</button>

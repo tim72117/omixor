@@ -109,7 +109,7 @@ function ProjectPicker({ onDone }: { onDone: () => void }) {
       ) : (
         <>
           <input className="input" placeholder={`搜尋專案(共 ${projects.length} 個)`} value={query} onChange={(e) => setQuery(e.target.value)} />
-          <div className="col gap4" style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
+          <div className="col gap4" style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 8 }}>
             {list.map((p) => (
               <Check key={p.key} on={picked.includes(p.key)} onChange={(v) => toggle(p.key, v)}>
                 <span className="mono">{p.key}</span> <span>{p.name}</span>

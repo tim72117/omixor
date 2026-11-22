@@ -134,7 +134,7 @@ export function IssueEditForm({ issue, onClose, onSaved }: { issue: Issue; onClo
         </div>
       )}
       {merged && !conflict && (
-        <div className="col gap6" style={{ padding: 10, borderRadius: 8, background: "color-mix(in srgb, var(--fg) 5%, transparent)" }}>
+        <div className="col gap6" style={{ padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--fg) 5%, transparent)" }}>
           <span className="caption">
             已載入最新內容(第 {merged.version ?? base.version ?? "?"} 版),你的編輯還在。
             {merged.adopted.length > 0 && `你沒改過的欄位(${merged.adopted.map((f) => DRAFT_LABEL[f]).join("、")})已換成最新內容。`}
@@ -144,12 +144,12 @@ export function IssueEditForm({ issue, onClose, onSaved }: { issue: Issue; onClo
             <div key={d.field} className="col gap4">
               <span className="caption" style={{ fontWeight: 600 }}>{DRAFT_LABEL[d.field]}</span>
               <span className="caption muted" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>最新:{d.theirs || "(空)"}</span>
-              <span><button className="btn" style={{ fontSize: 12 }} onClick={() => set(d.field, d.theirs)}>改用最新的</button></span>
+              <span><button className="btn" style={{ fontSize: "var(--fs-sm)" }} onClick={() => set(d.field, d.theirs)}>改用最新的</button></span>
             </div>
           ))}
         </div>
       )}
-      <input className="input" style={{ fontSize: 15 }} placeholder="標題" value={draft.title} onChange={(e) => set("title", e.target.value)} />
+      <input className="input" style={{ fontSize: "var(--fs-lg)" }} placeholder="標題" value={draft.title} onChange={(e) => set("title", e.target.value)} />
       <input className="input" placeholder="標籤(逗號分隔)" value={draft.labels} onChange={(e) => set("labels", e.target.value)} />
       <RepoPicker value={draft.repo} onChange={(v) => set("repo", v)} />
       <ProjectPicker value={draft.project} onChange={(v) => set("project", v)} projects={projects} moving={draft.project !== (base.project ?? "")} />

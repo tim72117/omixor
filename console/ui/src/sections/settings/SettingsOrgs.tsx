@@ -95,7 +95,7 @@ function SymbolColorPickers({ symbol, colorName, onSymbol, onColor }: { symbol: 
       </div>
       <div className="bx-field"><span>顏色</span>
         <div className="row gap6">{COLORS.map((c) => (
-          <button key={c} title={c} onClick={() => onColor(c)} style={{ width: 20, height: 20, borderRadius: 20, background: color(c), border: colorName === c ? "2px solid var(--fg)" : "2px solid transparent" }} />
+          <button key={c} title={c} onClick={() => onColor(c)} style={{ width: 20, height: 20, borderRadius: "var(--r-pill)", background: color(c), border: colorName === c ? "2px solid var(--fg)" : "2px solid transparent" }} />
         ))}</div>
       </div>
     </>

@@ -117,8 +117,8 @@ export function SettingsAI() {
           <div className="col gap6 grow">
             <div className="row"><span className="grow">最近 30 天花費</span><span className="num" style={{ color: ratio > 1 ? "var(--red)" : ratio > 0.8 ? "var(--orange)" : "var(--fg2)" }}>${spend.toFixed(2)} / ${budget.toFixed(0)}</span></div>
             <div className="row gap8">
-              <div className="grow" style={{ height: 6, borderRadius: 6, background: "color-mix(in srgb, var(--fg) 8%, transparent)" }}>
-                <div style={{ width: `${Math.min(100, ratio * 100)}%`, height: 6, borderRadius: 6, background: barColor }} />
+              <div className="grow" style={{ height: 6, borderRadius: "var(--r-md)", background: "color-mix(in srgb, var(--fg) 8%, transparent)" }}>
+                <div style={{ width: `${Math.min(100, ratio * 100)}%`, height: 6, borderRadius: "var(--r-md)", background: barColor }} />
               </div>
               <span className="caption muted num" style={{ width: 36, textAlign: "right" }}>{Math.floor(ratio * 100)}%</span>
             </div>

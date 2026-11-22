@@ -110,7 +110,7 @@ export function CabinetLayoutEditor({ project = "", projectName, layout, layoutV
     <Modal open onClose={onClose} width={640}>
       <span className="modal-title">文件櫃結構({cur?.name ?? ""}{projectName ? ` › ${projectName}` : ""})</span>
       <span className="caption muted">區塊是第一層,頁籤是區塊底下的分類。角色的文件存取範圍以區塊或頁籤為單位。</span>
-      <div className="col gap8" style={{ minHeight: 380, maxHeight: "50vh", overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: 8 }}>
+      <div className="col gap8" style={{ minHeight: 380, maxHeight: "50vh", overflowY: "auto", border: "1px solid var(--line)", borderRadius: "var(--r-lg)", padding: 8 }}>
         {draft.map((s) => (
           <div key={s.id} className="col gap4" style={{ paddingBottom: 8, borderBottom: "1px solid var(--line)" }}>
             <div className="row gap6">

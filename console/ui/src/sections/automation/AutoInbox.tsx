@@ -83,14 +83,14 @@ function ApprovalCard({ req, highlighted, openAutomation, openRun, onEdited }: {
   });
   return (
     <div id={"apv-" + req.id} className="card" style={{
-      padding: 16, gap: 12, borderRadius: 12, position: "relative", overflow: "hidden",
+      padding: 16, gap: 12, borderRadius: "var(--r-xl)", position: "relative", overflow: "hidden",
       border: highlighted ? "2px solid var(--purple)" : undefined, transition: "border .3s",
     }}>
       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: color(RISK_COLOR[req.risk]) }} />
       <div className="row gap12" style={{ alignItems: "flex-start" }}>
         <IconTile icon={auto?.icon ?? "sparkles"} size={36} />
         <div className="col gap4 grow">
-          <span className="h3" style={{ fontSize: 14 }}>{req.title}</span>
+          <span className="h3" style={{ fontSize: "var(--fs-md)" }}>{req.title}</span>
           <span className="row gap6 caption">
             <button className="btn link caption" style={{ padding: 0 }} onClick={() => openAutomation(req.automation)}>{auto?.name ?? req.automation}</button>
             <span className="faint">·</span><span className="muted">提出於 {relative(req.createdAt)}</span>
@@ -98,7 +98,7 @@ function ApprovalCard({ req, highlighted, openAutomation, openRun, onEdited }: {
         </div>
         <div className="col gap6" style={{ alignItems: "flex-end" }}><RiskBadge risk={req.risk} /><Countdown expiresAt={req.expiresAt} /></div>
       </div>
-      <div className="row gap8" style={{ alignItems: "flex-start", padding: 10, borderRadius: 8, background: "color-mix(in srgb, var(--purple) 7%, transparent)" }}>
+      <div className="row gap8" style={{ alignItems: "flex-start", padding: 10, borderRadius: "var(--r-lg)", background: "color-mix(in srgb, var(--purple) 7%, transparent)" }}>
         <Icon name="sparkles" size={13} color="var(--purple)" />
         <div className="col gap4"><span style={{ fontWeight: 600, color: "var(--purple)" }}>AI 的判斷</span><span style={{ userSelect: "text", lineHeight: 1.5 }}>{req.rationale}</span></div>
       </div>

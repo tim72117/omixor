@@ -31,7 +31,7 @@ export function AutoFlows({ openDetail }: { openDetail: (id: string) => void }) 
         <div className="grid g3">
           {AUTONOMIES.map((a) => (
             <div key={a} className="card row" style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 10 }}>
-              <span style={{ width: 28, height: 28, borderRadius: 7, flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", background: `color-mix(in srgb, ${color(AUTONOMY_COLOR[a])} 13%, transparent)` }}>
+              <span style={{ width: 28, height: 28, borderRadius: "var(--r-md)", flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", background: `color-mix(in srgb, ${color(AUTONOMY_COLOR[a])} 13%, transparent)` }}>
                 <Icon name={AUTONOMY_ICON[a]} size={14} color={color(AUTONOMY_COLOR[a])} />
               </span>
               <div className="col gap4">
@@ -69,7 +69,7 @@ function FlowCard({ a, openDetail, acts }: { a: Automation; openDetail: () => vo
   const menu = useContextMenu();
   const pending = pendingOf(d).find((p) => p.automation === a.id);
   const stat = (title: string, value: string, c?: string) => (
-    <div className="col grow"><span className="muted" style={{ fontSize: 10.5 }}>{title}</span><span className="num" style={{ fontWeight: 600, color: c }}>{value}</span></div>
+    <div className="col grow"><span className="muted" style={{ fontSize: "var(--fs-xs)" }}>{title}</span><span className="num" style={{ fontWeight: 600, color: c }}>{value}</span></div>
   );
   return (
     <div className="card" onDoubleClick={openDetail} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
@@ -78,11 +78,11 @@ function FlowCard({ a, openDetail, acts }: { a: Automation; openDetail: () => vo
         ...AUTONOMIES.map((m) => ({ label: (m === a.autonomy ? "✓ " : "") + AUTONOMY_LABEL[m], onClick: () => acts.setAutonomy(a.id, m) })), "-",
         { label: a.enabled ? "停用" : "啟用", onClick: () => acts.toggle(a.id) },
       ])}
-      style={{ gap: 12, borderRadius: 12, opacity: a.enabled ? 1 : 0.72, borderColor: hover ? "color-mix(in srgb, var(--indigo) 45%, transparent)" : undefined }}>
+      style={{ gap: 12, borderRadius: "var(--r-xl)", opacity: a.enabled ? 1 : 0.72, borderColor: hover ? "color-mix(in srgb, var(--indigo) 45%, transparent)" : undefined }}>
       <div className="row gap12" style={{ alignItems: "flex-start" }}>
         <IconTile icon={a.icon} size={38} dimmed={!a.enabled} />
         <div className="col gap4 grow" style={{ minWidth: 0 }}>
-          <span className="h3 ellipsis" style={{ fontSize: 14 }}>{a.name}</span>
+          <span className="h3 ellipsis" style={{ fontSize: "var(--fs-md)" }}>{a.name}</span>
           <span className="muted" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{a.summary}</span>
         </div>
         <Switch small on={a.enabled} title={a.enabled ? "停用這個流程" : "啟用這個流程"} onChange={() => acts.toggle(a.id)} />
@@ -130,7 +130,7 @@ export function FlowDetailSheet({ id, onClose, navigate }: { id?: string; onClos
           <div className="row gap12" style={{ alignItems: "flex-start" }}>
             <IconTile icon={a.icon} size={46} dimmed={!a.enabled} />
             <div className="col gap4 grow">
-              <span className="row gap8"><span className="h3" style={{ fontSize: 16 }}>{a.name}</span><AIBadge /></span>
+              <span className="row gap8"><span className="h3" style={{ fontSize: "var(--fs-lg)" }}>{a.name}</span><AIBadge /></span>
               <span className="muted">{a.summary}</span>
               <span className="row gap4 caption" style={{ color: "var(--indigo)" }}><Icon name="bolt.horizontal.circle" size={11} />{a.trigger}</span>
             </div>
@@ -182,8 +182,8 @@ function Guardrails({ a }: { a: Automation }) {
         {row("成本預算", "dollarsign.circle", (
           <div className="col gap4">
             <span className="num">本月 US${g.spentUSD.toFixed(2)} / US${g.monthlyBudgetUSD.toFixed(0)}</span>
-            <div style={{ width: 260, height: 5, borderRadius: 5, background: "color-mix(in srgb, var(--fg) 10%, transparent)" }}>
-              <div style={{ width: `${ratio * 100}%`, height: 5, borderRadius: 5, background: ratio > 0.8 ? "var(--orange)" : "var(--purple)" }} />
+            <div style={{ width: 260, height: 5, borderRadius: "var(--r-sm)", background: "color-mix(in srgb, var(--fg) 10%, transparent)" }}>
+              <div style={{ width: `${ratio * 100}%`, height: 5, borderRadius: "var(--r-sm)", background: ratio > 0.8 ? "var(--orange)" : "var(--purple)" }} />
             </div>
           </div>
         ))}
@@ -250,9 +250,9 @@ function Diagram({ autonomy }: { autonomy: Autonomy }) {
               {i > 0 && <span style={{ width: 14, height: 50, display: "inline-flex", alignItems: "center", flex: "none" }}><Icon name="chevron.right" size={11} className="faint" /></span>}
               <div className="col" style={{ width: 98, alignItems: "center", gap: 5, padding: "4px 0", flex: "none" }}>
                 <span style={{ width: 50, height: 50, display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-                  {n.kind === "human" && <span style={{ position: "absolute", inset: 1, borderRadius: 50, border: "5px solid color-mix(in srgb, var(--orange) 35%, transparent)" }} />}
+                  {n.kind === "human" && <span style={{ position: "absolute", inset: 1, borderRadius: "var(--r-pill)", border: "5px solid color-mix(in srgb, var(--orange) 35%, transparent)" }} />}
                   <span style={{
-                    width: 38, height: 38, borderRadius: 38, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    width: 38, height: 38, borderRadius: "var(--r-pill)", display: "inline-flex", alignItems: "center", justifyContent: "center",
                     background: faded ? "color-mix(in srgb, var(--gray) 12%, transparent)" : n.kind === "ai" ? "linear-gradient(135deg, var(--purple), var(--indigo))" : col(n.kind),
                     border: faded ? "1.5px dashed color-mix(in srgb, var(--gray) 50%, transparent)" : undefined,
                   }}>
@@ -260,7 +260,7 @@ function Diagram({ autonomy }: { autonomy: Autonomy }) {
                   </span>
                 </span>
                 <span className="caption" style={{ fontWeight: 600, color: faded ? "var(--fg2)" : n.kind === "human" ? "var(--orange)" : undefined, textDecoration: n.kind === "skipped" ? "line-through" : undefined }}>{n.title}</span>
-                <span className="muted" style={{ fontSize: 10.5, textAlign: "center" }}>{n.caption}</span>
+                <span className="muted" style={{ fontSize: "var(--fs-xs)", textAlign: "center" }}>{n.caption}</span>
               </div>
             </Fragment>
           );

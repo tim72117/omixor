@@ -7,7 +7,7 @@ import { action, useView } from "../../api";
 import { AgentAvatar, go, Markdown, SearchField } from "../../components/bits";
 import { Icon } from "../../components/Icon";
 import type { Agent, Channel, ChannelMessage, ChannelPage, ChannelsView as ChannelsData } from "../../components/models";
-import { EmptyState, ErrorText, Modal, Pill } from "../../components/ui";
+import { EmptyState, ErrorText, MetaFit, Modal, Pill } from "../../components/ui";
 import { relative } from "../../fmt";
 import { useIssueLabel } from "../development/issueApi";
 import type { SectionProps } from "../index";
@@ -91,13 +91,15 @@ export default function ChannelsView({ focusId, clearFocus }: SectionProps) {
               <div className="row gap6">
                 <Icon name="number" size={13} className="muted" />
                 <span className="ellipsis grow" style={{ fontWeight: c.unread ? 600 : undefined }}>{c.name}</span>
-                {c.unread > 0 && <span className="pill" style={{ background: "var(--accent)", color: "white", borderRadius: 9, padding: "0 6px", fontSize: 11 }}>{c.unread}</span>}
+                {c.unread > 0 && <span className="pill" style={{ background: "var(--accent-fill)", color: "var(--on-accent)", borderRadius: "var(--r-pill)", padding: "0 6px", fontSize: "var(--fs-xs)" }}>{c.unread}</span>}
               </div>
-              <div className="row gap6 caption muted">
-                <span className="mono">{c.id}</span>
-                {c.issueId && <span className="mono">· {issueLabel(c.issueId)}</span>}
-                <span>· {c.members.length} 位</span>
-                <span className="grow" />
+              <div className="ox-meta gap6 caption muted">
+                {/* 綁定的 Issue 最有用、其次人數;頻道 id 放不下就先拿掉 */}
+                <MetaFit items={[
+                  ...(c.issueId ? [{ key: "issue", shrink: 60, className: "mono", node: <span title={issueLabel(c.issueId)}>{issueLabel(c.issueId)}</span> }] : []),
+                  { key: "members", drop: 1, node: <span>{c.members.length} 位</span> },
+                  { key: "id", drop: 2, shrink: 60, className: "mono", node: <span title={c.id}>{c.id}</span> },
+                ]} />
                 <span>{relative(c.lastMessageAt ?? c.updatedAt)}</span>
               </div>
             </div>
@@ -190,7 +192,7 @@ function ChannelPane({ channel, me, dir }: { channel: Channel; me: string; dir: 
           <div className="row gap8" style={{ alignItems: "baseline" }}>
             <span className="h2 ellipsis">{channel.name}</span>
             <span className="mono muted caption">{channel.id}</span>
-            {channel.issueId && canGo("development") && <button className="btn" style={{ padding: "0 6px", fontSize: 12 }} title="打開 Issue" onClick={() => go("development", channel.issueId)}><Icon name="link" size={11} /> {issueLabel(channel.issueId)}</button>}
+            {channel.issueId && canGo("development") && <button className="btn" style={{ padding: "0 6px", fontSize: "var(--fs-sm)" }} title="打開 Issue" onClick={() => go("development", channel.issueId)}><Icon name="link" size={11} /> {issueLabel(channel.issueId)}</button>}
           </div>
           {channel.topic && <span className="caption muted ellipsis">{channel.topic}</span>}
         </div>
@@ -223,7 +225,7 @@ function MessageRow({ m, me, dir }: { m: ChannelMessage; me: string; dir: Dir })
   return (
     <div className="row gap8" style={{ alignItems: "flex-start" }}>
       <Avatar w={w} size={28} />
-      <div className="col gap4 grow" style={{ minWidth: 0, padding: mentionsMe ? "4px 8px" : undefined, borderRadius: 6, background: mentionsMe ? "color-mix(in srgb, var(--orange) 10%, transparent)" : undefined }}>
+      <div className="col gap4 grow" style={{ minWidth: 0, padding: mentionsMe ? "4px 8px" : undefined, borderRadius: "var(--r-md)", background: mentionsMe ? "color-mix(in srgb, var(--orange) 10%, transparent)" : undefined }}>
         <div className="row gap6">
           <span style={{ fontWeight: 600 }}>{w.name}</span>
           {m.author.startsWith("agent:") && <Pill text="角色" color="purple" />}
@@ -292,7 +294,7 @@ function Composer({ members, onSend }: { members: Who[]; onSend: (text: string) 
       {options.length > 0 && (
         <div className="card col" style={{ position: "absolute", bottom: "100%", left: 12, minWidth: 240, padding: 4, gap: 0, zIndex: 5 }}>
           {options.map((w, i) => (
-            <div key={w.node} className={"ox-list-row row gap6" + (i === Math.min(pick, options.length - 1) ? " on" : "")} style={{ borderBottom: 0, borderRadius: 4 }}
+            <div key={w.node} className={"ox-list-row row gap6" + (i === Math.min(pick, options.length - 1) ? " on" : "")} style={{ borderBottom: 0, borderRadius: "var(--r-sm)" }}
               onMouseDown={(e) => { e.preventDefault(); insert(w); }}>
               <Avatar w={w} size={18} /><span>{w.name}</span><span className="caption muted mono">{w.node}</span>
             </div>

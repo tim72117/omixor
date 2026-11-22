@@ -109,7 +109,7 @@ function DeploymentRow({ d, highlighted, onApprove, onRollback }: { d: Deploymen
           {d.canaryPercent != null && (d.strategy === "Canary" || d.canaryPercent > 0) && <Pill text={`流量 ${d.canaryPercent}%`} color="orange" icon="bird" />}
           {depIsRollback(d) && <Pill text="回滾" color="red" icon="arrow.uturn.backward" />}
         </div>
-        <div className="row gap6 mono" style={{ fontSize: 12.5, userSelect: "text" }}>
+        <div className="row gap6 mono" style={{ fontSize: "var(--fs-base)", userSelect: "text" }}>
           <span className="muted">{d.previousVersion}</span><SIcon name="arrow.right" size={11} className="faint" /><span style={{ fontWeight: 600 }}>{d.version}</span>
         </div>
         {d.changes.length > 0 && (expanded

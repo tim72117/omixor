@@ -60,7 +60,7 @@ function Header({ inc }: { inc: Incident }) {
         <div className="grow" />
         <button className="bx-icon-btn" title="複製事件標題" onClick={() => copyText(`${inc.id} ${sevLabel(inc.sev)} ${inc.title}(${INC_STATUS_LABEL[inc.status]})`)}><Icon name="doc.on.doc" size={13} /></button>
       </div>
-      <div className="h2" style={{ fontSize: 20, userSelect: "text" }}>{inc.title}</div>
+      <div className="h2" style={{ fontSize: "var(--fs-2xl)", userSelect: "text" }}>{inc.title}</div>
       <Flow gap={18}>
         {meta("開始", fmtDateTime(inc.startedAt), "clock")}
         {meta(isActive(inc) ? "已持續" : "總時長", fmtDuration(durationOf(inc, now)), "timer")}
@@ -85,7 +85,7 @@ function Stepper({ inc }: { inc: Incident }) {
     setPending(undefined);
   });
   return (
-    <div className="card row wrap" style={{ gap: 14, borderRadius: 12, padding: 12, flexDirection: "row", alignItems: "center" }}>
+    <div className="card row wrap" style={{ gap: 14, borderRadius: "var(--r-xl)", padding: 12, flexDirection: "row", alignItems: "center" }}>
       <div className="row grow" style={{ minWidth: 0, overflowX: "auto" }}>
         {INC_STATUSES.map((s, i) => {
           const c = color(INC_STATUS_COLOR[s]);
@@ -94,9 +94,9 @@ function Stepper({ inc }: { inc: Incident }) {
               {i > 0 && <div style={{ flex: 1, minWidth: 12, height: 2, background: i <= cur ? `color-mix(in srgb, ${c} 80%, transparent)` : "color-mix(in srgb, var(--fg) 12%, transparent)" }} />}
               <button className="row gap6" style={{ border: 0, background: "none", padding: "0 4px" }} title={s === inc.status ? "目前狀態" : `把狀態改為「${INC_STATUS_LABEL[s]}」`}
                 onClick={() => { if (s !== inc.status) { setPending(s); setNote(""); } }}>
-                <span style={{ width: 22, height: 22, borderRadius: 22, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none",
+                <span style={{ width: 22, height: 22, borderRadius: "var(--r-pill)", display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none",
                   background: i <= cur ? c : "transparent", border: `1.5px solid ${i <= cur ? c : "color-mix(in srgb, var(--fg) 25%, transparent)"}` }}>
-                  {i < cur ? <Icon name="checkmark" size={11} color="white" /> : i === cur ? <Icon name={INC_STATUS_ICON[s]} size={11} color="white" /> : <span className="muted" style={{ fontSize: 10, fontWeight: 600 }}>{i + 1}</span>}
+                  {i < cur ? <Icon name="checkmark" size={11} color="white" /> : i === cur ? <Icon name={INC_STATUS_ICON[s]} size={11} color="white" /> : <span className="muted" style={{ fontSize: "var(--fs-xs)", fontWeight: 600 }}>{i + 1}</span>}
                 </span>
                 <span style={{ whiteSpace: "nowrap", fontWeight: i === cur ? 600 : 400, color: i === cur ? c : i < cur ? undefined : "var(--fg2)" }}>{INC_STATUS_LABEL[s]}</span>
               </button>
@@ -132,10 +132,10 @@ function AISummary({ inc }: { inc: Incident }) {
   const { error, run } = useRun();
   const draft = aiSummary(inc, services, dir);
   return (
-    <div className="col gap8" style={{ padding: 14, borderRadius: 12, background: "linear-gradient(135deg, color-mix(in srgb, var(--purple) 12%, transparent), color-mix(in srgb, var(--indigo) 6%, transparent))", border: "1px solid color-mix(in srgb, var(--purple) 25%, transparent)" }}>
+    <div className="col gap8" style={{ padding: 14, borderRadius: "var(--r-xl)", background: "linear-gradient(135deg, color-mix(in srgb, var(--purple) 12%, transparent), color-mix(in srgb, var(--indigo) 6%, transparent))", border: "1px solid color-mix(in srgb, var(--purple) 25%, transparent)" }}>
       <div className="row gap6">
         <Icon name="sparkles" size={14} color="var(--purple)" />
-        <span className="h3" style={{ fontSize: 13.5 }}>AI 摘要</span>
+        <span className="h3" style={{ fontSize: "var(--fs-md)" }}>AI 摘要</span>
         <div className="grow" />
         <span className="caption" style={{ color: "color-mix(in srgb, var(--purple) 80%, transparent)" }}>由 AI 依時間軸整理</span>
         <button className="bx-icon-btn" title="依最新時間軸重新整理" onClick={() => run(() => tool("incident_update", { incident_id: inc.id, ai_summary: draft }))}><Icon name="arrow.clockwise" size={13} /></button>
@@ -242,7 +242,7 @@ function Timeline({ inc }: { inc: Incident }) {
   return (
     <Card>
       <div className="row gap8">
-        <span className="h3" style={{ fontSize: 13.5 }}>時間軸</span>
+        <span className="h3" style={{ fontSize: "var(--fs-md)" }}>時間軸</span>
         <span className="caption muted">{inc.timeline.length} 筆</span>
         <div className="grow" />
         <select className="select" value={filter} onChange={(e) => setFilter(e.target.value as Filter)}>
@@ -250,7 +250,7 @@ function Timeline({ inc }: { inc: Incident }) {
         </select>
         <button className="bx-icon-btn" title={newest ? "目前最新在上" : "目前依時間先後"} onClick={() => setNewest(!newest)}><Icon name={newest ? "arrow.up" : "arrow.down"} size={13} /></button>
       </div>
-      <div className="row gap12 muted" style={{ fontSize: 10.5 }}>
+      <div className="row gap12 muted" style={{ fontSize: "var(--fs-xs)" }}>
         <span className="row gap4"><span className="dot" style={{ background: "var(--accent)" }} />人員</span>
         <span className="row gap4"><span className="dot" style={{ background: "var(--purple)" }} />AI</span>
         <span className="row gap4"><span className="dot" style={{ background: "var(--gray)" }} />系統</span>
@@ -267,7 +267,7 @@ function Timeline({ inc }: { inc: Incident }) {
       )}
       <div className="row gap8" style={{ alignItems: "flex-end", paddingTop: 4 }}>
         <ActorAvatar actor={{ kind: "person", id: dir.me }} size={24} />
-        <textarea className="input grow" rows={1} style={{ resize: "vertical", borderRadius: 8 }} value={draft}
+        <textarea className="input grow" rows={1} style={{ resize: "vertical", borderRadius: "var(--r-lg)" }} value={draft}
           placeholder="新增備註,例如目前處置或觀察…(⌘↩ 送出)" onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }} />
         <button className="btn primary" disabled={!draft.trim() || busy} onClick={submit}><Icon name="paperplane.fill" size={12} />送出</button>
@@ -286,20 +286,20 @@ function TimelineRow({ e, start, first, last, showDay }: { e: IncidentEvent; sta
   return (
     <div className="row" style={{ alignItems: "stretch", gap: 10 }}>
       <div className="col" style={{ width: 54, alignItems: "flex-end", paddingTop: 2, flex: "none" }}>
-        {showDay && <span className="faint" style={{ fontSize: 10.5 }}>{fmtDay(new Date(e.date))}</span>}
+        {showDay && <span className="faint" style={{ fontSize: "var(--fs-xs)" }}>{fmtDay(new Date(e.date))}</span>}
         <span className="caption num" style={{ fontWeight: 500 }}>{hm(e.date)}</span>
-        <span className="faint num" style={{ fontSize: 10.5 }}>{offset}</span>
+        <span className="faint num" style={{ fontSize: "var(--fs-xs)" }}>{offset}</span>
       </div>
       <div className="col" style={{ width: 24, alignItems: "center", flex: "none" }}>
         <div style={{ width: 2, height: 4, background: first ? "transparent" : "color-mix(in srgb, var(--fg) 12%, transparent)" }} />
-        <span style={{ width: 24, height: 24, borderRadius: 24, background: node, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
+        <span style={{ width: 24, height: 24, borderRadius: "var(--r-pill)", background: node, display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}>
           <Icon name={KIND_ICON[e.kind]} size={11} color="white" />
         </span>
         <div style={{ width: 2, flex: 1, background: last ? "transparent" : "color-mix(in srgb, var(--fg) 12%, transparent)" }} />
       </div>
       <div className="col grow" style={{ paddingBottom: last ? 0 : 12 }}>
         <div className="col gap4" style={ai ? {
-          padding: 10, borderRadius: 8,
+          padding: 10, borderRadius: "var(--r-lg)",
           background: `color-mix(in srgb, var(--purple) ${e.kind === "aiFinding" ? 12 : 6}%, transparent)`,
           border: `1px solid color-mix(in srgb, var(--purple) ${e.kind === "aiFinding" ? 35 : 15}%, transparent)`,
         } : { padding: 2 }}>
@@ -334,7 +334,7 @@ function PostmortemView({ inc }: { inc: Incident }) {
     setCreated((s) => new Set([...s, title]));
   });
   const section = (title: string, icon: string, body: React.ReactNode) => (
-    <Card><span className="row gap6 h3" style={{ fontSize: 13.5 }}><Icon name={icon} size={14} />{title}</span>{body}</Card>
+    <Card><span className="row gap6 h3" style={{ fontSize: "var(--fs-md)" }}><Icon name={icon} size={14} />{title}</span>{body}</Card>
   );
   const para = (s: string) => <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, userSelect: "text" }}>{s}</div>;
   const bullets = (xs: string[], c: string) => (
@@ -342,9 +342,9 @@ function PostmortemView({ inc }: { inc: Incident }) {
   );
   return (
     <div className="col" style={{ gap: 16 }}>
-      <div className="row gap8" style={{ padding: 14, borderRadius: 12, background: "color-mix(in srgb, var(--purple) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 20%, transparent)" }}>
+      <div className="row gap8" style={{ padding: 14, borderRadius: "var(--r-xl)", background: "color-mix(in srgb, var(--purple) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 20%, transparent)" }}>
         <Icon name="sparkles" size={18} color="var(--purple)" />
-        <div className="col grow"><span className="h3" style={{ fontSize: 13.5 }}>檢討報告草稿</span><span className="caption muted">由 AI 依時間軸、告警與後續工作起草,請指揮官確認後再發布。</span></div>
+        <div className="col grow"><span className="h3" style={{ fontSize: "var(--fs-md)" }}>檢討報告草稿</span><span className="caption muted">由 AI 依時間軸、告警與後續工作起草,請指揮官確認後再發布。</span></div>
         <button className="btn" onClick={() => copy("md", postmortemMarkdown(pm, `${inc.id} ${inc.title}`))}>
           <Icon name={copied ? "checkmark" : "doc.on.clipboard"} size={12} />{copied ? "已複製" : "複製為 Markdown"}
         </button>

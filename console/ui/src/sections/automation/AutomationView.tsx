@@ -76,7 +76,7 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
               {pending.length > 0 && <Pill text={`${pending.length} 件待核准`} color="orange" icon="hand.raised.fill" />}
             </div>
           }>
-          <div style={{ maxWidth: 760 }}><Segmented value={tab} onChange={setTab} options={TABS.filter((t) => tabs.on(t.id)).map((t) => ({ value: t.id, label: tabTitle(t) }))} /></div>
+          <div className="ox-tabscroll" style={{ maxWidth: 760 }}><Segmented value={tab} onChange={setTab} options={TABS.filter((t) => tabs.on(t.id)).map((t) => ({ value: t.id, label: tabTitle(t) }))} /></div>
         </PageHeader>
         <div className="col" style={{ flex: 1, minHeight: 0 }}>
           {autosErr ? <EmptyState title="讀不到 AI 自動化" icon="exclamationmark.triangle" message={autosErr} />

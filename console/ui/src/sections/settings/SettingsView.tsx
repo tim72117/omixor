@@ -47,7 +47,7 @@ export default function SettingsView({ focusId, clearFocus }: SectionProps) {
   return (
     <div className="col" style={{ flex: 1, minHeight: 0 }}>
       <div className="row" style={{ justifyContent: "center", padding: "12px 20px", borderBottom: "1px solid var(--line)" }}>
-        <div style={{ maxWidth: 860, width: "100%", textAlign: "center" }}>
+        <div className="ox-tabscroll" style={{ maxWidth: 860, width: "100%", textAlign: "center" }}>
           <Segmented value={pane} onChange={setPane} options={panes.map((p) => ({ value: p.id, label: <span className="row gap4" style={{ justifyContent: "center" }}><Icon name={p.icon} size={12} />{p.title}</span> }))} />
         </div>
       </div>

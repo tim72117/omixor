@@ -13,7 +13,7 @@ import "./bits.css";
 export type Person = { id: string; name: string; role: string; colorHex: number };
 export type AgentLite = { id: string; name: string; symbol: string; color: string; role?: string };
 
-export const hexColor = (n?: number) => (n == null ? "var(--gray)" : `#${n.toString(16).padStart(6, "0")}`);
+export const hexColor = (n?: number) => (n == null ? "var(--avatar-fill)" : `#${n.toString(16).padStart(6, "0")}`);
 
 // MARK: - 名稱目錄(人、AI 自動化、虛擬角色)
 
@@ -77,11 +77,11 @@ export function PageHeader({ title, subtitle, right, children }: { title: string
   return (
     <div className="bx-header">
       <div className="bx-header-row">
-        <div className="col gap4 grow">
+        <div className="col gap4 bx-header-title">
           <div className="page-title">{title}</div>
           {subtitle && <div className="muted">{subtitle}</div>}
         </div>
-        {right}
+        {right && <div className="ox-actions bx-header-right ox-tabscroll">{right}</div>}
       </div>
       {children}
     </div>
@@ -114,7 +114,7 @@ export function ActorAvatar({ actor, size = 22 }: { actor: Actor; size?: number 
     );
   }
   return (
-    <span className="bx-avatar" style={{ width: size, height: size, background: "color-mix(in srgb, var(--gray) 45%, transparent)" }}>
+    <span className="bx-avatar" style={{ width: size, height: size }}>
       <Icon name="gearshape" size={size * 0.5} color="white" />
     </span>
   );

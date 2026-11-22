@@ -128,7 +128,7 @@ export function RunDetail({ run: r }: { run: GHRun }) {
             {logJob === j.id && (
               <>
                 {logError && <div className="caption" style={{ color: "var(--orange)" }}>{logError}</div>}
-                {log != null ? <pre className="ox-code" style={{ fontSize: 11, userSelect: "text" }}>{log}</pre> : !logError && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
+                {log != null ? <pre className="ox-code" style={{ fontSize: "var(--fs-xs)", userSelect: "text" }}>{log}</pre> : !logError && <SIcon name="arrow.triangle.2.circlepath" spin className="muted" />}
               </>
             )}
           </Card>
@@ -149,7 +149,7 @@ export function PullDetail({ pull: p }: { pull: GHPull }) {
   return (
     <div className="col" style={{ padding: 20, gap: 12, maxWidth: 820 }}>
       <div className="row gap8" style={{ alignItems: "baseline" }}>
-        <span className="h3" style={{ userSelect: "text" }}>{p.title}</span><span className="muted" style={{ fontSize: 15 }}>#{p.number}</span><span className="grow" />
+        <span className="h3" style={{ userSelect: "text" }}>{p.title}</span><span className="muted" style={{ fontSize: "var(--fs-lg)" }}>#{p.number}</span><span className="grow" />
         {p.url && <button className="btn" onClick={() => openURL(p.url)}>在 GitHub 打開</button>}
       </div>
       <div className="row gap8 wrap">

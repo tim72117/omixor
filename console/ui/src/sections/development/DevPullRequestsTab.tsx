@@ -200,7 +200,7 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
         <div className="row gap6" style={{ color: "var(--purple)" }}><SIcon name="arrow.triangle.merge" />已於 {relative(pr.updatedAt)} 合併</div>
       )}
       {pr.aiReview && (
-        <div className="col gap8" style={{ padding: 12, borderRadius: 10, background: "color-mix(in srgb, var(--purple) 7%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 18%, transparent)" }}>
+        <div className="col gap8" style={{ padding: 12, borderRadius: "var(--r-xl)", background: "color-mix(in srgb, var(--purple) 7%, transparent)", border: "1px solid color-mix(in srgb, var(--purple) 18%, transparent)" }}>
           <div className="row gap6"><SIcon name="sparkles" color="purple" /><span style={{ fontWeight: 600 }}>AI 審查</span><span className="grow" /><Pill text={RISK[pr.aiReview.risk].label} color={RISK[pr.aiReview.risk].color} icon={pr.aiReview.risk === "high" ? "exclamationmark.triangle.fill" : undefined} /></div>
           <div>{pr.aiReview.summary}</div>
           {pr.aiReview.findings.length > 0 && (
@@ -221,8 +221,8 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
           <div className="row gap4">
             {run.stages.map((s) => (
               <div key={s.id} className="col grow" style={{ gap: 3, minWidth: 0 }} title={`${s.name}:${RUN[s.status].label}`}>
-                <span style={{ height: 5, borderRadius: 5, background: color(RUN[s.status].color) }} />
-                <span className="muted ellipsis" style={{ fontSize: 10.5, textAlign: "center" }}>{s.name}</span>
+                <span style={{ height: 5, borderRadius: "var(--r-sm)", background: color(RUN[s.status].color) }} />
+                <span className="muted ellipsis" style={{ fontSize: "var(--fs-xs)", textAlign: "center" }}>{s.name}</span>
               </div>
             ))}
           </div>
