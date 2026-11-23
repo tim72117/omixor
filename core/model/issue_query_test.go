@@ -100,7 +100,7 @@ func TestFilterIssues(t *testing.T) {
 	}
 }
 
-// 人類接受者:assignee 字串是空的,只有 assigneeActor;用 id、handle、email、name 篩得到,(none) 篩不到
+// 人類接受者:assignee 字串是空的,只有 assigneeActor;用 id、handle、email 篩得到,(none) 篩不到
 func TestFilterIssuesHumanAssignee(t *testing.T) {
 	human := &model.ActorView{ID: "act_h1", Kind: "user", Handle: "tim@example.com", Email: "tim@example.com", Name: "Tim"}
 	list := []model.Issue{
@@ -108,7 +108,7 @@ func TestFilterIssuesHumanAssignee(t *testing.T) {
 		qIssue("ISS-2", "open", "normal", 2, func(i *model.Issue) { i.Assignee = "eng" }),
 		qIssue("ISS-3", "open", "normal", 3, func(i *model.Issue) { i.AssigneeActor = human }),
 	}
-	for _, a := range []string{"act_h1", " TIM@example.com ", "Tim"} {
+	for _, a := range []string{"act_h1", " TIM@example.com "} {
 		if got := ids(model.FilterIssues(list, model.IssueQuery{Assignee: a})); !reflect.DeepEqual(got, []string{"ISS-3"}) {
 			t.Errorf("assignee %q = %v,要 [ISS-3]", a, got)
 		}
@@ -263,5 +263,23 @@ func TestIssueBoard(t *testing.T) {
 	}
 	if !reflect.DeepEqual(b.Labels, []string{"bug"}) {
 		t.Errorf("Labels = %v", b.Labels)
+	}
+}
+
+// 顯示名稱不唯一:兩個人同名時,用名稱篩不會命中,用 handle 或 email 才會
+func TestFilterIssuesAssigneeNameNotMatched(t *testing.T) {
+	a := &model.ActorView{ID: "act_a", Kind: "user", Handle: "a-handle", Email: "a@example.com", Name: "Tim"}
+	b := &model.ActorView{ID: "act_b", Kind: "user", Handle: "b-handle", Email: "b@example.com", Name: "Tim"}
+	list := []model.Issue{
+		qIssue("ISS-1", "open", "normal", 1, func(i *model.Issue) { i.AssigneeActor = a }),
+		qIssue("ISS-2", "open", "normal", 2, func(i *model.Issue) { i.AssigneeActor = b }),
+	}
+	if got := ids(model.FilterIssues(list, model.IssueQuery{Assignee: "Tim"})); len(got) != 0 {
+		t.Errorf("用顯示名稱篩 = %v,要沒有結果", got)
+	}
+	for q, want := range map[string]string{"a-handle": "ISS-1", "B@example.com": "ISS-2"} {
+		if got := ids(model.FilterIssues(list, model.IssueQuery{Assignee: q})); !reflect.DeepEqual(got, []string{want}) {
+			t.Errorf("assignee %q = %v,要 [%s]", q, got, want)
+		}
 	}
 }

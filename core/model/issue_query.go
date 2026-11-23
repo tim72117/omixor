@@ -185,13 +185,14 @@ func issueMatches(i Issue, q IssueQuery, words []string) bool {
 }
 
 // assigneeMatches assignee 篩選值 a(已 trim、非空)符合負責人:assignee 字串(角色 handle),
-// 或 assigneeActor 的 id、handle、email、name 任一(人類接受者只有 assigneeActor);不分大小寫
+// 或 assigneeActor 的 id、handle、email 任一(人類接受者只有 assigneeActor);不分大小寫。
+// 不比對顯示名稱:名稱不唯一(兩個人、或人與角色同名會誤中)
 func assigneeMatches(i Issue, a string) bool {
 	if strings.EqualFold(strings.TrimSpace(i.Assignee), a) {
 		return true
 	}
 	if x := i.AssigneeActor; x != nil {
-		for _, v := range []string{x.ID, x.Handle, x.Email, x.Name} {
+		for _, v := range []string{x.ID, x.Handle, x.Email} {
 			if strings.EqualFold(strings.TrimSpace(v), a) {
 				return true
 			}
