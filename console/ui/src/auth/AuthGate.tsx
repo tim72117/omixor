@@ -1,7 +1,7 @@
 // 啟用 LDAP 時,沒登入就顯示登入頁;API 回 401(session 過期)也會回到登入頁
 import { useEffect, useState, type ReactNode } from "react";
 import { ErrorText } from "../components/ErrorText";
-import { Icon } from "../components/Icon";
+import { Logo } from "../components/Logo";
 import { login, refreshAuth, useAuth } from "./auth";
 import css from "./auth.module.css";
 
@@ -45,7 +45,7 @@ function LoginPage() {
     <div className={css.bg}>
       <form className={css.card} onSubmit={submit}>
         <div className={"row gap8 " + css.center}>
-          <Icon name="server.rack" size={22} />
+          <Logo size={28} />
           <span className="h2">omixor</span>
         </div>
         <div className={"muted caption " + css.centerText}>用公司的 LDAP 帳號登入</div>

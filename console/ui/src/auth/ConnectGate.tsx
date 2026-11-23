@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { action, useRun, useView } from "../api";
 import { ErrorText } from "../components/ErrorText";
 import { Icon } from "../components/Icon";
+import { Logo } from "../components/Logo";
 import { useAuth } from "./auth";
 import css from "./auth.module.css";
 
@@ -13,6 +14,8 @@ export type AccountServer = { id: string; name: string; url: string; auth: AuthO
 export type Account = {
   mode: "local" | "remote"; server: string; serverId: string; servers: AccountServer[]; gate: boolean;
   localStorage: "postgres" | "files"; loggedIn: boolean; email?: string; name?: string; role?: string; error?: string;
+  /** 目前操作的使用者 handle(比對 assigneeActor 判斷是不是我);features:核心支援的功能代號(能力偵測,查不到是空的) */
+  self?: string; features?: string[];
 };
 
 /** 切換連接對象:本機,或遠端 server + 授權方式(遠端會開瀏覽器等授權,所以可能要等很久) */
@@ -57,7 +60,7 @@ function Picker({ acc }: { acc: Account }) {
     <div className={css.bg}>
       <div className={css.card + " " + css.connectCard}>
         <div className={"row gap8 " + css.center}>
-          <Icon name="server.rack" size={22} />
+          <Logo size={28} />
           <span className="h2">omixor</span>
         </div>
         <div className={"muted caption " + css.centerText}>選擇連接對象</div>
