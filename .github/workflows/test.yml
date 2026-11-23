@@ -8,7 +8,7 @@
 #     iOS(ios/,xcodegen 從 project.yml 產生專案,專案檔不進版控)只編模擬器版(build-for-testing,測試也編)、不簽章,不跑模擬器。
 # PostgreSQL:測試統一走 PostgreSQL(不再有記憶體版 store)。每格(core、server、console)都開一個 postgres service(版本同 console/docker-compose.yml、
 #     console/scripts/test-pg.sh 的 postgres:17.2-alpine),設 OMIXOR_TEST_DATABASE_URL;core/storetest 的輔助會用這個帳號(superuser,有 CREATEDB)
-#     為每個測試建獨立的 database(從遷移好的範本複製)。沒設的機器(本機)會自己下載並啟動 embedded PostgreSQL,不需要 Docker。
+#     為每個測試建獨立的 database(從建好結構的範本複製)。沒設的機器(本機)會自己下載並啟動 embedded PostgreSQL,不需要 Docker。
 name: Test
 
 on:

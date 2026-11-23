@@ -115,7 +115,6 @@ func TestCheckSchemaPG(t *testing.T) {
 	// 這個測試會改結構,不能用共用範本的 testPG,改開全新資料庫(testPGBlank)自己跑 NewPG
 	p, err := NewPG(testPGBlank(t))
 	chk(t, err)
-	p.WaitFKValidate()
 	t.Cleanup(p.Close)
 	var sc SchemaChecker = p
 	rep, err := sc.CheckSchema()

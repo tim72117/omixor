@@ -8,7 +8,7 @@
 //	store.ErrInUse                     → 409,通用訊息(不夾帶外鍵錯誤的表名、欄位、值)
 //	store.ErrBadRef                    → 400,通用訊息
 //	store 的哨兵錯誤 → 固定句子(MsgNotFound 等),被 fmt.Errorf("…%w") 包在後面的原文(位置、鍵值、舊資料內容)不對外,只進 log:
-//	                                     ErrNotFound → 404;ErrVersionConflict / ErrLocked → 409(版本衝突帶 Data.currentVersion);ErrUnmigratedRow → 503;ErrProjectNoKey → 400
+//	                                     ErrNotFound → 404;ErrVersionConflict / ErrLocked → 409(版本衝突帶 Data.currentVersion);ErrProjectNoKey → 400
 //	                                     要刻意給人看特定文字(例如「找不到這個專案」),用 httperr.Human(err, 訊息),或在 service 層轉成 *service.Error,不要靠 fmt.Errorf 包 %w 夾帶文字
 //	資料庫錯誤(*pgconn.PgError、連線錯誤、pgx.ErrNoRows)→ 500,通用訊息,原文進 log
 //	逾時(context.DeadlineExceeded、net timeout)、檔案系統錯誤(*fs.PathError)、其他網路錯誤 → 500,通用訊息,原文進 log
@@ -62,7 +62,6 @@ const (
 	MsgNotFound        = "找不到指定的資料"
 	MsgVersionConflict = "這筆資料已經被別人改過,請重新載入後再試"
 	MsgLocked          = "這筆資料目前被鎖定(例如任務已被別人領取),請稍後再試"
-	MsgUnmigratedRow   = "這筆資料的舊格式尚未遷移完成,暫時不能寫入,請洽管理員"
 	MsgProjectNoKey    = "這個專案還沒設定代號,請先設定專案代號"
 )
 
@@ -190,8 +189,6 @@ func classify(err error, heuristic bool) Info {
 		return sentinel(err, store.ErrVersionConflict, 409, MsgVersionConflict, data)
 	case errors.Is(err, store.ErrLocked):
 		return sentinel(err, store.ErrLocked, 409, MsgLocked, nil)
-	case errors.Is(err, store.ErrUnmigratedRow):
-		return sentinel(err, store.ErrUnmigratedRow, 503, MsgUnmigratedRow, nil)
 	}
 	if msg, ok := errmask.Mask(err, heuristic); ok {
 		return Info{Status: 500, Msg: msg, Masked: true}

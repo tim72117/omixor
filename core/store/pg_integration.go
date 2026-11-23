@@ -7,7 +7,7 @@ import (
 	"omixor-core/model"
 )
 
-// ---- 組織設定文件(PG;表 omixor_org_integrations 的定義在 pg.go 的 pgSchema) ----
+// ---- 組織設定文件(PG;表 omixor_org_integrations 的定義在 pg_schema.go 的 pgSchema) ----
 // 一列一份設定(kind = github、gitlab 等選用模組的設定,外部 MCP 登記是 mcp),設定本身存在 data(jsonb);updated_at、updated_by 另外存一份。
 // 表與資料格式沒變:以前 GitHub、GitLab 的專屬方法存的資料照讀(GitHub、GitLab 模組存的 data 和以前一模一樣)。
 

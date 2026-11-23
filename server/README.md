@@ -51,7 +51,7 @@ LDAP 變數的完整說明在 [`../docs/configuration.md`](../docs/configuration
   OMIXOR_LDAP_USER_FILTER=(&(sAMAccountName=%s)(userAccountControl=512))
   OMIXOR_LDAP_ADMINS=alice,bob
   ```
-- 安全:`ldap://` 沒開 StartTLS 時,使用者密碼在網路上是明碼,啟動紀錄會警告;`OMIXOR_LDAP_INSECURE_SKIP_VERIFY` 只給測試環境。登入有兩層限制:每個來源每分鐘 10 次(來源 IP 取 X-Forwarded-For 的第一段,可以被偽造,只能當輔助);**每個帳號 10 分鐘內連續輸錯 5 次就先擋 10 分鐘,不再送到 LDAP**(AD 的鎖定是整個網域的,不擋的話任何人都能一直送錯密碼把別人鎖住;不存在的帳號也一樣計算,連不上 LDAP 這類伺服器端錯誤不算輸錯)。
+- 安全:`ldap://` 沒開 StartTLS 時,使用者密碼在網路上是明碼,啟動紀錄會警告;`OMIXOR_LDAP_INSECURE_SKIP_VERIFY` 只給測試環境。登入有兩層限制:每個來源每分鐘 10 次、LDAP 登入入口整體每分鐘 60 次(與配對、evoleap 登入各自計數,互不影響;來源 IP 由 `OMIXOR_TRUSTED_PROXY_HOPS` 決定,預設 Cloud Run 取 X-Forwarded-For 由右數第 1 個、其他環境用連線位址,見 docs/configuration.md);**每個帳號 10 分鐘內連續輸錯 5 次就先擋 10 分鐘,不再送到 LDAP**(AD 的鎖定是整個網域的,不擋的話任何人都能一直送錯密碼把別人鎖住;不存在的帳號也一樣計算,連不上 LDAP 這類伺服器端錯誤不算輸錯)。
 - 目前只有伺服器端:`omixor login`、網頁版、Mac App 還沒有 LDAP 登入畫面,先用 `curl -X POST …/api/auth/ldap` 取得 token。
 **OAuth(Claude 自訂 connector 唯讀連 MCP)**:設了 `OMIXOR_PUBLIC_URL` 才啟用(issuer、resource 都由它推導;沒設就不掛這些路由)。程式在 `../core/oauth`(HTTP)、`../core/service/oauth.go`(規則)、`../core/store/pg_oauth.go`(`omixor_oauth_clients`、`omixor_oauth_tokens`)。
 

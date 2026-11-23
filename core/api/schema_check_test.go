@@ -20,7 +20,7 @@ func TestSchemaCheckEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rep.OK || len(rep.Tables) == 0 || rep.MissingTables == nil || rep.OrphanTables == nil {
+	if !rep.OK || len(rep.Tables) == 0 || rep.MissingTables == nil || rep.OrphanTables == nil || rep.SchemaVersion < 1 || rep.SchemaVersion != rep.ExpectedVersion {
 		t.Fatalf("全新資料庫應 ok:%+v", rep)
 	}
 }

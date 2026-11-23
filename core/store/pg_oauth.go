@@ -1,4 +1,4 @@
-// pg_oauth.go OAuth(Claude 自訂 connector 的唯讀授權)的 PG 實作:omixor_oauth_clients、omixor_oauth_tokens(定義在 pg.go 的 pgSchema)。
+// pg_oauth.go OAuth(Claude 自訂 connector 的唯讀授權)的 PG 實作:omixor_oauth_clients、omixor_oauth_tokens(定義在 pg_schema.go 的 pgSchema)。
 // 只存雜湊;授權碼、refresh、CSRF 的「用過一次」靠條件式 update(used_at is null),多個實例同時換也只有一個成功。
 
 package store

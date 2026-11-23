@@ -61,20 +61,15 @@ func TestPGSeqNextSelfHeals(t *testing.T) {
 	}
 }
 
-// 舊版建的完整唯一索引(含 number = 0 的列)升級成部分索引;非數字 id 與超過 int32 的 id 可以匯入
+// 序號唯一索引是部分索引(number > 0);非數字 id 與超過 int32 的 id 可以匯入
 func TestPGSeqPartialIndexAndNonNumeric(t *testing.T) {
 	url := fkSchema(t)
 	p := fkPG(t, url)
 	at := mt("2026-01-02T03:04:05Z")
 	chk(t, p.CreateOrg(model.Org{ID: "o", Name: "o", CreatedAt: at}))
-	// 模擬舊版:完整的唯一索引
-	pgExec(t, p, `drop index ops_issues_org_number`)
-	pgExec(t, p, `create unique index ops_issues_org_number on ops_issues (org, number)`)
-	chk(t, p.migrateSeq())
 	if n := pgCount(t, p, `select count(*) from pg_index i join pg_class c on c.oid = i.indexrelid where c.relname = 'ops_issues_org_number' and i.indpred is not null and i.indisvalid`); n != 1 {
-		t.Fatal("舊的完整索引要換成有效的部分索引", n)
+		t.Fatal("要有有效的部分唯一索引", n)
 	}
-	chk(t, p.migrateSeq()) // 冪等
 	mk := func(id string) model.Issue { x := seqIssue(at); x.ID = id; return x }
 	if _, err := p.ImportIssues("o", []model.Issue{mk("gh-1"), mk("gh-2"), mk("ISS-99999999999"), mk("ISS-5")}); err != nil {
 		t.Fatal("非數字 id 不能撞索引:", err)
@@ -83,12 +78,6 @@ func TestPGSeqPartialIndexAndNonNumeric(t *testing.T) {
 	chk(t, err)
 	if x.Key != "ISS-9" { // gh-1、gh-2、ISS-99999999999 匯入時發 ISS-6、7、8
 		t.Fatal(x.ID)
-	}
-	// 殘留的 invalid 索引:重建
-	pgExec(t, p, `update pg_index set indisvalid = false where indexrelid = 'ops_issues_org_number'::regclass`)
-	chk(t, p.migrateSeq())
-	if n := pgCount(t, p, `select count(*) from pg_index i join pg_class c on c.oid = i.indexrelid where c.relname = 'ops_issues_org_number' and i.indisvalid`); n != 1 {
-		t.Fatal("invalid 的索引要重建", n)
 	}
 }
 

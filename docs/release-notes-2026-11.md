@@ -47,7 +47,6 @@
 | `store.ErrNotFound`(找不到) | 500 | 404 |
 | `store.ErrVersionConflict`(版本衝突;`*store.VersionConflictError` 帶 `currentVersion`) | 500 | 409,回應多一個 `currentVersion` |
 | `store.ErrLocked`(任務已被別人鎖住) | 500 | 409 |
-| `store.ErrUnmigratedRow`(舊資料還沒遷移) | 500 | 503 |
 | `store.ErrProjectNoKey`(專案還沒設定代號) | 500 | 400 |
 | `store.ErrInUse` | 409 | 不變 |
 | `store.ErrBadRef` | 400 | 不變 |
@@ -88,8 +87,8 @@
 
 ### 哨兵錯誤一律固定句子(`core/httperr`)
 
-`store.ErrNotFound`、`ErrVersionConflict`、`ErrLocked`、`ErrUnmigratedRow`、`ErrProjectNoKey` 對外一律是固定句子(`找不到指定的資料`、`這筆資料已經被別人改過,請重新載入後再試`、`這筆資料目前被鎖定…`、`這筆資料的舊格式尚未遷移完成…`、`這個專案還沒設定代號…`),狀態碼不變(404、409、409、503、400)。
-被 `fmt.Errorf("…%w")` 包在後面的原文(例如 `ErrUnmigratedRow` 夾帶的組織、專案、舊資料內容)只進 log。`ErrVersionConflict` 的 `currentVersion` 保留。
+`store.ErrNotFound`、`ErrVersionConflict`、`ErrLocked`、`ErrProjectNoKey` 對外一律是固定句子(`找不到指定的資料`、`這筆資料已經被別人改過,請重新載入後再試`、`這筆資料目前被鎖定…`、`這個專案還沒設定代號…`),狀態碼不變(404、409、409、400)。
+被 `fmt.Errorf("…%w")` 包在後面的原文(例如夾帶的組織、專案、資料內容)只進 log。`ErrVersionConflict` 的 `currentVersion` 保留。
 以前這幾種錯誤的對外訊息是英文 `not found`、`version conflict`、`locked`、`project has no key`;依賴這些英文字串的外部腳本要改看狀態碼或 `currentVersion`。
 要刻意給人看特定文字,用 `httperr.Human(err, 訊息)`(狀態碼與 data 沿用被包住的錯誤),或在 service 層轉成 `*service.Error`;不要靠 `%w` 夾帶文字。
 

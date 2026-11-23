@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -20,17 +18,9 @@ import (
 //   - version(bigint,預設 0)是樂觀鎖的版本號:每存一次 +1;存檔帶 expected 時只有目前版本等於它才存(見 SaveCabinetLayout)。
 //   - 存檔(SaveCabinetLayout)一個交易裡整份取代新表;讀取一律以新表為準。
 //
-// 舊欄位 layout(jsonb)、split_at 已經不再寫、不再用來判斷新舊(雙寫與 split_at 判斷已停止);只有遷移與「未展開列的退回讀取」會讀 layout。
-// 【不支援回滾】新版不雙寫舊欄位,回到舊版會看不到新版期間存的結構,要回滾只能從備份還原(見 MIGRATIONS.md)。
-// 確定全部列都展開(UnmigratedRows() == 0)、線上全是這個版本之後,下一個版本再執行
-// (升級路徑不得跳過「遷移還在」的這個版本):
+// 舊欄位 layout(jsonb)、split_at 已經不再讀、不再寫(存檔時 split_at 設成 now()),下一版 drop:
 //
 //	alter table omixor_cabinet_layouts drop column layout, drop column split_at;
-//
-// 並一併移除 migrateCabinetLayouts 與退回讀取。
-// 遷移(分批、冪等,見 pg_split_migrate.go)只處理 split_at 為 NULL 的列;新版存檔一律把 split_at 設成 now(),所以新表不會被舊 jsonb 覆蓋。
-// 舊 layout 展開不了(JSON 壞掉、區塊 id 或頁籤網址重複)的列:split_at 保持 NULL,讀取退回舊 layout(JSON 壞到解不出來就回 ErrUnmigratedRow,
-// 不回空結構);存檔時舊 JSON 壞掉的列拒絕(不蓋掉舊資料),舊 JSON 能解的(只是有重複)照常整份取代。
 
 // replaceCabinetTables 在交易裡把 (org, project) 的區塊與頁籤整份換成 layout(刪掉不在新結構的、插入或更新存在的)
 func replaceCabinetTables(c context.Context, tx pgx.Tx, org, project string, layout []model.CabinetSection) error {
@@ -108,28 +98,6 @@ func (p *PG) GetCabinetLayout(org, project string) ([]model.CabinetSection, int6
 		org, project).Scan(&version); err != nil {
 		return nil, 0, notFound(err)
 	}
-	if p.hasUnsplit() { // 還沒展開的結構:退回讀舊 layout(jsonb)
-		var b []byte
-		err := tx.QueryRow(c, `select layout from omixor_cabinet_layouts where org = $1 and project = $2 and split_at is null`, org, project).Scan(&b)
-		if err == nil {
-			var old []model.CabinetSection
-			if e := json.Unmarshal(b, &old); e != nil {
-				return nil, 0, fmt.Errorf("%w:文件櫃結構 org=%q project=%q 的舊資料解不出來(%v)", ErrUnmigratedRow, org, project, e)
-			}
-			if old == nil {
-				old = []model.CabinetSection{}
-			}
-			for i := range old {
-				if old[i].Tabs == nil {
-					old[i].Tabs = []model.CabinetTab{}
-				}
-			}
-			return old, version, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, 0, err
-		}
-	}
 	l := []model.CabinetSection{}
 	idx := map[string]int{}
 	rows, err := tx.Query(c, `select id, label, path from omixor_cabinet_sections where org = $1 and project = $2 order by pos`, org, project)
@@ -179,11 +147,7 @@ func (p *PG) SaveCabinetLayout(org, project string, layout []model.CabinetSectio
 		return 0, err
 	}
 	defer tx.Rollback(c)
-	if err := p.guardCabinetSave(c, tx, org, project); err != nil { // 舊 layout 壞掉、還沒展開的列:拒絕,不蓋掉舊資料
-		return 0, err
-	}
 	// 取得(並鎖住)那一列、遞增版本:同一份結構的並行存檔會排隊,expected 不符的拿不到列 → 衝突。
-	// split_at 一律設成 now():讓啟動遷移(只處理 split_at 為 NULL 的列)不會拿舊 jsonb 覆蓋新表
 	var version int64
 	if expected == nil {
 		err = tx.QueryRow(c, `insert into omixor_cabinet_layouts (org, project, updated_at, split_at, version) values ($1, $2, now(), now(), 1)
@@ -219,63 +183,6 @@ func (p *PG) SaveCabinetLayout(org, project string, layout []model.CabinetSectio
 		return 0, err
 	}
 	return version, nil
-}
-
-// migrateCabinetLayouts 啟動時把還沒展開(split_at 為 NULL)的 omixor_cabinet_layouts 列展開進新表(分批、冪等,見 pg_split_migrate.go):
-// 已展開的列(split_at 非 NULL,包含新版存過、新表被改過的資料)一律不碰;不合格的列(JSON 壞掉、區塊 id 或頁籤網址重複)略過,split_at 保持 NULL。
-// 空陣列是合法的空結構,照樣標記。
-func (p *PG) migrateCabinetLayouts() error {
-	return p.splitRun(nil, splitCabinet)
-}
-
-var splitCabinet = &splitSpec{
-	name: "文件櫃結構", table: "omixor_cabinet_layouts", keys: []string{"org", "project"},
-	empty:  `case when jsonb_typeof(layout) = 'array' then jsonb_array_length(layout) = 0 else false end`,
-	expand: expandCabinetLayout,
-}
-
-func expandCabinetLayout(p *PG, c context.Context, tx pgx.Tx, key []string) error {
-	org, project := key[0], key[1]
-	var b []byte
-	err := tx.QueryRow(c, `select layout from omixor_cabinet_layouts where org = $1 and project = $2 and split_at is null for update`, org, project).Scan(&b)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var layout []model.CabinetSection
-	if err := json.Unmarshal(b, &layout); err != nil {
-		return skipErr(fmt.Errorf("JSON 不合格:%v", err))
-	}
-	if err := checkLayoutUnique(layout); err != nil {
-		return skipErr(err)
-	}
-	if err := replaceCabinetTables(c, tx, org, project, layout); err != nil {
-		return err
-	}
-	_, err = tx.Exec(c, `update omixor_cabinet_layouts set split_at = now() where org = $1 and project = $2`, org, project)
-	return err
-}
-
-// guardCabinetSave 存檔前:這個結構還沒展開、而且舊 layout 解不出來就拒絕(存了會蓋掉解不出來的舊資料)
-func (p *PG) guardCabinetSave(c context.Context, tx pgx.Tx, org, project string) error {
-	if !p.hasUnsplit() {
-		return nil
-	}
-	var b []byte
-	err := tx.QueryRow(c, `select layout from omixor_cabinet_layouts where org = $1 and project = $2 and split_at is null`, org, project).Scan(&b)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var l []model.CabinetSection
-	if e := json.Unmarshal(b, &l); e != nil {
-		return fmt.Errorf("%w:文件櫃結構 org=%q project=%q(%v)", ErrUnmigratedRow, org, project, e)
-	}
-	return nil
 }
 
 // checkLayoutUnique 區塊 id、頁籤網址不能重複(新表的主鍵)

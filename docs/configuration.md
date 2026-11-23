@@ -26,9 +26,9 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `OMIXOR_TOKEN_DAYS` |  | 整數(0–36500) | `90` |  |  | server | 使用者 token 的有效天數 |
 | `OMIXOR_ADMIN_BOOTSTRAP_EMAIL` |  | 字串 |  |  |  | server | 第一位管理員的 email(資料庫還沒有管理員時,這個 email 登入就成為管理員) |
 | `OMIXOR_AGENT_CRED_HOURS` |  | 小數 | 服務內建的預設 |  |  | server | 領取任務時發給角色的憑證有效小時數(要大於 0,否則用預設) |
+| `OMIXOR_TRUSTED_PROXY_HOPS` |  | 整數(0–16) | 有 K_SERVICE(Cloud Run)是 1,否則 0 |  |  | server | 信任的代理層數,決定怎麼取請求來源 IP(頻率限制、稽核用)。0 = 不看 X-Forwarded-For,用連線位址;N = 取 X-Forwarded-For 由右數第 N 個(最右邊是離伺服器最近的代理加的;項目不足或不是合法 IP 就退回連線位址)。Cloud Run 直接對外是 1;前面再加 HTTPS 負載平衡器要設 2。設太大會讓呼叫者能自己填來源、繞過每 IP 限制;設太小會讓代理的位址被當成來源、全部人共用一個額度 |
+| `K_SERVICE` |  | 字串 |  |  |  | server | Cloud Run 自動帶入的服務名稱(不是 omixor 專用名稱);有值就表示跑在 Cloud Run,OMIXOR_TRUSTED_PROXY_HOPS 預設 1 |
 | `PORT` |  | 整數(1–65535) | `8080` |  |  | server | Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴) |
-| `OMIXOR_MIGRATE_MAX_AUTO_REWRITE_MB` |  | 整數(0–100000000) | `1024` |  |  | server | 啟動遷移會重寫整張表的 ALTER(新增 stored 產生欄位 project_ref:omixor_docs、omixor_cabinet_sections、ops_issues),表(含索引)超過這個大小(MB)就不自動做、只警告,要在維護窗口先跑 core/store/sql/premigrate.sql(必須用與服務相同的資料庫角色)再重啟;0 = 不限制(一律自動做,重寫期間該表讀寫全被擋) |
-| `OMIXOR_MIGRATE_BUDGET_MINUTES` |  | 整數(1–1440) | `10` |  |  | server | 啟動遷移(在開始監聽之前同步執行)所有階段共用的總預算(分鐘);用完就略過剩下的、只警告,下次啟動接著做。要小於平台的啟動探測時限(Cloud Run 要設定足夠長的 startup probe) |
 | `EVOLEAP_URL` |  | 網址(http/https) | `https://evoleap.io` |  |  | server | evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名) |
 
 ## LDAP 登入(omixor-server)
@@ -121,7 +121,7 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `OMIXOR_LDAP_START_TLS`、`OMIXOR_LDAP_INSECURE_SKIP_VERIFY`、`OMIXOR_LDAP_TRUST_MAIL` | 不認得的值當成「關」 | 要是 1/true/yes/on 或 0/false/no/off,否則啟動失敗 |
 | `OMIXOR_WEB_ADDR` 與 `OMIXOR_WEB_PORT`(web) | 兩個都設而連接埠不同時,靜默以 `OMIXOR_WEB_ADDR` 為準 | 連接埠不同啟動失敗(只設其中一個,或讓兩者一致) |
 | `OMIXOR_NO_TIMERS` 等布林設定 | 不認得的值當成「關」(各程式略有不同) | 要是 1/true/yes/on 或 0/false/no/off,否則啟動失敗 |
-| 整數型設定(`PGCTLTIMEOUT`、`OMIXOR_MIGRATE_*` 等) | 不檢查,由使用它的程式或 pg_ctl 處理 | 非整數或超出範圍啟動失敗 |
+| 整數型設定(`PGCTLTIMEOUT` 等) | 不檢查,由使用它的程式或 pg_ctl 處理 | 非整數或超出範圍啟動失敗 |
 
 ## 測試/開發用變數
 

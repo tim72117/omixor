@@ -10,7 +10,7 @@ import (
 	"omixor-core/model"
 )
 
-// ---- 事件(PG;表與子表的定義、拆表說明見 pg_split_incidents_tasks.go) ----
+// ---- 事件(PG;表與子表的定義、拆表說明見 pg_incident_task_children.go) ----
 // 純量欄位在 omixor_incidents,服務、後續工作、告警、時間軸在子表;讀取一律從新結構組出 model.Incident。
 
 // commander、created_by、事件的 actor 都是 actor id(NULL = 沒有);服務層出口用 present 轉相容輸出
@@ -134,18 +134,6 @@ func (p *PG) readIncidents(org, id string) ([]model.Incident, error) {
 	}
 	for n := range out {
 		k.fill(&out[n])
-	}
-	if p.hasUnsplit() {
-		old, err := unsplitIncidents(c, tx, org, id)
-		if err != nil {
-			return nil, err
-		}
-		for n := range out {
-			if i, ok := old[out[n].ID]; ok {
-				i.Status, i.StartedAt = nonEmptyStatus(i.Status, out[n].Status), nonZeroTime(i.StartedAt, out[n].StartedAt)
-				out[n] = i
-			}
-		}
 	}
 	return out, nil
 }
@@ -276,9 +264,6 @@ func (p *PG) UpdateIncident(org string, i model.Incident) error {
 		return err
 	}
 	defer tx.Rollback(c)
-	if err := p.guardUnsplit(c, tx, splitIncidents, org, i.ID); err != nil { // 還沒展開的列先展開(展開不了就拒絕,不蓋掉舊資料)
-		return err
-	}
 	// 先更新父列(取得行鎖,同一個事件的並行更新排隊),再讓子表等於 i
 	tag, err := tx.Exec(c, `update omixor_incidents set status = $3, started_at = $4, title = $5, sev = $6, commander = $7, resolved_at = $8,
 		impact = $9, ai_summary = $10, created_by = $11, split_at = now() where org = $1 and id = $2`,
@@ -328,20 +313,6 @@ func (p *PG) ImportIncidents(org string, list []model.Incident) (int, error) {
 		return 0, err
 	}
 	return len(list), tx.Commit(c)
-}
-
-func nonEmptyStatus(a, b string) string {
-	if a == "" {
-		return b
-	}
-	return a
-}
-
-func nonZeroTime(a, b model.Time) model.Time {
-	if a.IsZero() {
-		return b
-	}
-	return a
 }
 
 var _ Store = (*PG)(nil)

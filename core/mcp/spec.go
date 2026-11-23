@@ -86,10 +86,10 @@ func CoreToolDefs() []any {
 				"title":       pStr("新標題"),
 			}, "id")),
 		coreDef("schema_check",
-			"檢核資料庫結構(唯讀,只有 omixor 伺服器管理員;角色憑證一律被拒):把「全新資料庫跑完建表與遷移後的結構」與這台資料庫目前實際的結構逐表比對,只查系統目錄、不掃資料、不鎖表,也不寫稽核。"+
-				"回傳 ok(所有表都 ok 且沒有缺表與遺留表才是 true)、tables(每張表:table、missingColumns 缺的欄位、extraColumns 多的欄位、typeMismatches 型別或可否 NULL 不符[column、expected、actual]、primaryKeyMismatch 主鍵不符[expected、actual;一致時沒有這個欄位]、ok)、"+
+			"檢核資料庫結構(唯讀,只有 omixor 伺服器管理員;角色憑證一律被拒):把「全新資料庫跑完建表後的結構」與這台資料庫目前實際的結構逐表比對,只查系統目錄、不掃資料、不鎖表,也不寫稽核。"+
+				"回傳 ok(所有表都 ok、沒有缺表與遺留表、且結構版本沒有落後才是 true)、schemaVersion(資料庫目前記錄的最大結構版本)、expectedVersion(這版程式已知的最大結構版本;schemaVersion 比它小就是還有結構異動沒套用,重啟伺服器會自動套用)、tables(每張表:table、missingColumns 缺的欄位、extraColumns 多的欄位、typeMismatches 型別或可否 NULL 不符[column、expected、actual]、primaryKeyMismatch 主鍵不符[expected、actual;一致時沒有這個欄位]、ok)、"+
 				"missingTables(應有但資料庫沒有的表)、orphanTables(資料庫有、但沒有對應定義的遺留表);都依名稱排序。"+
-				"沒有使用資料庫(JSON 檔模式)的伺服器回 400「不適用」。尚未遷移的舊資料庫出現差異是預期的。", true,
+				"沒有使用資料庫(JSON 檔模式)的伺服器回 400「不適用」。結構與全新資料庫不同就會列出差異。", true,
 			obj(map[string]any{})),
 		coreDef("issue_accept",
 			"接受 Issue:你成為這張 Issue 的負責人(assignee),Issue 進入「進行中」,並在 Issue 留一則系統留言。用在「這件事由我負責、我來分析並拆解」——通常接受時還沒有子項,之後再用 issue_item_add 拆子項、子項再各自用 issue_item_claim 領取執行(兩層不互斥)。"+

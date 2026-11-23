@@ -28,7 +28,7 @@ func (s *Service) LoginWithLDAP(username, password, device, ip string) (*LoginRe
 	if s.LDAP == nil {
 		return nil, fail(404, "這台伺服器沒有啟用 LDAP 登入")
 	}
-	if !s.allowLogin(ip) {
+	if !s.allowLogin(&s.logins.ldap, ip) {
 		return nil, fail(429, "登入嘗試太頻繁,請一分鐘後再試")
 	}
 	username = strings.ToLower(strings.TrimSpace(username))
@@ -124,12 +124,6 @@ func (s *Service) isLDAPAdmin(id string) bool {
 	return false
 }
 
-// ldapFail 一個帳號目前這一輪的輸錯次數
-type ldapFail struct {
-	n     int
-	since time.Time
-}
-
 func (s *Service) ldapLimits() (int, time.Duration) {
 	max, win := s.LDAPMaxFailures, s.LDAPFailWindow
 	if max <= 0 {
@@ -147,45 +141,18 @@ func (s *Service) ldapLimits() (int, time.Duration) {
 // 不管帳號存不存在都一樣計算,所以不會洩漏哪些帳號存在
 func (s *Service) ldapBlockedFor(user string) time.Duration {
 	max, win := s.ldapLimits()
-	s.ldapMu.Lock()
-	defer s.ldapMu.Unlock()
-	f, ok := s.ldapFails[user]
-	if !ok {
-		return 0
-	}
-	if left := win - s.now().Sub(f.since); left > 0 && f.n >= max {
+	n, since := s.ldapFails.get(user, s.now(), win)
+	if left := win - s.now().Sub(since); n >= max && left > 0 {
 		return left
 	}
 	return 0
 }
 
-// ldapFailed 記一次輸錯(上限內第一次輸錯開始算一輪;過了一輪就重新算)
+// ldapFailed 記一次輸錯(上限內第一次輸錯開始算一輪;過了一輪就重新算;表有上限,不整張清空)
 func (s *Service) ldapFailed(user string) {
 	_, win := s.ldapLimits()
-	now := s.now()
-	s.ldapMu.Lock()
-	defer s.ldapMu.Unlock()
-	if s.ldapFails == nil {
-		s.ldapFails = map[string]ldapFail{}
-	}
-	if len(s.ldapFails) >= 1000 { // 清掉過期的,不讓亂編帳號把記憶體灌滿
-		for k, v := range s.ldapFails {
-			if now.Sub(v.since) >= win {
-				delete(s.ldapFails, k)
-			}
-		}
-	}
-	f := s.ldapFails[user]
-	if f.n == 0 || now.Sub(f.since) >= win {
-		f = ldapFail{since: now}
-	}
-	f.n++
-	s.ldapFails[user] = f
+	s.ldapFails.add(user, s.now(), win)
 }
 
 // ldapCleared 通過驗證:清掉這個帳號的輸錯次數
-func (s *Service) ldapCleared(user string) {
-	s.ldapMu.Lock()
-	delete(s.ldapFails, user)
-	s.ldapMu.Unlock()
-}
+func (s *Service) ldapCleared(user string) { s.ldapFails.clear(user) }

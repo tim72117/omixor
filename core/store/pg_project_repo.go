@@ -6,7 +6,7 @@ import (
 	"omixor-core/model"
 )
 
-// ---- 專案與 repo 的連結(表 omixor_project_repos 的定義在 pg.go 的 pgSchema)----
+// ---- 專案與 repo 的連結(表 omixor_project_repos 的定義在 pg_schema.go 的 pgSchema)----
 // 多對多:一個 repo 可以連多個專案。只用於預設值與篩選,不是權限來源。repo 以 model.RepoKey(不分大小寫、去 github:/gitlab: 前綴)比對。
 
 func (p *PG) ListProjectRepos(org string) ([]model.ProjectRepo, error) {

@@ -119,7 +119,7 @@ func TestCodeMatchesService(t *testing.T) {
 		&service.Error{Code: 403, Msg: "x"}, &service.Error{Code: 409, Msg: "x", Data: map[string]any{"a": 1}},
 		fmt.Errorf("外層:%w", &service.Error{Code: 404, Msg: "x"}),
 		store.ErrInUse, fmt.Errorf("x: %w", store.ErrInUse), store.ErrBadRef,
-		store.ErrNotFound, store.ErrLocked, store.ErrUnmigratedRow, store.ErrProjectNoKey, store.ErrVersionConflict,
+		store.ErrNotFound, store.ErrLocked, store.ErrProjectNoKey, store.ErrVersionConflict,
 		&store.VersionConflictError{Current: 2}, errors.New("一般錯誤"), errors.New("SQLSTATE 23505"),
 	} {
 		if a, b := service.Code(err), Classify(err).Status; a != b {

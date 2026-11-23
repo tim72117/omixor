@@ -15,7 +15,7 @@ import (
 
 // ---- 虛擬角色、任務與憑證 ----
 
-// docAccess、routines 在新表(見 pg_split_docs_agents.go),不在這裡讀
+// docAccess、routines 在新表(見 pg_doc_agent_children.go),不在這裡讀
 const agentCols = `id, name, role, instructions, active, symbol, color, created_at, coalesce(actor_id, '')`
 
 func (p *PG) ListAgents(org string) ([]model.Agent, error) {
@@ -96,9 +96,6 @@ func (p *PG) saveAgent(org string, a model.Agent, owner string) error {
 		return err
 	}
 	defer tx.Rollback(c)
-	if err := p.guardUnsplit(c, tx, splitAgents, org, a.ID); err != nil { // 還沒展開的列先展開(展開不了就拒絕,不蓋掉舊資料)
-		return err
-	}
 	aid, err := syncAgentActor(c, tx, org, a, owner) // actor 先建(複合外鍵要它先存在),和角色列同一個交易
 	if err != nil {
 		return err
@@ -157,7 +154,7 @@ func scanTask(row pgx.Row) (*model.AgentTask, error) {
 	t.CreatedBy, t.ClaimedBy = createdBy.String(), claimedBy.String()
 	t.CreatedAt, t.UpdatedAt = model.Time{Time: created.UTC()}, model.Time{Time: updated.UTC()}
 	t.ClaimedAt, t.CompletedAt, t.LockedUntil = tp(claimed), tp(completed), tp(locked)
-	t.Links, t.Notes = []string{}, []model.AgentTaskNote{} // 備註、連結在子表(見 pg_split_incidents_tasks.go),readTasks 補上
+	t.Links, t.Notes = []string{}, []model.AgentTaskNote{} // 備註、連結在子表(見 pg_incident_task_children.go),readTasks 補上
 	return &t, nil
 }
 
@@ -259,9 +256,6 @@ func (p *PG) UpdateAgentTask(org string, t model.AgentTask) error {
 		return err
 	}
 	defer tx.Rollback(c)
-	if err := p.guardUnsplit(c, tx, splitTasks, org, t.ID); err != nil { // 還沒展開的列先展開(展開不了就拒絕,不蓋掉舊資料)
-		return err
-	}
 	// 先更新父列(行鎖,同一個任務的並行更新排隊),再讓備註、連結子表等於 t(追加備註只插入新的那一列)
 	tag, err := tx.Exec(c, updateTaskSQL, taskArgs(org, t)...)
 	if err != nil {
@@ -286,9 +280,6 @@ func (p *PG) ClaimAgentTask(org string, t model.AgentTask, now time.Time) error 
 		return err
 	}
 	defer tx.Rollback(c)
-	if err := p.guardUnsplit(c, tx, splitTasks, org, t.ID); err != nil { // 還沒展開的列先展開(展開不了就拒絕,不蓋掉舊資料)
-		return err
-	}
 	args := append(taskArgs(org, t), now)
 	tag, err := tx.Exec(c, updateTaskSQL+` and (status <> 'inProgress' or locked_until is null or locked_until <= $17)`, args...)
 	if err != nil {

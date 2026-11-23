@@ -59,28 +59,6 @@ func oerr(status int, code, desc string) *OAuthError {
 	return &OAuthError{Status: status, Code: code, Desc: desc}
 }
 
-// 固定視窗的頻率限制(同 allowLogin:每個來源、整個服務各一個上限,視窗 1 分鐘;只有放行的請求才佔名額,所以 map 不會無限長)
-type rateWindow struct {
-	mu     sync.Mutex
-	window time.Time
-	per    map[string]int
-	all    int
-}
-
-func (r *rateWindow) allow(now time.Time, key string, perMax, totalMax int) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.per == nil || now.Sub(r.window) >= time.Minute {
-		r.window, r.per, r.all = now, map[string]int{}, 0
-	}
-	if r.per[key] >= perMax || r.all >= totalMax {
-		return false
-	}
-	r.per[key]++
-	r.all++
-	return true
-}
-
 type oauthState struct {
 	reg, page rateWindow
 	mu        sync.Mutex
@@ -199,7 +177,7 @@ func (s *Service) RegisterOAuthClient(in OAuthClientInput, ip string) (*model.OA
 	if total == 0 {
 		total = 30
 	}
-	if !s.oauth.reg.allow(s.now(), ip, per, total) {
+	if !s.oauth.reg.allow(s.now(), limitKey(ip), per, total) {
 		return nil, oerr(429, "temporarily_unavailable", "註冊太頻繁,請稍後再試")
 	}
 	uris, ok := stringList(in.RedirectURIs)
@@ -332,7 +310,7 @@ func (s *Service) purgeOAuth() {
 
 // NewOAuthCSRF 同意畫面這一次載入的 CSRF token(只存雜湊、15 分鐘、用一次);GET 有頻率限制(每個來源、整個服務)
 func (s *Service) NewOAuthCSRF(clientID, ip string) (string, error) {
-	if !s.oauth.page.allow(s.now(), ip, 30, 300) {
+	if !s.oauth.page.allow(s.now(), limitKey(ip), 30, 300) {
 		return "", oerr(429, "temporarily_unavailable", "太頻繁,請稍後再試")
 	}
 	s.purgeOAuth()
@@ -387,13 +365,13 @@ func (s *Service) ApproveOAuth(c *OAuthAuthChecked, challenge, pairCode, ip stri
 			s.oauthFailed()
 			return "", ErrOAuthPairInvalid
 		}
+		if err == errPairDisabled && u != nil { // 配對碼沒被消耗
+			s.Audit(&model.Principal{User: *u, Via: model.ViaOAuth}, "oauth.denied", c.Org, map[string]any{"reason": "disabled", "client": c.Client.ID})
+			return "", oerrR(403, "access_denied", "這個帳號已停用", "disabled")
+		}
 		return "", err
 	}
 	p := &model.Principal{User: *u, Via: model.ViaOAuth}
-	if u.Disabled {
-		s.Audit(p, "oauth.denied", c.Org, map[string]any{"reason": "disabled", "client": c.Client.ID})
-		return "", oerrR(403, "access_denied", "這個帳號已停用", "disabled")
-	}
 	if !p.ServerAdmin() {
 		if _, err := s.Store.MemberRole(c.Org, u.ID); err != nil {
 			if errors.Is(err, store.ErrNotFound) {

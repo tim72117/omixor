@@ -20,7 +20,6 @@ func testPG(t *testing.T) Store {
 		if err != nil {
 			return err
 		}
-		p.WaitFKValidate()
 		p.Close()
 		return nil
 	})
@@ -28,7 +27,6 @@ func testPG(t *testing.T) Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.WaitFKValidate()
 	t.Cleanup(p.Close)
 	pgURLs.Store(p, url)
 	return p
@@ -53,7 +51,6 @@ func reopenPG(t *testing.T, s Store) Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n.WaitFKValidate()
 	t.Cleanup(n.Close) // 先於 testdb 的還原回收執行
 	pgURLs.Store(n, v)
 	return n

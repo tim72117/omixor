@@ -14,13 +14,10 @@ import (
 
 // ---- 文件櫃 ----
 
-// 標籤在 omixor_doc_tags(見 pg_split_docs_agents.go),用相關子查詢在同一個語句裡組成陣列(沒有 N+1,一致的快照);
-// 還沒展開(split_at 為 NULL)的文件退回讀舊的 tags jsonb(去重、非字串照字面轉成文字)
+// 標籤在 omixor_doc_tags(見 pg_doc_agent_children.go),用相關子查詢在同一個語句裡組成陣列(沒有 N+1,一致的快照)
 // 作者直接存 actor id(沒有時是 NULL,用 NullID 掃描)
 var docCols = `id, project, title, body, section, tab,
-	case when omixor_docs.split_at is null
-		then coalesce((select array_agg(x.v order by x.o) from (select e.v, min(e.o) as o from jsonb_array_elements_text(case when jsonb_typeof(omixor_docs.tags) = 'array' then omixor_docs.tags else '[]'::jsonb end) with ordinality as e(v, o) group by e.v) x), '{}'::text[])
-		else coalesce((select array_agg(t.tag order by t.pos) from omixor_doc_tags t where t.org = omixor_docs.org and t.doc_id = omixor_docs.id), '{}'::text[]) end,
+	coalesce((select array_agg(t.tag order by t.pos) from omixor_doc_tags t where t.org = omixor_docs.org and t.doc_id = omixor_docs.id), '{}'::text[]),
 	author, created_at, updated_at`
 
 func scanDoc(row pgx.Row) (*model.CabinetDoc, error) {
@@ -112,9 +109,6 @@ func (p *PG) UpdateDoc(org string, d model.CabinetDoc) error {
 		return err
 	}
 	defer tx.Rollback(c)
-	if err := p.guardUnsplit(c, tx, splitDocs, org, d.ID); err != nil { // 還沒展開的列先展開(展開不了就拒絕,不蓋掉舊資料)
-		return err
-	}
 	tag, err := tx.Exec(c, `update omixor_docs set title = $3, body = $4, section = $5, tab = $6, author = $7, updated_at = $8, project = $9, split_at = now()
 		where org = $1 and id = $2`, org, d.ID, d.Title, d.Body, d.Section, d.Tab, IDOrNil(d.Author), secs(d.UpdatedAt.Time), d.Project)
 	if err != nil {

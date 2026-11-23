@@ -1986,6 +1986,29 @@
     ]
   },
   {
+    "name": "omixor_schema_version",
+    "columns": [
+      {
+        "name": "applied_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "version",
+        "type": "integer",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "version"
+    ]
+  },
+  {
     "name": "omixor_seq",
     "columns": [
       {

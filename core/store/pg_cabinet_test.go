@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"reflect"
 	"testing"
 
@@ -195,118 +194,6 @@ func TestPGCabinetNoLegacyWrite(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(g, l) {
 			t.Fatalf("讀回 %+v %v", g, err)
 		}
-	}
-}
-
-func TestPGCabinetMigration(t *testing.T) {
-	p := cabPG(t)
-	c := context.Background()
-	legacy := sampleLayout()
-	put := func(org, project, raw string) {
-		t.Helper()
-		if _, err := p.pool.Exec(c, `insert into omixor_cabinet_layouts (org, project, layout) values ($1, $2, $3::jsonb)`, org, project, raw); err != nil {
-			t.Fatal(err)
-		}
-	}
-	put("o", "", string(jb(legacy)))
-	put("o", "PRJ-1", `[{"id":"s","label":"缺 tabs 的舊格式"}]`)
-	put("e", "", `[]`)
-	put("bad", "dup-tab", `[{"id":"a","label":"a","tabs":[{"label":"x","path":"/x"}]},{"id":"b","label":"b","tabs":[{"label":"y","path":"/x"}]}]`)
-	put("bad", "dup-sec", `[{"id":"a","label":"a"},{"id":"a","label":"b"}]`)
-	put("bad", "not-array", `{"id":"a"}`)
-
-	if err := p.migrateCabinetLayouts(); err != nil {
-		t.Fatal("不合格的列不能讓遷移失敗", err)
-	}
-	if g, v, err := p.GetCabinetLayout("o", ""); err != nil || !reflect.DeepEqual(g, legacy) || v != 0 {
-		t.Fatalf("遷移後讀回 %+v v=%d %v", g, v, err)
-	}
-	if n := count(t, p, `select count(*) from omixor_cabinet_tabs where org = 'o' and project = ''`); n != 4 {
-		t.Fatal("新表要有資料", n)
-	}
-	if g, err := getLay(p, "o", "PRJ-1"); err != nil || len(g) != 1 || g[0].Tabs == nil || len(g[0].Tabs) != 0 {
-		t.Fatal("缺 tabs 的列", g, err)
-	}
-	if g, err := getLay(p, "e", ""); err != nil || g == nil || len(g) != 0 {
-		t.Fatal("空陣列的列", g, err)
-	}
-	if n := count(t, p, `select count(*) from omixor_cabinet_layouts where org = 'e' and split_at is not null`); n != 1 {
-		t.Fatal("空結構也要標記")
-	}
-	// 不合格的列:新表沒有資料、沒標記(修好之後重啟會再試);讀取退回舊 layout
-	if n := count(t, p, `select count(*) from omixor_cabinet_sections where org = 'bad'`); n != 0 {
-		t.Fatal("不合格的列不能展開", n)
-	}
-	if n := count(t, p, `select count(*) from omixor_cabinet_layouts where org = 'bad' and split_at is not null`); n != 0 {
-		t.Fatal("不合格的列不能標記")
-	}
-	if g, err := getLay(p, "bad", "dup-sec"); err != nil || len(g) != 2 || g[1].Label != "b" {
-		t.Fatal("展開不了的列讀取退回舊 layout(不是空結構)", g, err)
-	}
-	if _, err := getLay(p, "bad", "not-array"); !errors.Is(err, ErrUnmigratedRow) {
-		t.Fatal("舊 layout 解不出來要回明確錯誤", err)
-	}
-
-	// 再跑一次:不重複、不覆蓋手動改過的新表資料
-	if _, err := p.pool.Exec(c, `update omixor_cabinet_sections set label = '手改' where org = 'o' and project = '' and id = 'course'`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.pool.Exec(c, `delete from omixor_cabinet_tabs where org = 'o' and project = '' and path = '/last/a'`); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.migrateCabinetLayouts(); err != nil {
-		t.Fatal(err)
-	}
-	g, _ := getLay(p, "o", "")
-	if g[0].Label != "手改" || len(g[2].Tabs) != 0 {
-		t.Fatal("第二次遷移覆蓋了新表的資料", g)
-	}
-	if n := count(t, p, `select count(*) from omixor_cabinet_sections where org = 'o' and project = ''`); n != 3 {
-		t.Fatal("重複展開", n)
-	}
-}
-
-// 新版存過的列(split_at 非 NULL),就算舊的 layout jsonb 內容不同(舊資料、或回滾後被舊版改過 updated_at),遷移也不覆蓋新表
-func TestPGCabinetMigrationKeepsNewTables(t *testing.T) {
-	p := cabPG(t)
-	c := context.Background()
-	newer := []model.CabinetSection{{ID: "fromNew", Label: "新版存的", Tabs: []model.CabinetTab{}}}
-	if _, err := p.SaveCabinetLayout("o", "", newer, nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.pool.Exec(c, `update omixor_cabinet_layouts set layout = $1, updated_at = now() + interval '1 hour' where org = 'o' and project = ''`, jb(sampleLayout())); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.migrateCabinetLayouts(); err != nil {
-		t.Fatal(err)
-	}
-	if g, v, err := p.GetCabinetLayout("o", ""); err != nil || !reflect.DeepEqual(g, newer) || v != 1 {
-		t.Fatalf("遷移覆蓋了新版的資料 %+v v=%d %v", g, v, err)
-	}
-	if n := count(t, p, `select count(*) from omixor_cabinet_tabs where org = 'o'`); n != 0 {
-		t.Fatal("新表不該被舊 jsonb 填入", n)
-	}
-	// 遷移過的舊資料(版本 0)之後存檔:版本 0 → 1,split_at 仍標記
-	put := func() {
-		if _, err := p.pool.Exec(c, `insert into omixor_cabinet_layouts (org, project, layout) values ('m', '', $1)`, jb(sampleLayout())); err != nil {
-			t.Fatal(err)
-		}
-	}
-	put()
-	if err := p.migrateCabinetLayouts(); err != nil {
-		t.Fatal(err)
-	}
-	if _, v, err := p.GetCabinetLayout("m", ""); err != nil || v != 0 {
-		t.Fatal(v, err)
-	}
-	if v, err := p.SaveCabinetLayout("m", "", newer, i64(0)); err != nil || v != 1 {
-		t.Fatal(v, err)
-	}
-	if err := p.migrateCabinetLayouts(); err != nil {
-		t.Fatal(err)
-	}
-	if g, _ := getLay(p, "m", ""); !reflect.DeepEqual(g, newer) {
-		t.Fatal("存檔後再遷移不能回到舊資料", g)
 	}
 }
 

@@ -71,7 +71,7 @@ func (p *PG) ProjectKeyAliasTaken(org, prefix string) (string, error) {
 var ErrIssueKeyTaken = errors.New("issue key taken by another issue")
 
 // nextIssueKey 在 scope 發下一個 key:號碼被別名表(搬走的舊 key、舊格式 id)或退役表 omixor_issue_keys_retired
-// (永久刪除的 Issue 的 key、舊版留下的孤兒參照,見 pg_issue_keys.go:reserveOrphanIssueKeys)佔用就跳號。
+// (永久刪除的 Issue 的 key、舊版留下的孤兒參照)佔用就跳號。
 // 號碼單調往上,所以最多跳過現有的別名數;上限 100000 保險
 func nextIssueKey(c context.Context, tx pgx.Tx, org, project, prefix string) (string, int, error) {
 	for range 100000 {

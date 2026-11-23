@@ -290,7 +290,6 @@ func TestEnsureOrgsForIssuesRebuildsMissingOrg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.WaitFKValidate()
 	t.Cleanup(st.Close)
 	if err := st.CreateOrg(model.Org{ID: "default", Name: "舊名", CreatedAt: model.Now()}); err != nil {
 		t.Fatal(err)

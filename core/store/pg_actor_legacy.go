@@ -1,7 +1,7 @@
 // pg_actor_legacy.go 舊「誰」字串 → actor 的寬鬆解析器(ISS-36 階段 C-1;規格見雲端 omixor DOC-13 §1.5、§1.6),以及 omixor_actor_aliases。
 //
 // 資料裡「誰」原本是自由字串(email、user:<email>、agent:<id>、mcp、routine、本機身分名稱、冒名的任意字串…)。
-// ResolveLegacy 依 DOC-13 §1.5 的表格把一個舊值對到 actor;遷移(pg_actor_columns.go)、之後的匯入共用它。
+// ResolveLegacy 依 DOC-13 §1.5 的表格把一個舊值對到 actor;匯入(service 的 actor_import)、本機模式共用它。
 // 寬鬆:對不上的舊值不報錯,一律落到 sys_legacy_<sha256 前 8 碼>(名稱 = 原值),同一個舊值永遠同一個 actor(冪等),並寫 omixor_actor_aliases 與 log。
 // 嚴格解析器(一般 API 輸入,找不到回 400)不在這裡(service 層的事)。
 //
@@ -32,50 +32,10 @@ import (
 	"omixor-core/model"
 )
 
-const actorAliasesLockKey = "omixor-actor-aliases-migrate"
+// omixor_actor_aliases(pgSchema):舊值(規範化節點,例如 local:冒名)→ actor。只存 sys_legacy_* 與本機別名(不存使用者、角色:那些每次查表就對得到),
+// 讓重跑、匯入穩定,也讓人查得到「這個 sys_legacy 是哪個舊值」。
 
-// pgActorAliasesSchema omixor_actor_aliases:舊值(規範化節點,例如 local:冒名)→ actor。
-// 只存 sys_legacy_* 與本機別名(不存使用者、角色:那些每次查表就對得到),讓重跑、匯入穩定,也讓人查得到「這個 sys_legacy 是哪個舊值」。
-// 和 omixor_actors 一樣由啟動遷移建立(migrateActorAliases),不放 pgSchema
-const pgActorAliasesSchema = `
-create table if not exists omixor_actor_aliases (
-  alias      text primary key,
-  actor_id   text not null references omixor_actors(id),
-  created_at timestamptz not null default now()
-);
-create index if not exists omixor_actor_aliases_actor on omixor_actor_aliases (actor_id);
-`
-
-// migrateActorAliases 啟動遷移的一步(C-1):建 omixor_actor_aliases。位置:migrateAgentActors 之後、migrateForeignKeys 之前。
-// 只建一張新的空表,不碰既有表;冪等、多實例同時啟動只有一個在做(advisory lock)。omixor_actors 不存在就略過(下次啟動再做)
-func (p *PG) migrateActorAliases() error {
-	c, cancel := p.migCtx(5 * time.Minute)
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(c)
-	if err := xactLock(c, tx, actorAliasesLockKey); err != nil {
-		if errors.Is(err, errLockWait) || isTimeout(c, err) {
-			warnf("actor 別名表遷移:%v,略過這次(下次啟動再做)", err)
-			return nil
-		}
-		return err
-	}
-	var have bool
-	if err := tx.QueryRow(c, `select to_regclass('omixor_actors') is not null`).Scan(&have); err != nil {
-		return err
-	}
-	if !have {
-		warnf("actor 別名表遷移:找不到 omixor_actors,略過這次")
-		return nil
-	}
-	if _, err := tx.Exec(c, pgActorAliasesSchema); err != nil {
-		return err
-	}
-	return tx.Commit(c)
-}
+func warnf(format string, args ...any) { log.Printf("[警告] "+format, args...) }
 
 // ---- 本機身分設定 ----
 

@@ -57,14 +57,15 @@ var (
 	AgentCredHours = add(&Var{Name: "OMIXOR_AGENT_CRED_HOURS", Kind: Float, Group: GroupServer, Programs: progs(Server),
 		DefaultDoc: "服務內建的預設",
 		Doc:        "領取任務時發給角色的憑證有效小時數(要大於 0,否則用預設)"})
+	TrustedProxyHops = add(&Var{Name: "OMIXOR_TRUSTED_PROXY_HOPS", Kind: Int, Range: &[2]int{0, 16}, Group: GroupServer, Programs: progs(Server),
+		DefaultDoc: "有 K_SERVICE(Cloud Run)是 1,否則 0",
+		Doc: "信任的代理層數,決定怎麼取請求來源 IP(頻率限制、稽核用)。0 = 不看 X-Forwarded-For,用連線位址;N = 取 X-Forwarded-For 由右數第 N 個" +
+			"(最右邊是離伺服器最近的代理加的;項目不足或不是合法 IP 就退回連線位址)。Cloud Run 直接對外是 1;前面再加 HTTPS 負載平衡器要設 2。" +
+			"設太大會讓呼叫者能自己填來源、繞過每 IP 限制;設太小會讓代理的位址被當成來源、全部人共用一個額度"})
+	KService = add(&Var{Name: "K_SERVICE", Kind: String, Group: GroupServer, Programs: progs(Server),
+		Doc: "Cloud Run 自動帶入的服務名稱(不是 omixor 專用名稱);有值就表示跑在 Cloud Run,OMIXOR_TRUSTED_PROXY_HOPS 預設 1"})
 	Port = add(&Var{Name: "PORT", Kind: Int, Default: "8080", Range: portRange, Group: GroupServer, Programs: progs(Server),
 		Doc: "Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴)"})
-	MigrateMaxAutoRewriteMB = add(&Var{Name: "OMIXOR_MIGRATE_MAX_AUTO_REWRITE_MB", Kind: Int, Default: "1024", Range: &[2]int{0, 100000000}, Group: GroupServer, Programs: progs(Server),
-		Doc: "啟動遷移會重寫整張表的 ALTER(新增 stored 產生欄位 project_ref:omixor_docs、omixor_cabinet_sections、ops_issues),表(含索引)超過這個大小(MB)就不自動做、只警告," +
-			"要在維護窗口先跑 core/store/sql/premigrate.sql(必須用與服務相同的資料庫角色)再重啟;0 = 不限制(一律自動做,重寫期間該表讀寫全被擋)"})
-	MigrateBudgetMinutes = add(&Var{Name: "OMIXOR_MIGRATE_BUDGET_MINUTES", Kind: Int, Default: "10", Range: &[2]int{1, 1440}, Group: GroupServer, Programs: progs(Server),
-		Doc: "啟動遷移(在開始監聽之前同步執行)所有階段共用的總預算(分鐘);用完就略過剩下的、只警告,下次啟動接著做。" +
-			"要小於平台的啟動探測時限(Cloud Run 要設定足夠長的 startup probe)"})
 	EvoleapURL = add(&Var{Name: "EVOLEAP_URL", Kind: URL, Default: "https://evoleap.io", Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server),
 		Doc: "evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)"})
 )

@@ -87,7 +87,6 @@ func TestPassThrough(t *testing.T) {
 		{"ErrVersionConflict", store.ErrVersionConflict, 409, MsgVersionConflict, nil},
 		{"VersionConflictError 帶目前版本", fmt.Errorf("存檔:%w", &store.VersionConflictError{Current: 7}), 409, MsgVersionConflict, map[string]any{"currentVersion": int64(7)}},
 		{"ErrLocked", store.ErrLocked, 409, MsgLocked, nil},
-		{"ErrUnmigratedRow", store.ErrUnmigratedRow, 503, MsgUnmigratedRow, nil},
 		{"ErrProjectNoKey", store.ErrProjectNoKey, 400, MsgProjectNoKey, nil},
 		{"一般的中文錯誤", errors.New("要伺服器管理員"), 500, "要伺服器管理員", nil},
 		{"Public 沒指定狀態碼", fakePublic{"給畫面看的說明", 0, nil}, 0, "給畫面看的說明", nil},

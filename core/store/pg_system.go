@@ -7,7 +7,7 @@ import (
 	"omixor-core/model"
 )
 
-// ---- 組織的系統設定(功能開關;PG;表 omixor_org_system 的定義在 pg.go 的 pgSchema) ----
+// ---- 組織的系統設定(功能開關;PG;表 omixor_org_system 的定義在 pg_schema.go 的 pgSchema) ----
 // 一個組織一列:有改過的開關存在 features(jsonb,key → bool);updated_at、updated_by 另外存(updated_by 是 actor id,NULL = 沒有)。
 
 func (p *PG) GetSystemSettings(org string) (*model.OrgSystemSettings, error) {

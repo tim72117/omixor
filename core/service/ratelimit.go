@@ -1,0 +1,149 @@
+// ratelimit.go 頻率限制與失敗計數:都在記憶體裡、有上限。
+//   - rateWindow:固定視窗(1 分鐘)的「每個來源、全部」兩層上限;各個入口(配對、LDAP 登入、evoleap 登入、OAuth …)各用一個,互不影響
+//   - failCounter:每個鍵(IP 或帳號)一輪內的失敗次數;表有上限,滿了只淘汰最不重要的項目,不會整張清空
+
+package service
+
+import (
+	"sort"
+	"sync"
+	"time"
+)
+
+// 固定視窗的頻率限制(每個來源、整個入口各一個上限,視窗 1 分鐘;只有放行的請求才佔名額,所以 map 不會超過 totalMax 個)
+type rateWindow struct {
+	mu     sync.Mutex
+	window time.Time
+	per    map[string]int
+	all    int
+}
+
+func (r *rateWindow) allow(now time.Time, key string, perMax, totalMax int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.per == nil || now.Sub(r.window) >= time.Minute {
+		r.window, r.per, r.all = now, map[string]int{}, 0
+	}
+	if r.per[key] >= perMax || r.all >= totalMax {
+		return false
+	}
+	r.per[key]++
+	r.all++
+	return true
+}
+
+// loginLimits 各入口各自的限額,一個被灌爆不影響別的
+type loginLimits struct {
+	pair, ldap, evoleap rateWindow
+}
+
+// allowLogin 登入類入口的限額(每個來源 LoginPerIP、每個入口 LoginTotal,預設 10 與 60,每分鐘);w 是該入口自己的視窗
+func (s *Service) allowLogin(w *rateWindow, ip string) bool {
+	per, total := s.LoginPerIP, s.LoginTotal
+	if per == 0 {
+		per = 10
+	}
+	if total == 0 {
+		total = 60
+	}
+	return w.allow(s.now(), limitKey(ip), per, total)
+}
+
+const defaultFailCap = 10000
+
+// failEntry 一個鍵這一輪的失敗次數;since 是這一輪開始的時間
+type failEntry struct {
+	n     int
+	since time.Time
+}
+
+// failCounter 每個鍵一輪(win)內的失敗次數,最多 max 個鍵(0 = 10000)。
+// 滿了先丟掉過期的;還是滿就淘汰失敗次數最少、同樣少時最舊的一成。已經失敗很多次(被限制)的鍵最後才會被淘汰,
+// 所以灌一堆不同的鍵,洗不掉已被限制的人
+type failCounter struct {
+	mu  sync.Mutex
+	m   map[string]failEntry
+	max int
+}
+
+// add 記一次失敗,回傳這一輪第幾次
+func (c *failCounter) add(key string, now time.Time, win time.Duration) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[string]failEntry{}
+	}
+	e, ok := c.m[key]
+	if !ok {
+		c.makeRoom(now, win)
+	}
+	if !ok || now.Sub(e.since) >= win {
+		e = failEntry{since: now}
+	}
+	e.n++
+	c.m[key] = e
+	return e.n
+}
+
+// get 這個鍵這一輪的失敗次數與起點(沒有或已過期回 0)
+func (c *failCounter) get(key string, now time.Time, win time.Duration) (int, time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[key]
+	if !ok || now.Sub(e.since) >= win {
+		return 0, time.Time{}
+	}
+	return e.n, e.since
+}
+
+func (c *failCounter) clear(key string) {
+	c.mu.Lock()
+	delete(c.m, key)
+	c.mu.Unlock()
+}
+
+func (c *failCounter) size() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.m)
+}
+
+// makeRoom 在鎖裡呼叫:新增一個鍵之前確保不超過上限
+func (c *failCounter) makeRoom(now time.Time, win time.Duration) {
+	max := c.max
+	if max <= 0 {
+		max = defaultFailCap
+	}
+	if len(c.m) < max {
+		return
+	}
+	for k, e := range c.m {
+		if now.Sub(e.since) >= win {
+			delete(c.m, k)
+		}
+	}
+	if len(c.m) < max {
+		return
+	}
+	type kv struct {
+		k string
+		e failEntry
+	}
+	all := make([]kv, 0, len(c.m))
+	for k, e := range c.m {
+		all = append(all, kv{k, e})
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].e.n != all[j].e.n {
+			return all[i].e.n < all[j].e.n
+		}
+		return all[i].e.since.Before(all[j].e.since)
+	})
+	drop := max / 10
+	if drop < 1 {
+		drop = 1
+	}
+	for _, x := range all[:drop] {
+		delete(c.m, x.k)
+	}
+}
