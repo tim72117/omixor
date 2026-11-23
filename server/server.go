@@ -26,7 +26,11 @@
 //	/api/…                         核心 HTTP API(core/api)
 //	/mcp/agent                     角色端點:Authorization: Bearer <agentId>:<secret>(領取任務時發的憑證),白名單工具(含文件櫃,依角色的 docAccess)
 //	/mcp/worker/{org}              執行者專用 MCP(只有 dispatch_queue/claim/status/release):認證同 /mcp/org/{org}
-//	/mcp/org/{org}                 管理用 MCP(組織 {org} 的 Issue、角色、任務、文件櫃):Authorization: Bearer omx_…(omixor token),權限同該使用者
+//	/mcp/org/{org}                 管理用 MCP(組織 {org} 的 Issue、角色、任務、文件櫃):Authorization: Bearer omx_…(omixor token),權限同該使用者;
+//	                               或 OAuth 的 access token(omo_…,唯讀,見下面 /oauth;只開放唯讀工具,帶 MCP Apps 畫面 ui://omixor/flowchart、ui://omixor/items)
+//	/oauth/…、/.well-known/…       OAuth 2.1 授權伺服器(Claude 自訂 connector 用):/oauth/register、/oauth/authorize、/oauth/token、/oauth/consent.css,
+//	                               metadata 在 /.well-known/oauth-protected-resource/mcp/org/{org}、/.well-known/oauth-authorization-server/oauth;
+//	                               要設 OMIXOR_PUBLIC_URL 才掛;使用者在同意畫面輸入「手機配對」產生的配對碼證明身分(core/oauth、core/service/oauth.go)
 package server
 
 import (
@@ -42,6 +46,8 @@ import (
 	"omixor-core/backend"
 	"omixor-core/config"
 	"omixor-core/mcp"
+	"omixor-core/model"
+	"omixor-core/oauth"
 	"omixor-core/service"
 	"omixor-core/store"
 	"omixor-core/version"
@@ -69,17 +75,42 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 		agentURL = public + "/mcp/agent"
 	}
 	mux.Handle("/mcp/agent", mcp.AgentEndpoint(mcp.AgentEndpointConfig{Svc: svc}))
-	mux.Handle("/mcp/org/{org}", mcp.AdminEndpoint(mcp.AdminEndpointConfig{
+	// OAuth(Claude 自訂 connector 唯讀連 /mcp/org/{org}):需要對外網址(issuer、resource 都由它推導),沒設就不掛
+	var oa *oauth.Handler
+	if public != "" {
+		oa = oauth.New(svc, public)
+		oa.Mount(mux)
+	}
+	adminMCP := mcp.AdminEndpoint(mcp.AdminEndpointConfig{
 		AgentEndpoint: agentURL,
 		Resolve: func(r *http.Request) (backend.Backend, string, error) {
 			tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			p, err := svc.Authenticate(tok)
+			org := r.PathValue("org")
+			var p *model.Principal
+			var err error
+			if oa != nil && strings.HasPrefix(tok, model.OAuthTokenPrefix) {
+				// OAuth access token:只收綁定「這個組織的 MCP 網址」的;身分是唯讀(AdminEndpoint 只開放唯讀工具)
+				p, err = svc.AuthenticateOAuth(tok, oa.MCPURL(org))
+			} else {
+				p, err = svc.Authenticate(tok) // omx_ 使用者 token;omo_ 在這裡一律 403(沒有 OAuth 設定時)
+			}
 			if err != nil {
 				return nil, "", err
 			}
-			return &backend.Local{Svc: svc, P: p}, r.PathValue("org"), nil
+			return &backend.Local{Svc: svc, P: p}, org, nil
 		},
-	}))
+		ResourceMetadata: func(r *http.Request) string {
+			if oa == nil || !model.ValidOrgID(r.PathValue("org")) {
+				return ""
+			}
+			return oa.ResourceMetadataURL(r.PathValue("org"))
+		},
+	})
+	if oa != nil {
+		mux.Handle("/mcp/org/{org}", oa.ObserveMCP(adminMCP)) // 觀測 log:只記沒帶 token 或帶 OAuth token 的請求(見 core/oauth/log.go)
+	} else {
+		mux.Handle("/mcp/org/{org}", adminMCP)
+	}
 	// 執行者端點:給領取任務的 LLM 用,只有 dispatch_ 四個工具;認證同管理端點
 	mux.Handle("/mcp/worker/{org}", mcp.WorkerEndpoint(mcp.WorkerEndpointConfig{
 		AgentEndpoint: agentURL,

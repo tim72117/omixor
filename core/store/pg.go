@@ -46,6 +46,7 @@ import (
 //	                                              由 migrateForeignKeys 補,因為 omixor_actors 在 pgSchema 之後才建)。受限專案(omixor_projects.restricted)只有成員與管理員看得到;方法在 pg_project_members.go)
 //	omixor_decisions                              待決定(decision)/ 需要協助(help)(主鍵 (org, id) = DEC-<n>;created_by、decided_by 是 actor id(fk_decisions_created_by / _decided_by,由 migrateForeignKeys 補);
 //	                                              (org, source_issue) 外鍵指向 ops_issues 的內部 id,Issue 永久刪除時清成 NULL;方法在 pg_decision.go)
+//	omixor_oauth_clients、omixor_oauth_tokens     OAuth(Claude 自訂 connector 唯讀連 MCP):動態註冊的用戶端;授權碼、access、refresh、同意畫面的 CSRF token(只存雜湊;和 omixor_tokens 完全分開,方法在 pg_oauth.go,規則在 service/oauth.go)
 //	omixor_issue_items                            Issue 子項(主鍵 (org, id) = uuidv7;(org, issue_id, seq) 唯一,seq 由 omixor_seq 的 item:<issueID> scope 發;
 //	                                               assignee、claimed_by、created_by 是 actor id(fk_issue_items_*,由 migrateForeignKeys 補);depends_on 自參照、issue_id cascade、promoted_issue_id set null 在建表時就有;
 //	                                               新表直接是最終結構;task_id 是 omixor_agent_tasks.id 的字串參照,不設外鍵;規則在 service/issue_items.go)
@@ -453,6 +454,30 @@ create table if not exists omixor_server_features (
   features jsonb not null,
   updated_at timestamptz not null,
   updated_by text
+);
+create table if not exists omixor_oauth_clients (
+  client_id text primary key,
+  client_name text not null default '',
+  redirect_uris text[] not null,
+  grant_types text[] not null default '{}',
+  created_at timestamptz not null default now()
+);
+create table if not exists omixor_oauth_tokens (
+  id text primary key,
+  kind text not null check (kind in ('csrf', 'code', 'access', 'refresh')),
+  token_hash bytea not null unique,
+  client_id text not null references omixor_oauth_clients (client_id) on delete cascade,
+  user_id text references omixor_users (id) on delete cascade,
+  org text not null default '',
+  scope text not null default '',
+  resource text not null default '',
+  redirect_uri text not null default '',
+  code_challenge text not null default '',
+  family_id text not null default '',
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  revoked_at timestamptz
 );
 `
 

@@ -294,6 +294,8 @@ type Principal struct {
 	Actor ActorRef
 	// Via 身分的來源,見 Via* 常數;空 = 沒標(舊路徑)
 	Via string
+	// ReadOnly 唯讀授權(OAuth 的 mcp:read):MCP 端點只開放登記為 ReadOnly 的工具(model.CoreTool.ReadOnly),REST 一律拒絕
+	ReadOnly bool
 }
 
 // Principal.Via 的值:身分是怎麼來的
@@ -302,6 +304,7 @@ const (
 	ViaPair            = "pair"             // 配對碼換來的 token(手機)
 	ViaMCP             = "mcp"              // MCP 端點
 	ViaLocal           = "local"            // 本機模式(單機、不經登入)
+	ViaOAuth           = "oauth"            // OAuth access token(Claude 自訂 connector;唯讀)
 	ViaAgentCredential = "agent-credential" // 角色憑證(agentId + secret)或執行者代角色
 )
 

@@ -11,6 +11,9 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// ErrOAuthFull OAuth 動態註冊的用戶端數量已達上限
+var ErrOAuthFull = errors.New("oauth clients full")
+
 // ErrStale 條件式更新時資料的狀態已經不是呼叫者讀到的(別人先改了)
 var ErrStale = errors.New("stale")
 
@@ -56,6 +59,21 @@ type Store interface {
 	TouchToken(id string, at time.Time) error
 	RevokeToken(id string, at time.Time) error
 	ListTokens(now time.Time) ([]model.Token, error)
+	// OAuth(Claude 自訂 connector 的唯讀授權;獨立的兩張表,不碰 omixor_tokens;規則在 service/oauth.go,方法在 pg_oauth.go)
+	// CreateOAuthClient 新增動態註冊的用戶端;已經有 max 個用戶端回 ErrOAuthFull(同一個交易內檢查,並行註冊也不會超過)
+	CreateOAuthClient(c model.OAuthClient, max int) error
+	OAuthClientByID(id string) (*model.OAuthClient, error) // 沒有回 ErrNotFound
+	// PutOAuthToken 新增一列 code / access / refresh / csrf(雜湊已算好在 t.Hash)
+	PutOAuthToken(t model.OAuthToken) error
+	// OAuthTokenByHash 依種類與雜湊找(不管用過、撤銷、過期,由呼叫者判斷;沒有回 ErrNotFound)
+	OAuthTokenByHash(kind string, hash []byte) (*model.OAuthToken, error)
+	// ExchangeOAuthToken 同一個交易內:把 useID 標成用過(條件式:還沒用過、沒撤銷、沒過期,否則回 ErrStale,什麼都不寫),再新增 add(可以是空的)。
+	// 授權碼換 token、refresh 輪替、CSRF 驗證都用它,所以「用過一次」是原子的
+	ExchangeOAuthToken(useID string, at time.Time, add []model.OAuthToken) error
+	// RevokeOAuthFamily 撤銷同一個家族(family_id 相同)還沒撤銷的全部列(code、access、refresh)
+	RevokeOAuthFamily(family string, at time.Time) error
+	// PurgeOAuthTokens 刪掉過期超過 before 的 token 列(清理用),回傳刪了幾列
+	PurgeOAuthTokens(before time.Time) (int, error)
 	AddAudit(e model.AuditEntry) error
 	ListAudit(limit int) ([]model.AuditEntry, error)
 

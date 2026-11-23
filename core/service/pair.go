@@ -88,27 +88,37 @@ func (s *Service) CreatePairCode(p *model.Principal) (*PairCode, error) {
 
 var errPairInvalid = &Error{Code: 401, Msg: "配對碼無效、已過期或已用過,請在 Mac App 重新產生"}
 
-// ClaimPairCode 手機用配對碼換一把新的 omixor token(不用登入;有頻率限制;一次性)
-func (s *Service) ClaimPairCode(code, device, ip string) (*LoginResult, error) {
+// redeemPair 驗證並用掉一組配對碼(有頻率限制;一次性):回傳那一列與它的使用者。沒檢查使用者有沒有停用,呼叫者自己判斷。
+// ClaimPairCode(換登入 token)與 OAuth 同意畫面(證明身分,不發登入 token)共用,規則完全相同
+func (s *Service) redeemPair(code, ip string) (*model.Token, *model.User, error) {
 	if !s.allowLogin(ip) {
-		return nil, fail(429, "配對嘗試太頻繁,請一分鐘後再試")
+		return nil, nil, fail(429, "配對嘗試太頻繁,請一分鐘後再試")
 	}
 	code = NormalizePairCode(code)
 	if code == "" {
-		return nil, errPairInvalid
+		return nil, nil, errPairInvalid
 	}
 	now := s.now()
 	pt, u, err := s.Store.TokenByHash(pairHash(code), now)
 	if err != nil || pt == nil || u == nil || !IsPairToken(*pt) {
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return nil, err
+			return nil, nil, err
 		}
 		s.Audit(nil, "pair.denied", "", map[string]any{"ip": ip})
-		return nil, errPairInvalid
+		return nil, nil, errPairInvalid
 	}
 	// 標成用過:撤銷是原子的,同一個碼只有一次成功
 	if err := s.Store.RevokeToken(pt.ID, now); err != nil {
-		return nil, errPairInvalid
+		return nil, nil, errPairInvalid
+	}
+	return pt, u, nil
+}
+
+// ClaimPairCode 手機用配對碼換一把新的 omixor token(不用登入;有頻率限制;一次性)
+func (s *Service) ClaimPairCode(code, device, ip string) (*LoginResult, error) {
+	pt, u, err := s.redeemPair(code, ip)
+	if err != nil {
+		return nil, err
 	}
 	if u.Disabled {
 		s.Audit(&model.Principal{User: *u}, "pair.denied", "", map[string]any{"reason": "disabled"})

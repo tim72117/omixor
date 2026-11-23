@@ -503,3 +503,19 @@ store 的領域讀寫已是 actor id(C-2a~e 完成:model 欄位存 actor id、�
 | `RenameIdentity` | 不含這張表(欄位是 actor id,不是字串身分) |
 
 回滾:只能整個還原備份;舊版程式不認得此表(不讀不寫),新表留著無害。測試:`go test ./store -run 'TestStoreSuite/pg/Decisions|TestDecisions|TestStoreSuite/pg/DeleteOrgCascade|TestActorFKSpecsRegistered'`(需要 PostgreSQL,見 `storetest/testdb`)。
+
+
+## OAuth(Claude 自訂 connector 唯讀連 MCP):`omixor_oauth_clients`、`omixor_oauth_tokens`
+
+**只加不改,沒有資料搬移,不重寫任何既有表,不動 `omixor_tokens`(`omx_` 使用者 token 的語意完全不變)。** 全部在 `bootstrapSchema` 內冪等完成:
+
+| 項目 | 內容 |
+|---|---|
+| 新表 `omixor_oauth_clients` | `create table if not exists`,直接是最終結構。主鍵 `client_id`;`client_name`、`redirect_uris text[]`、`grant_types text[]`、`created_at`。動態註冊(RFC 7591)的用戶端,總數上限 200(`CreateOAuthClient` 在 advisory lock 的交易內檢查;滿了先淘汰「註冊超過 1 小時、沒有簽發過授權碼或 token」的) |
+| 新表 `omixor_oauth_tokens` | 同上。主鍵 `id`;`kind` check(csrf / code / access / refresh);`token_hash bytea` 唯一(只存雜湊,原文不存);`client_id` 外鍵 → `omixor_oauth_clients` **cascade**;`user_id` 可 NULL(csrf 沒有)外鍵 → `omixor_users` **cascade**;`org`、`scope`、`resource`(綁定的 MCP 網址)、`redirect_uri`、`code_challenge`(PKCE)、`family_id`、`created_at`、`expires_at`、`used_at`(code / refresh / csrf 用過)、`revoked_at`。`org` 不設外鍵(組織刪除後 token 仍存在但授權的組織已不存在,連線時由 service 的成員檢查擋掉) |
+| 索引 | `omixor_oauth_tokens_family`(`family_id`,`family_id <> ''` 部分索引,家族撤銷用)、`omixor_oauth_tokens_expires`(`expires_at`,清理用),都在 `pgSchemaIndexes`(缺才建) |
+| 清理 | 產生 CSRF token 時順便(最多每分鐘一次)刪掉過期超過一天的列(`PurgeOAuthTokens`) |
+| 「用過一次」 | `ExchangeOAuthToken`:同一個交易內條件式 `update … set used_at where used_at is null and revoked_at is null and expires_at > now` 再新增新列;多個實例同時換同一個 code / refresh 只有一個成功 |
+| 外鍵驗證、`fkSpecs` | 不進:兩條外鍵都在建表語句裡(新表,空表),`TestPGFKAllInstalled` 等外鍵計數不變 |
+
+回滾:只能整個還原備份;舊版程式不認得這兩張表(不讀不寫),留著無害;刪表前先確認沒有仍在使用的授權(刪了就是所有 Claude connector 要重新授權)。測試:`go test ./store -run TestOAuth`(需要 PostgreSQL,見 `storetest/testdb`)。

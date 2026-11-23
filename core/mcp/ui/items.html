@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>子項清單</title>
+<style>
+/* COMMON-CSS-BEGIN */
+:root{--bg:var(--color-background-primary,#fff);--fg:var(--color-text-primary,#1f2328);--fg2:var(--color-text-secondary,#656d76);--bd:var(--color-border-primary,#d0d7de);--bg2:var(--color-background-secondary,#f6f8fa);--font:var(--font-sans,system-ui,-apple-system,"Noto Sans TC",sans-serif);--fs:var(--font-text-md-size,14px);--fss:var(--font-text-sm-size,12px);--r:var(--border-radius-md,8px);color-scheme:light dark}
+:root[data-theme=dark]{--bg:var(--color-background-primary,#1c1c1e);--fg:var(--color-text-primary,#f0f0f0);--fg2:var(--color-text-secondary,#a0a0a8);--bd:var(--color-border-primary,#3a3a3e);--bg2:var(--color-background-secondary,#2a2a2e)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:var(--color-background-primary,#1c1c1e);--fg:var(--color-text-primary,#f0f0f0);--fg2:var(--color-text-secondary,#a0a0a8);--bd:var(--color-border-primary,#3a3a3e);--bg2:var(--color-background-secondary,#2a2a2e)}}
+html,body{margin:0;background:transparent;color:var(--fg);font:var(--fs)/1.45 var(--font)}
+#root{padding:10px 12px;box-sizing:border-box}
+.title,.head{font-weight:600;margin-bottom:8px}
+.svg svg{display:block;margin:0 auto;max-width:100%;height:auto;color:var(--fg)}
+.row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--bd)}
+.main{flex:1;min-width:0}.t{word-break:break-word}
+.meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:3px;font-size:var(--fss);color:var(--fg2)}
+.chip{padding:1px 8px;border-radius:999px;border:1px solid var(--bd);font-size:var(--fss);color:var(--fg)}
+.s-done{background:rgba(46,160,67,.18)}.s-doing{background:rgba(56,139,253,.18)}.s-blocked{background:rgba(248,81,73,.18)}.s-todo,.s-canceled{background:var(--bg2)}
+.warn{margin-top:8px;font-size:var(--fss);color:var(--fg2)}.err{color:#f85149}
+/* COMMON-CSS-END */
+</style></head>
+<body><div id="root">載入中…</div>
+<script>
+(function () {
+"use strict";
+/* COMMON-JS-BEGIN */
+// ---- 共用:MCP Apps 的 View 端(postMessage 上的 JSON-RPC)。不依賴任何外部程式庫。唯讀:只顯示工具結果,不呼叫任何工具 ----
+var root = document.getElementById("root");
+var pending = {}, nextId = 1, onResult = function () {};
+function post(m) { m.jsonrpc = "2.0"; window.parent.postMessage(m, "*"); }
+function request(method, params) {
+  return new Promise(function (resolve, reject) {
+    var id = nextId++;
+    pending[id] = { resolve: resolve, reject: reject };
+    post({ id: id, method: method, params: params });
+  });
+}
+function notify(method, params) { post({ method: method, params: params }); }
+function applyCtx(ctx) {
+  if (!ctx) return;
+  var el = document.documentElement;
+  if (ctx.theme === "light" || ctx.theme === "dark") { el.setAttribute("data-theme", ctx.theme); el.style.colorScheme = ctx.theme; }
+  var v = ctx.styles && ctx.styles.variables;
+  if (v) Object.keys(v).forEach(function (k) { if (k.indexOf("--") === 0 && typeof v[k] === "string") el.style.setProperty(k, v[k]); });
+  var f = ctx.styles && ctx.styles.css && ctx.styles.css.fonts;
+  if (typeof f === "string" && f) {
+    var st = document.getElementById("host-fonts");
+    if (!st) { st = document.createElement("style"); st.id = "host-fonts"; document.head.appendChild(st); }
+    st.textContent = f;
+  }
+}
+var lastH = 0;
+function reportSize() {
+  var h = Math.ceil(document.documentElement.getBoundingClientRect().height);
+  if (h && h !== lastH) { lastH = h; notify("ui/notifications/size-changed", { width: Math.ceil(window.innerWidth), height: h }); }
+}
+window.addEventListener("message", function (ev) {
+  if (ev.source !== window.parent) return;
+  var m = ev.data;
+  if (!m || m.jsonrpc !== "2.0") return;
+  if (m.method === undefined) { // 回應
+    var p = pending[m.id];
+    if (!p) return;
+    delete pending[m.id];
+    if (m.error) p.reject(m.error); else p.resolve(m.result);
+    return;
+  }
+  switch (m.method) {
+    case "ui/notifications/tool-result": onResult(m.params); setTimeout(reportSize, 0); break;
+    case "ui/notifications/host-context-changed": applyCtx(m.params); setTimeout(reportSize, 0); break;
+    case "ui/resource-teardown": if (m.id !== undefined) post({ id: m.id, result: {} }); break;
+    default: // 其他通知忽略;不認得的請求回「沒有這個方法」
+      if (m.id !== undefined) post({ id: m.id, error: { code: -32601, message: "Method not found" } });
+  }
+});
+function dataOf(r) {
+  if (r && r.structuredContent) return r.structuredContent;
+  var t = r && r.content && r.content.filter(function (c) { return c.type === "text"; })[0];
+  if (!t) return null;
+  try { return JSON.parse(t.text); } catch (e) { return null; }
+}
+function errText(r) {
+  var t = r && r.content && r.content.filter(function (c) { return c.type === "text"; })[0];
+  return (t && t.text) || "發生錯誤";
+}
+function start(name, handler) {
+  onResult = function (r) {
+    if (r && r.isError) { root.innerHTML = ""; var d = document.createElement("div"); d.className = "err"; d.textContent = errText(r); root.appendChild(d); return; }
+    handler(dataOf(r));
+    reportSize();
+  };
+  if (typeof ResizeObserver === "function") new ResizeObserver(reportSize).observe(document.documentElement);
+  request("ui/initialize", { appInfo: { name: name, version: "0.1.0" }, appCapabilities: {}, protocolVersion: "2026-01-26" })
+    .then(function (res) { applyCtx(res && res.hostContext); notify("ui/notifications/initialized", {}); reportSize(); })
+    .catch(function () { root.textContent = "（無法連上宿主）"; });
+}
+/* COMMON-JS-END */
+// ---- items:顯示 issue_items 回傳的子項清單(唯讀)----
+var LABEL = { todo: "待辦", doing: "進行中", done: "完成", blocked: "阻擋", canceled: "取消" };
+function chip(text, cls) {
+  var c = document.createElement("span");
+  c.className = "chip" + (cls ? " " + cls : "");
+  c.textContent = text;
+  return c;
+}
+function who(it) { return (it.assigneeActor && (it.assigneeActor.name || it.assigneeActor.handle)) || it.assignee || ""; }
+function evidenceText(e) {
+  if (e == null) return "";
+  if (typeof e === "string") return e;
+  if (e.commit) return "commit " + e.commit;
+  try { return JSON.stringify(e); } catch (x) { return ""; }
+}
+start("omixor-items", function (d) {
+  root.innerHTML = "";
+  var items = d && Array.isArray(d.items) ? d.items : d && d.key ? [d] : null;
+  if (!items) { root.textContent = "（沒有資料）"; return; }
+  var h = document.createElement("div");
+  h.className = "head";
+  var open = d.open != null ? d.open : items.filter(function (i) { return i.status !== "done" && i.status !== "canceled"; }).length;
+  h.textContent = (d.issue ? d.issue + "　" : "") + "子項 " + (d.total != null ? d.total : items.length) + " 項,未完成 " + open + " 項";
+  root.appendChild(h);
+  if (!items.length) { var e = document.createElement("div"); e.className = "warn"; e.textContent = "沒有符合的子項"; root.appendChild(e); return; }
+  items.forEach(function (it) {
+    var row = document.createElement("div");
+    row.className = "row";
+    var main = document.createElement("div");
+    main.className = "main";
+    var t = document.createElement("div");
+    t.className = "t";
+    t.textContent = it.key + " " + it.title;
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    meta.appendChild(chip(LABEL[it.status] || it.status, "s-" + it.status));
+    if (who(it)) meta.appendChild(chip("負責 " + who(it)));
+    if (it.dependsOn) meta.appendChild(chip("依賴 " + it.dependsOn));
+    if (it.status === "blocked" && it.blockReason) meta.appendChild(chip("卡住:" + it.blockReason));
+    var ev = evidenceText(it.evidence);
+    if (ev) meta.appendChild(chip(ev.length > 60 ? ev.slice(0, 60) + "…" : ev));
+    main.appendChild(t);
+    main.appendChild(meta);
+    row.appendChild(main);
+    root.appendChild(row);
+  });
+});
+})();
+</script></body></html>

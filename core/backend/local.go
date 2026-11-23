@@ -16,6 +16,9 @@ type Local struct {
 
 var _ Backend = (*Local)(nil)
 
+// ReadOnly 這個連線是唯讀授權(OAuth 的 mcp:read):MCP 端點只開放唯讀工具(見 mcp.AdminEndpoint)
+func (l *Local) ReadOnly() bool { return l.P != nil && l.P.ReadOnly }
+
 func (l *Local) ensureOrg(org string) {
 	if !l.EnsureOrg {
 		return

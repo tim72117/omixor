@@ -155,7 +155,7 @@ REST 路由都用 `authedOrAgent`(角色憑證能到 service,由 service 層回 
 |---|---|---|---|
 | REST `/api/*`(`core/api`) | `authed`:`Bearer omx_…` | 人 | 角色憑證**不接受**(`Authenticate` 要求 `omx_` 前綴) |
 | REST 少數路由 | `authedOrAgent`:`omx_` 或 `<agentId>:<secret>` | 人或角色 | chain GET、`agent-tasks/delegate`、channels 全部、incidents(除 import)、mcp-servers GET 與 `mcp-tools/resolve`、`/api/modules`、`orgs/{org}/system` GET、integrations 的 GET |
-| MCP Admin `/mcp/org/{org}` | `omx_` | 人 | `backend.Local{P: p}`;組織取自路徑 |
+| MCP Admin `/mcp/org/{org}` | `omx_`;或 OAuth access token `omo_`(Claude 自訂 connector,**唯讀**,綁定該組織的 MCP 網址) | 人 | `backend.Local{P: p}`;組織取自路徑。`omo_` 的 `Principal.ReadOnly = true`:`tools/list` 只列 `model.CoreTool.ReadOnly` 的工具、其他工具呼叫回「此連線是唯讀授權」、`flowchart_render` 的 `save` 被拒;`Service.Authenticate` 看到 `omo_` 一律 403(所以 REST、`/mcp/worker` 都不收)。授權流程見 `server/README.md` 的 OAuth 一節 |
 | MCP Agent `/mcp/agent` | `<agentId>:<secret>` | 角色 | `AgentEndpoint`:`Allow` = 白名單 ∩ `AgentToolSet`(依角色目前設定);`Guard` 強制 `agent` 參數為憑證角色(規格不再列 `agent`;帶別的角色仍被擋)。**所有人類端點(`/mcp/org/{org}`、`AdminEndpoint`、console `/mcp`)不接受「身分假冒」型的 `agent` 參數**(`mcp/identity_agent.go`:`IdentityAgentTools`、`RejectIdentityAgent`):帶了回 400 固定句子「不能指定角色身分;要以角色身分工作請先領任務(agent_task_claim)取得角色憑證,連角色端點(/mcp/agent)」,不執行、不寫入,署名一律是呼叫者。保留對象選擇型 `agent`(`agent_context`、`agent_tasks`、`agent_task_claim`、`agent_upsert`/`agents` 的 id、`dispatch_queue`/`dispatch_claim`)。`agent_task_delegate` 的委派者只能由角色憑證決定,人類端點(含 console `/mcp`)不列、呼叫一律 400 |
 | MCP Worker `/mcp/worker/{org}` | `omx_` | 人 | 只開 7 個 `dispatch_*`(`WorkerToolAllow` 寫死的 map) |
 | console web `/api/*` | session cookie(若啟用 LDAP);否則無 | `localPrincipal`(本機)或共用 server token(遠端) | `/api/tool/{name}`、`/api/action/{name}`;權限靠 `adminActions/adminTools` deny-list |

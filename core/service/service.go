@@ -119,10 +119,13 @@ type Service struct {
 
 	// 登入端點的頻率限制(每個來源每分鐘、整個服務每分鐘)
 	LoginPerIP, LoginTotal int
-	limMu                  sync.Mutex
-	limWindow              time.Time
-	limCount               map[string]int
-	limAll                 int
+	// OAuthRegPerIP、OAuthRegTotal OAuth 動態註冊(POST /oauth/register)每分鐘的來源上限、整個服務上限(0 = 5、30);見 oauth.go
+	OAuthRegPerIP, OAuthRegTotal int
+	oauth                        oauthState
+	limMu                        sync.Mutex
+	limWindow                    time.Time
+	limCount                     map[string]int
+	limAll                       int
 }
 
 func (s *Service) now() time.Time {
@@ -318,6 +321,9 @@ func (s *Service) issueToken(u *model.User, device string, now model.Time, via s
 // Authenticate 驗證 omixor token
 func (s *Service) Authenticate(raw string) (*model.Principal, error) {
 	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, model.OAuthTokenPrefix) { // OAuth 的 access token 是唯讀授權,只能連組織的 MCP 端點(AuthenticateOAuth);REST 一律拒絕
+		return nil, fail(403, "OAuth 連線是唯讀授權,只能用在 MCP,不能使用 REST API")
+	}
 	if !strings.HasPrefix(raw, TokenPrefix) {
 		return nil, fail(401, "要帶 omixor 的登入(Authorization: Bearer omx_…);用 omixor login 或在 app 登入")
 	}

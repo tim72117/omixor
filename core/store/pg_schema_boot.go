@@ -70,6 +70,8 @@ var pgSchemaIndexes = []schemaIndex{
 	{"omixor_decisions_org_status", `create index if not exists omixor_decisions_org_status on omixor_decisions (org, status)`},
 	{"omixor_decisions_org_issue", `create index if not exists omixor_decisions_org_issue on omixor_decisions (org, source_issue)`},
 	{"omixor_issue_items_issue", `create index if not exists omixor_issue_items_issue on omixor_issue_items (org, issue_id)`},
+	{"omixor_oauth_tokens_family", `create index if not exists omixor_oauth_tokens_family on omixor_oauth_tokens (family_id) where family_id <> ''`},
+	{"omixor_oauth_tokens_expires", `create index if not exists omixor_oauth_tokens_expires on omixor_oauth_tokens (expires_at)`},
 	{"omixor_issue_items_assignee", `create index if not exists omixor_issue_items_assignee on omixor_issue_items (org, assignee)`},
 }
 

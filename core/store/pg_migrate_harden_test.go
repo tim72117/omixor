@@ -478,6 +478,7 @@ func TestActorColumnsGuard(t *testing.T) {
 	excluded := map[string]string{
 		"omixor_tokens.user_id":         "使用者 id(u_…,D11 不改寫),不是 actor id",
 		"omixor_org_members.user_id":    "使用者 id(u_…,D11 不改寫),不是 actor id",
+		"omixor_oauth_tokens.user_id":   "使用者 id(u_…,同 omixor_tokens),不是 actor id;OAuth 授權碼 / token 的所屬使用者",
 		"omixor_users.actor_id":         "使用者指向自己的 actor(B-2b)",
 		"omixor_agents.actor_id":        "角色指向自己的 actor(B-2c)",
 		"omixor_actor_aliases.actor_id": "別名表指向 actor(C-1)",

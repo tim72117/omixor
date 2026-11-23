@@ -4,6 +4,7 @@ package model
 //   - 標題:工具規格(mcp 的 tools/list)的 title
 //   - 端點:Admin 管理端點(/mcp/org/{org}、web 的 /mcp)、Agent 角色端點(/mcp/agent)、Worker 執行者端點(/mcp/worker/{org})
 //   - Needs:角色端點的開放條件(角色設定不符合時 tools/list 不列,見 service.AgentTools)
+//   - ReadOnly:唯讀授權(OAuth)可用的工具;一定要是純讀取,新增工具預設不是
 // 工具的參數與說明在 mcp 套件(ToolDefs);mcp 的測試會檢查兩邊的名稱一致。
 
 // 角色端點的開放條件
@@ -23,19 +24,21 @@ type CoreTool struct {
 	Agent  bool
 	Worker bool
 	Needs  string
+	// ReadOnly 純讀取、沒有任何寫入副作用(包含「讀了算已讀」這種):唯讀授權(OAuth 的 mcp:read)只開放這些。預設 false
+	ReadOnly bool
 }
 
 // CoreTools 全部核心工具(順序就是 tools/list 與畫面的順序)
 var CoreTools = []CoreTool{
-	{Name: "orgs", Title: "列出組織", Group: "組織", Admin: true},
+	{Name: "orgs", Title: "列出組織", Group: "組織", Admin: true, ReadOnly: true},
 
-	{Name: "issues", Title: "查 Issue", Group: "Issue", Admin: true, Agent: true},
+	{Name: "issues", Title: "查 Issue", Group: "Issue", Admin: true, Agent: true, ReadOnly: true},
 	{Name: "issue_create", Title: "建立 Issue", Group: "Issue", Admin: true, Agent: true},
 	{Name: "issue_update", Title: "更新 Issue", Group: "Issue", Admin: true, Agent: true},
 
-	{Name: "agents", Title: "列出虛擬角色", Group: "角色與任務", Admin: true},
+	{Name: "agents", Title: "列出虛擬角色", Group: "角色與任務", Admin: true, ReadOnly: true},
 	{Name: "agent_context", Title: "角色能讀取的資訊", Group: "角色與任務", Admin: true, Agent: true},
-	{Name: "agent_tasks", Title: "查角色任務", Group: "角色與任務", Admin: true, Agent: true},
+	{Name: "agent_tasks", Title: "查角色任務", Group: "角色與任務", Admin: true, Agent: true, ReadOnly: true},
 	{Name: "agent_task_claim", Title: "以角色身分領取任務", Group: "角色與任務", Admin: true},
 	{Name: "agent_task_report", Title: "回報任務", Group: "角色與任務", Admin: true, Agent: true},
 	{Name: "agent_upsert", Title: "新增或修改角色", Group: "角色與任務", Admin: true},
@@ -43,39 +46,39 @@ var CoreTools = []CoreTool{
 	{Name: "agent_task_transfer", Title: "轉移角色的任務", Group: "角色與任務", Admin: true},
 	{Name: "agent_task_delegate", Title: "依組織鏈委派任務", Group: "角色與任務", Agent: true, Needs: NeedDownstream},
 
-	{Name: "projects", Title: "列出專案", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead},
+	{Name: "projects", Title: "列出專案", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead, ReadOnly: true},
 	{Name: "project_save", Title: "新增或修改專案", Group: "文件櫃", Admin: true},
-	{Name: "cabinet", Title: "文件櫃結構", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead},
-	{Name: "docs", Title: "查文件", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead},
+	{Name: "cabinet", Title: "文件櫃結構", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead, ReadOnly: true},
+	{Name: "docs", Title: "查文件", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocRead, ReadOnly: true},
 	{Name: "doc_save", Title: "存文件到文件櫃", Group: "文件櫃", Admin: true, Agent: true, Needs: NeedDocWrite},
 	{Name: "cabinet_layout_save", Title: "修改文件櫃結構", Group: "文件櫃", Admin: true},
 
-	{Name: "chain", Title: "組織鏈", Group: "組織鏈", Admin: true},
+	{Name: "chain", Title: "組織鏈", Group: "組織鏈", Admin: true, ReadOnly: true},
 	{Name: "chain_save", Title: "修改組織鏈", Group: "組織鏈", Admin: true},
 
-	{Name: "channels", Title: "列出對話頻道", Group: "訊息頻道", Admin: true, Agent: true, Needs: NeedChannel},
+	{Name: "channels", Title: "列出對話頻道", Group: "訊息頻道", Admin: true, Agent: true, Needs: NeedChannel, ReadOnly: true},
 	{Name: "channel_create", Title: "建立對話頻道", Group: "訊息頻道", Admin: true},
 	{Name: "channel_messages", Title: "讀頻道訊息", Group: "訊息頻道", Admin: true, Agent: true, Needs: NeedChannel},
 	{Name: "channel_post", Title: "在頻道發訊息", Group: "訊息頻道", Admin: true, Agent: true, Needs: NeedChannel},
 
-	{Name: "incidents", Title: "查事件", Group: "事件", Admin: true},
+	{Name: "incidents", Title: "查事件", Group: "事件", Admin: true, ReadOnly: true},
 	{Name: "incident_declare", Title: "宣告事件", Group: "事件", Admin: true},
 	{Name: "incident_update", Title: "更新事件", Group: "事件", Admin: true},
 
 	{Name: "issue_decision_add", Title: "提出待決定或需要協助", Group: "待決定", Admin: true, Agent: true},
-	{Name: "issue_decisions", Title: "查待決定與需要協助", Group: "待決定", Admin: true, Agent: true},
+	{Name: "issue_decisions", Title: "查待決定與需要協助", Group: "待決定", Admin: true, Agent: true, ReadOnly: true},
 	{Name: "issue_decision_answer", Title: "處理待決定或需要協助", Group: "待決定", Admin: true},
 	{Name: "issue_decision_to_issue", Title: "由待決定開出問題 Issue", Group: "待決定", Admin: true},
 
 	{Name: "issue_item_add", Title: "新增 Issue 子項", Group: "子項", Admin: true, Agent: true},
-	{Name: "issue_items", Title: "查 Issue 子項", Group: "子項", Admin: true, Agent: true},
+	{Name: "issue_items", Title: "查 Issue 子項", Group: "子項", Admin: true, Agent: true, ReadOnly: true},
 	{Name: "issue_item_update", Title: "修改或取消 Issue 子項", Group: "子項", Admin: true},
 	{Name: "issue_item_claim", Title: "領取 Issue 子項", Group: "子項", Admin: true},
 	{Name: "issue_item_report", Title: "回報 Issue 子項", Group: "子項", Admin: true, Agent: true},
 	{Name: "issue_item_promote", Title: "把子項提升為 Issue", Group: "子項", Admin: true},
 
 	{Name: "wireframe_render", Title: "繪製線框圖", Group: "設計工具", Admin: true, Agent: true},
-	{Name: "flowchart_render", Title: "繪製流程圖", Group: "設計工具", Admin: true, Agent: true},
+	{Name: "flowchart_render", Title: "繪製流程圖", Group: "設計工具", Admin: true, Agent: true, ReadOnly: true},
 
 	{Name: "dispatch_queue", Title: "列出可領的任務", Group: "派發", Worker: true},
 	{Name: "dispatch_claim", Title: "領取任務", Group: "派發", Worker: true},

@@ -101,6 +101,38 @@ type Hooks struct {
 	Guard func(name string, args map[string]any) error
 	// Defs 不是 nil 時改寫 tools/list 的規格(Allow 過濾之後;人類端點拿掉身分假冒型的 agent 參數用)
 	Defs func(defs []any) []any
+	// Deny 不是 nil 時:tools/call 一個「存在、但被 Allow 擋掉」的工具,它回傳非空字串就以 isError 結果回這句話
+	// (而不是「沒有這個工具」;唯讀授權用:「此連線是唯讀授權」)
+	Deny func(name string) string
+	// Resources 這個端點提供的 MCP 資源(MCP Apps 的 ui:// 畫面):有的話 initialize 會宣告 resources 能力,resources/list、resources/read 回它們
+	Resources []Resource
+}
+
+// Resource 一個 MCP 資源(目前只有 MCP Apps 的 ui:// HTML 畫面)
+type Resource struct {
+	URI         string
+	Name        string
+	Title       string
+	Description string
+	MimeType    string
+	Text        string
+	Meta        map[string]any // _meta
+}
+
+func (r Resource) listing() map[string]any {
+	m := map[string]any{"uri": r.URI, "name": r.Name, "title": r.Title, "description": r.Description, "mimeType": r.MimeType}
+	if r.Meta != nil {
+		m["_meta"] = r.Meta
+	}
+	return m
+}
+
+func (r Resource) content() map[string]any {
+	m := map[string]any{"uri": r.URI, "mimeType": r.MimeType, "text": r.Text}
+	if r.Meta != nil {
+		m["_meta"] = r.Meta
+	}
+	return m
 }
 
 // Server 協定處理器:規格 + 工具登記表
@@ -328,6 +360,14 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		}
 		r := map[string]any{}
 		maps.Copy(r, s.initInfo)
+		if len(h.Resources) > 0 { // 宣告 resources 能力(複製一份,不改共用的 initInfo)
+			caps := map[string]any{}
+			if c, ok := s.initInfo["capabilities"].(map[string]any); ok {
+				maps.Copy(caps, c)
+			}
+			caps["resources"] = map[string]any{"listChanged": false, "subscribe": false}
+			r["capabilities"] = caps
+		}
 		r["protocolVersion"] = version
 		return result(id, r)
 	case "ping":
@@ -353,6 +393,11 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 			return errorResponse(id, -32602, "缺少工具名稱")
 		}
 		name = LegacyToolName(name, s.toolNames)
+		if slices.Contains(s.toolNames, name) && h.Allow != nil && !h.Allow(name) && h.Deny != nil {
+			if msg := h.Deny(name); msg != "" {
+				return result(id, toolFailure(name, ToolError{Message: msg, Status: 403}))
+			}
+		}
 		if !slices.Contains(s.toolNames, name) || (h.Allow != nil && !h.Allow(name)) {
 			return errorResponse(id, -32602, "沒有這個工具:"+name)
 		}
@@ -374,7 +419,19 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		}
 		return result(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": string(s.Marshal(out))}}, "isError": false})
 	case "resources/list":
-		return result(id, map[string]any{"resources": []any{}})
+		list := []any{}
+		for _, r := range h.Resources {
+			list = append(list, r.listing())
+		}
+		return result(id, map[string]any{"resources": list})
+	case "resources/read":
+		uri, _ := params["uri"].(string)
+		for _, r := range h.Resources {
+			if r.URI == uri {
+				return result(id, map[string]any{"contents": []any{r.content()}})
+			}
+		}
+		return errorResponse(id, -32002, "找不到資源:"+uri)
 	case "prompts/list":
 		return result(id, map[string]any{"prompts": []any{}})
 	}

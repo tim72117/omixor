@@ -21,8 +21,19 @@ func serve(w http.ResponseWriter, r *http.Request, handle func(body []byte) []by
 	HTTPHandler(handle).ServeHTTP(w, r2)
 }
 
-func unauthorized(w http.ResponseWriter, realm string) {
-	w.Header().Set("WWW-Authenticate", `Bearer realm="`+realm+`"`)
+func unauthorized(w http.ResponseWriter, realm string) { unauthorizedWith(w, realm, "", false) }
+
+// unauthorizedWith 401:resourceMetadata 非空時帶 resource_metadata(RFC 9728,讓 OAuth 用戶端找到授權伺服器);invalidToken 帶 error="invalid_token"(RFC 6750)
+func unauthorizedWith(w http.ResponseWriter, realm, resourceMetadata string, invalidToken bool) {
+	ch := `Bearer realm="` + realm + `"`
+	if resourceMetadata != "" {
+		ch += `, resource_metadata="` + resourceMetadata + `"`
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	if invalidToken {
+		ch += `, error="invalid_token"`
+	}
+	w.Header().Set("WWW-Authenticate", ch)
 	w.Header().Set("Connection", "close")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(401)
@@ -213,6 +224,8 @@ type AdminEndpointConfig struct {
 	// Tools 額外的工具;ContextExtra 同角色端點(管理端沒有角色限制)
 	Tools        []Tool
 	Instructions string
+	// ResourceMetadata 這個請求對應的 OAuth Protected Resource Metadata 網址(RFC 9728);非空時 401 的 WWW-Authenticate 帶 resource_metadata。空 = 不帶
+	ResourceMetadata func(r *http.Request) string
 }
 
 const adminInstructions = "這是 omixor 的 MCP 端點,操作目前組織的 Issue、虛擬角色與任務,權限同你登入的 omixor 帳號。" +
@@ -245,6 +258,7 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 		extra[n] = true
 		extraNames = append(extraNames, n)
 	}
+	uiResources := UIResources()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bk, org, err := cfg.Resolve(r)
 		if err != nil {
@@ -252,16 +266,41 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 				http.Error(w, httperr.Report("mcp 端點解析身分", err).Msg, c)
 				return
 			}
-			unauthorized(w, "omixor")
+			rm := ""
+			if cfg.ResourceMetadata != nil {
+				rm = cfg.ResourceMetadata(r)
+			}
+			// 帶了 OAuth 的 access token(omo_)卻被拒(過期、撤銷、不是這個資源的):error="invalid_token",用戶端會去 refresh 或重新授權
+			tok, _ := BearerToken(r)
+			unauthorizedWith(w, "omixor", rm, strings.HasPrefix(tok, model.OAuthTokenPrefix))
 			return
 		}
 		sess := &Session{B: bk, OrgID: org, Endpoint: cfg.AgentEndpoint}
-			hooks := Hooks{Ctx: sess,
-				// 人類端點不列 HumanHiddenTools(agent_task_delegate)
-				Allow: func(name string) bool { return allow[name] && !HumanHiddenTools[name] },
-				// 人類端點不能指定角色身分(署名、文件權限):規格不列 agent 參數,帶 agent 回 400,不執行
-				Defs:  WithoutIdentityAgent,
-				Guard: RejectIdentityAgent}
+		// 唯讀授權(OAuth):只開放登記為 ReadOnly 的核心工具,額外掛上來的工具也不開放;其他一律「此連線是唯讀授權」
+		ro := false
+		if b, ok := bk.(interface{ ReadOnly() bool }); ok {
+			ro = b.ReadOnly()
+		}
+		hooks := Hooks{Ctx: sess,
+			// 人類端點不列 HumanHiddenTools(agent_task_delegate)
+			Allow: func(name string) bool {
+				return allow[name] && !HumanHiddenTools[name] && (!ro || ReadOnlyTools[name])
+			},
+			// 人類端點不能指定角色身分(署名、文件權限):規格不列 agent 參數,帶 agent 回 400,不執行;flowchart_render、issue_items 帶 MCP Apps 畫面
+			Defs: func(defs []any) []any { return WithUIMeta(WithoutIdentityAgent(defs)) },
+			Guard: func(name string, args map[string]any) error {
+				if err := RejectIdentityAgent(name, args); err != nil {
+					return err
+				}
+				if ro {
+					return readOnlyGuard(name, args)
+				}
+				return nil
+			},
+			Resources: uiResources}
+		if ro {
+			hooks.Deny = func(string) string { return ReadOnlyMessage }
+		}
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})
 }
