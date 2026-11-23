@@ -144,6 +144,18 @@ REST 路由都用 `authedOrAgent`(角色憑證能到 service,由 service 層回 
 **已知未處理**:(1) 沒有 `issue_block` / `issue_unblock`(Issue 級卡住旗標要動 Issue 結構與遷移,範圍比子項大,另開);(2) console 畫面還沒有子項的視圖,console 的 appBackend 只轉發給核心;(3) 等待的子項 done 時不自動解除 blocked(第二階段);等待 `user_decision` 先存文字,待決定功能整合後可指向 DEC-n;(4) 子項沒有自己的留言,完成 / 卡住 / 提升會在所屬 Issue 留系統留言;(5) CLI 不能清空欄位(旗標空字串視為沒給);(6) done / canceled 的子項不能重開(要重做請新增子項)。
 ---
 
+### 0.5 MCP 統一入口 `/mcp`(ISS-54 第 1 階段,2026-11-23)
+
+雲端新增 `/mcp`:一個連線操作帳號下所有組織,**沒有預設組織**。
+- **認證**:只收 `omx_` 使用者 token(`svc.Authenticate`)。OAuth 的 `omo_` token 一律 403(說明改用 `/mcp/org/{org}`);OAuth 統一入口留到第二階段,OAuth 授權範圍(`core/oauth`)沒有動。
+- **org 必填**:除 `orgs`、`schema_check`(帳號層級)外,每次工具呼叫都要帶 `org`(讀取、寫入一樣);沒帶或空白 → `isError`(400),訊息列出該帳號可用的組織 id。tools/list 的規格在這個入口為這些工具加上必填的 `org`(string)。
+- **每次呼叫都驗證成員資格**:組織取自 `args["org"]`,先過 `model.ValidOrgID`,再確認在呼叫者的 `ListOrgs` 裡(成員;伺服器管理員視同全部);格式不對、不存在、非成員一律同一句 403(不洩漏組織存不存在);通過後才執行,執行時 service 層仍照權限表(`orgRole`、`viewer` 等)再檢查一次能力。`Backend.Local` 的方法本身會對傳入的 org 做 service 層檢查,這道統一入口的檢查是第一道、不依賴每個方法都有。
+- **每次呼叫各自的上下文**:`mcp.Hooks.CallCtx` 每次 tools/call 產生專屬的 `Session`(`OrgID` 為該次呼叫的 org),同一批請求不同呼叫可帶不同組織,不共用可被改寫的狀態。預設的連線上下文沒有組織,漏設時工具會因組織 id 不合法而失敗(fail closed)。
+- **結果**:成功結果維持單一 text 區塊(JSON 不變),實際使用的組織放在結果的 `_meta`:`"_meta": {"omixor/org": "<id>"}`。同一個 HTTP 請求內 `ListOrgs` 只查一次(請求內快取,請求結束即丟棄,不跨請求或使用者共用),組織名稱也從這份快取取。
+- **舊端點**:`/mcp/org/{org}` 行為不變;工具參數帶了與路徑不同的 `org` → 拒絕(相同或沒帶都可以)。唯讀授權、`HumanHiddenTools`、`RejectIdentityAgent`、MCP Apps 畫面在統一入口維持一樣的邏輯。
+- 測試:`core/mcp/unified_test.go`、`server/mcp_unified_test.go`。
+
+
 ## 1. 身分與憑證
 
 ### 1.1 身分種類

@@ -10,9 +10,18 @@ func RegisterOrgTools(s *Server) {
 		if err != nil {
 			return nil, terr(err)
 		}
+		// 統一入口沒有目前組織(Org() 是空字串):不標 current
+		noCurrent := e.Org() == ""
 		orgs := []any{}
 		for _, o := range list {
-			orgs = append(orgs, map[string]any{"id": o.ID, "name": o.Name, "note": o.Note, "current": o.ID == e.Org()})
+			m := map[string]any{"id": o.ID, "name": o.Name, "note": o.Note}
+			if !noCurrent {
+				m["current"] = o.ID == e.Org()
+			}
+			orgs = append(orgs, m)
+		}
+		if noCurrent {
+			return map[string]any{"orgs": orgs}, nil
 		}
 		return map[string]any{"current": e.Org(), "orgs": orgs}, nil
 	})

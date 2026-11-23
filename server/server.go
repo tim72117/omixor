@@ -26,6 +26,8 @@
 //	/api/…                         核心 HTTP API(core/api)
 //	/mcp/agent                     角色端點:Authorization: Bearer <agentId>:<secret>(領取任務時發的憑證),白名單工具(含文件櫃,依角色的 docAccess)
 //	/mcp/worker/{org}              執行者專用 MCP(只有 dispatch_queue/claim/status/release):認證同 /mcp/org/{org}
+//	/mcp                           統一入口 MCP(第一階段):Authorization: Bearer omx_…;每次工具呼叫用 org 參數指定組織(必填,沒有預設組織),
+//	                               每次驗證呼叫者是該組織成員;OAuth 的 omo_ 一律 403(OAuth 請用 /mcp/org/{org})
 //	/mcp/org/{org}                 管理用 MCP(組織 {org} 的 Issue、角色、任務、文件櫃):Authorization: Bearer omx_…(omixor token),權限同該使用者;
 //	                               或 OAuth 的 access token(omo_…,唯讀,見下面 /oauth;只開放唯讀工具,帶 MCP Apps 畫面 ui://omixor/flowchart、ui://omixor/items)
 //	/oauth/…、/.well-known/…       OAuth 2.1 授權伺服器(Claude 自訂 connector 用):/oauth/register、/oauth/authorize、/oauth/token、/oauth/consent.css,
@@ -111,6 +113,18 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 	} else {
 		mux.Handle("/mcp/org/{org}", adminMCP)
 	}
+	// 統一入口:單一連線,組織由每次呼叫的 org 參數指定(不做預設組織);只收 omx_ 使用者 token,omo_ 在 core/mcp 先擋掉
+	mux.Handle("/mcp", mcp.UnifiedEndpoint(mcp.UnifiedEndpointConfig{
+		AgentEndpoint: agentURL,
+		Resolve: func(r *http.Request) (backend.Backend, error) {
+			tok, _ := mcp.BearerToken(r)
+			p, err := svc.Authenticate(tok)
+			if err != nil {
+				return nil, err
+			}
+			return &backend.Local{Svc: svc, P: p}, nil
+		},
+	}))
 	// 執行者端點:給領取任務的 LLM 用,只有 dispatch_ 四個工具;認證同管理端點
 	mux.Handle("/mcp/worker/{org}", mcp.WorkerEndpoint(mcp.WorkerEndpointConfig{
 		AgentEndpoint: agentURL,

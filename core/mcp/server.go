@@ -99,6 +99,10 @@ type Hooks struct {
 	// Guard tools/call 通過 Allow 之後、執行前呼叫;可以改 args(例如角色端點強制帶上憑證的角色)。
 	// 回傳錯誤就不執行,回 isError 結果(角色端點的權限檢查用)
 	Guard func(name string, args map[string]any) error
+	// CallCtx 不是 nil 時:tools/call 通過 Allow 之後、Guard 之前呼叫,回傳「這一次呼叫」的 Call.Ctx(取代 Ctx),
+	// 讓同一個連線(同一批請求)裡每次呼叫各有自己的組織上下文、不共用可被改寫的狀態(統一入口用:組織取自 args["org"])。
+	// 可以改 args(例如移除 org);meta 非空時放進結果的 _meta(告訴呼叫者實際用的組織,例如 {"omixor/org": id};不再附額外的 text 區塊);回傳錯誤就以 isError 結果拒絕、不執行
+	CallCtx func(name string, args map[string]any) (ctx any, meta map[string]any, err error)
 	// Defs 不是 nil 時改寫 tools/list 的規格(Allow 過濾之後;人類端點拿掉身分假冒型的 agent 參數用)
 	Defs func(defs []any) []any
 	// Deny 不是 nil 時:tools/call 一個「存在、但被 Allow 擋掉」的工具,它回傳非空字串就以 isError 結果回這句話
@@ -405,6 +409,14 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		if args == nil {
 			args = map[string]any{}
 		}
+		callCtx, meta := h.Ctx, map[string]any(nil)
+		if h.CallCtx != nil {
+			c, n, err := h.CallCtx(name, args)
+			if err != nil {
+				return result(id, toolFailure(name, err))
+			}
+			callCtx, meta = c, n
+		}
 		if h.Guard != nil {
 			if err := h.Guard(name, args); err != nil {
 				return result(id, toolFailure(name, err))
@@ -413,11 +425,16 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		if h.Tool != nil {
 			h.Tool(name)
 		}
-		out, err := s.run(name, args, h.Ctx, &h)
+		out, err := s.run(name, args, callCtx, &h)
 		if err != nil {
 			return result(id, toolFailure(name, err))
 		}
-		return result(id, map[string]any{"content": []any{map[string]any{"type": "text", "text": string(s.Marshal(out))}}, "isError": false})
+		content := []any{map[string]any{"type": "text", "text": string(s.Marshal(out))}}
+		res := map[string]any{"content": content, "isError": false}
+		if len(meta) > 0 {
+			res["_meta"] = meta
+		}
+		return result(id, res)
 	case "resources/list":
 		list := []any{}
 		for _, r := range h.Resources {

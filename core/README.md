@@ -171,10 +171,12 @@ MCP:
 | | 管理 `/mcp` | 角色 `/mcp/agent` | 執行者 `/mcp/worker` |
 |---|---|---|---|
 | 給誰 | 人或管理用的 LLM | 領了任務、以虛擬角色工作的 LLM | 領取任務的 LLM(找任務、領取) |
-| 認證 | 雲端 `/mcp/org/{org}`:omixor token;本機 `/mcp`:綁 127.0.0.1 | `Authorization: Bearer <agentId>:<secret>`(領取任務發的憑證,綁一筆任務) | 同管理端點:雲端 `/mcp/worker/{org}` 用 omixor token;本機 `/mcp/worker` 綁 127.0.0.1 |
+| 認證 | 雲端 `/mcp/org/{org}`(組織在路徑)或統一入口 `/mcp`(組織用 `org` 參數):omixor token;本機 `/mcp`:綁 127.0.0.1 | `Authorization: Bearer <agentId>:<secret>`(領取任務發的憑證,綁一筆任務) | 同管理端點:雲端 `/mcp/worker/{org}` 用 omixor token;本機 `/mcp/worker` 綁 127.0.0.1 |
 | 身分 | 呼叫者本人 | 憑證的角色(署名一律是角色) | 呼叫者本人(組織成員) |
 | 工具 | 組織、Issue、角色(含新增修改)、派任務、領取、回報、文件櫃(`cabinet`、`docs`、`doc_save`;帶 `agent` 時依該角色的 docAccess)、組織鏈(`chain`、`chain_save`)、訊息頻道(`channels`、`channel_create`、`channel_messages`、`channel_post`) | `agent_context`(含能存取的文件櫃區塊與文件、組織鏈的上下游、頻道裡提到它的未讀訊息)、`agent_tasks`、`agent_task_report`、`agent_task_delegate`、Issue 讀/建/留言、文件櫃(依憑證角色的 docAccess)、訊息頻道(`channels`、`channel_messages`、`channel_post`) | `dispatch_queue`、`dispatch_claim`、`dispatch_status`、`dispatch_report`、`dispatch_comment`、`dispatch_delegate`、`dispatch_release` |
 | 遠端模式(web) | 轉給雲端 | 一律 401(憑證在雲端,要連雲端的 `/mcp/agent`) | 轉給雲端(`credential.endpoint` 指向雲端 `/mcp/agent`) |
+
+**統一入口(雲端 `/mcp`,ISS-54 第 1 階段)**:一個連線操作帳號下所有組織,沒有預設組織。只收 `omx_` 使用者 token(OAuth 的 `omo_` 一律 403,OAuth 請用 `/mcp/org/{org}`;OAuth 統一入口留到第二階段)。除 `orgs`、`schema_check` 外,每次工具呼叫都要帶 `org`(必填,讀寫一樣;tools/list 的規格會列出必填的 `org`),沒帶或不是成員的組織會被拒絕(缺 org 的訊息列出可用組織)。每次呼叫各自驗證成員資格並用各自的組織上下文(`Hooks.CallCtx`),同一批請求可混用不同組織;成功結果維持單一 text 區塊,實際使用的組織放在結果的 `_meta`(`{"omixor/org": "<id>"}`);同一個 HTTP 請求內只查一次 `ListOrgs`(請求內快取)。`/mcp/org/{org}` 不變,但帶了與路徑不同的 `org` 參數會被拒絕。`orgs` 在統一入口不標 `current`。細節見 `docs/authorization.md` §0.5。
 
 執行者的標準流程:
 

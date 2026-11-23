@@ -289,6 +289,9 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 			// 人類端點不能指定角色身分(署名、文件權限):規格不列 agent 參數,帶 agent 回 400,不執行;flowchart_render、issue_items 帶 MCP Apps 畫面
 			Defs: func(defs []any) []any { return WithUIMeta(WithoutIdentityAgent(defs)) },
 			Guard: func(name string, args map[string]any) error {
+				if err := rejectOtherOrg(args, org); err != nil {
+					return err
+				}
 				if err := RejectIdentityAgent(name, args); err != nil {
 					return err
 				}
@@ -303,4 +306,25 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 		}
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})
+}
+
+// rejectOtherOrg 舊端點(/mcp/org/{org})的組織固定是路徑上的 org:工具參數帶了不同的 org 就拒絕(相同或沒帶都可以;空字串視為沒帶)。
+// 通過後把 org 參數拿掉,工具看到的參數和以前一樣
+func rejectOtherOrg(args map[string]any, pathOrg string) error {
+	v, has := args["org"]
+	if !has {
+		return nil
+	}
+	delete(args, "org")
+	if v == nil {
+		return nil
+	}
+	s, isStr := v.(string)
+	if !isStr {
+		return ToolError{Message: "org 參數必須是字串(組織 id);這個端點的組織固定是 " + pathOrg, Status: 400}
+	}
+	if s = strings.TrimSpace(s); s != "" && s != pathOrg {
+		return ToolError{Message: "這個端點的組織固定是 " + pathOrg + "(網址路徑),不能用 org 參數改成 " + s + ";要跨組織請改連統一入口 /mcp,或連 /mcp/org/" + s, Status: 400}
+	}
+	return nil
 }
