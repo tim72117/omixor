@@ -40,7 +40,7 @@ var Features = []string{FeatureIssueAccept}
 
 // Info 目前這支程式的版本;沒注入的欄位盡量用建置資訊補
 func Info() Data {
-	d := Data{Version: Version, Commit: Commit, BuildTime: BuildTime, Features: Features}
+	d := Data{Version: Version, Commit: Commit, BuildTime: BuildTime, Features: append([]string(nil), Features...)}
 	if d.Commit != "dev" && d.BuildTime != "dev" {
 		return d
 	}

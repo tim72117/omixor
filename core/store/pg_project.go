@@ -9,7 +9,7 @@ import (
 	"omixor-core/model"
 )
 
-// ---- 專案(PG;表 omixor_projects 的定義在 pg.go 的 pgSchema;專案的文件櫃結構在 omixor_cabinet_layouts 的 (org, project)) ----
+// ---- 專案(PG;表 omixor_projects 的定義在 pg_schema.go 的 pgSchema;專案的文件櫃結構在 omixor_cabinet_layouts 的 (org, project)) ----
 
 const projectCols = `id, name, key, description, restricted, created_at, updated_at`
 

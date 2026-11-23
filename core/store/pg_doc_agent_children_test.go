@@ -83,54 +83,6 @@ func TestPGDocTagsSplit(t *testing.T) {
 	}
 }
 
-func TestPGDocTagsMigration(t *testing.T) {
-	p := cabPG(t)
-	rawDoc(t, p, "o", "DOC-1", 1, `["x","y"]`)
-	rawDoc(t, p, "o", "DOC-2", 2, `[]`)
-	rawDoc(t, p, "o", "DOC-3", 3, `["d","d"]`) // 重複:去重後展開
-	rawDoc(t, p, "o", "DOC-4", 4, `{"a":1}`)   // 結構不對:跳過
-	if err := p.migrateSplitDocsAgents(); err != nil {
-		t.Fatal(err)
-	}
-	g, err := p.GetDoc("o", "DOC-1")
-	if err != nil || !reflect.DeepEqual(g.Tags, []string{"x", "y"}) {
-		t.Fatal(g, err)
-	}
-	if n := count(t, p, `select count(*) from omixor_docs where org = 'o' and split_at is not null`); n != 3 {
-		t.Fatal("DOC-1、DOC-2、DOC-3 要標記", n)
-	}
-	if g3, _ := p.GetDoc("o", "DOC-3"); !reflect.DeepEqual(g3.Tags, []string{"d"}) {
-		t.Fatal("重複的標籤去重", g3.Tags)
-	}
-	if n := count(t, p, `select count(*) from omixor_doc_tags where doc_id = 'DOC-4'`); n != 0 {
-		t.Fatal("壞資料不展開", n)
-	}
-	// 新版改過後,舊 jsonb 改變、重跑遷移也不覆蓋
-	g.Tags = []string{"new"}
-	if err := p.UpdateDoc("o", *g); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.pool.Exec(context.Background(), `update omixor_docs set tags = '["old"]' where id = 'DOC-1'`); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.migrateSplitDocsAgents(); err != nil {
-		t.Fatal(err)
-	}
-	if g2, _ := p.GetDoc("o", "DOC-1"); !reflect.DeepEqual(g2.Tags, []string{"new"}) {
-		t.Fatal("重跑不該覆蓋", g2.Tags)
-	}
-	// 壞資料修好後會再試
-	if _, err := p.pool.Exec(context.Background(), `update omixor_docs set tags = '["d","e"]' where id = 'DOC-4'`); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.migrateSplitDocsAgents(); err != nil {
-		t.Fatal(err)
-	}
-	if g4, _ := p.GetDoc("o", "DOC-4"); !reflect.DeepEqual(g4.Tags, []string{"d", "e"}) {
-		t.Fatal(g4.Tags)
-	}
-}
-
 func sampleRoutines() []model.AgentRoutine {
 	at := model.Now()
 	last := model.Time{Time: at.Add(-time.Hour)}
@@ -202,49 +154,6 @@ func TestPGAgentSplit(t *testing.T) {
 	}
 	if n := count(t, p, `select count(*) from omixor_agent_doc_access where agent_id = 'ops'`) + count(t, p, `select count(*) from omixor_agent_routines where agent_id = 'ops'`); n != 0 {
 		t.Fatal("刪角色後子表要清掉", n)
-	}
-}
-
-func TestPGAgentMigration(t *testing.T) {
-	p := cabPG(t)
-	rawAgent(t, p, "o", "good", `{"course":"read","P:x":"write"}`,
-		`[{"id":"r1","kind":"daily","hour":9,"title":"早","enabled":true,"priority":"normal","createdAt":"2026-01-01T00:00:00Z","lastRunAt":"2026-01-02T09:00:00Z"},{"id":"r0","kind":"every","everyHours":3}]`)
-	rawAgent(t, p, "o", "empty", `{}`, `[]`)
-	rawAgent(t, p, "o", "dup", `{}`, `[{"id":"a"},{"id":"a"}]`) // id 重複:補 uuid 後展開
-	rawAgent(t, p, "o", "badacc", `["x"]`, `[]`)
-	rawAgent(t, p, "o", "badrt", `{}`, `{"id":"a"}`)
-	if err := p.migrateSplitDocsAgents(); err != nil {
-		t.Fatal(err)
-	}
-	g, err := p.GetAgent("o", "good")
-	if err != nil || len(g.Routines) != 2 || g.Routines[0].ID != "r1" || g.Routines[1].ID != "r0" ||
-		g.Routines[0].LastRunAt == nil || g.Routines[0].CreatedAt.IsZero() || !g.Routines[1].CreatedAt.IsZero() ||
-		g.DocAccess["P:x"] != "write" || len(g.DocAccess) != 2 {
-		t.Fatalf("展開 %+v %v", g, err)
-	}
-	if n := count(t, p, `select count(*) from omixor_agents where org = 'o' and split_at is not null`); n != 3 {
-		t.Fatal("good、empty、dup 標記", n)
-	}
-	if n := count(t, p, `select count(*) from omixor_agent_routines where agent_id = 'dup'`); n != 2 {
-		t.Fatal("重複 id 的例行任務都要保留", n)
-	}
-	if n := count(t, p, `select count(*) from omixor_agent_routines where agent_id = 'badrt'`); n != 0 {
-		t.Fatal("壞資料不展開", n)
-	}
-	// 冪等、不覆蓋:新版改過後舊 jsonb 變了也不影響
-	g.DocAccess = map[string]string{"new": "read"}
-	if err := p.SaveAgent("o", *g); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.pool.Exec(context.Background(), `update omixor_agents set doc_access = '{"old":"read"}' where id = 'good'`); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.migrateSplitDocsAgents(); err != nil {
-		t.Fatal(err)
-	}
-	g2, _ := p.GetAgent("o", "good")
-	if !reflect.DeepEqual(g2.DocAccess, map[string]string{"new": "read"}) || len(g2.Routines) != 2 {
-		t.Fatal("重跑不該覆蓋", g2)
 	}
 }
 

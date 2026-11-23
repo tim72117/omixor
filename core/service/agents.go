@@ -34,13 +34,8 @@ const DefaultAgentCredTTL = 2 * time.Hour
 type agentState struct {
 	mu       sync.Mutex // 任務的「讀了再改」、Issue 指派去重都在這把鎖裡(單一程式內;多個實例同時跑仍可能競爭,見回報的風險)
 	failMu   sync.Mutex
-	fails    map[string]*agentFail
+	fails    failCounter // 每個來源 IP 驗證失敗的次數(有上限,見 ratelimit.go)
 	lastPrun time.Time
-}
-
-type agentFail struct {
-	n     int
-	reset time.Time
 }
 
 func (s *Service) credTTL() time.Duration {

@@ -76,26 +76,3 @@ func TestUpdatedByActorRoundTrip(t *testing.T) {
 		}
 	}
 }
-
-// 舊資料庫(omixor_audit 沒有 source 欄位)啟動後補上,結構與全新建立的一致;已有的資料不受影響
-func TestAuditSourceAddedToOldDatabase(t *testing.T) {
-	fresh := fkPG(t, testPGBlank(t))
-	want := structureFP(t, fresh)
-	url := testPGBlank(t)
-	p := fkPG(t, url)
-	pgExec(t, p, `insert into omixor_audit (actor, email, action) values ('sys_omixor', 'x@x', 'old')`)
-	pgExec(t, p, `alter table omixor_audit drop column source`)
-	p.Close()
-	q, err := NewPG(url)
-	chk(t, err)
-	t.Cleanup(q.Close)
-	q.WaitFKValidate()
-	if d := diffFP(structureFP(t, q), want); len(d) > 0 {
-		t.Fatalf("舊資料庫補 source 之後結構要一致:%v", d)
-	}
-	l, err := q.ListAudit(5)
-	chk(t, err)
-	if len(l) != 1 || l[0].Action != "old" || l[0].Source != "" || l[0].Actor != "sys_omixor" {
-		t.Fatalf("%+v", l)
-	}
-}

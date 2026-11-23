@@ -577,7 +577,6 @@ func sqlEnv(t *testing.T) (*store.PG, *pgx.Conn) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.WaitFKValidate()
 	t.Cleanup(st.Close)
 	conn, err := pgx.Connect(context.Background(), u)
 	if err != nil {

@@ -43,7 +43,6 @@ func buildTemplate(url string) error {
 	if err != nil {
 		return err
 	}
-	p.WaitFKValidate()
 	p.Close()
 	return nil
 }
@@ -78,7 +77,6 @@ func New(t testing.TB) *store.PG {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.WaitFKValidate()
 	t.Cleanup(p.Close) // 先於 testdb 的 drop 執行(Cleanup 後進先出)
 	return p
 }

@@ -18,7 +18,7 @@ type SchemaChecker interface {
 }
 
 // schemaManifestJSON 是「全新資料庫跑完 NewPG 之後」的結構。
-// 改了建表語句或遷移後重新產生:OMIXOR_UPDATE_SQL=1 go test -run TestSchemaManifestInSync ./store
+// 改了建表語句後重新產生:OMIXOR_UPDATE_SQL=1 go test -run TestSchemaManifestInSync ./store
 //
 //go:embed schema_manifest.json
 var schemaManifestJSON []byte
@@ -51,7 +51,7 @@ func loadSchemaManifest() ([]manifestTable, error) {
 	return out, nil
 }
 
-// compareSchema 是純函式:輸入 golden 與實際結構,輸出報告(依表名、欄位名排序)。
+// compareSchema 是純函式:輸入 golden 與實際結構,輸出報告(依表名、欄位名排序;不含版本,版本由 CheckSchema 補)。
 func compareSchema(golden, actual []manifestTable) *model.SchemaReport {
 	rep := &model.SchemaReport{
 		Tables:        []model.SchemaTableCheck{},
@@ -151,7 +151,25 @@ func (p *PG) CheckSchema() (*model.SchemaReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compareSchema(golden, actual), nil
+	rep := compareSchema(golden, actual)
+	c, cancel := ctx()
+	defer cancel()
+	v, _, err := currentSchemaVersion(c, p.pool)
+	if err != nil {
+		return nil, err
+	}
+	applyVersionCheck(rep, v, knownSchemaVersion(schemaSteps))
+	return rep, nil
+}
+
+// applyVersionCheck 把結構版本寫進報告;版本落後(還有步驟沒套用)時整體 ok 為 false。
+// 資料庫版本比程式新(部署回滾)不算問題:步驟向後相容
+func applyVersionCheck(rep *model.SchemaReport, version, expected int) {
+	rep.SchemaVersion = version
+	rep.ExpectedVersion = expected
+	if version < expected {
+		rep.OK = false
+	}
 }
 
 // readSchema 讀目前資料庫的結構:資料表(只含一般表)、欄位(名稱、型別、可否 NULL)與主鍵欄位(依主鍵內順序)

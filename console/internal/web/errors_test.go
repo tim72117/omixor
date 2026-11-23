@@ -166,7 +166,6 @@ func TestFailureStatusTable(t *testing.T) {
 		{store.ErrNotFound, 404},
 		{store.ErrVersionConflict, 409},
 		{store.ErrLocked, 409},
-		{store.ErrUnmigratedRow, 503},
 		{store.ErrInUse, 409},
 		{store.ErrBadRef, 400},
 	}

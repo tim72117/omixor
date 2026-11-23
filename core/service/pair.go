@@ -3,6 +3,7 @@ package service
 import (
 	"crypto/rand"
 	"errors"
+	"log"
 	"math/big"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ import (
 //   - 只存雜湊:借用 token 表存一列(id 是 pair_…,雜湊是 HashToken("pair:"+碼)、expiresAt 是效期)。
 //     Authenticate 只收 omx_ 開頭的原文、雜湊領域也不同,所以這列不能拿來當登入用;
 //     換 token 時用 RevokeToken 標成用過(撤銷是原子的,多個實例同時換也只有一個成功)
-//   - 換 token 不用登入,跟 evoleap 登入共用頻率限制;失敗一律回同一句話,不洩漏碼存不存在、過期或用過
+//   - 換 token 不用登入,有自己的頻率限制(每個來源、整個入口,與登入互不影響);失敗一律回同一句話,不洩漏碼存不存在、過期或用過
 const (
 	PairTTL        = 5 * time.Minute
 	PairCodeLength = 8
@@ -86,12 +87,13 @@ func (s *Service) CreatePairCode(p *model.Principal) (*PairCode, error) {
 	return &PairCode{Code: code, ExpiresAt: exp}, nil
 }
 
+var errPairDisabled = &Error{Code: 403, Msg: "這個帳號已停用"}
 var errPairInvalid = &Error{Code: 401, Msg: "配對碼無效、已過期或已用過,請在 Mac App 重新產生"}
 
-// redeemPair 驗證並用掉一組配對碼(有頻率限制;一次性):回傳那一列與它的使用者。沒檢查使用者有沒有停用,呼叫者自己判斷。
+// redeemPair 驗證並用掉一組配對碼(有頻率限制;一次性):回傳那一列與它的使用者。使用者停用時回 errPairDisabled(碼不消耗,u 仍有值,供呼叫者寫稽核)。
 // ClaimPairCode(換登入 token)與 OAuth 同意畫面(證明身分,不發登入 token)共用,規則完全相同
 func (s *Service) redeemPair(code, ip string) (*model.Token, *model.User, error) {
-	if !s.allowLogin(ip) {
+	if !s.allowLogin(&s.logins.pair, ip) {
 		return nil, nil, fail(429, "配對嘗試太頻繁,請一分鐘後再試")
 	}
 	code = NormalizePairCode(code)
@@ -107,9 +109,18 @@ func (s *Service) redeemPair(code, ip string) (*model.Token, *model.User, error)
 		s.Audit(nil, "pair.denied", "", map[string]any{"ip": ip})
 		return nil, nil, errPairInvalid
 	}
-	// 標成用過:撤銷是原子的,同一個碼只有一次成功
+	// 停用的帳號:在消耗配對碼之前就擋(碼保留,帳號啟用後還能用)
+	if u.Disabled {
+		return pt, u, errPairDisabled
+	}
+	// 標成用過:撤銷是原子的,同一個碼只有一次成功。
+	// 找不到(= 已被別人用掉或撤銷)一定要當失敗:一次性靠的就是只有一個請求撤銷成功;其他資料庫錯誤是伺服器的問題,回 500 並記下來
 	if err := s.Store.RevokeToken(pt.ID, now); err != nil {
-		return nil, nil, errPairInvalid
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil, errPairInvalid
+		}
+		log.Printf("配對碼標成用過失敗(%s):%v", pt.ID, err)
+		return nil, nil, fail(500, "暫時無法處理配對,請稍後再試")
 	}
 	return pt, u, nil
 }
@@ -118,11 +129,10 @@ func (s *Service) redeemPair(code, ip string) (*model.Token, *model.User, error)
 func (s *Service) ClaimPairCode(code, device, ip string) (*LoginResult, error) {
 	pt, u, err := s.redeemPair(code, ip)
 	if err != nil {
+		if err == errPairDisabled {
+			s.Audit(&model.Principal{User: *u}, "pair.denied", "", map[string]any{"reason": "disabled"})
+		}
 		return nil, err
-	}
-	if u.Disabled {
-		s.Audit(&model.Principal{User: *u}, "pair.denied", "", map[string]any{"reason": "disabled"})
-		return nil, fail(403, "這個帳號已停用")
 	}
 	device = strings.TrimSpace(device)
 	if device == "" {

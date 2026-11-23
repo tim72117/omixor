@@ -10,84 +10,10 @@ import (
 	"omixor-core/model"
 )
 
-// Issue 的 UUID 內部 id、key、專案編號、別名、軟刪除與版本(見 pg_issue.go、pg_issue_keys.go)
+// Issue 的 UUID 內部 id、key、專案編號、別名、軟刪除與版本(見 pg_issue.go)
 
 func keyIssue(at model.Time) model.Issue {
 	return model.Issue{Title: "t", Status: "open", Priority: "normal", CreatedBy: "sys_omixor", CreatedAt: at, UpdatedAt: at}
-}
-
-// 遷移:舊的 ISS-<n> 換成 UUID、原編號變成 key 並寫進別名表;留言、頻道、任務連結跟著改;非數字 id 發新 key;可以重跑
-func TestPGIssueKeyMigration(t *testing.T) {
-	p := fkPG(t, fkSchema(t))
-	at := mt("2026-01-02T03:04:05Z")
-	chk(t, p.CreateOrg(model.Org{ID: "o", Name: "o", CreatedAt: at}))
-	// 舊格式的資料:直接寫進表(等於升級前的資料庫);key 是空字串
-	pgExec(t, p, `drop index if exists ops_issues_org_number`)
-	pgExec(t, p, `create unique index ops_issues_org_number on ops_issues (org, number) where number > 0`) // 舊版的兩欄索引
-	for _, r := range []struct {
-		id  string
-		num int
-		at  string
-	}{{"ISS-1", 1, "2026-01-01T00:00:00Z"}, {"ISS-2", 2, "2026-01-01T00:00:01Z"}, {"gh-7", 0, "2026-01-01T00:00:02Z"}} {
-		pgExec(t, p, `insert into ops_issues (org, id, number, pos, title, status, priority, created_by, created_at, updated_at)
-			values ('o', $1, $2, $2 + 1, 't', 'open', 'normal', 'sys_omixor', $3::timestamptz, $3::timestamptz)`, r.id, r.num, r.at)
-	}
-	pgExec(t, p, `insert into ops_issue_comments (org, issue_id, pos, id, author, text, at) values ('o', 'ISS-2', 0, 'c1', 'sys_omixor', '看 ISS-1', now())`)
-	ch, err := p.CreateChannel("o", model.Channel{Name: "c", IssueID: "ISS-2", CreatedAt: at, UpdatedAt: at})
-	chk(t, err)
-	chk(t, p.SaveAgent("o", model.Agent{ID: "dev", Name: "dev", Active: true, CreatedAt: at}))
-	task, err := p.CreateAgentTask("o", model.AgentTask{AgentID: "dev", Title: "x", Status: "queued", Priority: "normal",
-		Links: []string{"iss-2", "https://x"}, CreatedAt: at, UpdatedAt: at})
-	chk(t, err)
-
-	chk(t, p.migrateIssueKeys())
-	l, err := p.ListIssues("o")
-	chk(t, err)
-	byKey := map[string]model.Issue{}
-	for _, i := range l {
-		if !model.IsUUID(i.ID) {
-			t.Fatal("id 要換成 UUID", i.ID)
-		}
-		byKey[i.Key] = i
-	}
-	i1, i2, gh := byKey["ISS-1"], byKey["ISS-2"], byKey["ISS-3"]
-	if i1.ID == "" || i2.ID == "" || gh.ID == "" || i1.Num != 1 || i2.Num != 2 || gh.Num != 3 || i1.Project != "" {
-		t.Fatalf("key 與號碼:%v", byKey)
-	}
-	if !(i1.ID < i2.ID && i2.ID < gh.ID) {
-		t.Fatal("UUIDv7 要依建立時間排序", i1.ID, i2.ID, gh.ID)
-	}
-	if len(i2.Comments) != 1 || i2.Comments[0].Text != "看 ISS-1" {
-		t.Fatal("留言要跟著新的 id", i2.Comments)
-	}
-	for ref, want := range map[string]string{"ISS-2": i2.ID, "iss-1": i1.ID, "GH-7": gh.ID, "gh-7": gh.ID, i2.ID: i2.ID} {
-		if got, err := p.ResolveIssueID("o", ref); err != nil || got != want {
-			t.Fatalf("解析 %s:%s %v", ref, got, err)
-		}
-	}
-	if c, err := p.GetChannel("o", ch.ID); err != nil || c.IssueID != i2.ID {
-		t.Fatal("頻道綁的 Issue 要跟著新的 id", c, err)
-	}
-	if x, err := p.GetAgentTask("o", task.ID); err != nil || x.Links[0] != i2.ID || x.Links[1] != "https://x" {
-		t.Fatal("任務的相關連結要換成新的 id", x, err)
-	}
-	// 舊的兩欄唯一索引不在遷移裡動:migrateSeq 先建好三欄的新索引再換掉舊的
-	chk(t, p.migrateSeq())
-	if n := pgCount(t, p, `select count(*) from pg_index where indexrelid = to_regclass('ops_issues_org_number') and indnkeyatts = 2`); n != 0 {
-		t.Fatal("舊的兩欄唯一索引要換成三欄")
-	}
-	// 重跑:不再改任何東西
-	chk(t, p.migrateIssueKeys())
-	l2, _ := p.ListIssues("o")
-	if fmt.Sprint(issueIDs(l2)) != fmt.Sprint(issueIDs(l)) || l2[0].ID != l[0].ID {
-		t.Fatal("重跑不能再改", issueIDs(l), issueIDs(l2))
-	}
-	// 之後建的接在後面
-	x, err := p.CreateIssue("o", keyIssue(at))
-	chk(t, err)
-	if x.Key != "ISS-4" {
-		t.Fatal("遷移後建號", x.Key)
-	}
 }
 
 // 組織層級與各專案各自連號;沒有代號的專案不能放 Issue;專案不存在 ErrBadRef

@@ -85,14 +85,6 @@ func TestBridgeRoundTripAndResolve(t *testing.T) {
 	if v, _ := w.col("ops_issues.assignee", "o", "dev"); v != g.ActorID {
 		t.Fatal("assignee 純角色 id 對到角色 actor", v, g.ActorID)
 	}
-	// lookup 只查不建
-	before := pgCount(t, p, `select count(*) from omixor_actors`)
-	if id, err := w.lookup("omixor_channel_reads.member", "o", "user:nobody@x.com"); err != nil || id != "" {
-		t.Fatal("查不到不建立", id, err)
-	}
-	if pgCount(t, p, `select count(*) from omixor_actors`) != before {
-		t.Fatal("lookup 不能建 actor")
-	}
 	// 欄位 key 不認得
 	if _, err := w.col("ops_issues.nope", "o", "x"); err == nil {
 		t.Fatal("不認得的欄位要錯")
@@ -119,19 +111,5 @@ func TestBridgeRoundTripAndResolve(t *testing.T) {
 	// 舊字串直接寫 store 會被外鍵擋(展開只留給遷移與匯入)
 	if _, err := p.CreateIssue("o", model.Issue{Title: "t3", Status: "open", Priority: "normal", CreatedBy: "A@X.com", CreatedAt: at, UpdatedAt: at}); err == nil {
 		t.Fatal("舊字串不再展開,外鍵要擋")
-	}
-}
-
-// 舊結構(欄位還沒轉換、沒有完成標記)時橋原樣寫字串,轉換由引擎做
-func TestBridgeWritesRawBeforeConversion(t *testing.T) {
-	p := fkPG(t, testPGBlank(t))
-	mkOrgs(t, p, "o")
-	legacyActorStructure(t, p)
-	w := p.newWho(context.Background())
-	if v, err := w.col("ops_issues.created_by", "o", "A@X.com"); err != nil || v != "A@X.com" {
-		t.Fatal("舊結構原樣寫", v, err)
-	}
-	if v, err := w.col("ops_issues.assignee", "o", ""); err != nil || v != "" {
-		t.Fatal("舊結構的欄位是 NOT NULL default '',空字串原樣寫", v, err)
 	}
 }

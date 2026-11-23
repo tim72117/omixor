@@ -23,7 +23,7 @@ func scanChannel(row pgx.Row) (*model.Channel, error) {
 		return nil, err
 	}
 	ch.CreatedBy = by.String() // actor id;NULL = 沒有
-	ch.Members = []string{} // 成員在 omixor_channel_members,由呼叫端補上
+	ch.Members = []string{}    // 成員在 omixor_channel_members,由呼叫端補上
 	ch.CreatedAt, ch.UpdatedAt = model.Time{Time: secs(created)}, model.Time{Time: secs(updated)}
 	return &ch, nil
 }
@@ -101,7 +101,7 @@ func (p *PG) CreateChannel(org string, ch model.Channel) (model.Channel, error) 
 		return ch, err
 	}
 	ch.ID = fmt.Sprintf("%s%d", model.ChannelPrefix, num)
-	// 不再寫舊的 members 欄位;split_at = now() 讓啟動遷移不碰(見 pg_split_channels.go)
+	// 不再寫舊的 members 欄位;split_at = now()(見 pg_channel_children.go)
 	if _, err := tx.Exec(c, `insert into omixor_channels (org, id, number, name, topic, issue_id, created_by, created_at, updated_at, split_at)
 		values ($1,$2,$3,$4,$5,nullif($6,''),$7,$8,$9,now())`, org, ch.ID, num, ch.Name, ch.Topic, ch.IssueID,
 		IDOrNil(ch.CreatedBy), secs(ch.CreatedAt.Time), secs(ch.UpdatedAt.Time)); err != nil {
@@ -121,9 +121,6 @@ func (p *PG) UpdateChannel(org string, ch model.Channel) error {
 		return err
 	}
 	defer tx.Rollback(c)
-	if err := p.guardUnsplit(c, tx, splitChannels, org, ch.ID); err != nil { // 還沒展開的列先展開(展開不了就拒絕,不蓋掉舊資料)
-		return err
-	}
 	tag, err := tx.Exec(c, `update omixor_channels set name = $3, topic = $4, issue_id = nullif($5, ''), updated_at = $6, split_at = now()
 		where org = $1 and id = $2`, org, ch.ID, ch.Name, ch.Topic, ch.IssueID, secs(ch.UpdatedAt.Time))
 	if err != nil {
@@ -165,7 +162,7 @@ func (p *PG) CreateChannelMessage(org string, m model.ChannelMessage) (model.Cha
 		return m, err
 	}
 	m.ID = fmt.Sprintf("%s%d", model.MessagePrefix, num)
-	// 不再寫舊的 mentions 欄位;split_at = now() 讓啟動遷移不碰(見 pg_split_channels.go)
+	// 不再寫舊的 mentions 欄位;split_at = now()(見 pg_channel_children.go)
 	if _, err := tx.Exec(c, `insert into omixor_channel_messages (org, channel_id, id, number, author, text, at, split_at)
 		values ($1,$2,$3,$4,$5,$6,$7,now())`, org, m.ChannelID, m.ID, num, m.Author, m.Text, secs(m.At.Time)); err != nil {
 		return m, fkErr(err)

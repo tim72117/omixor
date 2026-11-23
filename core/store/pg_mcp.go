@@ -2,7 +2,7 @@ package store
 
 import "omixor-core/model"
 
-// ---- 組織的外部 MCP 登記(PG):和 GitHub、GitLab 設定共用表 omixor_org_integrations(kind = mcp,定義在 pg.go 的 pgSchema;
+// ---- 組織的外部 MCP 登記(PG):和 GitHub、GitLab 設定共用表 omixor_org_integrations(kind = mcp,定義在 pg_schema.go 的 pgSchema;
 // 刪組織時一併刪除)。整份登記存在 data(jsonb);沒有任何密鑰(見 model/mcp.go)。UpdatedBy 是 actor id。
 
 func (p *PG) GetMCPConfig(org string) (*model.OrgMCPConfig, error) {

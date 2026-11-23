@@ -42,7 +42,7 @@ var fingerprintSQL = []string{
 //
 // 只有一部分列是固定的(表裡也會有測試自己建的列,例如 omixor_actors 的使用者、角色)時,在 metaTableKeep 登記「固定列」的條件:
 // 條件以外的列不算結構(範本裡不能有、指紋不算、回收時刪掉);登記了條件的表,測試建的列因此不會害資料庫被丟棄。
-var structureMetaTables = []string{"omixor_actors"}
+var structureMetaTables = []string{"omixor_actors", "omixor_schema_version"} // omixor_schema_version:結構版本記錄(整張表都是固定的)
 
 // metaTableKeep 結構中繼資料表 → 固定列的 SQL 條件(省略 = 整張表都是固定的)。
 // omixor_actors:遷移寫入的只有 kind = 'system' 的固定系統 actor(model.SystemActors);使用者、角色、以及資料裡舊字串對不上時自動建的

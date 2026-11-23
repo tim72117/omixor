@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -58,8 +57,6 @@ func Code(err error) int {
 		return 400
 	case errors.Is(err, store.ErrNotFound):
 		return 404
-	case errors.Is(err, store.ErrUnmigratedRow):
-		return 503
 	}
 	return 500
 }
@@ -92,8 +89,7 @@ type Service struct {
 	// LDAPMaxFailures、LDAPFailWindow 同一個帳號在這段時間內連續輸錯幾次就先擋(0 = 5 次、10 分鐘),見 ldap.go
 	LDAPMaxFailures int
 	LDAPFailWindow  time.Duration
-	ldapMu          sync.Mutex
-	ldapFails       map[string]ldapFail
+	ldapFails       failCounter // 每個帳號輸錯的次數(有上限,見 ratelimit.go)
 	// AgentCredTTL 角色憑證有效時間(0 = 2 小時)
 	AgentCredTTL time.Duration
 	agents       agentState
@@ -122,10 +118,7 @@ type Service struct {
 	// OAuthRegPerIP、OAuthRegTotal OAuth 動態註冊(POST /oauth/register)每分鐘的來源上限、整個服務上限(0 = 5、30);見 oauth.go
 	OAuthRegPerIP, OAuthRegTotal int
 	oauth                        oauthState
-	limMu                        sync.Mutex
-	limWindow                    time.Time
-	limCount                     map[string]int
-	limAll                       int
+	logins                       loginLimits // 配對、LDAP、evoleap 各自的限額(見 ratelimit.go)
 }
 
 func (s *Service) now() time.Time {
@@ -163,39 +156,6 @@ func (s *Service) Audit(p *model.Principal, action, org string, detail map[strin
 
 // ================= 授權 =================
 
-func (s *Service) allowLogin(ip string) bool {
-	s.limMu.Lock()
-	defer s.limMu.Unlock()
-	per, total := s.LoginPerIP, s.LoginTotal
-	if per == 0 {
-		per = 10
-	}
-	if total == 0 {
-		total = 60
-	}
-	now := s.now()
-	if now.Sub(s.limWindow) >= time.Minute || s.limCount == nil {
-		s.limWindow, s.limCount, s.limAll = now, map[string]int{}, 0
-	}
-	if s.limCount[ip] >= per || s.limAll >= total {
-		return false
-	}
-	s.limCount[ip]++
-	s.limAll++
-	return true
-}
-
-// ClientIP Cloud Run 前面有 Google 的前端:真正的來源是 X-Forwarded-For 的第一個
-func ClientIP(r *http.Request) string {
-	if f := r.Header.Get("X-Forwarded-For"); f != "" {
-		return strings.TrimSpace(strings.Split(f, ",")[0])
-	}
-	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return h
-	}
-	return r.RemoteAddr
-}
-
 // LoginResult 登入結果(Token 是原文,只在這時候給一次)
 type LoginResult struct {
 	Token     string      `json:"token"`
@@ -215,7 +175,7 @@ type evoleapMe struct {
 
 // LoginWithEvoleap 用 evoleap 的 token 證明身分,換 omixor 自己的 token。能不能用由 omixor 的使用者名單決定
 func (s *Service) LoginWithEvoleap(evoToken, device, ip string) (*LoginResult, error) {
-	if !s.allowLogin(ip) {
+	if !s.allowLogin(&s.logins.evoleap, ip) {
 		return nil, fail(429, "登入嘗試太頻繁,請一分鐘後再試")
 	}
 	if strings.TrimSpace(evoToken) == "" {

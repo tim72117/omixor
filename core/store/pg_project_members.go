@@ -6,7 +6,7 @@ import (
 	"omixor-core/model"
 )
 
-// ---- 專案成員(表 omixor_project_members 的定義在 pg.go 的 pgSchema)----
+// ---- 專案成員(表 omixor_project_members 的定義在 pg_schema.go 的 pgSchema)----
 // 成員以 actor id 存(使用者或角色)。受限專案(omixor_projects.restricted)只有成員與管理員看得到;可見性的判斷在 core/service(project_access.go),
 // 這裡只存取資料:專案刪除、actor 刪除時成員跟著刪(外鍵 cascade)。
 

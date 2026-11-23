@@ -106,34 +106,21 @@ func suiteDecisions(t *testing.T, impl storeImpl) {
 	}
 }
 
-// 結構:新表直接是最終結構(建立者 not null、處理人可為 NULL、兩條 actor 外鍵),
-// 舊資料庫(沒有這張表)啟動時補建,結構與全新建立的一致(結構指紋);actor 被決定參照時不能刪;
-// 號碼序號(omixor_seq 的 decision)也由遷移補齊
+// 結構:建立者 not null、處理人可為 NULL、兩條 actor 外鍵都在而且已驗證
 func TestDecisionsTableStructure(t *testing.T) {
 	fresh := fkPG(t, testPGBlank(t))
-	want := structureFP(t, fresh)
-	if v := want["col omixor_decisions.created_by"]; v != "text notnull=t default= gen=" {
-		t.Fatal("created_by:", v)
-	}
-	if v := want["col omixor_decisions.decided_by"]; v != "text notnull=f default= gen=" {
-		t.Fatal("decided_by:", v)
+	for col, want := range map[string]string{"created_by": "NO", "decided_by": "YES"} {
+		var nullable string
+		chk(t, fresh.pool.QueryRow(bg(), `select is_nullable from information_schema.columns where table_schema = current_schema()
+			and table_name = 'omixor_decisions' and column_name = $1`, col).Scan(&nullable))
+		if nullable != want {
+			t.Fatalf("%s is_nullable = %s,要 %s", col, nullable, want)
+		}
 	}
 	for _, f := range NewTableActorFields {
 		if ex, ok := fkValidated(t, fresh, f.Table, f.FK); !ex || !ok {
 			t.Errorf("%s.%s 的外鍵 %s:存在 %v、已驗證 %v", f.Table, f.Column, f.FK, ex, ok)
 		}
-	}
-	// 舊資料庫:沒有 omixor_decisions
-	url := testPGBlank(t)
-	p := fkPG(t, url)
-	pgExec(t, p, `drop table omixor_decisions`)
-	p.Close()
-	for round := 1; round <= 2; round++ { // 第二次:已經補過,再啟動不動
-		p = fkPG(t, url)
-		if d := diffFP(structureFP(t, p), want); len(d) > 0 {
-			t.Fatal("補建後的結構要和全新建立的一致", round, d)
-		}
-		p.Close()
 	}
 }
 

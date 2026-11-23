@@ -122,11 +122,11 @@ func TestResolveLegacyAgents(t *testing.T) {
 		{"o", "dev", IdentityAgentID, aDev},
 		{"o", "agent:old", IdentityFree, aOld}, // 已刪 → 退役 actor
 		{"o", "old", IdentityAgentID, aOld},
-		{"o", "agent:ghost", IdentityFree, LegacyAgentActorID("o", "agent:ghost")}, // 都沒有 → sys_legacy(帶組織)
+		{"o", "agent:ghost", IdentityFree, LegacyAgentActorID("o", "agent:ghost")},   // 都沒有 → sys_legacy(帶組織)
 		{"o2", "agent:ghost", IdentityFree, LegacyAgentActorID("o2", "agent:ghost")}, // 不同組織同名的已刪角色不併
-		{"o", "ghost", IdentityAgentID, LegacyAgentActorID("o", "agent:ghost")},    // 純 id 與 agent: 前綴是同一個節點、同一個 actor
-		{"o", "Agent:dev", IdentityFree, aDev},                                     // 前綴大小寫不分
-		{"", "agent:dev", IdentityFree, LegacyActorID("agent:dev")},      // 沒有組織(server_features)只能對使用者與系統
+		{"o", "ghost", IdentityAgentID, LegacyAgentActorID("o", "agent:ghost")},      // 純 id 與 agent: 前綴是同一個節點、同一個 actor
+		{"o", "Agent:dev", IdentityFree, aDev},                                       // 前綴大小寫不分
+		{"", "agent:dev", IdentityFree, LegacyActorID("agent:dev")},                  // 沒有組織(server_features)只能對使用者與系統
 	} {
 		res, err := ResolveLegacy(f, c.org, c.raw, LegacyOpts{Form: c.form})
 		chk(t, err)
@@ -274,32 +274,6 @@ func TestResolveLegacyUserID(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%q → %q,想要 %q", c.raw, got, c.want)
 		}
-	}
-}
-
-// omixor_actor_aliases:啟動遷移建立(空表)、冪等、外鍵指向 omixor_actors
-func TestActorAliasesTable(t *testing.T) {
-	p := fkPG(t, testPGBlank(t))
-	if n := pgCount(t, p, `select count(*) from information_schema.columns where table_name = 'omixor_actor_aliases' and column_name in ('alias','actor_id','created_at')`); n != 3 {
-		t.Fatal("欄位", n)
-	}
-	if n := pgCount(t, p, `select count(*) from omixor_actor_aliases`); n != 0 {
-		t.Fatal("建表時是空的", n)
-	}
-	chk(t, p.migrateActorAliases())
-	chk(t, p.migrateActorAliases())
-	if _, err := p.pool.Exec(bg(), `insert into omixor_actor_aliases (alias, actor_id) values ('x', 'sys_nope')`); err == nil {
-		t.Fatal("actor_id 要有外鍵")
-	}
-	pgExec(t, p, `insert into omixor_actor_aliases (alias, actor_id) values ('local:x', 'sys_omixor')`)
-	if _, err := p.pool.Exec(bg(), `insert into omixor_actor_aliases (alias, actor_id) values ('local:x', 'sys_chain')`); err == nil {
-		t.Fatal("alias 是主鍵")
-	}
-	// 表被丟掉:下次啟動遷移補回
-	pgExec(t, p, `drop table omixor_actor_aliases`)
-	chk(t, p.migrateActorAliases())
-	if n := pgCount(t, p, `select count(*) from omixor_actor_aliases`); n != 0 {
-		t.Fatal(n)
 	}
 }
 

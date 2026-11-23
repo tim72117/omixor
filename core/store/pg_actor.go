@@ -19,79 +19,8 @@ import (
 	"omixor-core/model"
 )
 
-// omixor_actors 欄位(DOC-13 §1.1):
-//
-//	id          usr_<uuidv7> / agt_<uuidv7> / sys_<名稱>;check 只驗前綴與 kind 一致,不驗 UUID 格式(格式由 model.ActorKindOfID 在寫入前驗)
-//	org         只有 agent 有;不掛 omixor_orgs 外鍵:刪組織時 actor 只退役(disabled_at)、不刪列,稽核等紀錄仍指得到
-//	name        顯示名稱
-//	handle      使用者 = email 小寫(本機模式可以是 tim 這種非 email)、角色 = 角色 id、系統 = 名稱
-//	owner       agent 的負責人(kind = user 的 actor);DB 層可為 NULL(遷移時可能找不到人),新建由 service 強制必填
-//	disabled_at 退役、停用時間;角色現役的 (org, handle) 唯一,退役後名字讓出來(同名再建是新的 actor)
-//
-// 約束比 DOC-13 §1.1 的 DDL 多三條(都只擋不可能的資料,不影響其他表):handle 不能是空白、使用者 handle 一律小寫(唯一索引才不會被大小寫繞過)、
-// owner 只有角色可以有。
-//
-// 唯一性:使用者 handle 全伺服器唯一(不分大小寫,停用的使用者仍佔名字)、系統名稱唯一、角色 (org, handle) 現役時唯一。
-const pgActorSchema = `
-create table if not exists omixor_actors (
-  id          text primary key,
-  kind        text not null check (kind in ('user','agent','system')),
-  org         text,
-  name        text not null,
-  handle      text not null check (btrim(handle) <> ''),
-  avatar      text not null default '',
-  owner       text references omixor_actors(id) on delete restrict,
-  disabled_at timestamptz,
-  created_at  timestamptz not null default now(),
-  unique (id, kind),
-  check ((kind = 'user'   and id like 'usr\_%' and org is null)
-      or (kind = 'agent'  and id like 'agt\_%' and org is not null)
-      or (kind = 'system' and id like 'sys\_%' and org is null)),
-  check (kind <> 'user' or handle = lower(handle)),
-  check (owner is null or kind = 'agent')
-);
-create unique index if not exists omixor_actors_user_handle   on omixor_actors (lower(handle)) where kind = 'user';
-create unique index if not exists omixor_actors_system_handle on omixor_actors (handle)        where kind = 'system';
-create unique index if not exists omixor_actors_agent_handle  on omixor_actors (org, handle)   where kind = 'agent' and disabled_at is null;
-create index        if not exists omixor_actors_agent_org     on omixor_actors (org)           where kind = 'agent';
--- 給 omixor_agents 的複合外鍵 (actor_id, org, id) → (id, org, handle) 用(ISS-36 B-2c);id 本來就唯一,這條只是讓外鍵有可以指的唯一索引
-create unique index if not exists omixor_actors_id_org_handle on omixor_actors (id, org, handle);
-`
-
 // ErrSystemActor 系統 actor 的名稱、handle、停用狀態由程式固定(model.SystemActors),不能改
 var ErrSystemActor = errors.New("system actor is fixed")
-
-// migrateActors 啟動遷移的一步(B-2a):建 omixor_actors 與索引、寫入固定的系統 actor(model.SystemActors)。
-// 冪等、可以多個實例同時啟動(advisory lock 內進行);系統 actor 已經是目前的值就不寫(不產生新的列版本)。
-// 位置:拆表遷移之後、migrateForeignKeys 之前(見 startupMigrations);它不碰任何既有表
-func (p *PG) migrateActors() error {
-	c, cancel := p.migCtx(5 * time.Minute)
-	defer cancel()
-	tx, err := p.pool.Begin(c)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(c)
-	if err := xactLock(c, tx, "omixor-actors-migrate"); err != nil {
-		if errors.Is(err, errLockWait) || isTimeout(c, err) {
-			warnf("actor 表遷移:%v,略過這次(下次啟動再做)", err)
-			return nil
-		}
-		return err
-	}
-	if _, err := tx.Exec(c, pgActorSchema); err != nil {
-		return err
-	}
-	for _, s := range model.SystemActors {
-		if _, err := tx.Exec(c, `insert into omixor_actors (id, kind, name, handle) values ($1, 'system', $2, $3)
-on conflict (id) do update set name = excluded.name, handle = excluded.handle, disabled_at = null
-where (omixor_actors.name, omixor_actors.handle, omixor_actors.disabled_at) is distinct from (excluded.name, excluded.handle, null::timestamptz)`,
-			s.ID, s.Name, s.Handle); err != nil {
-			return fmt.Errorf("寫入系統 actor %s:%w", s.ID, err)
-		}
-	}
-	return tx.Commit(c)
-}
 
 // ---- 讀寫 ----
 

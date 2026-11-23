@@ -160,5 +160,5 @@ var behaviorChanges = [][3]string{
 	{"`OMIXOR_LDAP_START_TLS`、`OMIXOR_LDAP_INSECURE_SKIP_VERIFY`、`OMIXOR_LDAP_TRUST_MAIL`", "不認得的值當成「關」", "要是 1/true/yes/on 或 0/false/no/off,否則啟動失敗"},
 	{"`OMIXOR_WEB_ADDR` 與 `OMIXOR_WEB_PORT`(web)", "兩個都設而連接埠不同時,靜默以 `OMIXOR_WEB_ADDR` 為準", "連接埠不同啟動失敗(只設其中一個,或讓兩者一致)"},
 	{"`OMIXOR_NO_TIMERS` 等布林設定", "不認得的值當成「關」(各程式略有不同)", "要是 1/true/yes/on 或 0/false/no/off,否則啟動失敗"},
-	{"整數型設定(`PGCTLTIMEOUT`、`OMIXOR_MIGRATE_*` 等)", "不檢查,由使用它的程式或 pg_ctl 處理", "非整數或超出範圍啟動失敗"},
+	{"整數型設定(`PGCTLTIMEOUT` 等)", "不檢查,由使用它的程式或 pg_ctl 處理", "非整數或超出範圍啟動失敗"},
 }

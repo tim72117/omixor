@@ -2,139 +2,299 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"omixor-core/model"
 )
 
-// pg_schema_boot.go 每次啟動的建表流程(bootstrapSchema)。
+// pg_schema_boot.go 啟動時的結構建立與版本化的結構異動(bootstrapSchema、runSteps)。步驟清單與新增程序見 schema_steps.go。
 //
-// 為什麼不把全部寫進 pgSchema 一次 Exec:pgSchema 是一個多敘述的隱含交易,裡面的 `alter table … add column if not exists`、
-// `create index if not exists` 即使欄位、索引已經存在也要先拿表鎖(前者 ACCESS EXCLUSIVE、後者 SHARE);等鎖的時候,
-// 排在後面的所有讀寫都被擋住(熱表會整個卡住),而且整段在 15 秒 context 內、沒有 lock_timeout、沒有重試。
-// 所以 pgSchema 只留 `create table if not exists`(表已存在時不碰表鎖),欄位與索引改成:
-// 先查 catalog(information_schema、to_regclass,都不拿目標表的鎖),缺才補,補的時候帶 lock_timeout 並重試(fkStep)。
-// 結果(結構指紋)與原本一樣;欄位順序也維持原本的先後(各表內的相對順序不變)。
+// 三種情況:
+//   - 空資料庫:一個交易建完整的最終結構(pgSchema、fkSpecs 的外鍵、固定的系統 actor),並寫入版本記錄:
+//     baseline(版本 1)與 schemaSteps 的所有版本(全新安裝已經是最終結構,不執行步驟)。
+//   - 已有 omixor 表、沒有版本表(導入版本表之前的資料庫):建版本表、蓋上 baseline(版本 1),再依版本執行步驟。
+//   - 有版本表:讀出目前最大版本,依序執行版本更大的步驟。每個步驟自己一個交易,成功才寫版本記錄。
+//
+// 並行:所有會寫結構的交易先拿 advisory lock(schemaLockKey),拿到後重新讀狀態,所以多個實例同時啟動只會有一個動手。
+// 步驟交易裡 set local lock_timeout(預設 10 秒),鎖逾時或死鎖(55P03、40P01、40001)隨機退避後重試幾次。
+// 啟動整段用較長的 context(bootstrapTimeout),不受 NewPG 查詢用的 15 秒限制。
 
-type schemaColumn struct{ table, column, def string }
-type schemaIndex struct{ name, sql string }
+const (
+	// schemaLockKey 建表與步驟的交易層級 advisory lock(多個實例同時啟動時排隊)
+	schemaLockKey = "omixor-schema-create"
+	// bootstrapTimeout 啟動時建表與套用步驟的整段上限(空資料庫一個大交易要建 48 張表與約 60 條外鍵)
+	bootstrapTimeout = 2 * time.Minute
+)
 
-// pgSchemaColumns 舊資料庫的表建出來時還沒有的欄位(依序補;全新資料庫也是建表之後補,所以最終結構相同)
-var pgSchemaColumns = []schemaColumn{
-	{"omixor_orgs", "symbol", "text not null default ''"},
-	{"omixor_orgs", "color", "text not null default ''"},
-	{"omixor_orgs", "note", "text not null default ''"},
-	{"ops_issues", "assignee", "text"},
-	{"ops_issues", "repo", "text not null default ''"},
-	{"ops_issues", "project", "text not null default ''"},
-	{"ops_issues", "key", "text not null default ''"},
-	{"ops_issues", "version", "integer not null default 1"},
-	{"ops_issues", "deleted_at", "timestamptz"},
-	{"ops_issues", "deleted_by", "text"},
-	{"omixor_agent_tasks", "locked_until", "timestamptz"},
-	{"omixor_agent_tasks", "claimed_by", "text"},
-	{"omixor_docs", "project", "text not null default ''"},
-	{"omixor_cabinet_layouts", "project", "text not null default ''"},
-	{"omixor_cabinet_layouts", "split_at", "timestamptz"},
-	{"omixor_docs", "split_at", "timestamptz"},
-	{"omixor_agents", "split_at", "timestamptz"},
-	{"omixor_cabinet_layouts", "version", "bigint not null default 0"},
-	{"omixor_projects", "key", "text not null default ''"},
-	{"omixor_projects", "restricted", "boolean not null default false"},
-	{"omixor_channels", "split_at", "timestamptz"},
-	{"omixor_channel_messages", "split_at", "timestamptz"},
-	{"omixor_org_chains", "split_at", "timestamptz"},
-	{"omixor_audit", "source", "text not null default ''"},
-	{"omixor_agent_tasks", "item_id", "text"}, // 綁定的 Issue 子項(omixor_issue_items.id;字串參照,不設外鍵,互不 cascade,回寫由 service 處理)
+// 變數是為了測試能縮短
+var (
+	schemaLockWait   = 2 * time.Minute  // 等 advisory lock 的上限(別的實例的步驟可能正在跑)
+	stepLockTimeout  = 10 * time.Second // 步驟自己的 DDL 等表鎖的上限
+	stepAttempts     = 5                // 鎖逾時、死鎖時,一個步驟最多嘗試幾次
+	stepRetryBackoff = time.Second      // 重試的退避基數(乘以第幾次,再加隨機)
+)
+
+// bootstrapCtx 啟動建表與套用步驟用的 context
+func bootstrapCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), bootstrapTimeout)
 }
 
-// pgSchemaIndexes 索引(缺才建)。依賴上面補的欄位,所以在欄位之後
-var pgSchemaIndexes = []schemaIndex{
-	{"omixor_audit_at", `create index if not exists omixor_audit_at on omixor_audit (at desc)`},
-	{"ops_issues_org_pos", `create index if not exists ops_issues_org_pos on ops_issues (org, pos desc)`},
-	{"ops_issues_org_key", `create unique index if not exists ops_issues_org_key on ops_issues (org, upper(key)) where key <> ''`},
-	{"omixor_issue_keys_issue", `create index if not exists omixor_issue_keys_issue on omixor_issue_keys (org, issue_id)`},
-	{"omixor_agent_tasks_agent", `create index if not exists omixor_agent_tasks_agent on omixor_agent_tasks (org, agent_id, status)`},
-	{"omixor_agent_credentials_task", `create unique index if not exists omixor_agent_credentials_task on omixor_agent_credentials (org, task_id)`},
-	{"omixor_docs_org_pos", `create index if not exists omixor_docs_org_pos on omixor_docs (org, pos desc)`},
-	{"omixor_doc_tags_tag", `create index if not exists omixor_doc_tags_tag on omixor_doc_tags (org, tag)`},
-	{"omixor_projects_org_key", `create unique index if not exists omixor_projects_org_key on omixor_projects (org, upper(key)) where key <> ''`},
-	{"omixor_project_members_actor", `create index if not exists omixor_project_members_actor on omixor_project_members (org, actor_id)`},
-	{"omixor_channels_issue", `create unique index if not exists omixor_channels_issue on omixor_channels (org, issue_id) where issue_id <> ''`},
-	{"omixor_channel_messages_num", `create index if not exists omixor_channel_messages_num on omixor_channel_messages (org, channel_id, number)`},
-	{"omixor_channel_members_member", `create index if not exists omixor_channel_members_member on omixor_channel_members (org, member)`},
-	{"omixor_channel_mentions_member", `create index if not exists omixor_channel_mentions_member on omixor_channel_mentions (org, member)`},
-	{"omixor_incidents_org_pos", `create index if not exists omixor_incidents_org_pos on omixor_incidents (org, pos desc)`},
-	{"omixor_decisions_org_status", `create index if not exists omixor_decisions_org_status on omixor_decisions (org, status)`},
-	{"omixor_decisions_org_issue", `create index if not exists omixor_decisions_org_issue on omixor_decisions (org, source_issue)`},
-	{"omixor_issue_items_issue", `create index if not exists omixor_issue_items_issue on omixor_issue_items (org, issue_id)`},
-	{"omixor_oauth_tokens_family", `create index if not exists omixor_oauth_tokens_family on omixor_oauth_tokens (family_id) where family_id <> ''`},
-	{"omixor_oauth_tokens_expires", `create index if not exists omixor_oauth_tokens_expires on omixor_oauth_tokens (expires_at)`},
-	{"omixor_issue_items_assignee", `create index if not exists omixor_issue_items_assignee on omixor_issue_items (org, assignee)`},
+type schemaQ interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// bootstrapSchema 建表、補欄位、補索引、文件櫃結構主鍵。全部「已經有就不拿鎖」:另一個連線持有熱表的 ACCESS EXCLUSIVE 鎖時,
-// 結構完整的資料庫啟動不會被擋(補欄位、補索引才會等鎖,帶 lock_timeout 並重試)
-func bootstrapSchema(parent context.Context, pool *pgxpool.Pool) error {
-	if _, err := pool.Exec(parent, pgSchema); err != nil {
-		return fmt.Errorf("建表失敗:%w", err)
-	}
-	c, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	p := &PG{pool: pool}
-	// 欄位:一次查出已有的
-	have := map[string]bool{}
-	rows, err := pool.Query(c, `select table_name || '.' || column_name from information_schema.columns where table_schema = current_schema()`)
+type rowQ interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// omixorTableCount 目前 schema 裡有幾張 omixor 的表(omixor_*、ops_issues、ops_issue_comments)
+func omixorTableCount(c context.Context, q schemaQ) (int, error) {
+	rows, err := q.Query(c, `select count(distinct table_name) from information_schema.columns where table_schema = current_schema()
+		and (table_name like 'omixor\_%' or table_name in ('ops_issues', 'ops_issue_comments'))`)
 	if err != nil {
-		return fmt.Errorf("查欄位清單失敗:%w", err)
+		return 0, fmt.Errorf("查資料庫結構失敗:%w", err)
 	}
-	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			rows.Close()
-			return err
+	defer rows.Close()
+	var n int
+	if rows.Next() {
+		if err := rows.Scan(&n); err != nil {
+			return 0, err
 		}
-		have[k] = true
 	}
 	rows.Close()
-	if err := rows.Err(); err != nil {
+	return n, rows.Err()
+}
+
+// currentSchemaVersion 目前資料庫記錄的最大版本;exists = 有沒有版本表(沒有表或表是空的,版本是 0)
+func currentSchemaVersion(c context.Context, q rowQ) (version int, exists bool, err error) {
+	if err := q.QueryRow(c, `select to_regclass($1) is not null`, schemaVersionTable).Scan(&exists); err != nil {
+		return 0, false, fmt.Errorf("查版本表失敗:%w", err)
+	}
+	if !exists {
+		return 0, false, nil
+	}
+	if err := q.QueryRow(c, `select coalesce(max(version), 0) from `+schemaVersionTable).Scan(&version); err != nil {
+		return 0, true, fmt.Errorf("讀結構版本失敗:%w", err)
+	}
+	return version, true, nil
+}
+
+// bootstrapSchema 見檔頭
+func bootstrapSchema(parent context.Context, pool *pgxpool.Pool) error {
+	n, err := omixorTableCount(parent, pool)
+	if err != nil {
 		return err
 	}
-	for _, col := range pgSchemaColumns {
-		if have[col.table+"."+col.column] {
-			continue
-		}
-		stmt := fmt.Sprintf(`alter table %s add column if not exists %s %s`, col.table, col.column, col.def)
-		if err := p.fkStep(c, func(tx pgx.Tx) error { _, err := tx.Exec(c, stmt); return err }); err != nil {
-			return fmt.Errorf("補欄位 %s.%s 失敗:%w", col.table, col.column, err)
-		}
-	}
-	// 文件櫃結構:主鍵從 (org) 換成 (org, project)(已經換過就不動)
-	var pkOK bool
-	if err := pool.QueryRow(c, `select exists (select 1 from pg_index where indrelid = to_regclass('omixor_cabinet_layouts') and indisprimary and indnatts = 2)`).Scan(&pkOK); err != nil {
-		return fmt.Errorf("查文件櫃結構主鍵失敗:%w", err)
-	}
-	if !pkOK {
-		if err := p.fkStep(c, func(tx pgx.Tx) error {
-			_, err := tx.Exec(c, `alter table omixor_cabinet_layouts drop constraint if exists omixor_cabinet_layouts_pkey;
-alter table omixor_cabinet_layouts add constraint omixor_cabinet_layouts_pkey primary key (org, project)`)
+	if n == 0 {
+		created, err := createFreshSchema(parent, pool)
+		if err != nil {
 			return err
-		}); err != nil {
-			return fmt.Errorf("換文件櫃結構主鍵失敗:%w", err)
+		}
+		if !created { // 另一個實例剛建完(可能是還沒有版本表的舊版程式):補版本記錄
+			err = stampBaseline(parent, pool)
+		}
+		if err != nil {
+			return err
+		}
+		// 建好了:版本記錄已經是最新,runSteps 會發現沒有要做的
+	} else if err := stampBaseline(parent, pool); err != nil {
+		return err
+	}
+	if err := runSteps(parent, pool, schemaSteps); err != nil {
+		return err
+	}
+	return syncSystemActors(parent, pool)
+}
+
+// lockSchema 在交易裡取 advisory lock(交易結束才放),最多等 schemaLockWait;拿到後把 lock_timeout 設成 after(0 = 不限制)
+func lockSchema(c context.Context, tx pgx.Tx, after string) error {
+	if _, err := tx.Exec(c, fmt.Sprintf(`set local lock_timeout = '%dms'`, schemaLockWait.Milliseconds())); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(c, `select pg_advisory_xact_lock(hashtext($1))`, schemaLockKey); err != nil {
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == "55P03" {
+			return fmt.Errorf("等結構鎖逾時(%v;別的實例還在建表或做結構異動?):%w", schemaLockWait, err)
+		}
+		return fmt.Errorf("等結構鎖失敗:%w", err)
+	}
+	_, err := tx.Exec(c, fmt.Sprintf(`set local lock_timeout = '%s'`, after))
+	return err
+}
+
+// createFreshSchema 空資料庫:一個交易建完最終結構並寫版本記錄。拿到鎖後重查一次,另一個實例剛建完就不做(created = false)
+func createFreshSchema(c context.Context, pool *pgxpool.Pool) (created bool, err error) {
+	tx, err := pool.Begin(c)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(c)
+	if err := lockSchema(c, tx, "0"); err != nil {
+		return false, err
+	}
+	n, err := omixorTableCount(c, tx)
+	if err != nil {
+		return false, err
+	}
+	if n > 0 {
+		return false, nil
+	}
+	if _, err := tx.Exec(c, pgSchema); err != nil {
+		return false, fmt.Errorf("建表失敗:%w", err)
+	}
+	for _, f := range fkSpecs() {
+		if _, err := tx.Exec(c, fmt.Sprintf(`alter table %s add constraint %s %s`, f.table, f.name, f.def)); err != nil {
+			return false, fmt.Errorf("建外鍵 %s 失敗:%w", f.name, err)
 		}
 	}
-	for _, ix := range pgSchemaIndexes {
-		var ok bool
-		if err := pool.QueryRow(c, `select to_regclass($1) is not null`, ix.name).Scan(&ok); err != nil {
-			return fmt.Errorf("查索引 %s 失敗:%w", ix.name, err)
+	if err := syncSystemActors(c, tx); err != nil {
+		return false, err
+	}
+	if err := recordVersion(c, tx, baselineVersion, "baseline"); err != nil {
+		return false, err
+	}
+	for _, s := range schemaSteps {
+		if err := recordVersion(c, tx, s.Version, s.Name); err != nil {
+			return false, err
 		}
-		if ok {
+	}
+	return true, tx.Commit(c)
+}
+
+func recordVersion(c context.Context, q execQ, version int, name string) error {
+	if _, err := q.Exec(c, `insert into omixor_schema_version (version, name) values ($1, $2) on conflict (version) do nothing`, version, name); err != nil {
+		return fmt.Errorf("寫結構版本 %d(%s)失敗:%w", version, name, err)
+	}
+	return nil
+}
+
+// stampBaseline 已有 omixor 表、但還沒有版本記錄(導入版本表之前的資料庫):在鎖下補建版本表並蓋上 baseline(版本 1)
+func stampBaseline(c context.Context, pool *pgxpool.Pool) error {
+	if v, exists, err := currentSchemaVersion(c, pool); err != nil || (exists && v > 0) {
+		return err
+	}
+	return retryLock(c, stepAttempts, stepRetryBackoff, func() error {
+		tx, err := pool.Begin(c)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(c)
+		if err := lockSchema(c, tx, stepLockTimeout.String()); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(c, schemaVersionDDL); err != nil {
+			return fmt.Errorf("建版本表失敗:%w", err)
+		}
+		if _, err := tx.Exec(c, `insert into omixor_schema_version (version, name) select $1, 'baseline' where not exists (select 1 from omixor_schema_version)`, baselineVersion); err != nil {
+			return fmt.Errorf("蓋 baseline 版本失敗:%w", err)
+		}
+		return tx.Commit(c)
+	})
+}
+
+// runSteps 依序執行版本大於資料庫目前最大版本的步驟(steps 要依版本遞增)。
+// 資料庫版本比程式已知的新(部署回滾到舊版):寫警告、不動資料庫(步驟向後相容,舊程式照常可用)
+func runSteps(c context.Context, pool *pgxpool.Pool, steps []schemaStep) error {
+	cur, exists, err := currentSchemaVersion(c, pool)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("資料庫沒有版本表 %s", schemaVersionTable)
+	}
+	if known := knownSchemaVersion(steps); cur > known {
+		warnf("資料庫結構版本 %d 比這版程式已知的 %d 新(可能是部署回滾),略過結構異動、照常啟動", cur, known)
+		return nil
+	}
+	for _, s := range steps {
+		if s.Version <= cur {
 			continue
 		}
-		if err := p.fkStep(c, func(tx pgx.Tx) error { _, err := tx.Exec(c, ix.sql); return err }); err != nil {
-			return fmt.Errorf("建索引 %s 失敗:%w", ix.name, err)
+		if err := retryLock(c, stepAttempts, stepRetryBackoff, func() error { return applyStep(c, pool, s) }); err != nil {
+			return fmt.Errorf("結構異動步驟 %d(%s)失敗:%w", s.Version, s.Name, err)
+		}
+	}
+	return nil
+}
+
+// applyStep 一個步驟一個交易:拿鎖、重新確認這個版本還沒做(別的實例剛做完就略過)、執行 SQL、寫版本記錄、commit
+func applyStep(c context.Context, pool *pgxpool.Pool, s schemaStep) error {
+	tx, err := pool.Begin(c)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(c)
+	if err := lockSchema(c, tx, stepLockTimeout.String()); err != nil {
+		return err
+	}
+	var done bool
+	if err := tx.QueryRow(c, `select exists (select 1 from omixor_schema_version where version = $1)`, s.Version).Scan(&done); err != nil {
+		return err
+	}
+	if done {
+		return nil
+	}
+	if _, err := tx.Exec(c, s.SQL); err != nil {
+		return err
+	}
+	if err := recordVersion(c, tx, s.Version, s.Name); err != nil {
+		return err
+	}
+	return tx.Commit(c)
+}
+
+// isLockErr 鎖等待逾時(55P03)、死鎖(40P01)、序列化失敗(40001):可以退避後重試
+func isLockErr(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && (pe.Code == "55P03" || pe.Code == "40P01" || pe.Code == "40001")
+}
+
+// jitter 退避時間加隨機(0.5 到 1.5 倍),多個實例同時重試不會同步撞在一起
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	return d/2 + time.Duration(rand.Int63n(int64(d)))
+}
+
+// retryLock 遇到鎖逾時、死鎖、序列化失敗就退避後重試,最多 attempts 次;其他錯誤立刻回傳
+func retryLock(c context.Context, attempts int, wait time.Duration, fn func() error) error {
+	var err error
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			select {
+			case <-c.Done():
+				return c.Err()
+			case <-time.After(jitter(wait * time.Duration(i))):
+			}
+		}
+		if err = fn(); err == nil || !isLockErr(err) {
+			return err
+		}
+		warnf("結構異動遇到鎖等待逾時或死鎖(第 %d/%d 次),稍後重試:%v", i+1, attempts, err)
+	}
+	return err
+}
+
+type execQ interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// syncSystemActors 寫入固定的系統 actor(model.SystemActors;名稱、handle 由程式固定)。每次啟動都做,冪等:已經是目前的值就不寫(不產生新的列版本)
+func syncSystemActors(c context.Context, q execQ) error {
+	for _, s := range model.SystemActors {
+		if _, err := q.Exec(c, `insert into omixor_actors (id, kind, name, handle) values ($1, 'system', $2, $3)
+on conflict (id) do update set name = excluded.name, handle = excluded.handle, disabled_at = null
+where (omixor_actors.name, omixor_actors.handle, omixor_actors.disabled_at) is distinct from (excluded.name, excluded.handle, null::timestamptz)`,
+			s.ID, s.Name, s.Handle); err != nil {
+			return fmt.Errorf("寫入系統 actor %s:%w", s.ID, err)
 		}
 	}
 	return nil

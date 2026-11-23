@@ -10,11 +10,11 @@ import (
 	"omixor-core/model"
 )
 
-// ---- 待決定 / 需要協助(PG;表 omixor_decisions 的定義在 pg.go 的 pgSchema,規則在 service/decision.go) ----
+// ---- 待決定 / 需要協助(PG;表 omixor_decisions 的定義在 pg_schema.go 的 pgSchema,規則在 service/decision.go) ----
 //
 //	編號:omixor_seq 的 decision scope(DEC-<n>,一個組織一起編號,刪掉的號碼不再使用)
 //	created_by(not null)、decided_by(沒處理 NULL):actor id,外鍵指向 omixor_actors(fk_decisions_created_by / fk_decisions_decided_by,
-//	  由 migrateForeignKeys 補,因為 omixor_actors 在 pgSchema 之後才建;新表直接是最終結構,不經過 actor 欄位轉換引擎)
+//	  見 fkSpecs)
 //	source_issue:NULL(沒有來源)或 ops_issues 的內部 id(外鍵,Issue 永久刪除時清成 NULL;垃圾桶裡的 Issue 列還在,不清);程式裡的空字串 = NULL
 
 const decisionCols = `id, kind, title, body, options, status, answer, answer_note, evidence, coalesce(source_issue, ''), blocks,

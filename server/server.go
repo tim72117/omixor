@@ -9,6 +9,7 @@
 //	OMIXOR_TOKEN_DAYS              token 有效天數(預設 90;0 是不到期)
 //	EVOLEAP_URL                    evoleap 網址(預設 https://evoleap.io)
 //	OMIXOR_AGENT_CRED_HOURS        角色憑證有效小時數(預設 2)
+//	OMIXOR_TRUSTED_PROXY_HOPS      信任的代理層數(取來源 IP 用;0 不看 X-Forwarded-For;預設:有 K_SERVICE(Cloud Run)是 1,否則 0)
 //	OMIXOR_PUBLIC_URL              對外網址(例如 https://omixor.example.com);設了,領取任務時會附上角色端點網址
 //	OMIXOR_SITE_DIR                形象網站的資料夾(映像裡是 /site);設了才提供網站,見 site.go
 //	OMIXOR_LDAP_URL …              LDAP / Active Directory 登入(POST /api/auth/ldap):設了 OMIXOR_LDAP_URL 才啟用,設定不完整會直接啟動失敗。
@@ -154,7 +155,6 @@ func Run() {
 	}
 	// 設定集中載入並驗證一次(型別、必填、互斥;有問題一次列完);之後不再直接讀環境變數
 	cfg := config.MustLoad(config.Server)
-	store.SetMigrationLimits(cfg.Int(config.MigrateMaxAutoRewriteMB), cfg.Int(config.MigrateBudgetMinutes))
 	st, err := store.NewPG(cfg.Str(config.DatabaseURL))
 	if err != nil {
 		log.Fatalf("PostgreSQL:%v", cfg.Redact(err.Error()))
@@ -164,6 +164,7 @@ func Run() {
 	if h := cfg.Float(config.AgentCredHours); h > 0 {
 		svc.AgentCredTTL = time.Duration(h * float64(time.Hour))
 	}
+	service.SetTrustedProxyHops(trustedProxyHops(cfg))
 	if err := configureLDAP(svc, cfg.Getenv); err != nil {
 		log.Fatalf("LDAP 設定:%v", cfg.Redact(err.Error()))
 	}
@@ -179,4 +180,15 @@ func Run() {
 	log.Printf("omixor server 在 %s", addr)
 	hs := &http.Server{Addr: addr, Handler: HandlerWith(svc, cfg), ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(hs.ListenAndServe())
+}
+
+// trustedProxyHops 信任的代理層數:明確設了就用;沒設時,跑在 Cloud Run(有 K_SERVICE)是 1,否則 0(不信任 X-Forwarded-For)
+func trustedProxyHops(cfg *config.Config) int {
+	if cfg.IsSet(config.TrustedProxyHops) {
+		return cfg.Int(config.TrustedProxyHops)
+	}
+	if cfg.Str(config.KService) != "" {
+		return 1
+	}
+	return 0
 }

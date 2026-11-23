@@ -30,10 +30,10 @@ func checkAttachDB(dbName string, tables map[string]bool) error {
 	return nil
 }
 
-// AttachMigratedPG 連到一個「已經遷移完成」的測試資料庫,不跑建表與遷移(NewPG 會跑,約 200ms),也不開背景工作。
+// AttachMigratedPG 連到一個「已經建好結構」的測試資料庫,不跑建表(NewPG 會跑,約 200ms)。
 //
 // 只給 core/storetest 用,正式程式(core、console、server)不得呼叫(有測試用 go/ast 掃描把關,見 testattach_test.go):
-// 它繞過 NewPG 的建表、遷移與背景外鍵 validate。為了避免誤用,連線後會先檢查 current_database() 要是測試資料庫
+// 它繞過 NewPG 的建表與舊結構偵測。為了避免誤用,連線後會先檢查 current_database() 要是測試資料庫
 // (名稱以 omixor_t_ 開頭),且必要的表都在(沒遷移完成的資料庫會回錯誤);不符就關掉連線池回錯誤。
 // 正式程式請用 NewPG。
 func AttachMigratedPG(url string) (*PG, error) {
@@ -75,6 +75,5 @@ func AttachMigratedPG(url string) (*PG, error) {
 		return fail(err)
 	}
 	p := newPG(pool)
-	p.finishStartup()
 	return p, nil
 }

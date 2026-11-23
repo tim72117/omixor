@@ -11,10 +11,10 @@ import (
 	"omixor-core/model"
 )
 
-// ---- Issue 子項(PG;表 omixor_issue_items 的定義在 pg.go 的 pgSchema,規則在 service/issue_items.go) ----
+// ---- Issue 子項(PG;表 omixor_issue_items 的定義在 pg_schema.go 的 pgSchema,規則在 service/issue_items.go) ----
 //
 //	序號:omixor_seq 的 item:<issueID> scope(seqScopeMax 取 max(seq) 自癒),刪掉的號碼不再使用;Issue 永久刪除時序號列一併清(DeleteIssue)
-//	assignee、claimed_by:actor id,沒有是 NULL(外鍵 set null);created_by:actor id(restrict);都由 migrateForeignKeys 補外鍵,程式裡的空字串 = NULL
+//	assignee、claimed_by:actor id,沒有是 NULL(外鍵 set null);created_by:actor id(restrict);外鍵見 fkSpecs,程式裡的空字串 = NULL
 //	depends_on:同一 Issue 內另一子項的 id(自參照外鍵,被依賴的刪了清成 NULL);「同一 Issue」與「無環」由這裡在交易內檢查
 //	files:text[];evidence:jsonb(NULL = 沒有)
 

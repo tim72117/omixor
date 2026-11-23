@@ -5,8 +5,6 @@ package store
 import (
 	"context"
 	"errors"
-	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -77,7 +75,7 @@ func TestActorSystemActorsSeeded(t *testing.T) {
 
 // 重複啟動冪等:列數與列內容不變(連 xmin 都不動 = 沒有重寫列);被改壞的系統 actor 啟動時校正回來
 func TestActorMigrateIdempotent(t *testing.T) {
-	p := fkPG(t, fkSchema(t)) // 要 drop 表、改系統列,用全新的資料庫(不回收)
+	p := fkPG(t, fkSchema(t)) // 要改系統列,用全新的資料庫(不回收)
 	snap := func() string {
 		var s string
 		chk(t, p.pool.QueryRow(context.Background(), `select coalesce(string_agg(format('%s|%s|%s|%s|%s|%s', id, name, handle, created_at, disabled_at, xmin::text), ',' order by id), '') from omixor_actors`).Scan(&s))
@@ -85,7 +83,7 @@ func TestActorMigrateIdempotent(t *testing.T) {
 	}
 	before := snap()
 	for i := 0; i < 3; i++ {
-		chk(t, p.migrateActors())
+		chk(t, syncSystemActors(context.Background(), p.pool))
 	}
 	if after := snap(); after != before {
 		t.Fatalf("重跑不該動列:\n%s\n%s", before, after)
@@ -93,7 +91,7 @@ func TestActorMigrateIdempotent(t *testing.T) {
 	// 被改壞(手動 SQL)→ 下次啟動校正;使用者資料不受影響
 	u := newUser(t, p, "keep@x.com")
 	pgExec(t, p, `update omixor_actors set name = 'bad', disabled_at = now() where id = 'sys_omixor'`)
-	chk(t, p.migrateActors())
+	chk(t, syncSystemActors(context.Background(), p.pool))
 	a, err := p.ActorByID(model.SystemActorOmixor)
 	chk(t, err)
 	if a.Name != "omixor 系統" || a.Disabled() {
@@ -102,25 +100,11 @@ func TestActorMigrateIdempotent(t *testing.T) {
 	if _, err := p.ActorByID(u.ID); err != nil {
 		t.Fatal("使用者 actor 不受影響", err)
 	}
-	// 表被整個刪掉(像從舊版升級來的資料庫)→ 重建
-	pgExec(t, p, `drop table omixor_actors cascade`)
-	chk(t, p.migrateActors())
-	if n := pgCount(t, p, `select count(*) from omixor_actors`); n != len(model.SystemActors) {
-		t.Fatal("重建後只有系統 actor", n)
-	}
 }
 
-// 多個 NewPG 同時啟動 + 之後再重複啟動:都成功、系統 actor 只有一份、固定 id 不變
+// 多個 NewPG 同時對全新(空)資料庫啟動 + 之後再重複啟動:都成功、系統 actor 只有一份、固定 id 不變(建表在 advisory lock 內)
 func TestActorConcurrentStartup(t *testing.T) {
 	url := testdb.Blank(t)
-	// 先有一個實例把共用的 pgSchema 建好:pgSchema 的 create table if not exists 本身不防並行(兩個實例同時對全新資料庫建表
-	// 可能撞 pg_type 的唯一索引,是既有行為,不是這一步的範圍);這裡要測的是 omixor_actors 這一步在並行啟動下冪等
-	first, err := NewPG(url)
-	chk(t, err)
-	first.WaitFKValidate()
-	t.Cleanup(first.Close)
-	// 模擬「升級自沒有 actor 表的舊版」:表整個拿掉,讓多個實例同時要建
-	pgExec(t, first, `drop table omixor_actors cascade`)
 	const n = 6
 	var wg sync.WaitGroup
 	errs := make([]error, n)
@@ -137,7 +121,6 @@ func TestActorConcurrentStartup(t *testing.T) {
 		if errs[i] != nil {
 			t.Fatalf("實例 %d 啟動失敗:%v", i, errs[i])
 		}
-		pgs[i].WaitFKValidate()
 	}
 	t.Cleanup(func() {
 		for _, p := range pgs {
@@ -155,30 +138,9 @@ func TestActorConcurrentStartup(t *testing.T) {
 	// 再啟動一輪
 	again, err := NewPG(url)
 	chk(t, err)
-	again.WaitFKValidate()
 	defer again.Close()
 	if c := pgCount(t, again, `select count(*) from omixor_actors`); c != len(model.SystemActors) {
 		t.Fatalf("重複啟動後列數 %d", c)
-	}
-}
-
-// 啟動順序:actor 步驟在拆表之後、外鍵之前,而且 migrateForeignKeys → migrateIssueKeys → migrateSeq 的相對順序不變
-func TestActorMigrationOrder(t *testing.T) {
-	src := stepNames(t)
-	idx := func(s string) int {
-		for i, n := range src {
-			if n == s {
-				return i
-			}
-		}
-		t.Fatalf("啟動遷移少了 %s:%v", s, src)
-		return -1
-	}
-	if !(idx("migrateSplitIncidentsTasks") < idx("migrateActors") && idx("migrateActors") < idx("migrateForeignKeys")) {
-		t.Fatalf("migrateActors 要在拆表之後、migrateForeignKeys 之前:%v", src)
-	}
-	if !(idx("migrateForeignKeys") < idx("migrateIssueKeys") && idx("migrateIssueKeys") < idx("migrateSeq")) {
-		t.Fatalf("migrateForeignKeys → migrateIssueKeys → migrateSeq 的順序不能變:%v", src)
 	}
 }
 
@@ -598,23 +560,3 @@ func TestActorSchemaGuard(t *testing.T) {
 func errOf(_ *model.ActorRecord, err error) error { return err }
 
 func errOfA(_ model.ActorRecord, err error) error { return err }
-
-// stepNames 啟動遷移序列裡各步驟(p.migrateXxx)的順序,從 pg_migrate_guard.go 的原始碼讀(序列是函式裡的區域變數)
-func stepNames(t *testing.T) []string {
-	t.Helper()
-	b, err := os.ReadFile("pg_migrate_guard.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(b)
-	i := strings.Index(src, "func (p *PG) startupMigrations()")
-	j := strings.Index(src[i:], "for _, s := range steps")
-	if i < 0 || j < 0 {
-		t.Fatal("找不到 startupMigrations 的步驟清單")
-	}
-	var out []string
-	for _, m := range regexp.MustCompile(`p\.(migrate\w+)\}`).FindAllStringSubmatch(src[i:i+j], -1) {
-		out = append(out, m[1])
-	}
-	return out
-}

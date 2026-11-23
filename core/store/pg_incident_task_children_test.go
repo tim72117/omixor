@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -33,7 +32,6 @@ func fullIncident() model.Incident {
 		},
 	}
 }
-
 
 // fullIncidentIDs 同 fullIncident,但「誰」是真的 actor id(CreateIncident、UpdateIncident 直接收 actor id,Actor 相容輸出由服務層還原)
 func fullIncidentIDs(t *testing.T, p *PG, org string) model.Incident {
@@ -159,64 +157,6 @@ func TestPGIncidentNewTablesAndAppend(t *testing.T) {
 	}
 }
 
-// 遷移:從舊 data 展開(各種欄位組合)、壞資料略過、已展開不覆蓋、重跑冪等
-func TestPGIncidentMigrationFromJSON(t *testing.T) {
-	p := splitOrg(t)
-	ctx := context.Background()
-	full := fullIncident()
-	full.ID = "INC-2001"
-	minimal := model.Incident{ID: "INC-2002", Title: "最小", Status: "investigating", StartedAt: mt("2026-01-02T03:04:05Z")}
-	old := func(i model.Incident) []byte { b, _ := json.Marshal(i.Clone()); return b }
-	ins := func(i model.Incident, data []byte, split bool, org string) {
-		q := `insert into omixor_incidents (org, id, number, pos, status, started_at, data) values ($1,$2,$3,$4,$5,$6,$7)`
-		if split {
-			q = `insert into omixor_incidents (org, id, number, pos, status, started_at, data, title, split_at) values ($1,$2,$3,$4,$5,$6,$7,'已展開的標題', now())`
-		}
-		if _, err := p.pool.Exec(ctx, q, org, i.ID, i.Number(), int64(i.Number()), i.Status, secs(i.StartedAt.Time), data); err != nil {
-			t.Fatal(err)
-		}
-	}
-	ins(full, old(full), false, "o")
-	ins(minimal, old(minimal), false, "o")
-	ins(model.Incident{ID: "INC-2003", Status: "investigating", StartedAt: full.StartedAt}, []byte(`{"id":"INC-2003","sev":"高"}`), false, "o") // 型別不符
-	ins(model.Incident{ID: "INC-2004", Status: "investigating", StartedAt: full.StartedAt}, []byte(`[1,2]`), false, "o")                       // 不是物件
-	ins(model.Incident{ID: "INC-2006", Status: "monitoring", StartedAt: full.StartedAt}, old(full), true, "p")                                 // 已展開:舊 data 不能覆蓋
-	// 已展開的列,新表是空的、title 是「已展開的標題」
-
-	chk(t, p.migrateSplitIncidentsTasks())
-	g, err := p.GetIncident("o", "INC-2001")
-	chk(t, err)
-	sameJSON(t, "完整事件展開(舊字串經寬鬆解析器轉成 actor id)", g, convertedIncident(t, p, "o", full))
-	g, err = p.GetIncident("o", "INC-2002")
-	chk(t, err)
-	sameJSON(t, "最小事件展開", g, convertedIncident(t, p, "o", minimal))
-	for _, id := range []string{"INC-2003", "INC-2004"} {
-		if n := count(t, p, `select count(*) from omixor_incidents where org = 'o' and id = $1 and split_at is null`, id); n != 1 {
-			t.Fatal(id, "壞資料要略過、split_at 保持 NULL")
-		}
-		if n := count(t, p, `select count(*) from omixor_incident_events where org = 'o' and incident_id = $1`, id); n != 0 {
-			t.Fatal(id, "略過的列不能有子表資料")
-		}
-	}
-	g, err = p.GetIncident("p", "INC-2006")
-	chk(t, err)
-	if g.Title != "已展開的標題" || len(g.Timeline) != 0 || len(g.Services) != 0 {
-		t.Fatalf("已展開的列不能被舊 data 覆蓋:%+v", g)
-	}
-	// 展開後的改動,重跑遷移不被舊 data 蓋掉
-	g, _ = p.GetIncident("o", "INC-2001")
-	g.Title = "新標題"
-	g.Timeline = g.Timeline[:1]
-	chk(t, p.UpdateIncident("o", *g))
-	chk(t, p.migrateSplitIncidentsTasks())
-	g2, err := p.GetIncident("o", "INC-2001")
-	chk(t, err)
-	sameJSON(t, "重跑冪等", g2, g)
-	if n := count(t, p, `select count(*) from omixor_incident_events`); n != 1+0+0 {
-		t.Fatal("事件總列數", n)
-	}
-}
-
 func TestPGTaskNotesLinks(t *testing.T) {
 	p := splitOrg(t)
 	makeAgent(t, p, "o", "dev")
@@ -281,53 +221,6 @@ func TestPGTaskNotesLinks(t *testing.T) {
 	if g.AgentID != "ops" || len(g.Notes) != 5 || g.Notes[4].Text != "轉移" || g.Notes[0].Text != "改" {
 		t.Fatalf("轉移後 %+v", g)
 	}
-}
-
-func TestPGTaskMigrationFromJSON(t *testing.T) {
-	p := splitOrg(t)
-	makeAgent(t, p, "o", "dev")
-	ctx := context.Background()
-	at := "2026-01-02T03:04:05Z"
-	ins := func(id string, num int, links, notes string, split bool) {
-		q := `insert into omixor_agent_tasks (org, id, number, agent_id, title, status, created_at, updated_at, links, notes) values ('o',$1,$2,'dev','t','queued',$3,$3,$4::jsonb,$5::jsonb)`
-		if split {
-			q = `insert into omixor_agent_tasks (org, id, number, agent_id, title, status, created_at, updated_at, links, notes, split_at) values ('o',$1,$2,'dev','t','queued',$3,$3,$4::jsonb,$5::jsonb, now())`
-		}
-		if _, err := p.pool.Exec(ctx, q, id, num, at, links, notes); err != nil {
-			t.Fatal(err)
-		}
-	}
-	ins("T-1", 1, `["https://a","ISS-3"]`, `[{"id":"n1","author":"a@x","text":"一","at":"2026-01-02T03:04:05Z"},{"id":"n2","author":"b","text":"二","at":"2026-01-02T04:00:00Z"}]`, false)
-	ins("T-2", 2, `[]`, `[]`, false)
-	ins("T-3", 3, `{"bad":1}`, `[]`, false)                                                                // links 型別不符
-	ins("T-4", 4, `[]`, `[{"id":1,"author":"x","text":"t","at":"x"}]`, false)                              // notes 型別不符
-	ins("T-5", 5, `["only"]`, `[{"id":"n1","author":"old","text":"舊","at":"2026-01-02T03:04:05Z"}]`, true) // 已展開
-
-	chk(t, p.migrateSplitIncidentsTasks())
-	g, err := p.GetAgentTask("o", "T-1")
-	chk(t, err)
-	sameJSON(t, "展開", g.Links, []string{"https://a", "ISS-3"})
-	sameJSON(t, "展開備註", g.Notes, []model.AgentTaskNote{{ID: "n1", Author: whoID(t, p, "o", "a@x"), Text: "一", At: mt(at)}, {ID: "n2", Author: whoID(t, p, "o", "b"), Text: "二", At: mt("2026-01-02T04:00:00Z")}})
-	g, _ = p.GetAgentTask("o", "T-2")
-	if g.Links == nil || g.Notes == nil || len(g.Links) != 0 || len(g.Notes) != 0 {
-		t.Fatalf("空的要是空陣列:%+v", g)
-	}
-	for _, id := range []string{"T-3", "T-4"} {
-		if n := count(t, p, `select count(*) from omixor_agent_tasks where org='o' and id=$1 and split_at is null`, id); n != 1 {
-			t.Fatal(id, "壞資料要略過")
-		}
-	}
-	g, _ = p.GetAgentTask("o", "T-5")
-	if len(g.Links) != 0 || len(g.Notes) != 0 {
-		t.Fatalf("已展開的列不能被舊 jsonb 覆蓋:%+v", g)
-	}
-	// 冪等:展開後改過的,重跑不被蓋掉
-	g, _ = p.GetAgentTask("o", "T-1")
-	g.Notes = g.Notes[:1]
-	chk(t, p.UpdateAgentTask("o", *g))
-	chk(t, p.migrateSplitIncidentsTasks())
-	g2, _ := p.GetAgentTask("o", "T-1")
-	sameJSON(t, "重跑冪等", g2, g)
 }
 
 // cascade:刪組織、改事件 id 時子表跟著;刪角色轉移後任務(與備註)還在

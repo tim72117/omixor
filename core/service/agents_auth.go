@@ -16,30 +16,16 @@ import (
 
 var errAgentAuth = &Error{Code: 401, Msg: "角色憑證無效或已失效"}
 
+const agentFailWindow = time.Minute
+
 func (s *Service) agentBlocked(ip string) bool {
-	st := &s.agents
-	st.failMu.Lock()
-	defer st.failMu.Unlock()
-	f := st.fails[ip]
-	return f != nil && s.now().Before(f.reset) && f.n > 10
+	n, _ := s.agents.fails.get(limitKey(ip), s.now(), agentFailWindow)
+	return n > 10
 }
 
-// agentFailed 記一次失敗,回傳這一分鐘內第幾次
+// agentFailed 記一次失敗,回傳這一分鐘內第幾次(表有上限,滿了只淘汰最不重要的項目,不整張清空)
 func (s *Service) agentFailed(ip string) int {
-	st := &s.agents
-	st.failMu.Lock()
-	defer st.failMu.Unlock()
-	now := s.now()
-	if st.fails == nil || len(st.fails) > 1000 {
-		st.fails = map[string]*agentFail{}
-	}
-	f := st.fails[ip]
-	if f == nil || !now.Before(f.reset) {
-		f = &agentFail{reset: now.Add(time.Minute)}
-		st.fails[ip] = f
-	}
-	f.n++
-	return f.n
+	return s.agents.fails.add(limitKey(ip), s.now(), agentFailWindow)
 }
 
 // AuthenticateAgent 驗證角色憑證(agentId + secret),通過回傳角色身分的 Principal(Agent 欄位有組織、角色、綁定任務)。

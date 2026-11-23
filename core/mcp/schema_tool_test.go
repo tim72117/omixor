@@ -33,9 +33,11 @@ func schemaEndpoint(b backend.Backend) http.Handler {
 
 func TestSchemaCheckToolFields(t *testing.T) {
 	rep := &model.SchemaReport{
-		OK:            false,
-		MissingTables: []string{"m1"},
-		OrphanTables:  []string{"o1", "o2"},
+		OK:              false,
+		SchemaVersion:   2,
+		ExpectedVersion: 3,
+		MissingTables:   []string{"m1"},
+		OrphanTables:    []string{"o1", "o2"},
 		Tables: []model.SchemaTableCheck{
 			{Table: "a", MissingColumns: []string{}, ExtraColumns: []string{}, TypeMismatches: []model.SchemaTypeMismatch{}, OK: true},
 			{
@@ -49,13 +51,16 @@ func TestSchemaCheckToolFields(t *testing.T) {
 	}
 	h := schemaEndpoint(schemaBackend{rep: rep})
 	out := ok(t, h, "", "schema_check", map[string]any{})
-	for _, k := range []string{"ok", "tables", "missingTables", "orphanTables"} {
+	for _, k := range []string{"ok", "schemaVersion", "expectedVersion", "tables", "missingTables", "orphanTables"} {
 		if _, has := out[k]; !has {
 			t.Errorf("回傳缺欄位 %s:%v", k, out)
 		}
 	}
 	if out["ok"] != false {
 		t.Errorf("ok=%v", out["ok"])
+	}
+	if out["schemaVersion"] != float64(2) || out["expectedVersion"] != float64(3) {
+		t.Errorf("版本欄位:schemaVersion=%v expectedVersion=%v", out["schemaVersion"], out["expectedVersion"])
 	}
 	if !reflect.DeepEqual(out["missingTables"], []any{"m1"}) || !reflect.DeepEqual(out["orphanTables"], []any{"o1", "o2"}) {
 		t.Errorf("缺表/遺留表:%v %v", out["missingTables"], out["orphanTables"])
@@ -94,9 +99,9 @@ func TestSchemaCheckToolFields(t *testing.T) {
 }
 
 func TestSchemaCheckToolClean(t *testing.T) {
-	rep := &model.SchemaReport{OK: true, Tables: []model.SchemaTableCheck{}, MissingTables: []string{}, OrphanTables: []string{}}
+	rep := &model.SchemaReport{OK: true, SchemaVersion: 1, ExpectedVersion: 1, Tables: []model.SchemaTableCheck{}, MissingTables: []string{}, OrphanTables: []string{}}
 	out := ok(t, schemaEndpoint(schemaBackend{rep: rep}), "", "schema_check", map[string]any{})
-	if out["ok"] != true || !reflect.DeepEqual(out["tables"], []any{}) || !reflect.DeepEqual(out["missingTables"], []any{}) || !reflect.DeepEqual(out["orphanTables"], []any{}) {
+	if out["ok"] != true || out["schemaVersion"] != float64(1) || out["expectedVersion"] != float64(1) || !reflect.DeepEqual(out["tables"], []any{}) || !reflect.DeepEqual(out["missingTables"], []any{}) || !reflect.DeepEqual(out["orphanTables"], []any{}) {
 		t.Fatalf("乾淨的報告:%v", out)
 	}
 }

@@ -211,7 +211,7 @@ function IssueDetail({ issue }: { issue: Issue }) {
             ...PRIORITIES.map((x) => ({ label: PRIORITY[x].label, checked: x === issue.priority, onClick: () => upd({ priority: x }) })),
             "sep",
             { header: "指派給角色(會自動排任務)" },
-            { label: "未指派", checked: !issue.assignee, onClick: () => upd({ assignee: "" }) },
+            { label: "未指派", checked: !issue.assignee && !issue.assigneeActor, onClick: () => upd({ assignee: "" }) },
             ...kit.agents.filter((x) => x.active !== false || x.id === issue.assignee).map((x) => ({ label: x.name, checked: x.id === issue.assignee, onClick: () => upd({ assignee: x.id }) })),
             "sep",
             { label: "編輯…", onClick: () => setEditing(true) },
