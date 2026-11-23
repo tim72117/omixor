@@ -42,6 +42,11 @@ func (r *Remote) ListOrgs() ([]model.Org, error) {
 	return l, wrap(err)
 }
 
+func (r *Remote) SchemaCheck() (*model.SchemaReport, error) {
+	x, err := r.Client().SchemaCheck()
+	return x, wrap(err)
+}
+
 func (r *Remote) CreateOrg(in model.Org) (*model.Org, error) {
 	o, err := r.Client().CreateOrgWith(in)
 	if err != nil {
@@ -114,6 +119,22 @@ func (r *Remote) CreateIssue(org string, in service.IssueInput) (*model.Issue, e
 
 func (r *Remote) UpdateIssue(org, id string, p service.IssuePatch) (*model.Issue, error) {
 	i, err := r.Client().UpdateIssue(r.org(org), id, p)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return i, nil
+}
+
+func (r *Remote) AcceptIssue(org, id string) (*model.Issue, error) {
+	i, err := r.Client().AcceptIssue(r.org(org), id)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return i, nil
+}
+
+func (r *Remote) ReleaseIssue(org, id string) (*model.Issue, error) {
+	i, err := r.Client().ReleaseIssue(r.org(org), id)
 	if err != nil {
 		return nil, wrap(err)
 	}

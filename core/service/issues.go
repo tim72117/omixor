@@ -410,10 +410,14 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 	}
 	mu := s.issueLock(org, id)
 	mu.Lock()
-	n, cur, err := s.patchIssue(p, acc, org, id, ref, in)
+	n, cur, err := s.patchIssue(p, acc, org, id, ref, in, by.ID)
 	mu.Unlock()
 	if err != nil {
 		return nil, err
+	}
+	if in.Assignee != nil && *in.Assignee == "" && humanAcceptor(cur) && n.Assignee == "" { // 放回了人類接受者:同 ReleaseIssue 留系統留言、寫稽核
+		s.issueNote(org, n.ID, by.ID, "已放回,等待重新接受")
+		s.Audit(p, "issue.release", org, map[string]any{"id": n.ID, "key": n.Key})
 	}
 	if in.Assignee != nil { // 有給 assignee:取消舊角色未領取的任務、替新角色排任務(已有未結束的不重複排);在 Issue 的鎖外(會拿 agents.mu)
 		s.syncIssueAssignee(p, org, *n, cur.Assignee, by.ID)
@@ -422,7 +426,8 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 }
 
 // patchIssue UpdateIssue 的「讀了再改」(拿著 issueLock 呼叫);回傳改好的與改之前的
-func (s *Service) patchIssue(p *model.Principal, acc *projectAccess, org, id, ref string, in IssuePatch) (*model.Issue, *model.Issue, error) {
+// me 是呼叫者本人的 actor id(取消指派的放回權限用)
+func (s *Service) patchIssue(p *model.Principal, acc *projectAccess, org, id, ref string, in IssuePatch, me string) (*model.Issue, *model.Issue, error) {
 	cur, err := s.Store.GetIssue(org, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil, issueNotFound(id)
@@ -439,6 +444,11 @@ func (s *Service) patchIssue(p *model.Principal, acc *projectAccess, org, id, re
 	expected := 0 // 存放處的條件式更新用:有給版本才檢查(多個實例時 issueLock 擋不住,要靠資料庫)
 	if in.Version != nil {
 		expected = *in.Version
+	}
+	if in.Assignee != nil && *in.Assignee == "" && humanAcceptor(cur) { // assignee="" 清掉人類接受者 = 放回:接受者本人或組織管理員才可以(清掉角色的指派不受限,現有測試與組織鏈規則都這樣約定;要不要收緊是產品決定)。身分在這裡才查,沒有人類接受者時不多一次查詢
+		if err := s.checkClearAssignee(p, org, cur, me); err != nil {
+			return nil, nil, err
+		}
 	}
 	// 換指派給別的角色:有設定組織鏈時,和直接派任務(AssignTask、DelegateTask)走同一套規則,不能繞過(見 checkIssueAssign)
 	if in.Assignee != nil && *in.Assignee != "" && *in.Assignee != cur.Assignee {

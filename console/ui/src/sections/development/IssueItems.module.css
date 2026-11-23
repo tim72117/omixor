@@ -1,0 +1,23 @@
+/* Issue 詳情的「子項」區塊 */
+.root { gap: 10px; }
+.head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.toggle { margin-left: auto; font-size: var(--fs-sm); }
+.list { gap: 6px; }
+.item { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--fg) 5%, transparent); gap: 6px; min-width: 0; }
+.dim { opacity: .75; }
+.top { display: flex; align-items: flex-start; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.key { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-sm); color: var(--fg2); white-space: nowrap; }
+.title { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.struck { text-decoration: line-through; color: var(--fg2); }
+.ops { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-left: auto; }
+.meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: var(--fs-sm); color: var(--fg2); }
+.note { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.warn { color: var(--orange); }
+.detail { gap: 8px; padding-top: 4px; font-size: var(--fs-sm); min-width: 0; overflow-wrap: anywhere; }
+.label { color: var(--fg2); font-size: var(--fs-xs); }
+.files { margin: 0; padding-left: 18px; overflow-wrap: anywhere; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.ev { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: inherit; }
+.form { gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg2); }
+.form textarea { min-height: 64px; font-family: inherit; width: 100%; box-sizing: border-box; }
+.form input, .form select { width: 100%; box-sizing: border-box; }
+.formBtns { display: flex; gap: 6px; flex-wrap: wrap; }

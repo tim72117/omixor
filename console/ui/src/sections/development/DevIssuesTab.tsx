@@ -22,6 +22,9 @@ import { FilterBar } from "../../components/FilterBar";
 import { JiraImport } from "./JiraImport";
 import { IssueEditForm, NewIssue } from "./IssueForm";
 import { IssueTrash } from "./IssueTrash";
+import { IssueItems } from "./IssueItems";
+import { IssueAcceptButton, IssueAcceptedPill } from "./IssueAccept";
+import { itemsCountText } from "./itemModel";
 import { resolveIssueRef, updateIssue, useIsOrgAdmin, useProjects } from "./issueApi";
 import {
   findIssue, issueKey, PRIORITIES, PRIORITY, PROJECT_ALL, PROJECT_ORG, showPriorityPill,
@@ -167,6 +170,7 @@ function IssueRow({ issue, showRepo, on, onClick }: { issue: Issue; showRepo: bo
         {isAIAuthor(issue.createdBy) && <span title={name(issue.createdBy)}><AuthorIcon author={issue.createdBy} size={14} /></span>}
         {showPriorityPill(issue.priority) && <Pill text={p.label} color={p.color} />}
         <MetaFit items={fit} />
+        {itemsCountText(issue) && <span className={"caption muted row " + s.gap3} title={`子項:${issue.itemsOpen ?? 0} 未完成 / 共 ${issue.itemsTotal}`}><SIcon name="checklist" size={11} />{itemsCountText(issue)}</span>}
         {nComments > 0 && <span className={"caption muted row " + s.gap3} title={`${nComments} 則留言`}><SIcon name="bubble.left" size={11} />{nComments}</span>}
         {nComments > 0 && <span className="caption faint">·</span>}
         <span className="caption muted">{relative(issue.updatedAt)}</span>
@@ -218,12 +222,14 @@ function IssueDetail({ issue }: { issue: Issue }) {
             const c = await run(() => action<{ id: string }>("channel_create", { name: issue.title.slice(0, 80), issueId: issue.id, members: issue.assignee ? [`agent:${issue.assignee}`] : [] }));
             if (c) go("channels", c.id);
           }}><SIcon name="bubble.left.and.bubble.right" /> 開對話頻道</button>
+          <IssueAcceptButton issue={issue} run={run} />
           <button className="btn" onClick={() => upd({ status: open ? "closed" : "open" })}>{open ? "關閉" : "重新打開"}</button>
           </div>
         </div>
         <div className="row gap6 wrap">
           <Pill text={open ? "未解決" : "已關閉"} color={open ? "green" : "secondary"} icon={open ? "circle.dotted" : "checkmark.circle"} />
           <Pill text={"優先度:" + p.label} color={p.color} />
+          <IssueAcceptedPill issue={issue} />
           {issue.assignee && <Pill text={"指派:" + (assignee?.name ?? issue.assignee)} color="purple" icon="person.crop.circle" />}
           <Pill text={issue.project ? "專案:" + (proj?.name ?? issue.project) : "組織"} color="indigo" icon="square.stack.3d.up" />
           {issue.repo && <Pill text={"倉庫:" + issue.repo} color="teal" icon="chevron.left.forwardslash.chevron.right" />}
@@ -240,6 +246,7 @@ function IssueDetail({ issue }: { issue: Issue }) {
       {editing ? (
         <IssueEditForm issue={issue} onClose={() => setEditing(false)} />
       ) : issue.body ? <MarkdownText source={issue.body} /> : <div className="muted">沒有內文</div>}
+      {!editing && <IssueItems issueKey={issueKey(issue)} quietError={(issue.itemsTotal ?? 0) === 0} />}
       {(issue.comments?.length > 0 || !editing) && (
         <div className={"col " + s.comments}>
           <div className={cardTitleClass}>留言</div>

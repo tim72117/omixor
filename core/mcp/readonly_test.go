@@ -14,7 +14,7 @@ import (
 
 // 唯讀授權(OAuth mcp:read)的白名單固定在這裡:新增工具預設不是唯讀;要加進白名單必須同時改這份清單(逼你想過是不是「純讀取、沒有任何副作用」)。
 // 不在名單裡的理由:channel_messages 讀了會標已讀;agent_context 的 mentions、角色憑證相關資訊較多且不必要;其餘都會寫入。
-var wantReadOnly = []string{"agent_tasks", "agents", "cabinet", "chain", "channels", "docs", "flowchart_render", "incidents", "issue_decisions", "issue_items", "issues", "orgs", "projects"}
+var wantReadOnly = []string{"agent_tasks", "agents", "cabinet", "chain", "channels", "docs", "flowchart_render", "incidents", "issue_decisions", "issue_items", "issues", "orgs", "projects", "schema_check"}
 
 func TestReadOnlyAllowlistPinned(t *testing.T) {
 	var got []string

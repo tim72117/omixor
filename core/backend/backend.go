@@ -26,6 +26,9 @@ type Backend interface {
 	UpdateOrg(in model.Org) (*model.Org, error)
 	DeleteOrg(id string) error
 
+	// SchemaCheck 資料庫結構檢核(伺服器管理員,唯讀)
+	SchemaCheck() (*model.SchemaReport, error)
+
 	// 成員
 	ListMembers(org string) ([]model.Member, error)
 	SaveMember(org, email, role string) (*model.Member, error)
@@ -42,6 +45,9 @@ type Backend interface {
 	UpdateIssue(org, id string, p service.IssuePatch) (*model.Issue, error)
 	// AddIssueComment 新增一則留言(只附加這一則,不會蓋掉同時進來的留言);author 只有伺服器管理員的有效
 	AddIssueComment(org, id, text, author string) (*model.Issue, error)
+	// AcceptIssue 接受 Issue(呼叫者成為負責人、Issue 進行中;規則見 service/issue_accept.go),ReleaseIssue 放回(取消負責人、退回待處理)
+	AcceptIssue(org, id string) (*model.Issue, error)
+	ReleaseIssue(org, id string) (*model.Issue, error)
 	// DeleteIssue 丟進垃圾桶(軟刪除);RestoreIssue 拿回來、PurgeIssue 永久刪除(組織管理員)。垃圾桶列表用 QueryIssues 帶 Deleted
 	DeleteIssue(org, id string) error
 	RestoreIssue(org, id string) (*model.Issue, error)
@@ -204,6 +210,7 @@ var errUnsupported = errors.New("這個模式不支援這個操作")
 func IsUnsupported(err error) bool { return errors.Is(err, errUnsupported) }
 
 func (Unsupported) ListOrgs() ([]model.Org, error)             { return nil, errUnsupported }
+func (Unsupported) SchemaCheck() (*model.SchemaReport, error)  { return nil, errUnsupported }
 func (Unsupported) CreateOrg(model.Org) (*model.Org, error)    { return nil, errUnsupported }
 func (Unsupported) UpdateOrg(model.Org) (*model.Org, error)    { return nil, errUnsupported }
 func (Unsupported) DeleteOrg(string) error                     { return errUnsupported }
@@ -226,6 +233,8 @@ func (Unsupported) CreateIssue(string, service.IssueInput) (*model.Issue, error)
 func (Unsupported) UpdateIssue(string, string, service.IssuePatch) (*model.Issue, error) {
 	return nil, errUnsupported
 }
+func (Unsupported) AcceptIssue(string, string) (*model.Issue, error)  { return nil, errUnsupported }
+func (Unsupported) ReleaseIssue(string, string) (*model.Issue, error) { return nil, errUnsupported }
 func (Unsupported) AddIssueComment(string, string, string, string) (*model.Issue, error) {
 	return nil, errUnsupported
 }

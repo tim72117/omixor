@@ -31,10 +31,12 @@ type CoreTool struct {
 // CoreTools 全部核心工具(順序就是 tools/list 與畫面的順序)
 var CoreTools = []CoreTool{
 	{Name: "orgs", Title: "列出組織", Group: "組織", Admin: true, ReadOnly: true},
+	{Name: "schema_check", Title: "檢核資料庫結構", Group: "組織", Admin: true, ReadOnly: true},
 
 	{Name: "issues", Title: "查 Issue", Group: "Issue", Admin: true, Agent: true, ReadOnly: true},
 	{Name: "issue_create", Title: "建立 Issue", Group: "Issue", Admin: true, Agent: true},
 	{Name: "issue_update", Title: "更新 Issue", Group: "Issue", Admin: true, Agent: true},
+	{Name: "issue_accept", Title: "接受或放回 Issue", Group: "Issue", Admin: true, Agent: true},
 
 	{Name: "agents", Title: "列出虛擬角色", Group: "角色與任務", Admin: true, ReadOnly: true},
 	{Name: "agent_context", Title: "角色能讀取的資訊", Group: "角色與任務", Admin: true, Agent: true},

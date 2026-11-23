@@ -38,7 +38,7 @@
 //	                                           repo、assignee 給 "(none)" = 沒標記/沒指派的;sort priority|status|updated(不給 = 不排序)
 //	GET  /api/orgs/{org}/issues/board?q=&priority=&label=&repo=&assignee=
 //	                                           看板 {columns:[{key,title,dropStatus,issues}], labels, total, matched}:
-//	                                           待處理(open、沒指派)、進行中(open、有指派)、已完成(closed),每欄依優先度 → 最近更新 → 編號;
+//	                                           待處理(open、沒有負責人)、進行中(open、有負責人:指派給角色或被人、角色接受)、已完成(closed),每欄依優先度 → 最近更新 → 編號;
 //	                                           dropStatus 是拖進該欄要套的 status(和 Issue 現在的相同就不用改)
 //	POST /api/orgs/{org}/issues                {title, body, priority, labels, source, link, repo?, project?, author} 建立
 //	GET  /api/orgs/{org}/issues/{id}
@@ -47,6 +47,8 @@
 //	POST /api/orgs/{org}/issues/{id}           {title?, body?, appendBody?, status?, priority?, labels?, source?, link?, repo?, assignee?, project?, version?, comments?, author?} 修改
 //	                                           (comments:伺服器管理員整份取代;其他人只能新增、不能改或刪已有的,見 service.IssuePatch;留言請改用 …/comments)
 //	                                           project = 搬專案(發新 key,舊 key 留在別名表);version 或 If-Match 標頭 = 樂觀鎖,版本不符 409 {error, current, currentVersion}
+//	POST /api/orgs/{org}/issues/{id}/accept    接受 Issue:呼叫者成為負責人(assignee)、Issue 進行中,回傳 Issue;已關閉或已被別人接受 409,已是自己冪等(人、角色憑證都可以)
+//	POST /api/orgs/{org}/issues/{id}/release   放回:取消負責人、退回待處理(目前的接受者或組織管理員,別人 403;沒人接受冪等),回傳 Issue
 //	POST /api/orgs/{org}/issues/{id}/comments  {text, author?} 新增一則留言(成員、角色;只附加這一則,回傳新增後的 Issue;author 只有伺服器管理員的有效)
 //	POST /api/orgs/{org}/issues/{id}/restore   從垃圾桶拿回來(組織管理員)
 //	POST /api/orgs/{org}/issues/{id}/purge     永久刪除(組織管理員)
@@ -146,6 +148,8 @@
 //	GET  /api/system/features                  系統層(整台伺服器) {features: [{key, name, description, parent?, edition, experimental, experimentalNote?, default,
 //	                                           required?, systemDefault, on, available, changed}], saved, updatedAt?, updatedBy?, canEdit}(任何登入的使用者;角色憑證不行)
 //	POST /api/system/features                  {features?: {key: bool}, reset?: [key]} 修改系統層(伺服器管理員;沒登記的 key、關必要功能 400)
+//	GET  /api/system/schema-check              資料庫結構檢核(伺服器管理員,唯讀) {ok, tables: [{table, missingColumns, extraColumns, typeMismatches: [{column, expected, actual}],
+//	                                           primaryKeyMismatch?: {expected, actual}, ok}], missingTables, orphanTables}(沒有使用資料庫的伺服器 400;角色憑證 403)
 //	GET  /api/orgs/{org}/system                組織層(只列系統層有開放的功能) {features: [{…同上的功能欄位, enabled, on, changed, system}], saved, updatedAt?, updatedBy?,
 //	                                           serverFeatures: {key: bool}, edition(過時:系統層開放了原本開發版的功能時是 dev), canEdit}
 //	                                           (成員;角色憑證也可以;App 與 web 不另外寫清單)
@@ -433,6 +437,14 @@ func (a *API) Handler() http.Handler {
 				return
 			}
 			i, err := a.Svc.AddIssueComment(p, r.PathValue("org"), r.PathValue("id"), in)
+			reply(w, i, err)
+		}))
+		mux.HandleFunc("POST "+base+"/{id}/accept", a.authedOrAgent(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+			i, err := a.Svc.AcceptIssue(p, r.PathValue("org"), r.PathValue("id"))
+			reply(w, i, err)
+		}))
+		mux.HandleFunc("POST "+base+"/{id}/release", a.authedOrAgent(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+			i, err := a.Svc.ReleaseIssue(p, r.PathValue("org"), r.PathValue("id"))
 			reply(w, i, err)
 		}))
 		mux.HandleFunc("POST "+base+"/{id}/delete", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {

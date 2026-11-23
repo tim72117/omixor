@@ -167,7 +167,7 @@ func RegisterIssueTools(s *Server) {
 		if rp := c.Args.Opt("repo"); rp != nil && strings.TrimSpace(*rp) != cur.Repo { // 所屬倉庫(空字串 = 清除)
 			patch.Repo = rp
 		}
-		if as := c.Args.Opt("assignee"); as != nil && *as != cur.Assignee { // 指派給角色(空字串 = 取消指派)
+		if as := c.Args.Opt("assignee"); as != nil && (*as != cur.Assignee || (strings.TrimSpace(*as) == "" && model.IssueAssigned(*cur))) { // 指派給角色(空字串 = 取消指派;人類接受者的 assignee 字串是空的,也要送,由服務層走放回的權限)
 			patch.Assignee = as
 		}
 		if pr := c.Args.Opt("project"); pr != nil && !strings.EqualFold(strings.TrimSpace(*pr), cur.Project) { // 搬專案(空字串 = 組織層級)
@@ -189,6 +189,43 @@ func RegisterIssueTools(s *Server) {
 			}
 		}
 		return issueJSON(e, *updated), nil
+	})
+
+	s.Register("issue_accept", func(c *Call) (any, error) {
+		e := env(c)
+		e.Lock()
+		defer e.Unlock()
+		id, err := c.Args.Require("id")
+		if err != nil {
+			return nil, err
+		}
+		release := false
+		if v, ok := c.Args.Bool("release"); ok {
+			release = v
+		}
+		var (
+			i   *model.Issue
+			msg string
+		)
+		if release {
+			i, err = e.Backend().ReleaseIssue(e.Org(), id)
+			msg = "已放回 " + id + ",退回待處理。"
+		} else {
+			i, err = e.Backend().AcceptIssue(e.Org(), id)
+			msg = "已接受 " + id + ",你是負責人、Issue 進行中。接下來可用 issue_item_add 拆子項;做完再用 issue_update 關閉。"
+		}
+		if err != nil {
+			if backend.NotFound(err) {
+				return nil, Errorf("找不到 Issue %s", id)
+			}
+			if service.Code(err) == 409 || service.Code(err) == 403 {
+				return nil, prefixErr("沒有成功:", err)
+			}
+			return nil, terr(err)
+		}
+		out, _ := issueJSON(e, *i).(map[string]any)
+		out["message"] = msg
+		return out, nil
 	})
 
 	s.Register("issues", func(c *Call) (any, error) {
@@ -244,8 +281,8 @@ func RegisterIssueTools(s *Server) {
 			}
 			if i.Assignee != "" {
 				row["assignee"] = i.Assignee
-				putActor(row, "assigneeActor", i.AssigneeActor)
 			}
+			putActor(row, "assigneeActor", i.AssigneeActor) // 人類接受者只有 assigneeActor(assignee 字串是角色 handle)
 			if i.Repo != "" {
 				row["repo"] = i.Repo
 			}

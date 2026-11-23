@@ -1,0 +1,2315 @@
+[
+  {
+    "name": "omixor_actor_aliases",
+    "columns": [
+      {
+        "name": "actor_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "alias",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "alias"
+    ]
+  },
+  {
+    "name": "omixor_actors",
+    "columns": [
+      {
+        "name": "avatar",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "disabled_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "handle",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "kind",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "owner",
+        "type": "text",
+        "nullable": true
+      }
+    ],
+    "primaryKey": [
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_agent_credentials",
+    "columns": [
+      {
+        "name": "agent_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "issued_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "task_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "token_hash",
+        "type": "bytea",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "token_hash"
+    ]
+  },
+  {
+    "name": "omixor_agent_doc_access",
+    "columns": [
+      {
+        "name": "access_key",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "agent_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "level",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "agent_id",
+      "access_key"
+    ]
+  },
+  {
+    "name": "omixor_agent_routines",
+    "columns": [
+      {
+        "name": "agent_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "enabled",
+        "type": "boolean",
+        "nullable": false
+      },
+      {
+        "name": "every_hours",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "hour",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "instructions",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "kind",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "last_run_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "minute",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "priority",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "weekday",
+        "type": "integer",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "agent_id",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_agent_task_links",
+    "columns": [
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "task_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "url",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "task_id",
+      "pos"
+    ]
+  },
+  {
+    "name": "omixor_agent_task_notes",
+    "columns": [
+      {
+        "name": "at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "author",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "task_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "text",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "task_id",
+      "pos"
+    ]
+  },
+  {
+    "name": "omixor_agent_tasks",
+    "columns": [
+      {
+        "name": "agent_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "claimed_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "claimed_by",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "completed_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "created_by",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "instructions",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "item_id",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "links",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "locked_until",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "notes",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "number",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "priority",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "result",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "routine_id",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "split_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_agents",
+    "columns": [
+      {
+        "name": "active",
+        "type": "boolean",
+        "nullable": false
+      },
+      {
+        "name": "actor_id",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "color",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "doc_access",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "instructions",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "role",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "routines",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "split_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "symbol",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_attachments",
+    "columns": [
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "data",
+        "type": "bytea",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_audit",
+    "columns": [
+      {
+        "name": "action",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "actor",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "detail",
+        "type": "jsonb",
+        "nullable": true
+      },
+      {
+        "name": "email",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "source",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_cabinet_layouts",
+    "columns": [
+      {
+        "name": "layout",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "project",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "split_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "version",
+        "type": "bigint",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "project"
+    ]
+  },
+  {
+    "name": "omixor_cabinet_sections",
+    "columns": [
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "label",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "path",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "project",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "project_ref",
+        "type": "text",
+        "nullable": true
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "project",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_cabinet_tabs",
+    "columns": [
+      {
+        "name": "code",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "grp",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "label",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "path",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "project",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "section_id",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "project",
+      "path"
+    ]
+  },
+  {
+    "name": "omixor_channel_members",
+    "columns": [
+      {
+        "name": "channel_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "member",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "channel_id",
+      "member"
+    ]
+  },
+  {
+    "name": "omixor_channel_mentions",
+    "columns": [
+      {
+        "name": "channel_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "member",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "message_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "channel_id",
+      "message_id",
+      "member"
+    ]
+  },
+  {
+    "name": "omixor_channel_messages",
+    "columns": [
+      {
+        "name": "at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "author",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "channel_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "mentions",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "number",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "split_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "text",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "channel_id",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_channel_reads",
+    "columns": [
+      {
+        "name": "at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "channel_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "last_read",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "member",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "channel_id",
+      "member"
+    ]
+  },
+  {
+    "name": "omixor_channels",
+    "columns": [
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "created_by",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "issue_id",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "members",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "number",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "split_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "topic",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_decisions",
+    "columns": [
+      {
+        "name": "answer",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "answer_note",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "blocks",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "body",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "created_by",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "decided_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "decided_by",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "evidence",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "kind",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "number",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "options",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "source_issue",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_doc_tags",
+    "columns": [
+      {
+        "name": "doc_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "tag",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "doc_id",
+      "tag"
+    ]
+  },
+  {
+    "name": "omixor_docs",
+    "columns": [
+      {
+        "name": "author",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "body",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "number",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "project",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "project_ref",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "section",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "split_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "tab",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "tags",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_incident_alerts",
+    "columns": [
+      {
+        "name": "alert_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "incident_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "incident_id",
+      "pos"
+    ]
+  },
+  {
+    "name": "omixor_incident_events",
+    "columns": [
+      {
+        "name": "actor",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "incident_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "kind",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "text",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "incident_id",
+      "pos"
+    ]
+  },
+  {
+    "name": "omixor_incident_follow_ups",
+    "columns": [
+      {
+        "name": "incident_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "ref",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "incident_id",
+      "pos"
+    ]
+  },
+  {
+    "name": "omixor_incident_services",
+    "columns": [
+      {
+        "name": "incident_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "incident_id",
+      "pos"
+    ]
+  },
+  {
+    "name": "omixor_incidents",
+    "columns": [
+      {
+        "name": "ai_summary",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "commander",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "created_by",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "data",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "impact",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "number",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "resolved_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "sev",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "split_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "started_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_issue_items",
+    "columns": [
+      {
+        "name": "acceptance",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "assignee",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "block_reason",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "claimed_by",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "completed_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "created_by",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "depends_on",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "evidence",
+        "type": "jsonb",
+        "nullable": true
+      },
+      {
+        "name": "files",
+        "type": "_text",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "issue_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "locked_until",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "promoted_issue_id",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "seq",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "task_id",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "wait_for",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "wait_for_kind",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_issue_keys",
+    "columns": [
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "issue_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "key",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "key"
+    ]
+  },
+  {
+    "name": "omixor_issue_keys_retired",
+    "columns": [
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "key",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "reason",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "key"
+    ]
+  },
+  {
+    "name": "omixor_oauth_clients",
+    "columns": [
+      {
+        "name": "client_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "client_name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "grant_types",
+        "type": "_text",
+        "nullable": false
+      },
+      {
+        "name": "redirect_uris",
+        "type": "_text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "client_id"
+    ]
+  },
+  {
+    "name": "omixor_oauth_tokens",
+    "columns": [
+      {
+        "name": "client_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "code_challenge",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "family_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "kind",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "redirect_uri",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "resource",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "revoked_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "scope",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "token_hash",
+        "type": "bytea",
+        "nullable": false
+      },
+      {
+        "name": "used_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "user_id",
+        "type": "text",
+        "nullable": true
+      }
+    ],
+    "primaryKey": [
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_org_chain_edges",
+    "columns": [
+      {
+        "name": "from_actor",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "label",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "to_actor",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "pos"
+    ]
+  },
+  {
+    "name": "omixor_org_chains",
+    "columns": [
+      {
+        "name": "edges",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "split_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org"
+    ]
+  },
+  {
+    "name": "omixor_org_integrations",
+    "columns": [
+      {
+        "name": "data",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "kind",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "updated_by",
+        "type": "text",
+        "nullable": true
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "kind"
+    ]
+  },
+  {
+    "name": "omixor_org_members",
+    "columns": [
+      {
+        "name": "added_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "role",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "user_id",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "user_id"
+    ]
+  },
+  {
+    "name": "omixor_org_system",
+    "columns": [
+      {
+        "name": "features",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "updated_by",
+        "type": "text",
+        "nullable": true
+      }
+    ],
+    "primaryKey": [
+      "org"
+    ]
+  },
+  {
+    "name": "omixor_orgs",
+    "columns": [
+      {
+        "name": "color",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "note",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "symbol",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_project_members",
+    "columns": [
+      {
+        "name": "actor_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "project",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "role",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "project",
+      "actor_id"
+    ]
+  },
+  {
+    "name": "omixor_project_repos",
+    "columns": [
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "project",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "repo",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "repo_key",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "project",
+      "repo_key"
+    ]
+  },
+  {
+    "name": "omixor_project_seq",
+    "columns": [
+      {
+        "name": "last",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org"
+    ]
+  },
+  {
+    "name": "omixor_projects",
+    "columns": [
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "description",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "key",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "number",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "restricted",
+        "type": "boolean",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_seq",
+    "columns": [
+      {
+        "name": "last",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "scope",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "scope"
+    ]
+  },
+  {
+    "name": "omixor_server_features",
+    "columns": [
+      {
+        "name": "features",
+        "type": "jsonb",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "updated_by",
+        "type": "text",
+        "nullable": true
+      }
+    ],
+    "primaryKey": [
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_tokens",
+    "columns": [
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "device",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "last_used_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "revoked_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "token_hash",
+        "type": "bytea",
+        "nullable": false
+      },
+      {
+        "name": "user_id",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "id"
+    ]
+  },
+  {
+    "name": "omixor_users",
+    "columns": [
+      {
+        "name": "actor_id",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "disabled",
+        "type": "boolean",
+        "nullable": false
+      },
+      {
+        "name": "email",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "evoleap_id",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "kind",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "last_login_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "role",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "id"
+    ]
+  },
+  {
+    "name": "ops_issue_comments",
+    "columns": [
+      {
+        "name": "at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "author",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "issue_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "text",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "issue_id",
+      "pos"
+    ]
+  },
+  {
+    "name": "ops_issues",
+    "columns": [
+      {
+        "name": "assignee",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "body",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "closed_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "created_by",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "deleted_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "deleted_by",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "key",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "labels",
+        "type": "_text",
+        "nullable": false
+      },
+      {
+        "name": "link",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "number",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "priority",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "project",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "project_ref",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "repo",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "source",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "version",
+        "type": "integer",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
+    ]
+  }
+]

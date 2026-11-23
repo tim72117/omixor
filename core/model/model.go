@@ -92,7 +92,8 @@ type Issue struct {
 	// Repo 這張 Issue 屬於哪個程式碼倉庫(空 = 未標記);見 CleanRepo
 	Repo   string `json:"repo,omitempty"`
 	Source string `json:"source"`
-	// Assignee 指派給的虛擬角色 id(空 = 未指派);指派時會自動替該角色排任務(見 service/agents.go)
+	// Assignee 指派給的虛擬角色 id(空 = 未指派);指派時會自動替該角色排任務(見 service/agents.go)。
+	// 人「接受」Issue(service/issue_accept.go)時負責人是人:這個字串是空的,改由 AssigneeActor 帶出;判斷有沒有負責人請用 IssueAssigned
 	Assignee  string `json:"assignee,omitempty"`
 	Status    string `json:"status"`
 	Title     string `json:"title"`

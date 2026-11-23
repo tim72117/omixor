@@ -23,6 +23,11 @@ func (a *API) systemRoutes(mux *http.ServeMux) {
 		x, err := a.Svc.SaveSystemSettings(pr, r.PathValue("org"), in)
 		reply(w, x, err)
 	}))
+	// 資料庫結構檢核(伺服器管理員,唯讀)
+	mux.HandleFunc("GET /api/system/schema-check", a.authed(func(w http.ResponseWriter, r *http.Request, pr *model.Principal) {
+		x, err := a.Svc.SchemaCheck(pr)
+		reply(w, x, err)
+	}))
 	// 系統層(整台伺服器一份):任何登入的使用者讀,伺服器管理員改
 	sp := "/api/system/features"
 	mux.HandleFunc("GET "+sp, a.authed(func(w http.ResponseWriter, r *http.Request, pr *model.Principal) {

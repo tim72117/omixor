@@ -101,6 +101,17 @@ REST 路由都用 `authedOrAgent`(角色憑證能到 service,由 service 層回 
 
 **已知未處理**:(1) console 的 appBackend 只轉發給核心,console 畫面還沒有待決定的視圖(console 層對受限專案的篩選屬 web 層,見 0.2);(2) 稽核 detail 含 DEC 編號與 Issue key。
 
+### 0.3b Issue 接受與放回(issue_accept,2026-11-23)
+
+Issue 層級的負責人(`core/service/issue_accept.go`):接受 = 「這件事由我負責、我來分析拆解」,之後才拆子項,子項再各自領取(兩層不互斥)。負責人沿用 `Issue.Assignee`(actor id,資料庫本來就是 actor 外鍵,人或角色都存得進去),沒有新欄位、沒有遷移。
+
+| 操作 | 誰 | MCP 工具 | REST |
+|---|---|---|---|
+| `issue.accept` | 組織成員與角色憑證(`AgentOrg`,權限同留言;受限專案看不到 404);接受者一律是呼叫者本人;已關閉 409、已被別人接受 409(先放回,或用 `issue_update` 的 assignee 轉交給角色)、已是自己冪等;角色接受自己不排任務、沒有組織鏈檢查 | `issue_accept`(Admin、Agent) | `POST …/issues/{id}/accept` |
+| `issue.release` | 目前的接受者本人(人或角色憑證)或組織管理員,別人 403;沒人接受時冪等;放回取消角色還沒領取的任務 | `issue_accept` 的 `release=true` | `POST …/issues/{id}/release` |
+
+「進行中」:看板與篩選用 `model.IssueAssigned`(`assignee` 字串或 `assigneeActor` 任一有值);人類接受者的 `assignee` 字串是空的(該欄位只輸出角色 handle),負責人在 `assigneeActor`。接受與放回各留一則系統留言並寫稽核(`issue.accept`、`issue.release`)。
+
 ### 0.4 Issue 子項(issue_item,ISS-37,2026-11-21)
 
 資料 `omixor_issue_items`(見 `core/model/issue_item.go`、`core/service/issue_items*.go`);Issue 底下可領取、有狀態(todo / doing / blocked / done / canceled)、依賴、驗收與證據的小工作。編號 = 所屬 Issue 顯示編號 + `.` + 序號(`ISS-37.2`,序號不重用)。

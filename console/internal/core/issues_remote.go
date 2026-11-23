@@ -602,7 +602,11 @@ func issuePatchFor(n, before model.Issue, author string) (p service.IssuePatch, 
 	str(&p.Source, n.Source, before.Source)
 	str(&p.Link, n.Link, before.Link)
 	str(&p.Assignee, n.Assignee, before.Assignee) // 指派變了才送(核心會取消舊角色未領取的任務、替新角色排任務)
-	str(&p.Repo, n.Repo, before.Repo)             // 所屬倉庫變了才送("" = 清除;格式由核心檢查)
+	if n.Assignee == "" && before.Assignee == "" && before.AssigneeActor != nil && n.AssigneeActor == nil { // 取消人類接受者(字串本來就是空的,只有 assigneeActor):送 "" 讓核心走放回
+		empty := ""
+		p.Assignee, changed = &empty, true
+	}
+	str(&p.Repo, n.Repo, before.Repo)            // 所屬倉庫變了才送("" = 清除;格式由核心檢查)
 	str(&p.Project, n.Project, before.Project)    // 搬專案(核心發新的 key,舊的留在別名表)
 	if !slices.Equal(n.Labels, before.Labels) {
 		l := append([]string{}, n.Labels...)

@@ -161,6 +161,7 @@ var authzProbes = map[string]func(e *authzEnv, p *model.Principal) error{
 	},
 	"token.list":           func(e *authzEnv, p *model.Principal) error { return ign(e.svc.ListTokens(p)) },
 	"token.revoke":         func(e *authzEnv, p *model.Principal) error { return e.svc.RevokeToken(p, "t_none") },
+	"schema.check":         func(e *authzEnv, p *model.Principal) error { return ign(e.svc.SchemaCheck(p)) },
 	"audit.list":           func(e *authzEnv, p *model.Principal) error { return ign(e.svc.ListAudit(p, 10)) },
 	"server.features.read": func(e *authzEnv, p *model.Principal) error { return ign(e.svc.GetServerFeatures(p)) },
 	"server.features.save": func(e *authzEnv, p *model.Principal) error {
@@ -190,6 +191,8 @@ var authzProbes = map[string]func(e *authzEnv, p *model.Principal) error{
 	"issue.comment": func(e *authzEnv, p *model.Principal) error {
 		return ign(e.svc.AddIssueComment(p, "o1", e.issue, service.CommentInput{Text: "留言"}))
 	},
+	"issue.accept":     func(e *authzEnv, p *model.Principal) error { return ign(e.svc.AcceptIssue(p, "o1", e.issue)) },
+	"issue.release":    func(e *authzEnv, p *model.Principal) error { return ign(e.svc.ReleaseIssue(p, "o1", e.issue)) },
 	"issue.delete":     func(e *authzEnv, p *model.Principal) error { return e.svc.DeleteIssue(p, "o1", e.issue) },
 	"issue.trash.list": func(e *authzEnv, p *model.Principal) error { return ign(e.svc.ListDeletedIssues(p, "o1")) },
 	"issue.restore":    func(e *authzEnv, p *model.Principal) error { return ign(e.svc.RestoreIssue(p, "o1", e.issue)) },

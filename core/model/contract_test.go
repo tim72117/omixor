@@ -73,6 +73,19 @@ func sampleIssue() model.Issue {
 	}
 }
 
+// 被人接受的 Issue(POST /api/orgs/{org}/issues/{id}/accept 的回應):assignee(角色 handle)省略,負責人只在 assigneeActor;
+// 還沒有子項;留言是接受時的系統留言。看板「進行中」以 assignee 字串或 assigneeActor 任一有值判斷(model.IssueAssigned)
+func sampleIssueAccepted() model.Issue {
+	return model.Issue{
+		ID: "019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8e", Key: "APP-13", Project: "PRJ-1", Num: 13, Version: 2,
+		Title: "訂單匯出要支援 CSV", Status: "open", Priority: "normal", Labels: []string{"功能"}, AssigneeActor: avTim,
+		CreatedBy: "mcp", CreatedByActor: avMCP, CreatedAt: ct("2026-11-05T08:00:00Z"), UpdatedAt: ct("2026-11-05T09:00:00Z"),
+		Comments: []model.Comment{
+			{ID: "c1c1c1c1-7a52-4d0b-9a3e-2a1c2b3d4e5f", Author: "tim@example.com", AuthorActor: avTim, Text: "已接受,由我負責分析與拆解", At: ct("2026-11-05T09:00:00Z")},
+		},
+	}
+}
+
 func minimalIssue() model.Issue {
 	return model.Issue{
 		ID: "0199f8a0-0000-7000-8000-000000000003", Key: "ISS-3", Num: 3, Version: 1, Title: "最少欄位的 Issue", Status: "open", Priority: "normal", Labels: []string{}, Comments: []model.Comment{},
@@ -270,6 +283,8 @@ func contractFixtures() map[string]any {
 	return map[string]any{
 		// GET /api/orgs/{org}/issues/{id}、POST 建立/修改/留言
 		"issue.json": sampleIssue(),
+		// POST /api/orgs/{org}/issues/{id}/accept(人接受:assignee 字串省略、負責人在 assigneeActor)
+		"issue_accepted.json": sampleIssueAccepted(),
 		// GET /api/orgs/{org}/issues
 		"issue_list.json": []model.Issue{sampleIssue(), minimalIssue()},
 		// GET /api/orgs/{org}/agents/{id}、POST /api/orgs/{org}/agents

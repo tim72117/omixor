@@ -76,7 +76,7 @@ export const DECISION_STATUS_LABEL: Record<DecisionStatus, (kind: DecisionKind) 
   withdrawn: () => "已撤回",
 };
 
-/** Issue 子項(issue_item,ISS-37:Issue 底下可領取、有依賴與驗收證據的小工作;core/model/issue_item.go)。畫面還沒做,先備型別與契約 */
+/** Issue 子項(issue_item,ISS-37:Issue 底下可領取、有依賴與驗收證據的小工作;core/model/issue_item.go) */
 export type ItemStatus = "todo" | "doing" | "blocked" | "done" | "canceled";
 export type ItemWaitKind = "user_decision" | "item" | "external";
 export const ITEM_STATUSES: ItemStatus[] = ["todo", "doing", "blocked", "done", "canceled"];

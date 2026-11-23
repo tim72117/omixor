@@ -168,10 +168,10 @@ func issueMatches(i Issue, q IssueQuery, words []string) bool {
 		return false
 	}
 	if a := strings.TrimSpace(q.Assignee); a == IssueFilterNone {
-		if strings.TrimSpace(i.Assignee) != "" {
+		if IssueAssigned(i) {
 			return false
 		}
-	} else if a != "" && !strings.EqualFold(strings.TrimSpace(i.Assignee), a) {
+	} else if a != "" && !assigneeMatches(i, a) {
 		return false
 	}
 	if pr := strings.TrimSpace(q.Project); pr == IssueProjectNone || pr == IssueFilterNone {
@@ -182,6 +182,22 @@ func issueMatches(i Issue, q IssueQuery, words []string) bool {
 		return false
 	}
 	return IssueMatchesSearch(i, words)
+}
+
+// assigneeMatches assignee 篩選值 a(已 trim、非空)符合負責人:assignee 字串(角色 handle),
+// 或 assigneeActor 的 id、handle、email、name 任一(人類接受者只有 assigneeActor);不分大小寫
+func assigneeMatches(i Issue, a string) bool {
+	if strings.EqualFold(strings.TrimSpace(i.Assignee), a) {
+		return true
+	}
+	if x := i.AssigneeActor; x != nil {
+		for _, v := range []string{x.ID, x.Handle, x.Email, x.Name} {
+			if strings.EqualFold(strings.TrimSpace(v), a) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // FilterIssues 符合 q 篩選條件的 Issue(保留原本順序;不看 Sort)。回傳新的切片,不會是 nil
@@ -288,10 +304,16 @@ func UsedLabels(list []Issue) []string {
 	return out
 }
 
+// IssueAssigned 這張 Issue 有沒有負責人(被指派給角色,或被人、角色「接受」,見 service/issue_accept.go)。
+// 服務層出口的 Assignee 字串只有角色的 handle(人類接受者是空字串),人類接受者看 AssigneeActor,所以兩個都要看
+func IssueAssigned(i Issue) bool {
+	return strings.TrimSpace(i.Assignee) != "" || i.AssigneeActor != nil
+}
+
 // 看板的欄(IssueBoardColumn 回傳、BoardColumn.Key)
 const (
-	BoardTodo  = "todo"  // 待處理:open 且沒指派角色
-	BoardDoing = "doing" // 進行中:open 且指派給角色
+	BoardTodo  = "todo"  // 待處理:open 且沒有負責人(沒指派角色、也沒人接受)
+	BoardDoing = "doing" // 進行中:open 且有負責人(指派給角色,或被人、角色接受;見 IssueAssigned)
 	BoardDone  = "done"  // 已完成:closed
 )
 
@@ -305,7 +327,7 @@ func IssueBoardColumn(i Issue) string {
 	if i.Status == "closed" {
 		return BoardDone
 	}
-	if strings.TrimSpace(i.Assignee) == "" {
+	if !IssueAssigned(i) {
 		return BoardTodo
 	}
 	return BoardDoing

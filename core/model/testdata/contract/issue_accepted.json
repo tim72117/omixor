@@ -1,0 +1,50 @@
+{
+  "body": "",
+  "comments": [
+    {
+      "at": "2026-11-05T09:00:00Z",
+      "author": "tim@example.com",
+      "authorActor": {
+        "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+        "kind": "user",
+        "handle": "tim@example.com",
+        "name": "Tim",
+        "email": "tim@example.com",
+        "status": "active"
+      },
+      "id": "c1c1c1c1-7a52-4d0b-9a3e-2a1c2b3d4e5f",
+      "text": "已接受,由我負責分析與拆解"
+    }
+  ],
+  "createdAt": "2026-11-05T08:00:00Z",
+  "createdBy": "mcp",
+  "createdByActor": {
+    "id": "sys_legacy_mcp",
+    "kind": "system",
+    "handle": "legacy_mcp",
+    "name": "mcp",
+    "status": "active"
+  },
+  "assigneeActor": {
+    "id": "usr_019a3f2c-0000-7000-8000-000000000001",
+    "kind": "user",
+    "handle": "tim@example.com",
+    "name": "Tim",
+    "email": "tim@example.com",
+    "status": "active"
+  },
+  "id": "019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8e",
+  "key": "APP-13",
+  "project": "PRJ-1",
+  "number": 13,
+  "version": 2,
+  "labels": [
+    "功能"
+  ],
+  "link": "",
+  "priority": "normal",
+  "source": "",
+  "status": "open",
+  "title": "訂單匯出要支援 CSV",
+  "updatedAt": "2026-11-05T09:00:00Z"
+}

@@ -13,6 +13,7 @@ import (
 	"omixor-core/client"
 	"omixor-core/config"
 	"omixor-core/model"
+	"omixor-core/version"
 )
 
 // 兩種資料來源,完全切開:
@@ -550,6 +551,11 @@ type AccountView struct {
 	ServerID string       `json:"serverId"`
 	// Gate 有設定遠端、而且這次執行還沒選過連接對象:畫面要先顯示「選擇連接對象」
 	Gate bool `json:"gate"`
+	// Self 目前操作的使用者的 handle(遠端 = 登入的 email、本機 = 本機使用者);畫面用它比對 Issue 的 assigneeActor 判斷「是不是我接受的」
+	Self string `json:"self,omitempty"`
+	// Features 目前連的核心支援的功能(version.Features 的代號;本機是這支程式自己的,遠端是查 GET /api/version 的 features,
+	// 舊伺服器沒有這個欄位、查不到也是空的 = 畫面不顯示對應功能)
+	Features []string `json:"features"`
 }
 
 func (a *App) accountView() AccountView {
@@ -564,10 +570,16 @@ func (a *App) accountView() AccountView {
 	if m.Mode == ModeLocal && DB() == nil {
 		v.Error = errNoDB.Error()
 	}
+	v.Features = []string{}
+	if m.Mode == ModeLocal {
+		v.Self, v.Features = LocalIdentity, version.Info().Features
+	}
 	if m.Mode == ModeRemote {
+		v.Features = remoteFeatures(a, m.Server)
 		u, errText := getRemoteMe()
 		if u != nil {
 			v.LoggedIn, v.Email, v.Name, v.Role = true, u.Email, u.Name, u.Role
+			v.Self = u.Email
 		}
 		v.Error = errText
 		if e := a.issueConnErr(); e != "" && v.Error == "" { // 畫面函式已拿著 Mu;使用者操作的錯誤(409…)不算連線錯誤
@@ -608,6 +620,7 @@ func init() {
 		go func() {
 			for {
 				if srv := IssueRemoteURL(); srv != "" {
+					refreshRemoteVersion(a, srv)
 					u, err := remoteWhoAmI(srv)
 					setRemoteMe(u, err)
 					if err == nil {

@@ -100,6 +100,27 @@ func TestFilterIssues(t *testing.T) {
 	}
 }
 
+// 人類接受者:assignee 字串是空的,只有 assigneeActor;用 id、handle、email、name 篩得到,(none) 篩不到
+func TestFilterIssuesHumanAssignee(t *testing.T) {
+	human := &model.ActorView{ID: "act_h1", Kind: "user", Handle: "tim@example.com", Email: "tim@example.com", Name: "Tim"}
+	list := []model.Issue{
+		qIssue("ISS-1", "open", "normal", 1),
+		qIssue("ISS-2", "open", "normal", 2, func(i *model.Issue) { i.Assignee = "eng" }),
+		qIssue("ISS-3", "open", "normal", 3, func(i *model.Issue) { i.AssigneeActor = human }),
+	}
+	for _, a := range []string{"act_h1", " TIM@example.com ", "Tim"} {
+		if got := ids(model.FilterIssues(list, model.IssueQuery{Assignee: a})); !reflect.DeepEqual(got, []string{"ISS-3"}) {
+			t.Errorf("assignee %q = %v,要 [ISS-3]", a, got)
+		}
+	}
+	if got := ids(model.FilterIssues(list, model.IssueQuery{Assignee: model.IssueFilterNone})); !reflect.DeepEqual(got, []string{"ISS-1"}) {
+		t.Errorf("(none) = %v,要 [ISS-1]", got)
+	}
+	if got := ids(model.FilterIssues(list, model.IssueQuery{Assignee: "eng"})); !reflect.DeepEqual(got, []string{"ISS-2"}) {
+		t.Errorf("角色指派的舊行為 = %v,要 [ISS-2]", got)
+	}
+}
+
 func TestSortIssues(t *testing.T) {
 	list := []model.Issue{
 		qIssue("ISS-10", "open", "normal", 5),

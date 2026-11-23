@@ -19,6 +19,7 @@
 //	omixor projects member-add <專案 id> <email|agent:<角色 id>> [--role admin|member]   加入成員或改角色(組織管理員或專案管理員)
 //	omixor projects member-remove <專案 id> <成員>            移除成員
 //	omixor issues list [--org default]
+//	omixor issues accept|release <Issue>             接受(你成為負責人、Issue 進行中)或放回(取消負責人、退回待處理;接受者本人或組織管理員)
 //	omixor issues export [--org default] [-o 檔案]
 //	omixor issues import [--org default] <檔案>     第一次搬資料用;伺服器上已經有 Issue 就會拒絕
 //	omixor issues restore <id>… --from <檔案> [--org default]   資料被改壞時改回檔案裡的內容(不是同步)
@@ -602,6 +603,8 @@ func issues(cl *client.Client, out io.Writer, sub string, pos []string, org, out
 		ids = pos[1:]
 	}
 	switch sub {
+	case "accept", "release":
+		return issueAccept(cl, out, sub, pos, org)
 	case "list":
 		l, err := cl.ListIssues(org)
 		if err != nil {

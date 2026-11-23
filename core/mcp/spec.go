@@ -85,6 +85,20 @@ func CoreToolDefs() []any {
 				"status":      pEnum("open 重新打開,closed 關閉", "open", "closed"),
 				"title":       pStr("新標題"),
 			}, "id")),
+		coreDef("schema_check",
+			"檢核資料庫結構(唯讀,只有 omixor 伺服器管理員;角色憑證一律被拒):把「全新資料庫跑完建表與遷移後的結構」與這台資料庫目前實際的結構逐表比對,只查系統目錄、不掃資料、不鎖表,也不寫稽核。"+
+				"回傳 ok(所有表都 ok 且沒有缺表與遺留表才是 true)、tables(每張表:table、missingColumns 缺的欄位、extraColumns 多的欄位、typeMismatches 型別或可否 NULL 不符[column、expected、actual]、primaryKeyMismatch 主鍵不符[expected、actual;一致時沒有這個欄位]、ok)、"+
+				"missingTables(應有但資料庫沒有的表)、orphanTables(資料庫有、但沒有對應定義的遺留表);都依名稱排序。"+
+				"沒有使用資料庫(JSON 檔模式)的伺服器回 400「不適用」。尚未遷移的舊資料庫出現差異是預期的。", true,
+			obj(map[string]any{})),
+		coreDef("issue_accept",
+			"接受 Issue:你成為這張 Issue 的負責人(assignee),Issue 進入「進行中」,並在 Issue 留一則系統留言。用在「這件事由我負責、我來分析並拆解」——通常接受時還沒有子項,之後再用 issue_item_add 拆子項、子項再各自用 issue_item_claim 領取執行(兩層不互斥)。"+
+				"已經是你接受的:不做事(冪等);已被別人接受:409(要請對方放回,或用 issue_update 的 assignee 轉交給角色);Issue 已關閉:409。"+
+				"release=true 是放回:取消負責人、Issue 退回待處理(只有目前的接受者本人或組織管理員;沒有人接受時不做事)。人與角色端點都可以用,接受者一律是呼叫者本人。", false,
+			obj(map[string]any{
+				"id":      pStr("Issue 編號:key(例如 ISS-3、APP-12)或內部 id"),
+				"release": pBool("true = 放回(取消負責人、退回待處理);預設 false = 接受"),
+			}, "id")),
 		coreDef("issues",
 			"給 id 回傳完整內容(含留言);不給 id 則列出符合條件的 Issue(預設只列未解決,依優先度與時間排序)。"+
 				"顯示與引用 Issue 請用 key(ISS-<n>,專案裡是 <專案代號>-<n>);id 是內部 id,兩種(含舊的 key)都能當參數。已刪除(垃圾桶)的不會列出。", true,
@@ -263,6 +277,7 @@ func NewCoreServer(instructions string) *Server {
 		panic(err)
 	}
 	RegisterOrgTools(s)
+	RegisterSchemaTools(s)
 	RegisterIssueTools(s)
 	RegisterAgentTools(s)
 	RegisterCabinetTools(s)

@@ -30,6 +30,8 @@ func (l *Local) ensureOrg(org string) {
 
 func (l *Local) ListOrgs() ([]model.Org, error) { return l.Svc.ListOrgs(l.P) }
 
+func (l *Local) SchemaCheck() (*model.SchemaReport, error) { return l.Svc.SchemaCheck(l.P) }
+
 func (l *Local) CreateOrg(in model.Org) (*model.Org, error) { return l.Svc.CreateOrgWith(l.P, in) }
 
 // UpdateOrg 修改名稱、圖示、顏色、備註(id 不能改),回傳修改後的內容(同伺服器的 PUT /api/orgs/{org})
@@ -84,6 +86,16 @@ func (l *Local) CreateIssue(org string, in service.IssueInput) (*model.Issue, er
 func (l *Local) UpdateIssue(org, id string, p service.IssuePatch) (*model.Issue, error) {
 	l.ensureOrg(org)
 	return l.Svc.UpdateIssue(l.P, org, id, p)
+}
+
+func (l *Local) AcceptIssue(org, id string) (*model.Issue, error) {
+	l.ensureOrg(org)
+	return l.Svc.AcceptIssue(l.P, org, id)
+}
+
+func (l *Local) ReleaseIssue(org, id string) (*model.Issue, error) {
+	l.ensureOrg(org)
+	return l.Svc.ReleaseIssue(l.P, org, id)
 }
 
 func (l *Local) AddIssueComment(org, id, text, author string) (*model.Issue, error) {

@@ -20,6 +20,7 @@ import (
 
 func init() {
 	coremcp.RegisterOrgTools(srv)
+	coremcp.RegisterSchemaTools(srv) // schema_check(見 tools_schema.go)
 	coremcp.RegisterIssueTools(srv)
 	coremcp.RegisterAgentTools(srv)
 	coremcp.RegisterCabinetTools(srv)
@@ -182,6 +183,9 @@ func (b appBackend) UpdateIssue(_, id string, p service.IssuePatch) (*model.Issu
 		}
 		if p.Assignee != nil {
 			i.Assignee = *p.Assignee
+			if strings.TrimSpace(i.Assignee) == "" {
+				i.AssigneeActor = nil // 明確取消指派:人類接受者只有 assigneeActor,要清掉才看得出有變(issuePatchFor 會送 assignee="")
+			}
 		}
 		if p.Repo != nil {
 			i.Repo = strings.TrimSpace(*p.Repo)

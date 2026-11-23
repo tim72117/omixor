@@ -14,6 +14,7 @@ import {
   projectHasIssues, projectKeyProblem, cleanProjectKey, type Issue,
 } from "../src/sections/development/issueModel.ts";
 import { ApiError, unwrapPost } from "../src/lib/http.ts";
+import { acceptRef, acceptState } from "../src/sections/development/issueAcceptModel.ts";
 import type { ActorView } from "../src/types.ts";
 
 const dir = new URL("../../../core/model/testdata/contract/", import.meta.url);
@@ -28,6 +29,19 @@ function isTime(v: unknown, what: string) {
 function has(obj: object, keys: string[], what: string) {
   for (const k of keys) assert.ok(k in obj, `${what} 少了欄位 ${k}`);
 }
+
+test("Issue 接受(人類接受者只有 assigneeActor;送出的是 key)", () => {
+  const i = load<Issue>("issue_accepted.json");
+  assert.equal(i.assignee, undefined, "人類接受者:assignee(角色 handle)省略");
+  assert.equal(i.assigneeActor?.kind, "user");
+  assert.equal(acceptState(i), "human");
+  assert.equal(acceptRef(i), "APP-13", "送 key、不送內部 id");
+  const refErr = (f: () => unknown) => { try { f(); return ""; } catch (e) { return String((e as Error).message); } };
+  assert.ok(refErr(() => acceptRef({ key: i.id })).includes("沒有編號"), "UUID 不能當編號送出");
+  assert.ok(refErr(() => acceptRef({})).includes("沒有編號"));
+  assert.equal(acceptState(load<Issue>("issue.json")), "role", "指派給角色");
+  assert.equal(acceptState(arr<Issue>(load("issue_list.json"))[1]), "none");
+});
 
 test("Issue(開發 › Issue)", () => {
   const list = arr<Issue>(load("issue_list.json"));

@@ -302,6 +302,17 @@ func (c *Client) AddIssueComment(org, id string, in service.CommentInput) (*mode
 	return &i, c.Do("POST", c.issues(org)+"/"+esc(id)+"/comments", in, &i)
 }
 
+// AcceptIssue 接受 Issue(呼叫者成為負責人、Issue 進行中);ReleaseIssue 放回(取消負責人、退回待處理)
+func (c *Client) AcceptIssue(org, id string) (*model.Issue, error) {
+	var i model.Issue
+	return &i, c.Do("POST", c.issues(org)+"/"+esc(id)+"/accept", map[string]any{}, &i)
+}
+
+func (c *Client) ReleaseIssue(org, id string) (*model.Issue, error) {
+	var i model.Issue
+	return &i, c.Do("POST", c.issues(org)+"/"+esc(id)+"/release", map[string]any{}, &i)
+}
+
 // DeleteIssue 丟進垃圾桶(軟刪除)
 func (c *Client) DeleteIssue(org, id string) error {
 	return c.Do("POST", c.issues(org)+"/"+esc(id)+"/delete", map[string]any{}, nil)
@@ -333,6 +344,15 @@ func (c *Client) ImportIssues(org string, list []model.Issue) (*model.ImportResu
 func (c *Client) ListUsers() ([]model.User, error) {
 	var l []model.User
 	return l, c.Do("GET", "/api/admin/users", nil, &l)
+}
+
+// SchemaCheck 資料庫結構檢核(伺服器管理員)
+func (c *Client) SchemaCheck() (*model.SchemaReport, error) {
+	var r model.SchemaReport
+	if err := c.Do("GET", "/api/system/schema-check", nil, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 func (c *Client) SaveUser(email string, role *string, disabled *bool) (*model.User, error) {

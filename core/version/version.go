@@ -28,11 +28,19 @@ type Data struct {
 	Version   string `json:"version"`
 	Commit    string `json:"commit"`
 	BuildTime string `json:"buildTime"`
+	// Features 這個版本支援的功能(能力偵測用,客戶端不要比版本號):舊版沒有這個欄位 = 一項都偵測不到
+	Features []string `json:"features,omitempty"`
 }
+
+// 功能代號(Data.Features)
+const FeatureIssueAccept = "issue_accept" // Issue 的接受與放回(POST …/issues/{id}/accept、release)
+
+// Features 目前這支程式支援的功能
+var Features = []string{FeatureIssueAccept}
 
 // Info 目前這支程式的版本;沒注入的欄位盡量用建置資訊補
 func Info() Data {
-	d := Data{Version: Version, Commit: Commit, BuildTime: BuildTime}
+	d := Data{Version: Version, Commit: Commit, BuildTime: BuildTime, Features: Features}
 	if d.Commit != "dev" && d.BuildTime != "dev" {
 		return d
 	}
