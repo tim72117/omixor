@@ -106,7 +106,7 @@ func TestAdminEndpointRejectsIdentityAgent(t *testing.T) {
 // 署名一律是呼叫者;Issue 指派走組織鏈檢查,from 是呼叫者(不能再用 agent 繞過)
 func TestAdminEndpointIssueAuthorAndAssignChain(t *testing.T) {
 	svc, boss, _, admin, member := identityEnv(t)
-	i := ok(t, member, "", "issue_create", map[string]any{"title": "a"})
+	i := ok(t, member, "", "issue_create", map[string]any{"title": "a", "return": "full"})
 	if i["createdBy"] != "amy@x" {
 		t.Fatalf("署名要是呼叫者:%v", i["createdBy"])
 	}
@@ -179,7 +179,7 @@ func TestRoleEndpointIdentityUnchanged(t *testing.T) {
 		t.Fatal(res, err)
 	}
 	auth := "Bearer cto:" + res.Credential.Secret
-	i := ok(t, role, auth, "issue_create", map[string]any{"title": "角色開的"})
+	i := ok(t, role, auth, "issue_create", map[string]any{"title": "角色開的", "return": "full"})
 	if i["createdBy"] != "研發長" {
 		t.Fatal(i)
 	}

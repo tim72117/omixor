@@ -40,7 +40,7 @@ func TestMockToolErrors(t *testing.T) {
 		{"list", map[string]any{}, "缺少參數 collection"},
 		{"list", map[string]any{"collection": "x"}, "沒有這個集合:x。可用:people、services"},
 		{"get", map[string]any{"collection": "alerts", "id": "ALT-1"}, "alerts 裡找不到 id「ALT-1」"},
-		{"navigate", map[string]any{"env": "qa"}, "env 必須是 production、staging、development 之一,收到「qa」"},
+		{"navigate", map[string]any{"env": "qa"}, `invalid value "qa" for argument "env": must be one of: production, staging, development`},
 		{"alert_update", map[string]any{"alert_id": "ALT-1"}, "找不到告警 ALT-1"},
 		{"alert_update", map[string]any{"alert_id": "ALT-5121"}, "action 與 ai_note 至少要給一項"},
 		{"alert_update", map[string]any{"alert_id": "ALT-5121", "action": "x"}, "action 必須是 acknowledge、resolve 或 silence,收到「x」"},
@@ -56,7 +56,7 @@ func TestMockToolErrors(t *testing.T) {
 		{"pipeline_update", map[string]any{"run_id": 1.0}, "找不到 pipeline run #1"},
 		{"pipeline_update", map[string]any{"run_id": 1286.0, "action": "cancel"}, "#1286 目前是「失敗」,不能取消"},
 		{"request_approval", map[string]any{"automation": "x"}, "找不到自動化 x"},
-		{"log_append", map[string]any{"level": "x"}, "level 必須是 debug、info、warn、error 之一,收到「x」"},
+		{"log_append", map[string]any{"level": "x"}, `invalid value "x" for argument "level": must be one of: debug, info, warn, error`},
 		{"activity_post", map[string]any{}, "缺少參數 text"},
 	}
 	for _, c := range cases {

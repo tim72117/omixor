@@ -54,11 +54,11 @@ func TestProjectRepoTools(t *testing.T) {
 	}
 
 	// issue_create:沒給 project 依連結預設;空字串不分專案;明確指定照給
-	i := ok(t, admin, "", "issue_create", map[string]any{"title": "預設", "repo": "acme/web"})
+	i := ok(t, admin, "", "issue_create", map[string]any{"title": "預設", "repo": "acme/web", "return": "full"})
 	if i["project"] != "PRJ-1" || i["key"] != "WEB-1" {
 		t.Fatal("依連結預設", i)
 	}
-	i = ok(t, admin, "", "issue_create", map[string]any{"title": "不分專案", "repo": "acme/web", "project": ""})
+	i = ok(t, admin, "", "issue_create", map[string]any{"title": "不分專案", "repo": "acme/web", "project": "", "return": "full"})
 	if i["project"] != "" || i["key"] != "ISS-1" {
 		t.Fatal("空字串 = 不分專案", i)
 	}

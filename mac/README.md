@@ -130,9 +130,10 @@ omixor 呼叫外部服務都透過「連線」:每個連線是一個網址加上
 
 要追蹤的問題或待辦,存在 `~/Library/Application Support/Ops/issues.json`(真實資料,重開 app 也還在;看板上的工作項目則是範例資料)。人可以在畫面上新增、編輯、留言、關閉;AI 透過 MCP 存入:
 
-- `issue_create`:標題、Markdown 內文、優先度(urgent / high / normal / low)、標籤、來源、網址、所屬倉庫 `repo`
-- `issue_update`:改欄位、`append_body` 補內文、`comment` 留言、`status` 關閉或重新打開、`repo`(空字串 = 清除)
-- `issues`:給 id 看完整內容;不給則依狀態、標籤、倉庫、關鍵字列出
+- `issue_create`:標題、Markdown 內文、優先度(urgent / high / normal / low)、標籤、來源、網址、所屬倉庫 `repo`;`return`(`ack` 預設只回精簡確認 key/id/status/version/updatedAt/changed,`full` 回完整 Issue)
+- `issue_update`:改欄位、`append_body` 補內文、`comment` 留言、`status` 關閉或重新打開、`repo`(空字串 = 清除);同樣有 `return`(ack / full,ack 另含新 version 與 `comment_id`)
+- `issues`:給 id 看完整內容(留言預設只回最新 5 則,`comments_limit` 調數量、0 以下 = 不回、`comments_before` 給留言 id 或 RFC3339 時間往前翻;回 `comments_total` / `comments_returned` / `comments_truncated`,每則留言帶 `id`);不給則依狀態、標籤、倉庫、關鍵字列出
+- 以上工具與 `issue_accept` 都由 core server 執行,App 只轉送(參數與結果,含 `_meta["omixor/server"]`,原樣帶過),沒有 Swift 實作
 
 所屬倉庫 `repo` 是 owner/name(GitHub)或 group/sub/project(GitLab),可加 `github:`、`gitlab:` 前綴;只允許英數與 `- _ . / :`、最長 200(同 core 的 `model.CleanRepo`)。篩選不分大小寫,前綴有一邊沒寫就忽略。列表可依倉庫篩選,新增與編輯時從 GitHub 追蹤的 repo、其他 Issue 用過的倉庫選,或「其他…」自己輸入。
 

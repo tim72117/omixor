@@ -122,7 +122,7 @@ func (a Args) RequireInt(k string) (int, error) {
 	return n, nil
 }
 
-// RequireEnum 必須是 values 之一
+// RequireEnum requires the argument to be one of values (English message: it is read by LLMs)
 func (a Args) RequireEnum(k string, values []string) (string, error) {
 	s, err := a.Require(k)
 	if err != nil {
@@ -133,7 +133,7 @@ func (a Args) RequireEnum(k string, values []string) (string, error) {
 			return s, nil
 		}
 	}
-	return "", ToolError{Message: fmt.Sprintf("%s 必須是 %s 之一,收到「%s」", k, strings.Join(values, "、"), s)}
+	return "", ToolError{Message: fmt.Sprintf("invalid value %q for argument %q: must be one of: %s", s, k, strings.Join(values, ", "))}
 }
 
 // OptionalEnum 沒給回傳 ("", nil)

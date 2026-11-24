@@ -33,7 +33,7 @@ func TestUnifiedMCPRoute(t *testing.T) {
 	}
 	// 帶 org:成功,結果的 _meta 附 org
 	w := post("/mcp", call(`{"org":"o"}`), auth...)
-	if w.Code != 200 || strings.Contains(w.Body.String(), `"isError":true`) || !strings.Contains(w.Body.String(), `"_meta":{"omixor/org":"o"}`) {
+	if w.Code != 200 || strings.Contains(w.Body.String(), `"isError":true`) || !strings.Contains(w.Body.String(), `"omixor/org":"o"`) || !strings.Contains(w.Body.String(), `"omixor/server":{"env":"cloud","name":"omixor.test","origin":"https://omixor.test"`) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	// 沒帶 org / 非成員的組織:isError

@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"maps"
+	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -11,6 +13,7 @@ import (
 	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
+	"omixor-core/version"
 )
 
 // 統一入口(雲端 /mcp):一個連線操作帳號下所有組織。沒有預設組織:除了 OrgFreeTools,每次工具呼叫都要帶 org 參數(必填),
@@ -33,6 +36,11 @@ type UnifiedEndpointConfig struct {
 	ResourceMetadata string
 	// AgentEndpoint 角色端點的網址(領取任務時告訴呼叫端);空字串不附
 	AgentEndpoint string
+	// PublicURL 對外網址(OMIXOR_PUBLIC_URL);非空時 omixor/server 的 name、origin 取自它,否則取自請求的 Host(只用來顯示)
+	PublicURL string
+	// Cloud 這個伺服器是雲端部署(例如有 K_SERVICE);true 時 omixor/server 的 env 為 "cloud"。
+	// false 時,對外網址是非 loopback 的 https 也視為 cloud;其餘是 "local"
+	Cloud bool
 	// Tools 額外的工具(一律視為需要 org)
 	Tools        []Tool
 	Instructions string
@@ -41,10 +49,13 @@ type UnifiedEndpointConfig struct {
 var unifiedInstructions = "這是 omixor 的 MCP 統一入口:一個連線可以操作你帳號下所有組織,沒有預設組織。" +
 	"除了 orgs 之外,每一次工具呼叫都必須帶 org 參數(組織 id),讀取與寫入都一樣;先用 orgs 看你能用的組織。" +
 	"The result carries the organization actually used in its _meta field, under the key omixor/org. " +
+	"Every result also carries _meta[\"omixor/server\"] ({name, origin, version, env}) identifying which server answered. " +
 	"When connected with an OAuth grant, the connection is account-level and each call is checked against your current organization membership. " +
 	"By default an OAuth grant is read-only (scope mcp:read): only read tools are available. If you explicitly granted read-write (scope mcp:write), a limited set of collaboration write tools is also available " +
 	"(issue_create, issue_update, issue_accept, issue_decision_add, issue_decision_answer, issue_decision_to_issue, issue_item_add, issue_item_update, issue_item_report, issue_item_promote, doc_save, channel_create, channel_post, agent_task_create, agent_task_report), " +
-	"with your own organization permissions and never server-administrator powers. Everything else (claiming tasks or credentials, managing agents, the org chain, projects, the cabinet layout, incidents) requires an omx_ user token." +
+	"with your own organization permissions and never server-administrator powers. Everything else (claiming tasks or credentials, managing agents, the org chain, projects, the cabinet layout, incidents) requires an omx_ user token. " +
+	"issue_create, issue_update and issue_accept return a compact receipt by default (key, id, status, version, updatedAt, changed, comment_id when a comment was added); pass return=\"full\" to get the whole issue with body and comments. " +
+	"issues(id) returns only the 5 most recent comments by default (use comments_limit / comments_before to page)." +
 	strings.Replace(adminInstructions, "操作目前組織的", "操作 org 參數指定組織的", 1)
 
 // orgDenied 缺 org、org 不合法、不存在、不是成員都用同一句(不洩漏組織存不存在),並列出呼叫者可用的組織
@@ -184,6 +195,7 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 		}
 		// ListOrgs is looked up at most once per HTTP request (this bk) and dropped with it; never shared across requests or users.
 		oc := &orgCache{b: bk}
+		srvID := serverIdentity(cfg.PublicURL, cfg.Cloud, r)
 		hooks := Hooks{
 			// 預設的上下文沒有組織(空字串):就算漏了 CallCtx,工具也會因組織 id 不合法而失敗,不會落到某個組織
 			Ctx: &Session{B: bk, Endpoint: cfg.AgentEndpoint},
@@ -215,6 +227,18 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 			Resources: uiResources}
 		// OAuth(唯讀):和 AdminEndpoint 同一套限制;組織仍由每次呼叫的 org 參數與即時成員資格決定(CallCtx),token 本身不帶組織
 		hooks = restrictOAuth(hooks, bk)
+		// 每個結果的 _meta 都帶 omixor/server(含 orgs、schema_check 這類沒有 org 的工具);omixor/org 的行為不變
+		callCtx := hooks.CallCtx
+		hooks.CallCtx = func(name string, args map[string]any) (any, map[string]any, error) {
+			c, meta, err := callCtx(name, args)
+			if err != nil {
+				return c, meta, err
+			}
+			out := make(map[string]any, len(meta)+1)
+			maps.Copy(out, meta)
+			out[ServerMetaKey] = srvID
+			return c, out, nil
+		}
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})
 }
@@ -248,4 +272,63 @@ func (c *orgCache) name(id string) string {
 		}
 	}
 	return id
+}
+
+// ServerMetaKey is the _meta key that identifies which server answered a unified-endpoint call.
+const ServerMetaKey = "omixor/server"
+
+// serverIdentity builds the {name, origin, version, env} value of _meta["omixor/server"] once per HTTP request.
+// Display only: it never contains tokens, database URLs or environment values. Without a configured public URL the
+// origin comes from r.Host alone (X-Forwarded-* headers are ignored), length-limited and stripped of control characters.
+func serverIdentity(publicURL string, cloud bool, r *http.Request) map[string]any {
+	name, origin := "", ""
+	https, loopback := false, false
+	if u, err := url.Parse(strings.TrimSpace(publicURL)); err == nil && publicURL != "" && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https") {
+		name = cleanHost(u.Host)
+		origin = u.Scheme + "://" + name
+		https = u.Scheme == "https"
+		loopback = isLoopbackHost(u.Hostname())
+	} else if r != nil {
+		name = cleanHost(r.Host)
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		origin = scheme + "://" + name
+		// without a configured public URL the request itself is not proof of a cloud deployment: env stays "local" unless cfg.Cloud
+	}
+	env := "local"
+	if cloud || (https && !loopback) {
+		env = "cloud"
+	}
+	v := version.Version
+	if v == "" {
+		v = "unknown"
+	}
+	return map[string]any{"name": name, "origin": origin, "version": v, "env": env}
+}
+
+// cleanHost drops control characters and whitespace and limits the length to 255 characters.
+func cleanHost(h string) string {
+	h = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == ' ' {
+			return -1
+		}
+		return r
+	}, h)
+	if len(h) > 255 {
+		h = h[:255]
+	}
+	return h
+}
+
+// isLoopbackHost reports whether h is "localhost", a *.localhost name or a loopback IP literal (127.0.0.0/8, ::1).
+// A hostname that merely starts with "127." (for example 127.example.com) is not loopback.
+func isLoopbackHost(h string) bool {
+	h = strings.ToLower(strings.Trim(strings.TrimSpace(h), "[]"))
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }

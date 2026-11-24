@@ -125,6 +125,8 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 	}
 	var unified http.Handler = mcp.UnifiedEndpoint(mcp.UnifiedEndpointConfig{
 		AgentEndpoint:    agentURL,
+		PublicURL:        public,
+		Cloud:            cfg.Str(config.KService) != "",
 		ResourceMetadata: unifiedRM,
 		Resolve: func(r *http.Request) (backend.Backend, error) {
 			tok, _ := mcp.BearerToken(r)

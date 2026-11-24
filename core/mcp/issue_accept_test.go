@@ -43,7 +43,7 @@ func TestIssueAcceptTool(t *testing.T) {
 
 	fails(t, admin, "", "issue_accept", map[string]any{}, "缺少參數 id")
 	fails(t, admin, "", "issue_accept", map[string]any{"id": "ISS-999"}, "找不到 Issue ISS-999")
-	a := ok(t, admin, "", "issue_accept", map[string]any{"id": k})
+	a := ok(t, admin, "", "issue_accept", map[string]any{"id": k, "return": "full"})
 	ac, _ := a["assigneeActor"].(map[string]any)
 	if a["status"] != "open" || ac == nil || ac["email"] != "amy@x" || a["assignee"] != nil || a["message"] == nil {
 		t.Fatal("接受後負責人是 amy(只在 assigneeActor)", a)
@@ -59,7 +59,7 @@ func TestIssueAcceptTool(t *testing.T) {
 		t.Fatal("列表要帶 assigneeActor", l)
 	}
 	// 放回:別人(一般成員以外的管理員可以)
-	r := ok(t, bossEp, "", "issue_accept", map[string]any{"id": k, "release": true})
+	r := ok(t, bossEp, "", "issue_accept", map[string]any{"id": k, "release": true, "return": "full"})
 	if r["assigneeActor"] != nil {
 		t.Fatal("放回後沒有負責人", r)
 	}
@@ -76,7 +76,7 @@ func TestIssueAcceptTool(t *testing.T) {
 	}
 	role := mcp.AgentEndpoint(mcp.AgentEndpointConfig{Svc: svc})
 	auth := "Bearer cto:" + res.Credential.Secret
-	g := ok(t, role, auth, "issue_accept", map[string]any{"id": k})
+	g := ok(t, role, auth, "issue_accept", map[string]any{"id": k, "return": "full"})
 	if g["assignee"] != "cto" {
 		t.Fatal("角色接受後 assignee 是 cto", g)
 	}

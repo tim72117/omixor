@@ -182,7 +182,7 @@ func TestUnifiedOrgScopedAndReportsOrg(t *testing.T) {
 	if r.isErr || len(r.texts) != 1 || r.meta["omixor/org"] != "lab2" {
 		t.Fatalf("成功結果要附實際用的組織:%v", r)
 	}
-	if r.obj(t)["title"] != "給二號" {
+	if r.obj(t)["key"] != "ISS-1" { // default ack
 		t.Fatal(r.texts[0])
 	}
 	if l, _ := u.svc.ListIssues(u.boss, "lab2"); len(l) != 1 {

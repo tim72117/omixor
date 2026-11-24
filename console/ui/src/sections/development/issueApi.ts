@@ -8,7 +8,7 @@ import { CONFLICT_MESSAGE, isIssueRef, isVersionConflict, issueRefLabel, UUID_RE
 export async function updateIssue<T = any>(issue: Pick<Issue, "id" | "version">, args: Record<string, unknown>, versioned = true): Promise<T> {
   const withVersion = versioned && issue.version && issue.version > 0 ? { version: issue.version } : {};
   try {
-    return await tool<T>("issue_update", { id: issue.id, ...withVersion, ...args });
+    return await tool<T>("issue_update", { id: issue.id, return: "full", ...withVersion, ...args });
   } catch (e) {
     if (isVersionConflict(e)) {
       // 畫面握著的是舊版本:主動重讀 issues(後端也會發通知,這裡再保險一次),否則之後每個快速動作都會 409

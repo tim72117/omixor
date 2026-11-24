@@ -61,6 +61,30 @@ func addIssueComment(bk backend.Backend, org, id, text, author string) (*model.I
 	return bk.UpdateIssue(org, id, service.IssuePatch{Comments: &comments, Author: author})
 }
 
+// ReturnModes issue_create / issue_update / issue_accept 的 return 參數:ack = 精簡回執(預設),full = 完整 Issue
+var ReturnModes = []string{"ack", "full"}
+
+// returnFull 解析 return 參數:true = 完整 Issue;省略或 ack = 精簡回執
+func returnFull(c *Call) (bool, error) {
+	m, err := c.Args.OptionalEnum("return", ReturnModes)
+	if err != nil {
+		return false, err
+	}
+	return m == "full", nil
+}
+
+// issueAck 寫入工具的精簡回執:key、id、status、version、updatedAt、changed(這次實際改到的欄位)、comment_id(這次新增的留言 id,沒有則省略)
+func issueAck(i model.Issue, changed []string, commentID string) map[string]any {
+	if changed == nil {
+		changed = []string{}
+	}
+	out := map[string]any{"key": i.Display(), "id": i.ID, "status": i.Status, "version": i.Version, "updatedAt": iso(i.UpdatedAt.Time), "changed": changed}
+	if commentID != "" {
+		out["comment_id"] = commentID
+	}
+	return out
+}
+
 // RegisterIssueTools 登記 Issue 工具:issue_create、issue_update、issues
 func RegisterIssueTools(s *Server) {
 	s.Register("issue_create", func(c *Call) (any, error) {
@@ -81,11 +105,18 @@ func RegisterIssueTools(s *Server) {
 			return nil, err
 		}
 		labels, _ := c.Args.Strings("labels")
+		full, err := returnFull(c)
+		if err != nil {
+			return nil, err
+		}
 		issue, err := e.Backend().CreateIssue(e.Org(), service.IssueInput{Title: title, Body: body, Priority: priority,
 			Labels: labels, Source: c.Args.Str("source"), Link: c.Args.Str("link"), Repo: c.Args.Str("repo"), Author: author, Assignee: c.Args.Str("assignee"),
 			Project: c.Args.Opt("project")}) // 沒給 = 依 repo 的專案連結預設;空字串 = 不分專案
 		if err != nil { // Issue 伺服器連不上(同 Swift)
 			return nil, prefixErr("Issue 沒有存起來:", err)
+		}
+		if !full {
+			return issueAck(*issue, []string{"created"}, ""), nil
 		}
 		return issueJSON(e, *issue), nil
 	})
@@ -115,6 +146,10 @@ func RegisterIssueTools(s *Server) {
 			return nil, err
 		}
 		status, err := c.Args.OptionalEnum("status", IssueStatuses)
+		if err != nil {
+			return nil, err
+		}
+		full, err := returnFull(c)
 		if err != nil {
 			return nil, err
 		}
@@ -176,17 +211,38 @@ func RegisterIssueTools(s *Server) {
 		if v, ok := c.Args.Int("version"); ok { // 有給就檢查版本,衝突回錯誤
 			patch.Version = &v
 		}
+		var changed []string
+		for _, f := range []struct {
+			name string
+			on   bool
+		}{
+			{"title", patch.Title != nil}, {"body", patch.Body != nil || patch.AppendBody != nil}, {"priority", patch.Priority != nil},
+			{"labels", patch.Labels != nil}, {"status", patch.Status != nil}, {"repo", patch.Repo != nil},
+			{"assignee", patch.Assignee != nil}, {"project", patch.Project != nil},
+		} {
+			if f.on {
+				changed = append(changed, f.name)
+			}
+		}
 		updated, err := bk.UpdateIssue(org, id, patch)
 		if err != nil {
 			return nil, prefixErr("Issue 沒有改成:", err)
 		}
+		commentID := ""
 		if cm := c.Args.Opt("comment"); cm != nil {
 			if t := strings.TrimSpace(*cm); t != "" { // 空白留言不做事
 				updated, err = addIssueComment(bk, org, id, t, author)
 				if err != nil {
 					return nil, prefixErr("Issue 沒有改成:", err)
 				}
+				changed = append(changed, "comment")
+				if n := len(updated.Comments); n > 0 {
+					commentID = updated.Comments[n-1].ID
+				}
 			}
+		}
+		if !full {
+			return issueAck(*updated, changed, commentID), nil
 		}
 		return issueJSON(e, *updated), nil
 	})
@@ -196,6 +252,10 @@ func RegisterIssueTools(s *Server) {
 		e.Lock()
 		defer e.Unlock()
 		id, err := c.Args.Require("id")
+		if err != nil {
+			return nil, err
+		}
+		full, err := returnFull(c)
 		if err != nil {
 			return nil, err
 		}
@@ -223,6 +283,11 @@ func RegisterIssueTools(s *Server) {
 			}
 			return nil, terr(err)
 		}
+		if !full {
+			out := issueAck(*i, []string{"assignee", "status"}, "")
+			out["message"] = msg
+			return out, nil
+		}
 		out, _ := issueJSON(e, *i).(map[string]any)
 		out["message"] = msg
 		return out, nil
@@ -241,7 +306,8 @@ func RegisterIssueTools(s *Server) {
 				}
 				return nil, terr(err)
 			}
-			return issueJSON(e, *i), nil
+			out, _ := issueJSON(e, *i).(map[string]any)
+			return paginateComments(c, i.Comments, out)
 		}
 		status := "open"
 		if s := c.Args.Opt("status"); s != nil {
@@ -290,4 +356,55 @@ func RegisterIssueTools(s *Server) {
 		}
 		return map[string]any{"total": len(list), "issues": out}, nil
 	})
+}
+
+// DefaultCommentsLimit issues(id)預設回傳最新幾則留言
+const DefaultCommentsLimit = 5
+
+// paginateComments 依 comments_limit(預設 5,最新的 N 則;0 或負數 = 不回留言)、comments_before(RFC3339 時間或留言 id:只回比它更舊的)
+// 裁切 out["comments"](issueJSON 已轉好的留言,順序同 Issue 內留言,舊到新),並補 comments_total、comments_returned、comments_truncated。
+// 回傳的每則留言都帶 id,可當下一頁的 comments_before。
+func paginateComments(c *Call, src []model.Comment, out map[string]any) (any, error) {
+	limit := DefaultCommentsLimit
+	if n, ok := c.Args.Int("comments_limit"); ok {
+		limit = n
+	}
+	all, _ := out["comments"].([]any)
+	for k, cm := range all {
+		if m, ok := cm.(map[string]any); ok && k < len(src) {
+			m["id"] = src[k].ID
+		}
+	}
+	end := len(all)
+	if b := strings.TrimSpace(c.Args.Str("comments_before")); b != "" {
+		end = -1
+		for k, cm := range src {
+			if cm.ID == b {
+				end = k
+				break
+			}
+		}
+		if end < 0 {
+			t, err := time.Parse(time.RFC3339, b)
+			if err != nil {
+				return nil, Errorf("comments_before must be a comment id or an RFC3339 timestamp (e.g. 2026-01-02T15:04:05Z)")
+			}
+			end = 0
+			for k, cm := range src {
+				if cm.At.Time.Before(t) {
+					end = k + 1
+				}
+			}
+		}
+	}
+	start := end
+	if limit > 0 {
+		start = max(0, end-limit)
+	}
+	page := all[start:end]
+	out["comments"] = page
+	out["comments_total"] = len(all)
+	out["comments_returned"] = len(page)
+	out["comments_truncated"] = start > 0
+	return out, nil
 }

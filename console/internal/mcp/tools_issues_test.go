@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"testing"
 
@@ -46,6 +47,10 @@ func seedAgents(t *testing.T, a *core.App) {
 
 func iaRun(t *testing.T, a *core.App, actor core.Actor, name string, args map[string]any) map[string]any {
 	t.Helper()
+	if name == "issue_create" || name == "issue_update" || name == "issue_accept" { // these tests read the full issue
+		args = maps.Clone(args)
+		args["return"] = "full"
+	}
 	out, err := Run(a, name, args, actor)
 	if err != nil {
 		t.Fatalf("%s:%v", name, err)

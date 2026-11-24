@@ -57,7 +57,7 @@ func TestIssueUpdateClearHumanAssignee(t *testing.T) {
 	if !assigned() {
 		t.Fatal("被擋之後負責人還在")
 	}
-	r := ok(t, amyEp, "", "issue_update", map[string]any{"id": human.Key, "assignee": ""})
+	r := ok(t, amyEp, "", "issue_update", map[string]any{"id": human.Key, "assignee": "", "return": "full"})
 	if r["assigneeActor"] != nil {
 		t.Fatal("本人用 assignee=\"\" 取消後沒有負責人", r)
 	}

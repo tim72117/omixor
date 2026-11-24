@@ -57,7 +57,8 @@ final class FakeServerMCP: URLProtocol {
         case "tools/call":
             let text = String(data: try! JSONSerialization.data(withJSONObject: ["from": "server", "name": params["name"] ?? "",
                                                                                  "arguments": params["arguments"] ?? [:]]), encoding: .utf8)!
-            result = ["content": [["type": "text", "text": text]], "isError": false]
+            result = ["content": [["type": "text", "text": text]], "isError": false,
+                      "_meta": ["omixor/org": "default", "omixor/server": ["name": "fake", "origin": "http://127.0.0.1:5998", "version": "t", "env": "local"]]]
         default:
             break
         }
@@ -101,6 +102,20 @@ final class MCPProxyTests: XCTestCase {
     private func text(_ r: [String: Any]) -> [String: Any] {
         let t = (r["content"] as? [[String: Any]])?.first?["text"] as? String ?? ""
         return (try? JSONSerialization.jsonObject(with: Data(t.utf8))) as? [String: Any] ?? [:]
+    }
+
+    /// ISS-65/66:App 不自己實作 issues/issue_*,`return`、`comments_limit`、`comments_before` 原樣轉給 core,
+    /// core 結果(含 _meta["omixor/server"])原樣回給用戶端,不被 App 改寫
+    func testIssueToolArgsAndMetaPassThrough() async throws {
+        let mcp = MCPHandler(app: AppState())
+        let r = try await rpc(mcp, "tools/call", ["name": "issues", "arguments": ["id": "ISS-1", "return": "full", "comments_limit": 0, "comments_before": "c-9"]])
+        let args = try XCTUnwrap(text(r)["arguments"] as? [String: Any])
+        XCTAssertEqual(args["return"] as? String, "full")
+        XCTAssertEqual(args["comments_limit"] as? Int, 0)
+        XCTAssertEqual(args["comments_before"] as? String, "c-9")
+        let meta = try XCTUnwrap(r["_meta"] as? [String: Any])
+        XCTAssertEqual((meta["omixor/server"] as? [String: Any])?["env"] as? String, "local")
+        XCTAssertEqual(meta["omixor/org"] as? String, "default")
     }
 
     func testCoreToolsGoToServer() async throws {

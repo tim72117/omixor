@@ -12,4 +12,4 @@ export const acceptIssue = (issue: Pick<Issue, "key">) => call({ id: acceptRef(i
 export const releaseIssue = (issue: Pick<Issue, "key">) => call({ id: acceptRef(issue), release: true });
 
 /** 舊伺服器(沒有接受功能)由能力偵測擋掉:畫面偵測不到 issue_accept 就不顯示按鈕,console 後端也會直接回「這台伺服器還不支援接受功能」 */
-const call = (args: Record<string, unknown>) => tool<Issue & { message?: string }>("issue_accept", args);
+const call = (args: Record<string, unknown>) => tool<Issue & { message?: string }>("issue_accept", { return: "full", ...args });

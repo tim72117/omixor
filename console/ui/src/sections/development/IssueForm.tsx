@@ -180,7 +180,7 @@ export function NewIssue({ onDone, defaultProject = "" }: { onDone: (id?: string
   const [error, setError] = useState<string>();
   const create = async () => {
     try {
-      const r: any = await tool("issue_create", { title: title.trim(), body, priority, labels: splitLabels(labels), ...(repo.trim() ? { repo: repo.trim() } : {}), ...(project ? { project } : {}) });
+      const r: any = await tool("issue_create", { return: "full", title: title.trim(), body, priority, labels: splitLabels(labels), ...(repo.trim() ? { repo: repo.trim() } : {}), ...(project ? { project } : {}) });
       const o = typeof r === "string" ? (() => { try { return JSON.parse(r); } catch { return undefined; } })() : r;
       onDone(o?.id);
     } catch (e: any) { setError(String(e?.message ?? e)); }
