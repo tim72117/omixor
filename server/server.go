@@ -182,8 +182,8 @@ func Run() {
 		log.Fatalf("PostgreSQL:%v", cfg.Redact(err.Error()))
 	}
 	svc := &service.Service{Store: st, Evoleap: cfg.Str(config.EvoleapURL), EvoleapConsole: cfg.Str(config.EvoleapConsole),
-		OAuthEvoleapOff: !cfg.Bool(config.OAuthEvoleapLogin), OAuthAutoApproveOff: !cfg.Bool(config.OAuthAutoApprove),
-		Bootstrap: cfg.Str(config.AdminBootstrapEmail), TTL: time.Duration(cfg.Int(config.TokenDays)) * 24 * time.Hour}
+		OAuthEvoleapOff: !cfg.Bool(config.OAuthEvoleapLogin),
+		Bootstrap:       cfg.Str(config.AdminBootstrapEmail), TTL: time.Duration(cfg.Int(config.TokenDays)) * 24 * time.Hour}
 	if h := cfg.Float(config.AgentCredHours); h > 0 {
 		svc.AgentCredTTL = time.Duration(h * float64(time.Hour))
 	}

@@ -3,10 +3,6 @@
 // 每次工具呼叫由統一入口用即時成員資格決定能用哪些組織;同意畫面不選組織)。
 // 同意畫面證明身分有兩種:主要是「用 evoleap 登入並允許」(瀏覽器登入 evoleap,見下面 /oauth/evoleap/callback;伺服器沒有 evoleap 或被關掉就不顯示),
 // 備援是一次性的配對碼(本機伺服器常沒有 evoleap)。
-// 自動核准(OMIXOR_OAUTH_AUTO_APPROVE,預設開):evoleap 登入可用、且請求是唯讀(沒要求 mcp:write)時,GET /oauth/authorize 不顯示同意畫面,
-// 直接設綁定 cookie 並 303 到 evoleap 核准頁,evoleap 核准頁就是使用者唯一的明確核准(代價:少了 omixor 這一頁的確認,名稱相近的假客戶端
-// 會騙到已經信任 evoleap 提示的人;evoleap 的名稱會帶客戶端名稱與 (read-only))。沒有 CSRF(沒有表單),交易靠 cookie 綁定密鑰 + 單一用途交易 + evoleap 核准綁定。
-// 要求 mcp:write 永遠顯示同意畫面;連不上 evoleap 時退回同意畫面(含配對碼);設 false 恢復一律顯示。稽核 oauth.authorize 會帶 auto: true。
 // 規則(證明身分、PKCE、refresh 輪替、唯讀)在 service/oauth.go,存放在 omixor_oauth_*(core/store/pg_oauth.go);這裡只做 HTTP:
 //
 //	GET  /.well-known/oauth-protected-resource/mcp/org/{org}   RFC 9728:這個組織 MCP 端點的 resource 與授權伺服器(/.well-known/oauth-protected-resource 是沒有路徑的備援)
@@ -333,8 +329,8 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 {{if not .WriteRequested}}<dt>要求的權限</dt><dd>{{.Scope}}(只能讀取,不能修改任何資料)</dd>{{end}}
 </dl></div>
 {{if .WriteRequested}}<fieldset><legend>這個應用程式要求「讀寫」權限,請選擇要授予的權限(預設只授予唯讀)</legend>
-<label class="opt"><input type="radio" name="grant" value="read" checked><strong>唯讀(建議)</strong><br><span class="note">{{.Scope}}:只能讀取,不能修改任何資料。</span></label>
-<label class="opt w"><input type="radio" name="grant" value="write"><strong>讀寫(進階)</strong>
+<label class="opt"><input type="radio" name="grant" form="consent" value="read" checked><strong>唯讀(建議)</strong><br><span class="note">{{.Scope}}:只能讀取,不能修改任何資料。</span></label>
+<label class="opt w"><input type="radio" name="grant" form="consent" value="write"><strong>讀寫(進階)</strong>
 <p class="warn">這個應用程式將能以你的身分修改資料。</p>
 <span class="note">可寫入的只有協作類工具,權限仍受你在組織裡的角色限制:</span>
 <ul><li>建立、更新、接受或放回 Issue</li><li>提出與處理待決定、需要協助,由待決定開出 Issue</li><li>新增、修改、回報 Issue 子項,把子項提升為 Issue</li><li>存文件到文件櫃</li><li>建立對話頻道、在頻道發訊息</li><li>指派任務給角色、回報任務</li></ul>
@@ -342,7 +338,7 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <span class="note">撤銷:目前沒有自助的撤銷畫面。退出該組織,或請伺服器管理員停用你的帳號,會立刻失效;存取權杖 10 分鐘到期,續期權杖最久 30 天。</span></label>
 </fieldset>{{end}}
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
-<form method="post" action="/oauth/authorize" autocomplete="off">
+<form id="consent" method="post" action="/oauth/authorize" autocomplete="off">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <input type="hidden" name="client_id" value="{{.ClientID}}">
 <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
@@ -475,10 +471,6 @@ func (h *Handler) authorizeGet(w http.ResponseWriter, r *http.Request) {
 		h.authError(w, r, req, err)
 		return
 	}
-	done, failMsg := h.autoEvoleap(w, r, chk, req, d)
-	if done {
-		return
-	}
 	csrf, err := h.Svc.NewOAuthCSRF(chk, req.CodeChallenge, service.ClientIP(r))
 	if err != nil {
 		var oe *service.OAuthError
@@ -489,32 +481,7 @@ func (h *Handler) authorizeGet(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	h.renderConsent(w, 200, chk, req, csrf, failMsg)
-}
-
-// autoEvoleap 唯讀請求略過同意畫面:授權請求已驗證過,直接開始 evoleap 登入(設綁定 cookie、303 到 evoleap 核准頁)。
-// 沒有表單所以沒有 CSRF;交易靠瀏覽器綁定 cookie + 單一用途交易 + evoleap 核准綁定。回 false = 不適用或失敗,呼叫端照舊顯示同意畫面(含配對碼提示)
-func (h *Handler) autoEvoleap(w http.ResponseWriter, r *http.Request, chk *service.OAuthAuthChecked, req service.OAuthAuthRequest, d map[string]any) (done bool, failMsg string) {
-	if chk.WriteRequested || !h.Svc.OAuthAutoApproveEnabled() {
-		return false, ""
-	}
-	loginURL, binding, err := h.Svc.StartOAuthEvoleapAuto(chk, req.CodeChallenge, req.State, h.evoCallbackURL())
-	if err != nil {
-		d["auto_failed"] = true
-		var oe *service.OAuthError
-		if errors.As(err, &oe) && oe.Reason != "" {
-			d["pairing_result"] = oe.Reason
-			return false, oe.Desc
-		}
-		return false, "暫時無法連到 evoleap,請稍後再試,或改用配對碼"
-	}
-	d["via"], d["auto"], d["pairing_result"] = "evoleap", true, "evoleap_started"
-	http.SetCookie(w, h.evoCookie(binding, int(service.OAuthEvoleapTTL.Seconds())))
-	w.Header().Set("Location", loginURL)
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.WriteHeader(303)
-	return true, ""
+	h.renderConsent(w, 200, chk, req, csrf, "")
 }
 
 func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {

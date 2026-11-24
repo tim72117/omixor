@@ -78,12 +78,10 @@ type Service struct {
 	EvoleapConsole string
 	// OAuthEvoleapOff true = 關掉 OAuth 同意畫面的 evoleap 登入(只剩配對碼);Evoleap 是空字串時本來就沒有
 	OAuthEvoleapOff bool
-	// OAuthAutoApproveOff true = 唯讀授權請求也一律顯示同意畫面(OMIXOR_OAUTH_AUTO_APPROVE=false);預設(false)在 evoleap 登入可用時直接前往 evoleap 核准頁
-	OAuthAutoApproveOff bool
-	Bootstrap           string        // 第一位伺服器管理員的 email(使用者表是空的時才用)
-	TTL                 time.Duration // token 有效期(0 是不到期)
-	Client              *http.Client
-	Now                 func() time.Time
+	Bootstrap       string        // 第一位伺服器管理員的 email(使用者表是空的時才用)
+	TTL             time.Duration // token 有效期(0 是不到期)
+	Client          *http.Client
+	Now             func() time.Time
 	// LDAP 帳號密碼驗證(nil = 沒有啟用 LDAP 登入);LDAPAdmins 是伺服器管理員的帳號名單,
 	// LDAPEmailDomain 在目錄沒有 mail 時用「帳號@網域」當 email(見 ldap.go)
 	LDAP            Directory

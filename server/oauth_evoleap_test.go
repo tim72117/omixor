@@ -88,7 +88,6 @@ func newEvoOA(t *testing.T) (*oaHTTP, *fakeEvoleap) {
 	f := newFakeEvoleap(t)
 	o.svc.Evoleap = f.srv.URL
 	o.svc.EvoleapConsole = tConsole
-	o.svc.OAuthAutoApproveOff = true // 這個檔案測的是同意畫面上的按鈕流程;自動核准見 oauth_autoapprove_test.go
 	return o, f
 }
 
