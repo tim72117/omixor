@@ -42,3 +42,28 @@ Every `tools/call` result (success and failure) is assembled in one place, `core
 - Lists are always inside a named field of the object (for example `{"issues": [...], "total": n}`), never a bare array.
 
 `core/mcp/contract_test.go` checks this shape for every core tool of the admin endpoint, driven by `model.CoreTools`.
+
+## Document results carry `version`
+
+`docs(id)` and every success path of `doc_save` return `version` (the version of the saved body). Pass it back as `base_version` on the next `doc_save` to make a partial edit without re-reading the document.
+
+## Agent tool availability reasons
+
+`agent_context.tools` has `available` (`name`, `label`) and `unavailable` (`name`, `label`, `reason`, `reason_message`). `reason` is a stable code, `reason_message` an English sentence. Codes (single source: `needReasons` in `core/service/agenttools.go`):
+
+| `reason` | Meaning |
+| --- | --- |
+| `doc_read_missing` | The role has no cabinet access. |
+| `doc_write_missing` | The role has no writable cabinet location. |
+| `no_downstream` | The role has no downstream agent on the organization chain. |
+| `not_channel_member` | The role is not a member of any channel. |
+
+## MCP Apps views (`ui://`)
+
+The admin endpoint (`/mcp/org/<id>` and the unified entry point) serves three self-contained HTML views as MCP resources (MIME type `text/html;profile=mcp-app`). `tools/list` marks the owning tool with `_meta.ui.resourceUri`; the tool result is what the view renders. Defined in `core/mcp/apps.go`. Every human-facing endpoint (cloud admin and unified, and the local console `/mcp`) serves them through the shared `WithApps` helper; the Mac app forwards core's. The role (`/mcp/agent`) and worker (`/mcp/worker`) endpoints are headless and do not advertise views.
+
+| View | URI | Tool | Notes |
+| --- | --- | --- | --- |
+| flowchart | `ui://omixor/flowchart` | `flowchart_render` | Renders the SVG |
+| items | `ui://omixor/items` | `issue_items` | Item list |
+| decisions | `ui://omixor/decisions` | `issue_decisions` | Pending decisions and help requests; not read-only: **refresh** (re-calls `issue_decisions` with the original arguments) and **answer** buttons for open `decision` items (calls `issue_decision_answer`, after an in-view confirm). Needs a host that allows view-initiated tool calls (`hostCapabilities.serverTools`) and an OAuth `mcp:write` grant; otherwise it stays display-only. `help` items are display-only |

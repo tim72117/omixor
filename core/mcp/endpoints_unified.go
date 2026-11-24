@@ -183,7 +183,6 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 		allow[n] = true
 		extra[n] = true
 	}
-	uiResources := UIResources()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bk, err := cfg.Resolve(r)
 		if err != nil {
@@ -200,13 +199,13 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 		oc := &orgCache{b: bk}
 		srvID := serverIdentity(cfg.PublicURL, cfg.Cloud, r)
 		diag := newConnDiag("unified", bk, srvID, r)
-		hooks := Hooks{
+		hooks := WithApps(Hooks{
 			// 預設的上下文沒有組織(空字串):就算漏了 CallCtx,工具也會因組織 id 不合法而失敗,不會落到某個組織
 			Ctx: &Session{B: bk, Endpoint: cfg.AgentEndpoint, Diag: diag},
 			Allow: func(name string) bool {
 				return allow[name] && !HumanHiddenTools[name]
 			},
-			Defs: func(defs []any) []any { return WithOrgParam(WithUIMeta(WithoutIdentityAgent(defs))) },
+			Defs: func(defs []any) []any { return WithOrgParam(WithoutIdentityAgent(defs)) },
 			// 每次呼叫各自的上下文:組織取自 args["org"],驗證成員資格後建立專屬的 Session(不共用、不改寫)
 			CallCtx: func(name string, args map[string]any) (any, map[string]any, error) {
 				sess := &Session{B: bk, Endpoint: cfg.AgentEndpoint, Diag: diag}
@@ -233,8 +232,8 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 				sess.OrgNameFn = func() string { return oc.name(org) }
 				return sess, map[string]any{"omixor/org": org}, nil
 			},
-			Guard:     RejectIdentityAgent,
-			Resources: uiResources}
+			Guard: RejectIdentityAgent,
+		})
 		// OAuth(唯讀):和 AdminEndpoint 同一套限制;組織仍由每次呼叫的 org 參數與即時成員資格決定(CallCtx),token 本身不帶組織
 		hooks = restrictOAuth(hooks, bk, true)
 		// 每個結果的 _meta 都帶 omixor/server(含 orgs、schema_check 這類沒有 org 的工具);omixor/org 的行為不變

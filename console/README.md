@@ -107,6 +107,8 @@ claude --dangerously-load-development-channels server:omixor-tasks
 - `--init-worker` 產生 `.mcp.json`(註冊頻道 `omixor-tasks` 與本機 omixor MCP)與 `CLAUDE.md`(長期授權:收到通知不用問就領取,預設交給子代理執行,做完用 `agent_task_report` 回報)。範本在 `omixor-core/mcp/worker_template.go`。
 - 授權一定要寫在 `CLAUDE.md`(或啟動時的第一則訊息):頻道事件在 Claude Code 裡不算使用者指令,光靠頻道的說明它會停下來問。
 - 第一次啟動會問要不要啟用 MCP 伺服器與開發頻道,都選同意。工作階段要一直開著才收得到;只能在終端機用,桌面 app 的 Code 分頁不支援 channels。
+- **自動/手動**:每個角色有「自動執行」開關(console 的執行者),關著時待領取的任務不會被自動領走,每筆任務有「開始執行」按鈕(一次只跑一筆);領任務前會先檢查 claude 是否已登入。
+- **執行日誌**:每次執行的工具呼叫、伺服器確認、遮蔽結果都記下來,每個組織保留最近 50 筆(`reportedBy` 為 `role` 或 `runner`);畫面在「需要處理」(被擋住等人回覆的任務)與「執行日誌」兩個頁籤。細節見 [docs/release-notes-2026-11.md](../docs/release-notes-2026-11.md)。
 - 頻道跟著 console 目前的組織(每次查詢重讀):console 晚開、中途換組織都跟得上,換組織時會先送一則新組織的待領清單。
 
 ## 3D 虛擬辦公室(/office/)

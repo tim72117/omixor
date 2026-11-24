@@ -273,7 +273,6 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 		extra[n] = true
 		extraNames = append(extraNames, n)
 	}
-	uiResources := UIResources()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bk, org, err := cfg.Resolve(r)
 		if err != nil {
@@ -292,20 +291,20 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 		}
 		sess := &Session{B: bk, OrgID: org, Endpoint: cfg.AgentEndpoint, Diag: newConnDiag("admin", bk, nil, r)}
 		// OAuth 授權:唯讀(mcp:read)只開放登記為 ReadOnly 的核心工具、其他一律「此連線是唯讀授權」(restrictReadOnly);讀寫(mcp:write)再多開 OAuthWriteTools(restrictOAuthWrite);額外掛上來的工具都不開放
-		hooks := Hooks{Ctx: sess,
+		hooks := WithApps(Hooks{Ctx: sess,
 			// 人類端點不列 HumanHiddenTools(agent_task_delegate)
 			Allow: func(name string) bool {
 				return allow[name] && !HumanHiddenTools[name]
 			},
 			// 人類端點不能指定角色身分(署名、文件權限):規格不列 agent 參數,帶 agent 回 400,不執行;flowchart_render、issue_items 帶 MCP Apps 畫面
-			Defs: func(defs []any) []any { return WithUIMeta(WithoutIdentityAgent(defs)) },
+			Defs: WithoutIdentityAgent,
 			Guard: func(name string, args map[string]any) error {
 				if err := rejectOtherOrg(args, org); err != nil {
 					return err
 				}
 				return RejectIdentityAgent(name, args)
 			},
-			Resources: uiResources}
+		})
 		hooks = restrictOAuth(hooks, bk, false)
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})

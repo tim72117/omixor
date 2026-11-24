@@ -184,7 +184,7 @@ func TestToolsListOverRPC(t *testing.T) {
 	for _, d := range resp.Result.Tools {
 		byName[d["name"].(string)] = d
 	}
-	for _, d := range coreToolDefs() {
+	for _, d := range coremcp.WithUIMeta(coreToolDefs()) { // 本機 /mcp 的核心工具帶 MCP Apps 畫面(_meta.ui),其餘和核心一樣
 		n := d.(map[string]any)["name"].(string)
 		if n == "agent_task_delegate" { // 委派者只能由角色憑證決定:本機 /mcp 不列、呼叫 400(見 identity_test.go)
 			if _, listed := byName[n]; listed {

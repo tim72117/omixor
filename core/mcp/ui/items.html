@@ -22,9 +22,10 @@ html,body{margin:0;background:transparent;color:var(--fg);font:var(--fs)/1.45 va
 (function () {
 "use strict";
 /* COMMON-JS-BEGIN */
-// ---- 共用:MCP Apps 的 View 端(postMessage 上的 JSON-RPC)。不依賴任何外部程式庫。唯讀:只顯示工具結果,不呼叫任何工具 ----
+// ---- 共用:MCP Apps 的 View 端(postMessage 上的 JSON-RPC)。不依賴任何外部程式庫。共用區塊只負責收結果與握手,不呼叫工具;需要呼叫工具的畫面(decisions)自己用 request() 發工具呼叫請求 ----
 var root = document.getElementById("root");
 var pending = {}, nextId = 1, onResult = function () {};
+var toolArgs = null, hostCaps = {}; // toolArgs:觸發這個畫面的工具呼叫的參數(ui/notifications/tool-input);hostCaps:宿主在 ui/initialize 回報的能力
 function post(m) { m.jsonrpc = "2.0"; window.parent.postMessage(m, "*"); }
 function request(method, params) {
   return new Promise(function (resolve, reject) {
@@ -64,6 +65,7 @@ window.addEventListener("message", function (ev) {
     return;
   }
   switch (m.method) {
+    case "ui/notifications/tool-input": toolArgs = (m.params && m.params.arguments) || {}; break;
     case "ui/notifications/tool-result": onResult(m.params); setTimeout(reportSize, 0); break;
     case "ui/notifications/host-context-changed": applyCtx(m.params); setTimeout(reportSize, 0); break;
     case "ui/resource-teardown": if (m.id !== undefined) post({ id: m.id, result: {} }); break;
@@ -91,7 +93,7 @@ function start(name, handler) {
   };
   if (typeof ResizeObserver === "function") new ResizeObserver(reportSize).observe(document.documentElement);
   request("ui/initialize", { appInfo: { name: name, version: "0.1.0" }, appCapabilities: {}, protocolVersion: "2026-01-26" })
-    .then(function (res) { applyCtx(res && res.hostContext); notify("ui/notifications/initialized", {}); reportSize(); })
+    .then(function (res) { applyCtx(res && res.hostContext); hostCaps = (res && res.hostCapabilities) || {}; notify("ui/notifications/initialized", {}); reportSize(); })
     .catch(function () { root.textContent = "（無法連上宿主）"; });
 }
 /* COMMON-JS-END */

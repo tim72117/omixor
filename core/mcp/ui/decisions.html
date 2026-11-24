@@ -21,6 +21,12 @@ html,body{margin:0;background:transparent;color:var(--fg);font:var(--fs)/1.45 va
 .txt{white-space:pre-wrap;word-break:break-word}.clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .opts{margin:4px 0 0;padding-left:20px;font-size:var(--fss)}.opts .rec{font-weight:600}.opts .d{color:var(--fg2)}
 .ans{margin-top:4px;font-size:var(--fss)}.ans b{font-weight:600}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:8px}.bar .head{margin-bottom:8px}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.act{font:inherit;font-size:var(--fss);color:var(--fg);background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:3px 10px;cursor:pointer}
+.act:disabled{opacity:.5;cursor:default}.act.rec{font-weight:600}
+.confirm{margin-top:6px;padding:8px;border:1px solid var(--bd);border-radius:var(--r);font-size:var(--fss)}
+.confirm textarea{display:block;width:100%;box-sizing:border-box;margin:6px 0;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--bd);border-radius:var(--r);padding:4px 6px}
 .btn{background:none;border:0;padding:0;font:inherit;font-size:var(--fss);color:var(--fg2);text-decoration:underline;cursor:pointer}
 </style></head>
 <body><div id="root">載入中…</div>
@@ -28,9 +34,10 @@ html,body{margin:0;background:transparent;color:var(--fg);font:var(--fs)/1.45 va
 (function () {
 "use strict";
 /* COMMON-JS-BEGIN */
-// ---- 共用:MCP Apps 的 View 端(postMessage 上的 JSON-RPC)。不依賴任何外部程式庫。唯讀:只顯示工具結果,不呼叫任何工具 ----
+// ---- 共用:MCP Apps 的 View 端(postMessage 上的 JSON-RPC)。不依賴任何外部程式庫。共用區塊只負責收結果與握手,不呼叫工具;需要呼叫工具的畫面(decisions)自己用 request() 發工具呼叫請求 ----
 var root = document.getElementById("root");
 var pending = {}, nextId = 1, onResult = function () {};
+var toolArgs = null, hostCaps = {}; // toolArgs:觸發這個畫面的工具呼叫的參數(ui/notifications/tool-input);hostCaps:宿主在 ui/initialize 回報的能力
 function post(m) { m.jsonrpc = "2.0"; window.parent.postMessage(m, "*"); }
 function request(method, params) {
   return new Promise(function (resolve, reject) {
@@ -70,6 +77,7 @@ window.addEventListener("message", function (ev) {
     return;
   }
   switch (m.method) {
+    case "ui/notifications/tool-input": toolArgs = (m.params && m.params.arguments) || {}; break;
     case "ui/notifications/tool-result": onResult(m.params); setTimeout(reportSize, 0); break;
     case "ui/notifications/host-context-changed": applyCtx(m.params); setTimeout(reportSize, 0); break;
     case "ui/resource-teardown": if (m.id !== undefined) post({ id: m.id, result: {} }); break;
@@ -97,11 +105,15 @@ function start(name, handler) {
   };
   if (typeof ResizeObserver === "function") new ResizeObserver(reportSize).observe(document.documentElement);
   request("ui/initialize", { appInfo: { name: name, version: "0.1.0" }, appCapabilities: {}, protocolVersion: "2026-01-26" })
-    .then(function (res) { applyCtx(res && res.hostContext); notify("ui/notifications/initialized", {}); reportSize(); })
+    .then(function (res) { applyCtx(res && res.hostContext); hostCaps = (res && res.hostCapabilities) || {}; notify("ui/notifications/initialized", {}); reportSize(); })
     .catch(function () { root.textContent = "（無法連上宿主）"; });
 }
 /* COMMON-JS-END */
-// ---- decisions:顯示 issue_decisions 回傳的待決定 / 需要協助(唯讀)----
+// ---- decisions:顯示 issue_decisions 回傳的待決定 / 需要協助;宿主允許時可重新整理、回覆 decision(help 只顯示)----
+// 這個畫面只會呼叫下面兩個工具;權限一律由 server 判斷(唯讀授權會被擋,見 isReadOnlyError),畫面不自行放寬。
+var TOOL_LIST = "issue_decisions", TOOL_ANSWER = "issue_decision_answer";
+var READONLY_MSG = "This connection is read-only; grant read-write to answer";
+var ui = { data: null, refreshing: false, busy: false, readOnly: false, error: "", confirm: null };
 var STATUS = { open: "待處理", decided: "已處理", withdrawn: "已撤回" };
 var KINDS = [["decision", "待決定"], ["help", "需要協助"]];
 var CLIP = 140;
@@ -156,6 +168,85 @@ function answerText(d) {
   if (str(d.evidence)) parts.push("證據:" + d.evidence);
   return parts.join(" — ");
 }
+// 宿主是否允許 View 發起工具呼叫(MCP Apps:hostCapabilities.serverTools);沒有就維持唯讀顯示。所有按鈕都只看這一處
+function canCallTools() { return !!hostCaps.serverTools; }
+function canAnswer(d) { return canCallTools() && d.kind === "decision" && d.status === "open"; }
+function callTool(name, args) {
+  return request("tools/call", { name: name, arguments: args }).then(function (r) { if (r && r.isError) throw r; return r; });
+}
+// 失敗可能是宿主的 JSON-RPC 錯誤({message})或工具的 isError 結果({structuredContent.error})
+function failText(e) { return e && e.isError ? errText(e) : (e && e.message) || "發生錯誤"; }
+function isReadOnlyError(e) {
+  var x = e && e.structuredContent && e.structuredContent.error;
+  return !!x && x.status === 403 && /read-only/i.test(x.message || "");
+}
+function answerArgs(id, answer, note) {
+  var a = { id: id, answer: answer };
+  if (toolArgs && toolArgs.org) a.org = toolArgs.org;
+  if (note) a.note = note;
+  return a;
+}
+function refresh() {
+  ui.refreshing = true; ui.error = ""; draw();
+  callTool(TOOL_LIST, toolArgs).then(function (r) { ui.data = dataOf(r); ui.confirm = null; ui.readOnly = false; })
+    .catch(function (e) { ui.error = failText(e); })
+    .then(function () { ui.refreshing = false; draw(); });
+}
+// 回覆成功:把那一筆換成 server 回傳的已處理版本(不自動重抓,畫面上先看得到結果;要更新清單按重新整理)
+// 要寫回真正的資料:decisionList 回傳的是過濾後的副本,改它不會影響 ui.data
+function markDecided(updated) {
+  var raw = decisionRaw(ui.data);
+  if (!updated || !raw) return;
+  var i = raw.map(function (x) { return x && x.id; }).indexOf(updated.id);
+  if (i < 0) return;
+  if (Array.isArray(ui.data.decisions)) ui.data.decisions[i] = updated; else ui.data = updated;
+}
+function submitAnswer() {
+  var c = ui.confirm;
+  var note = c.note.value.trim();
+  c.text = note; // 重畫(出錯、忙碌)時保留已輸入的說明
+  if (c.answer === "other" && !note) { ui.error = "選「其他」要填說明"; draw(); return; }
+  ui.busy = true; ui.error = ""; draw();
+  callTool(TOOL_ANSWER, answerArgs(c.id, c.answer, note))
+    .then(function (r) { markDecided(dataOf(r)); ui.confirm = null; })
+    .catch(function (e) { if (isReadOnlyError(e)) { ui.readOnly = true; ui.confirm = null; } else ui.error = failText(e); })
+    .then(function () { ui.busy = false; draw(); });
+}
+function confirmBox(d) {
+  var c = ui.confirm;
+  var box = el("div", "confirm");
+  box.appendChild(el("div", "", "確認回覆 " + d.id + ":" + c.label + "?"));
+  c.note = el("textarea");
+  c.note.rows = 2;
+  c.note.value = c.text || "";
+  c.note.placeholder = c.answer === "other" ? "說明(必填)" : "備註(選填)";
+  box.appendChild(c.note);
+  var ok = el("button", "act", "確認送出"), no = el("button", "act", "取消");
+  ok.type = no.type = "button";
+  ok.disabled = no.disabled = ui.busy;
+  ok.addEventListener("click", submitAnswer);
+  no.addEventListener("click", function () { ui.confirm = null; draw(); });
+  var acts = el("div", "acts");
+  acts.appendChild(ok); acts.appendChild(no);
+  box.appendChild(acts);
+  return box;
+}
+function answerButton(d, id, label, rec) {
+  var b = el("button", "act" + (rec ? " rec" : ""), label + (rec ? "(建議)" : ""));
+  b.type = "button";
+  b.disabled = ui.busy || ui.readOnly;
+  b.addEventListener("click", function () { ui.error = ""; ui.confirm = { id: d.id, answer: id, label: label }; draw(); });
+  return b;
+}
+function answerBar(d) {
+  if (ui.confirm && ui.confirm.id === d.id) return confirmBox(d);
+  var acts = el("div", "acts");
+  (Array.isArray(d.options) ? d.options : []).forEach(function (o) {
+    if (o && str(o.id)) acts.appendChild(answerButton(d, o.id, str(o.label) || o.id, o.recommended));
+  });
+  acts.appendChild(answerButton(d, "other", "其他…", false));
+  return acts;
+}
 function row(d) {
   var r = el("div", "row");
   var main = el("div", "main");
@@ -193,24 +284,51 @@ function row(d) {
     if (dby || dat) a.appendChild(el("span", "d", "(" + [dby, dat].filter(Boolean).join(" · ") + ")"));
     main.appendChild(a);
   }
+  if (canAnswer(d)) main.appendChild(answerBar(d));
   r.appendChild(main);
   return r;
 }
-start("omixor-decisions", function (d) {
+// 資料可能是 {decisions:[…]}(清單)或單一 decision 物件;這裡是唯一判斷形狀的地方
+function decisionRaw(d) {
+  return d && Array.isArray(d.decisions) ? d.decisions : d && typeof d.id === "string" ? [d] : null;
+}
+function decisionList(d) {
+  var list = decisionRaw(d);
+  return list && list.filter(function (x) { return x && typeof x === "object"; });
+}
+function headBar(text) {
+  var bar = el("div", "bar");
+  bar.appendChild(el("div", "head", text));
+  if (canCallTools() && toolArgs) { // 重新整理要用原本的參數(org、篩選)重打 issue_decisions
+    var b = el("button", "act", ui.refreshing ? "更新中…" : "重新整理");
+    b.type = "button";
+    b.disabled = ui.refreshing || ui.busy;
+    b.addEventListener("click", refresh);
+    bar.appendChild(b);
+  }
+  return bar;
+}
+function statusLines() {
+  if (ui.readOnly) root.appendChild(el("div", "warn", READONLY_MSG));
+  if (ui.error) root.appendChild(el("div", "warn err", ui.error));
+}
+function draw() {
   root.innerHTML = "";
-  var list = d && Array.isArray(d.decisions) ? d.decisions : d && typeof d.id === "string" ? [d] : null;
+  var d = ui.data, list = decisionList(d);
   if (!list) { root.textContent = "（沒有資料）"; return; }
-  list = list.filter(function (x) { return x && typeof x === "object"; });
   var pend = list.filter(function (x) { return x.status === "open"; }).length;
   var total = typeof d.total === "number" ? d.total : list.length;
-  root.appendChild(el("div", "head", "待處理 " + pend + " 筆" + (total !== list.length ? "(共 " + total + " 筆,顯示 " + list.length + ")" : "")));
-  if (!list.length) { root.appendChild(el("div", "warn", "目前沒有待處理的項目")); return; }
+  root.appendChild(headBar("待處理 " + pend + " 筆" + (total !== list.length ? "(共 " + total + " 筆,顯示 " + list.length + ")" : "")));
+  statusLines();
+  if (!list.length) { root.appendChild(el("div", "warn", "目前沒有待處理的項目")); reportSize(); return; }
   KINDS.concat([["", "其他"]]).forEach(function (k) {
     var rows = list.filter(function (x) { var kk = x.kind === "decision" || x.kind === "help" ? x.kind : ""; return kk === k[0]; });
     if (!rows.length) return;
     root.appendChild(el("div", "sec", k[1] + "(" + rows.length + ")"));
     rows.forEach(function (x) { root.appendChild(row(x)); });
   });
-});
+  reportSize();
+}
+start("omixor-decisions", function (d) { ui.data = d; ui.error = ""; ui.confirm = null; ui.readOnly = false; draw(); });
 })();
 </script></body></html>

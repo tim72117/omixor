@@ -187,7 +187,8 @@ type Handler struct{ App *core.App }
 func (h *Handler) Handle(data []byte) []byte {
 	a := h.App
 	// 範例資料工具依功能開關過濾(tools/list 不列、tools/call 回「這個功能已關閉」),見 feature_gate.go
-	return h.handleMessages(data, coremcp.Hooks{
+	// 本機 /mcp 是給人用的端點:和雲端一樣帶 MCP Apps 畫面(WithApps;功能開關過濾 Allow 在 handleOne,畫面掛在留下的工具上)
+	return h.handleMessages(data, coremcp.WithApps(coremcp.Hooks{
 		Ctx: &callCtx{App: a, Actor: core.MCPActor},
 		Begin: func() func() {
 			a.Mu.Lock()
@@ -207,7 +208,7 @@ func (h *Handler) Handle(data []byte) []byte {
 			a.MCP.LastTool = name
 			a.Mu.Unlock()
 		},
-	})
+	}))
 }
 
 // HasTool 有這個工具嗎(沒註冊的名稱;給畫面的 /api/tool 回 404 用)

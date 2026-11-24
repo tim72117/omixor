@@ -105,3 +105,33 @@
 - `Project` 的 JSON 多了 `restricted`(bool)與 `myRole`(admin、member,不是成員沒有);新增 `ProjectMember` 輸出(`project_member_list.json`)。Swift 未動(新欄位照舊可解碼)。
 - 角色憑證預設視為非成員:受限專案的 Issue 要先把角色加為專案成員才能指派給它。
 - console 限制見 `docs/authorization.md` §0.2。
+
+## v0.5.9 到 v0.5.13:MCP 新協定、OAuth 管理員、執行日誌、資料表改名
+
+### 升級須知(先看這裡)
+
+- **資料表改名不向後相容**:結構異動步驟 3 把 `ops_issues`、`ops_issue_comments` 改成 `omixor_issues`、`omixor_issue_comments`(連同約束、外鍵、索引)。舊版程式的 SQL 寫死舊名,新舊版不能同時連同一個資料庫,**必須停機部署**(先停舊版、再起新版)。
+- **改名是單向的,而且 Cloud SQL 沒有 PITR**:部署前先備份 Cloud SQL 並確認可還原。備份與部署由人執行;回滾步驟與理由見 [design-schema-rename.md](design-schema-rename.md)。
+- console 本機資料庫的 `ops_*` 表(`ops_documents`、`ops_secrets`、`ops_sessions`、`ops_activity`、`ops_state`…)啟動時自動改成 `omixor_*`、資料保留;新舊表同時存在會報錯、不覆蓋(見 [console/README.md](../console/README.md))。
+- 所有 MCP 給 LLM 看的文字(工具說明、instructions、錯誤訊息、`agent_context` 的原因)改成英文;依賴舊中文字串的腳本要改看穩定代碼(`error.code`、`reason`)。
+
+### MCP
+
+- **2026-07-28 協定的最小子集**:新增無狀態的 `server/discover`;modern 請求的結果帶 `resultType`(`complete`);`server/discover`、`tools/list`、`resources/list`、`resources/read` 的結果帶 `ttlMs`、`cacheScope`(秒數由 `OMIXOR_MCP_LIST_TTL_SECONDS` 決定,見 [configuration.md](configuration.md));路由標頭與 `_meta` 不一致時回錯誤。**舊協定版本(2025-06-18、2025-03-26、2024-11-05)照舊提供**,回應不帶快取提示。
+- **OAuth 新增 `mcp:admin`**:在 `mcp:write` 之上多開組織結構工具,只有組織管理員能授予,**每次呼叫即時檢查**目前角色;`agent_task_create` 不開放給 OAuth。工具清單與流程見 [authorization.md](authorization.md)。
+- **結果格式統一**:成功與失敗都有 `structuredContent`(物件),`content[0].text` 是同一份 JSON;失敗是 `{"error":{"code","message","status","data"}}`;`error.data` 裡太大的欄位只放 `structuredContent`,text 版改帶 `truncated: true`。細節見 [mcp-vocabulary.md](mcp-vocabulary.md)。
+- `doc_save` 與 `docs` 的結果帶 `version`,可直接拿去做下一次局部修改。
+- **MCP Apps 畫面(`ui://`)**:flowchart、items、decisions 三個畫面;decisions v0.5.13 接上 `issue_decisions`;下一版起不再唯讀:宿主支援 View 發起工具呼叫時可重新整理、回覆 decision(需 `mcp:write`),`help` 仍只顯示。對照表見 [mcp-vocabulary.md](mcp-vocabulary.md)。
+- `agent_task_create` 可帶 `issue` 連結;`agent_context` 的不可用工具原因改為穩定代碼 `reason` 加英文 `reason_message`。
+
+### commits
+
+- `omixor commits sync`(commits 讀入與 Issue 連結),用法見 [commits.md](commits.md)、設計見 [design-commits.md](design-commits.md)。
+- 這個 CLI 的設定一律走 `config`(例如 `config.CI`),不直接讀環境變數(修正 v0.5.11 部署被測試擋下的問題)。
+
+### 角色執行與畫面
+
+- **派發自動/手動**:每個角色有自動執行開關;關著時,每筆待領取任務有「開始執行」按鈕(一次只跑一筆)。領任務前先檢查 claude 是否已登入;MCP 沒連上或工具全部失敗時不會補報 `done`。人可以回覆被擋住的任務。
+- **執行日誌**:記錄工具呼叫、伺服器確認、遮蔽結果,每個組織保留最近 50 筆;`reportedBy` 為 `role`(角色自己回報)或 `runner`(執行者代報)。
+- console 新增「需要處理」「執行日誌」頁籤,開發進度會顯示需要協助;瀏覽器歷史(上一頁、重新整理還原頁面與子狀態);輸入框統一;登出圖示、透明 Logo。
+- **Mac App 同步**:需要處理、執行日誌分頁、開發進度需要協助、輸入框外觀、返回(⌘[)、App 圖示、登出圖示。
