@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"omixor-core/client"
+	"omixor-core/config"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -119,7 +120,8 @@ func git(dir string, args ...string) ([]byte, int, error) {
 	cmd := exec.Command("git", full...)
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	// cmd.Environ() 回傳目前行程環境的複本(Env 未設時的繼承內容),再附加固定變數;不直接碰 os.Environ
+	cmd.Env = append(cmd.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 	err := cmd.Run()
 	if err != nil {
 		code := -1
@@ -231,7 +233,7 @@ func commitsSync(cl *client.Client, out, errw io.Writer, o commitsOpts) error {
 	src := o.Source
 	if src == "" {
 		src = model.CommitSourceCLI
-		if os.Getenv("CI") == "true" {
+		if config.Current().Str(config.CI) == "true" {
 			src = model.CommitSourceCI
 		}
 	}

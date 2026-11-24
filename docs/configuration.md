@@ -99,6 +99,7 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 |---|---|---|---|---|---|---|---|
 | `OMIXOR_CREDENTIALS` |  | 路徑 | <設定資料夾>/credentials/<伺服器>.json |  |  | cli | 登入資料檔(指定單一檔案時只用那個檔,不記「上次登入的伺服器」) |
 | `OMIXOR_CONFIG_DIR` |  | 路徑 | ~/.config/omixor |  |  | cli | CLI 設定資料夾(登入資料、目前的伺服器) |
+| `CI` |  | 字串 |  |  |  | cli | CI 平台(GitHub Actions、GitLab CI 等)自動帶入的標記(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴);值為 true 時,omixor commits sync 沒給 --source 就把來源記成 ci,否則記成 cli |
 
 ## MCP 轉接(omixor-mcp)
 

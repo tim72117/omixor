@@ -178,7 +178,7 @@ func TestDefinitions(t *testing.T) {
 				t.Errorf("%s 必填的程式 %s 不在 Programs 裡", v.Name, p)
 			}
 		}
-		if !strings.HasPrefix(v.Name, "OMIXOR_") && v.Name != "PORT" && v.Name != "EVOLEAP_URL" && v.Name != "K_SERVICE" && v.Name != "PGCTLTIMEOUT" {
+		if !strings.HasPrefix(v.Name, "OMIXOR_") && v.Name != "PORT" && v.Name != "EVOLEAP_URL" && v.Name != "K_SERVICE" && v.Name != "PGCTLTIMEOUT" && v.Name != "CI" {
 			t.Errorf("%s 沒有 OMIXOR_ 前綴(例外要在這裡列出)", v.Name)
 		}
 		for _, l := range v.Legacy {

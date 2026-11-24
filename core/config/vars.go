@@ -186,6 +186,9 @@ var (
 		DefaultDoc: "<設定資料夾>/credentials/<伺服器>.json", Doc: "登入資料檔(指定單一檔案時只用那個檔,不記「上次登入的伺服器」)"})
 	ConfigDir = add(&Var{Name: "OMIXOR_CONFIG_DIR", Kind: Path, Group: GroupCLI, Programs: progs(CLI),
 		DefaultDoc: "~/.config/omixor", Doc: "CLI 設定資料夾(登入資料、目前的伺服器)"})
+	CI = add(&Var{Name: "CI", Kind: String, Group: GroupCLI, Programs: progs(CLI),
+		Doc: "CI 平台(GitHub Actions、GitLab CI 等)自動帶入的標記(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴);值為 true 時," +
+			"omixor commits sync 沒給 --source 就把來源記成 ci,否則記成 cli"})
 )
 
 // ---- MCP 轉接(omixor-mcp) ----
