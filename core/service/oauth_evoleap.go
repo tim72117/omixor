@@ -18,6 +18,8 @@ import (
 //  1. 同意畫面送出(via=evoleap,CSRF 與整個授權請求照配對碼那條路重驗):StartOAuthEvoleap 向 evoleap 登記回呼網址
 //     <對外網址>/oauth/evoleap/callback 拿到 evoleap id,存一列登入交易(只存雜湊、10 分鐘、用一次),回傳瀏覽器要去的 evoleap 核准頁與「瀏覽器綁定密鑰」
 //     (HTTP 層放進 HttpOnly cookie)
+//     另一條入口:OMIXOR_OAUTH_AUTO_APPROVE(預設開)時,唯讀的 GET /oauth/authorize 不顯示同意畫面,直接做這一步(StartOAuthEvoleapAuto,沒有 CSRF,
+//     交易綁在瀏覽器綁定密鑰 cookie + 單一用途交易 + evoleap 核准頁上的使用者核准);要求 mcp:write 的請求永遠顯示同意畫面
 //  2. 使用者在 evoleap 登入核准後,evoleap 把瀏覽器導回回呼網址(帶 id 與 code):CompleteOAuthEvoleap 先查交易、核對 cookie 的綁定密鑰、
 //     把交易標成用過(單一用途,成功失敗都一樣),再向 evoleap 換 token、對上 omixor 使用者(resolveEvoleapUser,規則同 LoginWithEvoleap,
 //     但不發 omixor 的登入 token)、立刻撤銷 evoleap token,最後和配對碼共用 approveOAuth 簽發授權碼
@@ -27,11 +29,13 @@ import (
 //	token_hash   oauth:evoleap:<evoleap id> 的雜湊(用 evoleap id 查)
 //	client_id / resource / redirect_uri / code_challenge / org   綁定的授權請求
 //	scope        使用者選的授權範圍(mcp:read 或 mcp:read mcp:write)
-//	family_id    <瀏覽器綁定密鑰的雜湊(64 個 hex)>.<授權請求的 state>
+//	family_id    <瀏覽器綁定密鑰的雜湊(64 個 hex)>.<授權請求的 state>(略過同意畫面開始的交易前面多一個 "A")
 const (
-	OAuthEvoleapTTL  = 10 * time.Minute
-	oauthEvoleapName = "omixor OAuth"
-	oauthBindLen     = 64 // 綁定密鑰雜湊的 hex 長度
+	OAuthEvoleapTTL     = 10 * time.Minute
+	oauthEvoleapName    = "omixor OAuth"
+	oauthEvoleapNameMax = 80 // 登記在 evoleap 的名稱(核准頁會顯示)總長上限(字元)
+	oauthAutoMark       = "A"
+	oauthBindLen        = 64 // 綁定密鑰雜湊的 hex 長度
 )
 
 // ErrOAuthEvoleapInvalid 回呼不被接受(不認得的 id、cookie 不對或沒有、逾時、重放):同一句話,不洩漏是哪一種
@@ -41,6 +45,26 @@ var ErrOAuthEvoleapInvalid = &OAuthError{Status: 400, Code: "invalid_request", N
 // OAuthEvoleapEnabled 同意畫面要不要提供 evoleap 登入:有 evoleap 網址、沒被明確關掉
 func (s *Service) OAuthEvoleapEnabled() bool {
 	return !s.OAuthEvoleapOff && strings.TrimSpace(s.Evoleap) != ""
+}
+
+// OAuthAutoApproveEnabled 唯讀授權請求要不要略過同意畫面、直接前往 evoleap 核准頁:evoleap 登入可用、且 OMIXOR_OAUTH_AUTO_APPROVE 沒被關掉
+func (s *Service) OAuthAutoApproveEnabled() bool {
+	return !s.OAuthAutoApproveOff && s.OAuthEvoleapEnabled()
+}
+
+// oauthEvoleapLabel 登記在 evoleap 的名稱,讓在 evoleap 核准的人看得到自己在核准什麼:
+// "omixor OAuth: <整理過的客戶端名稱> (read-only)"(或 "(read-write)");客戶端名稱沿用同意畫面的清理規則(去控制字元、壓縮空白),總長不超過 80 字
+func oauthEvoleapLabel(clientName string, grantWrite bool) string {
+	suffix := " (read-only)"
+	if grantWrite {
+		suffix = " (read-write)"
+	}
+	prefix := oauthEvoleapName + ": "
+	name := []rune(cleanClientName(clientName))
+	if room := oauthEvoleapNameMax - len([]rune(prefix)) - len([]rune(suffix)); len(name) > room {
+		name = name[:room]
+	}
+	return prefix + string(name) + suffix
 }
 
 // OAuthEvoleapConsoleOrigin evoleap 核准頁的來源(scheme://host),同意畫面的 CSP form-action 要允許它(送出表單後 303 導去那裡);沒啟用回 ""
@@ -68,6 +92,24 @@ func oauthBindHash(binding string) string {
 // StartOAuthEvoleap 開始 evoleap 登入:回傳瀏覽器要導去的 evoleap 核准頁網址與瀏覽器綁定密鑰(要放進 HttpOnly cookie)。
 // 呼叫前 HTTP 層必須已重驗授權請求與 CSRF。讀寫的規則同配對碼:grantWrite 但客戶端沒要求 mcp:write = 400 invalid_scope,在呼叫 evoleap 之前就擋
 func (s *Service) StartOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callbackURL string, grantWrite bool) (loginURL, binding string, err error) {
+	return s.startOAuthEvoleap(c, challenge, state, callbackURL, grantWrite, false)
+}
+
+// StartOAuthEvoleapAuto GET /oauth/authorize 略過同意畫面的路徑(沒有表單、沒有 CSRF):只給「唯讀」的授權請求,
+// OMIXOR_OAUTH_AUTO_APPROVE 關掉、evoleap 不可用、或客戶端要求了 mcp:write 都拒絕(HTTP 層就改顯示同意畫面)。
+// 這條路沒有 CSRF,交易靠三樣東西綁在一起:(1) 瀏覽器綁定密鑰(只存雜湊、放 HttpOnly cookie,回呼要帶同一個)、
+// (2) 單一用途 10 分鐘的登入交易(存在 evoleap id 的雜湊底下)、(3) evoleap 核准頁上使用者本人的核准(id 與 code 只有那邊發得出來)。稽核 detail 會帶 auto: true
+func (s *Service) StartOAuthEvoleapAuto(c *OAuthAuthChecked, challenge, state, callbackURL string) (loginURL, binding string, err error) {
+	if !s.OAuthAutoApproveEnabled() {
+		return "", "", oerr(400, "invalid_request", "auto approval is not enabled")
+	}
+	if c.WriteRequested {
+		return "", "", oerr(400, "invalid_scope", "write access always requires the consent page")
+	}
+	return s.startOAuthEvoleap(c, challenge, state, callbackURL, false, true)
+}
+
+func (s *Service) startOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callbackURL string, grantWrite, auto bool) (loginURL, binding string, err error) {
 	if !s.OAuthEvoleapEnabled() {
 		return "", "", oerr(400, "invalid_request", "這個伺服器沒有啟用 evoleap 登入,請改用配對碼")
 	}
@@ -75,7 +117,7 @@ func (s *Service) StartOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callb
 		return "", "", oerr(400, "invalid_scope", "這個授權請求沒有要求 mcp:write,不能授予讀寫")
 	}
 	s.purgeOAuth()
-	id, err := evoleap.Start(s.Evoleap, callbackURL, oauthEvoleapName)
+	id, err := evoleap.Start(s.Evoleap, callbackURL, oauthEvoleapLabel(c.Client.Name, grantWrite))
 	if err != nil {
 		return "", "", oerrR(502, "temporarily_unavailable", "暫時無法連到 evoleap,請稍後再試,或改用配對碼", "evoleap_unavailable")
 	}
@@ -85,9 +127,13 @@ func (s *Service) StartOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callb
 	}
 	binding = RandID("", 24)
 	now := s.now()
+	fam := oauthBindHash(binding) + "." + state
+	if auto {
+		fam = oauthAutoMark + fam // 稽核用的標記:這筆交易是略過同意畫面開始的(大寫 A,綁定雜湊是小寫 hex,不會混淆)
+	}
 	err = s.Store.PutOAuthToken(model.OAuthToken{ID: RandID("oa_", 9), Kind: model.OAuthKindEvoleapLogin, Hash: oauthEvoleapHash(id),
 		ClientID: c.Client.ID, Org: c.Org, Scope: scope, Resource: c.Resource, RedirectURI: c.RedirectURI, CodeChallenge: challenge,
-		FamilyID: oauthBindHash(binding) + "." + state, CreatedAt: now, ExpiresAt: now.Add(OAuthEvoleapTTL)})
+		FamilyID: fam, CreatedAt: now, ExpiresAt: now.Add(OAuthEvoleapTTL)})
 	if err != nil {
 		return "", "", err
 	}
@@ -113,7 +159,9 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 		}
 		return nil, err
 	}
-	bindHash, state, ok := strings.Cut(t.FamilyID, ".")
+	fam := t.FamilyID
+	auto := strings.HasPrefix(fam, oauthAutoMark)
+	bindHash, state, ok := strings.Cut(strings.TrimPrefix(fam, oauthAutoMark), ".")
 	if !ok || len(bindHash) != oauthBindLen ||
 		subtle.ConstantTimeCompare([]byte(bindHash), []byte(oauthBindHash(binding))) != 1 {
 		return nil, ErrOAuthEvoleapInvalid // cookie 不對:不作廢交易(不能讓別人用一個猜到的 id 把使用者的登入弄壞)
@@ -151,6 +199,9 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 		u, _, err := s.resolveEvoleapUser(evoTok)
 		switch {
 		case err == nil:
+			if auto {
+				return u, map[string]any{"via": "evoleap", "auto": true}, nil
+			}
 			return u, map[string]any{"via": "evoleap"}, nil
 		case err == errEvoleapDisabled && u != nil:
 			s.Audit(&model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: true}, "oauth.denied", chk.Org, map[string]any{"reason": "disabled", "client": chk.Client.ID, "via": "evoleap"})

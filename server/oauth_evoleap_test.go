@@ -88,6 +88,7 @@ func newEvoOA(t *testing.T) (*oaHTTP, *fakeEvoleap) {
 	f := newFakeEvoleap(t)
 	o.svc.Evoleap = f.srv.URL
 	o.svc.EvoleapConsole = tConsole
+	o.svc.OAuthAutoApproveOff = true // 這個檔案測的是同意畫面上的按鈕流程;自動核准見 oauth_autoapprove_test.go
 	return o, f
 }
 
@@ -184,7 +185,7 @@ func TestEvoleapHappyPathRead(t *testing.T) {
 	o, f := newEvoOA(t)
 	client := o.register()
 	id, ck := o.evoStarted(client, tResource, "mcp:read offline_access", "")
-	if len(f.starts) != 1 || f.starts[0]["redirect_uri"] != tPublic+"/oauth/evoleap/callback" || f.starts[0]["name"] != "omixor OAuth" {
+	if len(f.starts) != 1 || f.starts[0]["redirect_uri"] != tPublic+"/oauth/evoleap/callback" || f.starts[0]["name"] != "omixor OAuth: Claude (read-only)" {
 		t.Fatal("start 內容:", f.starts)
 	}
 	w := o.callback(id, "evo-code", ck)

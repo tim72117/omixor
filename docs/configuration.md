@@ -31,6 +31,7 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `PORT` |  | 整數(1–65535) | `8080` |  |  | server | Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴) |
 | `EVOLEAP_URL` |  | 網址(http/https) | `https://evoleap.io` |  |  | server | evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名) |
 | `OMIXOR_OAUTH_EVOLEAP_LOGIN` |  | 布林 | `true` |  |  | server | OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。設 false 關掉,同意畫面只剩配對碼 |
+| `OMIXOR_OAUTH_AUTO_APPROVE` |  | 布林 | `true` |  |  | server | 唯讀的 OAuth 授權請求(沒要求 mcp:write)略過 omixor 同意畫面,直接前往 evoleap 核准頁(evoleap 核准即明確同意);要求 mcp:write 永遠顯示同意畫面。需要 evoleap 登入可用,evoleap 連不上時退回同意畫面。設 false 恢復一律顯示同意畫面 |
 
 ## LDAP 登入(omixor-server)
 

@@ -3,6 +3,10 @@
 // 每次工具呼叫由統一入口用即時成員資格決定能用哪些組織;同意畫面不選組織)。
 // 同意畫面證明身分有兩種:主要是「用 evoleap 登入並允許」(瀏覽器登入 evoleap,見下面 /oauth/evoleap/callback;伺服器沒有 evoleap 或被關掉就不顯示),
 // 備援是一次性的配對碼(本機伺服器常沒有 evoleap)。
+// 自動核准(OMIXOR_OAUTH_AUTO_APPROVE,預設開):evoleap 登入可用、且請求是唯讀(沒要求 mcp:write)時,GET /oauth/authorize 不顯示同意畫面,
+// 直接設綁定 cookie 並 303 到 evoleap 核准頁,evoleap 核准頁就是使用者唯一的明確核准(代價:少了 omixor 這一頁的確認,名稱相近的假客戶端
+// 會騙到已經信任 evoleap 提示的人;evoleap 的名稱會帶客戶端名稱與 (read-only))。沒有 CSRF(沒有表單),交易靠 cookie 綁定密鑰 + 單一用途交易 + evoleap 核准綁定。
+// 要求 mcp:write 永遠顯示同意畫面;連不上 evoleap 時退回同意畫面(含配對碼);設 false 恢復一律顯示。稽核 oauth.authorize 會帶 auto: true。
 // 規則(證明身分、PKCE、refresh 輪替、唯讀)在 service/oauth.go,存放在 omixor_oauth_*(core/store/pg_oauth.go);這裡只做 HTTP:
 //
 //	GET  /.well-known/oauth-protected-resource/mcp/org/{org}   RFC 9728:這個組織 MCP 端點的 resource 與授權伺服器(/.well-known/oauth-protected-resource 是沒有路徑的備援)
@@ -471,6 +475,10 @@ func (h *Handler) authorizeGet(w http.ResponseWriter, r *http.Request) {
 		h.authError(w, r, req, err)
 		return
 	}
+	done, failMsg := h.autoEvoleap(w, r, chk, req, d)
+	if done {
+		return
+	}
 	csrf, err := h.Svc.NewOAuthCSRF(chk, req.CodeChallenge, service.ClientIP(r))
 	if err != nil {
 		var oe *service.OAuthError
@@ -481,7 +489,32 @@ func (h *Handler) authorizeGet(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	h.renderConsent(w, 200, chk, req, csrf, "")
+	h.renderConsent(w, 200, chk, req, csrf, failMsg)
+}
+
+// autoEvoleap 唯讀請求略過同意畫面:授權請求已驗證過,直接開始 evoleap 登入(設綁定 cookie、303 到 evoleap 核准頁)。
+// 沒有表單所以沒有 CSRF;交易靠瀏覽器綁定 cookie + 單一用途交易 + evoleap 核准綁定。回 false = 不適用或失敗,呼叫端照舊顯示同意畫面(含配對碼提示)
+func (h *Handler) autoEvoleap(w http.ResponseWriter, r *http.Request, chk *service.OAuthAuthChecked, req service.OAuthAuthRequest, d map[string]any) (done bool, failMsg string) {
+	if chk.WriteRequested || !h.Svc.OAuthAutoApproveEnabled() {
+		return false, ""
+	}
+	loginURL, binding, err := h.Svc.StartOAuthEvoleapAuto(chk, req.CodeChallenge, req.State, h.evoCallbackURL())
+	if err != nil {
+		d["auto_failed"] = true
+		var oe *service.OAuthError
+		if errors.As(err, &oe) && oe.Reason != "" {
+			d["pairing_result"] = oe.Reason
+			return false, oe.Desc
+		}
+		return false, "暫時無法連到 evoleap,請稍後再試,或改用配對碼"
+	}
+	d["via"], d["auto"], d["pairing_result"] = "evoleap", true, "evoleap_started"
+	http.SetCookie(w, h.evoCookie(binding, int(service.OAuthEvoleapTTL.Seconds())))
+	w.Header().Set("Location", loginURL)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.WriteHeader(303)
+	return true, ""
 }
 
 func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
