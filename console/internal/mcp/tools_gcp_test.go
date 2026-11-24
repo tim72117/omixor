@@ -289,7 +289,7 @@ func TestGCPMCPTools(t *testing.T) {
 	if n != 3 {
 		t.Fatal(n)
 	}
-	want := "omixor 還沒登入 Google Cloud。請人在 omixor 的 伺服器與服務 › GCP 設定並登入"
+	want := "omixor is not signed in to Google Cloud. Ask a human to sign in under Servers and Services > GCP settings in omixor"
 	for _, name := range []string{"gcp", "gcp_logs", "gcp_metrics"} {
 		if msg := extErr(t, a, name, map[string]any{"severity": "LOUD"}); msg != want {
 			t.Fatalf("%s:%s", name, msg)
@@ -299,7 +299,7 @@ func TestGCPMCPTools(t *testing.T) {
 	core.GCPEnsureConnection(a)
 	core.ConnSetBearer(a, core.GCPConnectionID, "ya29.test")
 	core.GCPUpdate(a, func(s *core.GCPSettings) { s.Region = "" })
-	if msg := extErr(t, a, "gcp", nil); msg != "還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定" {
+	if msg := extErr(t, a, "gcp", nil); msg != "No GCP project is configured. Ask a human to set it under Servers and Services > GCP settings in omixor" {
 		t.Fatal(msg)
 	}
 
@@ -326,7 +326,7 @@ func TestGCPMCPTools(t *testing.T) {
 	if logs["count"] != 3.0 || logs["severity"] != "WARNING" || logs["hours"] != 720.0 {
 		t.Fatalf("%v", logs)
 	}
-	if msg := extErr(t, a, "gcp_logs", map[string]any{"severity": "LOUD"}); msg != "severity 必須是 DEFAULT、INFO、WARNING、ERROR、CRITICAL 之一" {
+	if msg := extErr(t, a, "gcp_logs", map[string]any{"severity": "LOUD"}); msg != "severity must be one of DEFAULT, INFO, WARNING, ERROR, CRITICAL" {
 		t.Fatal(msg)
 	}
 
@@ -342,12 +342,12 @@ func TestGCPMCPTools(t *testing.T) {
 	}
 	// 兩個服務時要給 service
 	core.GCPUpdate(a, func(s *core.GCPSettings) { s.Services = nil })
-	if msg := extErr(t, a, "gcp_metrics", nil); msg != "請給 service,可用:shuttle-server、tripace-server" {
+	if msg := extErr(t, a, "gcp_metrics", nil); msg != "Give service. Available: shuttle-server, tripace-server" {
 		t.Fatal(msg)
 	}
 	// Google 的錯誤講清楚
 	core.ConnSetBearer(a, core.GCPConnectionID, "expired")
-	if msg := extErr(t, a, "gcp_logs", nil); msg != "GCP 回應錯誤:Google 登入已失效,請重新登入" {
+	if msg := extErr(t, a, "gcp_logs", nil); msg != "GCP returned an error: Google 登入已失效,請重新登入" {
 		t.Fatal(msg)
 	}
 	if msg := extErr(t, a, "gcp", map[string]any{"refresh": true}); msg != "Google 登入已失效,請重新登入" {

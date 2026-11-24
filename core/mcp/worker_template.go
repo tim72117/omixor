@@ -49,7 +49,7 @@ func ParseWorkerRepos(urls []string) ([]WorkerRepo, error) {
 	seen := map[string]bool{}
 	for _, raw := range urls {
 		raw = strings.TrimSpace(raw)
-		bad := fmt.Errorf("repo 網址要是公開的 https 網址(不含帳號密碼、參數,例如 https://github.com/owner/name.git):%q", raw)
+		bad := fmt.Errorf("The repo URL must be a public https URL (no credentials or query, e.g. https://github.com/owner/name.git): %q", raw)
 		u, err := url.Parse(raw)
 		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" ||
 			!repoHostRe.MatchString(u.Host) || !repoPathRe.MatchString(u.Path) {
@@ -69,7 +69,7 @@ func ParseWorkerRepos(urls []string) ([]WorkerRepo, error) {
 			return nil, bad
 		}
 		if seen[name] {
-			return nil, fmt.Errorf("repo 的目錄名稱重複:%s(%q)", name, raw)
+			return nil, fmt.Errorf("Duplicate repo directory name: %s (%q)", name, raw)
 		}
 		seen[name] = true
 		out = append(out, WorkerRepo{URL: raw, Dir: "repos/" + name})
@@ -101,7 +101,7 @@ func WorkerStartCommand() string {
 // WorkerFiles 產生執行者資料夾的檔案:檔名 → 內容
 func WorkerFiles(o WorkerOptions) (map[string]string, error) {
 	if o.ChannelCommand == "" || o.MCPURL == "" {
-		return nil, fmt.Errorf("要有頻道程式與 omixor MCP 端點")
+		return nil, fmt.Errorf("A channel program and an omixor MCP endpoint are required")
 	}
 	repos, err := ParseWorkerRepos(o.Repos)
 	if err != nil {

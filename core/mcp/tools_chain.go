@@ -98,7 +98,7 @@ func downstreamAgents(e AgentEnv, agentID string) string {
 			parts = append(parts, e.AgentName(id)+"("+id+","+x.LabelOrDefault()+")")
 		}
 	}
-	return strings.Join(parts, "、")
+	return strings.Join(parts, ", ")
 }
 
 func parseEdges(v any, key string) ([]model.ChainEdge, bool, error) {
@@ -107,7 +107,7 @@ func parseEdges(v any, key string) ([]model.ChainEdge, bool, error) {
 	}
 	list, ok := objects(v)
 	if !ok {
-		return nil, true, Errorf("%s 要是 [{from, to, label}] 的陣列", key)
+		return nil, true, Errorf("%s must be an array of [{from, to, label}]", key)
 	}
 	out := []model.ChainEdge{}
 	for _, d := range list {
@@ -144,7 +144,7 @@ func RegisterChainTools(s *Server) {
 			return nil, err
 		}
 		if !hasEdges && !hasAdd && !hasRemove {
-			return nil, ToolError{Message: "要給 edges(取代全部)或 add、remove"}
+			return nil, ToolError{Message: "Give edges (replace all) or add / remove"}
 		}
 		if !hasEdges {
 			cur, err := bk.GetChain(org)

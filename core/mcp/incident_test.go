@@ -24,15 +24,15 @@ func TestIncidentTools(t *testing.T) {
 		return &backend.Local{Svc: svc, P: amy}, "lab", nil
 	}})
 
-	fails(t, h, "", "incident_declare", map[string]any{"title": "x", "sev": 9.0, "impact": "i"}, "sev 必須是 1–4")
-	fails(t, h, "", "incident_declare", map[string]any{"title": "x"}, "缺少或無效的整數參數 sev")
+	fails(t, h, "", "incident_declare", map[string]any{"title": "x", "sev": 9.0, "impact": "i"}, "sev must be 1-4")
+	fails(t, h, "", "incident_declare", map[string]any{"title": "x"}, "Missing or invalid integer parameter sev")
 	inc := ok(t, h, "", "incident_declare", map[string]any{"title": "付款延遲", "sev": 2.0, "impact": "開通延遲",
 		"services": []any{"payments"}, "alert_ids": []any{"ALT-1"}})
 	if inc["id"] != "INC-2001" || inc["commander"] != "amy@x" || inc["status"] != "investigating" || len(inc["timeline"].([]any)) != 2 {
 		t.Fatal(inc)
 	}
-	fails(t, h, "", "incident_update", map[string]any{"incident_id": "INC-2001"}, "status、note、finding、ai_summary、impact 至少要給一項")
-	fails(t, h, "", "incident_update", map[string]any{"incident_id": "INC-9", "note": "x"}, "找不到事件 INC-9")
+	fails(t, h, "", "incident_update", map[string]any{"incident_id": "INC-2001"}, "Give at least one of status, note, finding, ai_summary, impact")
+	fails(t, h, "", "incident_update", map[string]any{"incident_id": "INC-9", "note": "x"}, "Incident INC-9 not found")
 	u := ok(t, h, "", "incident_update", map[string]any{"incident_id": "inc-2001", "status": "identified", "note": "找到原因", "finding": "鎖競爭", "ai_summary": "摘要"})
 	tl := u["timeline"].([]any)
 	if u["status"] != "identified" || len(tl) != 4 || tl[2].(map[string]any)["text"] != "找到原因" || u["aiSummary"] != "摘要" {

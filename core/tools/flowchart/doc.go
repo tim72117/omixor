@@ -27,7 +27,7 @@
 //	樣式    class A,B highlight(只認得 highlight、muted)
 //
 // 忽略並放進 Warnings:classDef、style、linkStyle、click(不會輸出任何連結)、subgraph 裡的 direction、accTitle、accDescr。
-// 不支援的語法回 *Error,訊息帶行號與附近的文字,例如「第 3 行:節點「C」的形狀括號沒有結束(缺少「]」)(在「C[沒結束」附近)」;
+// 不支援的語法回 *Error,訊息帶行號與附近的文字,例如"line 3: the shape bracket of node \"C\" is not closed (missing \"]\") (near \"C[沒結束\")";
 // 其他圖型(sequenceDiagram、classDiagram…)、@{ shape: … } 新語法、把邊連到 subgraph 的 id 也回錯誤。
 //
 // # 格式二:JSON

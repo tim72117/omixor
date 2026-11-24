@@ -10,13 +10,13 @@ import (
 
 func gcpReady(c *Call) error {
 	if !core.GCPLoggedIn(c.App) {
-		return ToolError{Message: "omixor 還沒登入 Google Cloud。請人在 omixor 的 伺服器與服務 › GCP 設定並登入"}
+		return ToolError{Message: "omixor is not signed in to Google Cloud. Ask a human to sign in under Servers and Services > GCP settings in omixor"}
 	}
 	c.App.Mu.Lock()
 	ok := core.GCPConfigured(c.App)
 	c.App.Mu.Unlock()
 	if !ok {
-		return ToolError{Message: "還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定"}
+		return ToolError{Message: "No GCP project is configured. Ask a human to set it under Servers and Services > GCP settings in omixor"}
 	}
 	return nil
 }
@@ -26,7 +26,7 @@ func gcpFail(err error) error {
 	if _, ok := core.AsConnError(err); ok {
 		err = core.UserError{Message: core.GCPExplain(err)}
 	}
-	return PrefixErr("GCP 回應錯誤:", err)
+	return PrefixErr("GCP returned an error: ", err)
 }
 
 func optArg(c *Call, k string) *string {
@@ -114,7 +114,7 @@ func init() {
 			valid = valid || s == sev
 		}
 		if !valid {
-			return nil, ToolError{Message: "severity 必須是 " + strings.Join(core.GCPSeverities, "、") + " 之一"}
+			return nil, ToolError{Message: "severity must be one of " + strings.Join(core.GCPSeverities, ", ")}
 		}
 		hours := 24
 		if n, ok := c.Args.Int("hours"); ok {
@@ -153,7 +153,7 @@ func init() {
 				for _, s := range services {
 					names = append(names, s.ID)
 				}
-				return nil, ToolError{Message: "請給 service,可用:" + strings.Join(names, "、")}
+				return nil, ToolError{Message: "Give service. Available: " + strings.Join(names, ", ")}
 			}
 			service = services[0].ID
 		}

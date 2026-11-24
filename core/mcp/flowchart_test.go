@@ -42,8 +42,8 @@ func TestFlowchartTool(t *testing.T) {
 	if out["width"].(float64) <= out["height"].(float64) {
 		t.Fatal(out)
 	}
-	fails(t, admin, "", "flowchart_render", map[string]any{"spec": "flowchart TD\n  A --> B[沒結束"}, "流程圖描述錯誤:第 2 行:節點「B」的形狀括號沒有結束(缺少「]」)(在「B[沒結束」附近)")
-	fails(t, admin, "", "flowchart_render", map[string]any{}, "要給 spec(流程圖描述),或給 doc(文件 id)讀文件裡的 ```flowchart 區塊")
+	fails(t, admin, "", "flowchart_render", map[string]any{"spec": "flowchart TD\n  A --> B[沒結束"}, "Flowchart description error: line 2: the shape bracket of node \"B\" is not closed (missing \"]\") (near \"B[沒結束\")")
+	fails(t, admin, "", "flowchart_render", map[string]any{}, "Give spec (the flowchart description), or give doc (document id) to read the ```flowchart block in the document")
 
 	// 存成新文件:內文是 note + ```flowchart 區塊,Mermaid 原文照存
 	out = ok(t, admin, "", "flowchart_render", map[string]any{"spec": merm, "svg": false, "save": map[string]any{"section": "構想", "title": "登入流程", "note": "第一版"}})

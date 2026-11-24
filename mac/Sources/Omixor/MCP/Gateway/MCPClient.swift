@@ -120,10 +120,10 @@ final class MCPStdioTransport: MCPTransport, @unchecked Sendable {
             self.lock.unlock()
         }
         p.terminationHandler = { [weak self] proc in
-            self?.failAll("外部 MCP 伺服器的子程序結束了(代碼 \(proc.terminationStatus))")
+            self?.failAll("The external MCP server subprocess exited (code \(proc.terminationStatus))")
         }
         do { try p.run() } catch {
-            throw MCPClientError(message: "啟動不了「\(command)」:\(error.localizedDescription)")
+            throw MCPClientError(message: "Could not start \"\(command)\": \(error.localizedDescription)")
         }
         lock.lock()
         process = p
@@ -170,7 +170,7 @@ final class MCPStdioTransport: MCPTransport, @unchecked Sendable {
             guard let id = obj["id"] else { return }   // 通知:不理
             let reply: [String: Any] = method == "ping"
                 ? ["jsonrpc": "2.0", "id": id, "result": [String: Any]()]
-                : ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "omixor 閘道不支援 \(method)"]]
+                : ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "The omixor gateway does not support \(method)"]]
             try? write(reply)
             return
         }
@@ -188,8 +188,8 @@ final class MCPStdioTransport: MCPTransport, @unchecked Sendable {
         let h = stdin, gone = exited
         lock.unlock()
         if let gone { throw MCPClientError(message: gone) }
-        guard let h else { throw MCPClientError(message: "外部 MCP 伺服器還沒啟動") }
-        do { try h.write(contentsOf: d) } catch { throw MCPClientError(message: "寫不進外部 MCP 伺服器:\(error.localizedDescription)") }
+        guard let h else { throw MCPClientError(message: "The external MCP server has not started") }
+        do { try h.write(contentsOf: d) } catch { throw MCPClientError(message: "Could not write to the external MCP server: \(error.localizedDescription)") }
     }
 
     func request(_ msg: [String: Any], id: Int, timeout: TimeInterval) async throws -> [String: Any] {
@@ -210,7 +210,7 @@ final class MCPStdioTransport: MCPTransport, @unchecked Sendable {
                 self.lock.lock()
                 let p = self.pending.removeValue(forKey: id)
                 self.lock.unlock()
-                p?.resume(throwing: MCPClientError(message: "外部 MCP 伺服器沒有在 \(Int(timeout)) 秒內回應"))
+                p?.resume(throwing: MCPClientError(message: "The external MCP server did not respond within \(Int(timeout)) seconds"))
             }
         }
     }
@@ -230,7 +230,7 @@ final class MCPStdioTransport: MCPTransport, @unchecked Sendable {
             let pid = p.processIdentifier
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if p.isRunning { kill(pid, SIGKILL) } }
         }
-        failAll("外部 MCP 連線已關閉")
+        failAll("The external MCP connection was closed")
     }
 
     deinit { if let p = process, p.isRunning { p.terminate() } }
@@ -286,7 +286,7 @@ final class MCPHTTPTransport: MCPTransport, @unchecked Sendable {
         let (data, resp): (Data, URLResponse)
         // 每個請求都帶「拒絕重新導向」的 delegate
         do { (data, resp) = try await session.data(for: req, delegate: MCPNoRedirectDelegate()) } catch {
-            throw MCPClientError(message: "連不到外部 MCP 伺服器(\(url.host ?? "")):\(MCPClientError.masked(error.localizedDescription, secrets))")
+            throw MCPClientError(message: "Could not reach the external MCP server (\(url.host ?? "")): \(MCPClientError.masked(error.localizedDescription, secrets))")
         }
         let h = resp as? HTTPURLResponse
         if let s = h?.value(forHTTPHeaderField: "Mcp-Session-Id"), !s.isEmpty {
@@ -300,9 +300,9 @@ final class MCPHTTPTransport: MCPTransport, @unchecked Sendable {
         var whereTo = ""
         if let location, let u = URL(string: location, relativeTo: url)?.absoluteURL, var c = URLComponents(url: u, resolvingAgainstBaseURL: true) {
             c.query = nil; c.fragment = nil; c.user = nil; c.password = nil
-            whereTo = "到 \(c.string ?? "")"
+            whereTo = " to \(c.string ?? "")"
         }
-        return MCPClientError(message: "外部 MCP 伺服器要求重新導向(HTTP \(status))\(whereTo);為了不把密鑰標頭送到別的地方,omixor 不跟隨重新導向。請把登記的網址改成最終位址")
+        return MCPClientError(message: "The external MCP server asked for a redirect (HTTP \(status))\(whereTo); omixor does not follow redirects so that secret headers are not sent elsewhere. Change the registered URL to the final address")
     }
 
     func request(_ msg: [String: Any], id: Int, timeout: TimeInterval) async throws -> [String: Any] {
@@ -311,26 +311,26 @@ final class MCPHTTPTransport: MCPTransport, @unchecked Sendable {
         guard (200..<300).contains(status) else {
             let body = MCPClientError.masked(String(decoding: data.prefix(300), as: UTF8.self), secrets)
             throw MCPClientError(message: status == 401 || status == 403
-                ? "外部 MCP 伺服器拒絕(HTTP \(status)):請確認這台裝置輸入的密鑰"
-                : "外部 MCP 伺服器回應不對(HTTP \(status)):\(body)")
+                ? "The external MCP server refused the request (HTTP \(status)): check the secrets entered on this device"
+                : "The external MCP server returned an unexpected response (HTTP \(status)): \(body)")
         }
         if type.lowercased().contains("text/event-stream") {
             for obj in Self.sseMessages(data) {
                 if let rid = (obj["id"] as? Int) ?? (obj["id"] as? NSNumber)?.intValue, rid == id, obj["method"] == nil { return obj }
             }
-            throw MCPClientError(message: "外部 MCP 伺服器的 SSE 回應裡沒有這個請求的結果")
+            throw MCPClientError(message: "The external MCP server SSE response had no result for this request")
         }
         if let obj = try? JSONSerialization.jsonObject(with: data) {
             if let d = obj as? [String: Any] { return d }
             if let arr = obj as? [[String: Any]], let d = arr.first(where: { ($0["id"] as? Int) == id }) { return d }
         }
-        throw MCPClientError(message: "外部 MCP 伺服器的回應不是 JSON")
+        throw MCPClientError(message: "The external MCP server response is not JSON")
     }
 
     func notify(_ msg: [String: Any]) async throws {
         let (status, _, _, location) = try await send(msg, timeout: 10)
         if (300..<400).contains(status) { throw redirectError(status, location) }
-        guard (200..<300).contains(status) else { throw MCPClientError(message: "外部 MCP 伺服器不接受通知(HTTP \(status))") }
+        guard (200..<300).contains(status) else { throw MCPClientError(message: "The external MCP server did not accept the notification (HTTP \(status))") }
     }
 
     /// SSE:每個事件的 data 行合起來是一則 JSON
@@ -396,7 +396,7 @@ final class MCPClient: @unchecked Sendable {
         let id = newId()
         let resp = try await transport.request(["jsonrpc": "2.0", "id": id, "method": method, "params": params], id: id, timeout: timeout ?? self.timeout)
         if let e = resp["error"] as? [String: Any] {
-            throw MCPClientError(message: MCPClientError.masked("外部 MCP 伺服器回錯誤:\(e["message"] as? String ?? "未知")", secrets))
+            throw MCPClientError(message: MCPClientError.masked("The external MCP server returned an error: \(e["message"] as? String ?? "unknown")", secrets))
         }
         return resp["result"] as? [String: Any] ?? [:]
     }
@@ -407,7 +407,7 @@ final class MCPClient: @unchecked Sendable {
         let r = try await call("initialize", [
             "protocolVersion": Self.clientVersion,
             "capabilities": [String: Any](),
-            "clientInfo": ["name": "omixor-gateway", "title": "omixor 閘道", "version": MCPHandler.serverVersion],
+            "clientInfo": ["name": "omixor-gateway", "title": "omixor gateway", "version": MCPHandler.serverVersion],
         ])
         protocolVersion = r["protocolVersion"] as? String ?? Self.clientVersion
         serverName = (r["serverInfo"] as? [String: Any])?["name"] as? String ?? ""

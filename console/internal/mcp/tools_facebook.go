@@ -39,10 +39,10 @@ func fbTargets(c *Call) ([]core.FBPage, error) {
 		all := core.FBSettingsNow(a).Pages
 		a.Mu.Unlock()
 		if p == nil {
-			return nil, Errorf("找不到專頁 %s。可用:%s", ref, fbAvailable(all))
+			return nil, Errorf("Page %s not found. Available: %s", ref, fbAvailable(all))
 		}
 		if _, ok := core.FBPageToken(a, p.ID); !ok {
-			return nil, ToolError{Message: "專頁「" + p.Name + "」沒有權杖。" + core.FBNotConnected}
+			return nil, ToolError{Message: "Page \"" + p.Name + "\" has no token. " + core.FBNotConnected}
 		}
 		return []core.FBPage{*p}, nil
 	}
@@ -179,7 +179,7 @@ func init() {
 			period = s
 		}
 		if !slicesContains(core.FBPeriods, period) {
-			return nil, ToolError{Message: "period 必須是 " + strings.Join(core.FBPeriods, "、") + " 之一"}
+			return nil, ToolError{Message: "period must be one of " + strings.Join(core.FBPeriods, ", ")}
 		}
 		days := 28
 		if n, ok := c.Args.Int("days"); ok {
@@ -219,7 +219,7 @@ func init() {
 		if id := c.Args.Str("id"); id != "" {
 			d := core.FBFindDraft(a, id)
 			if d == nil {
-				return nil, Errorf("找不到草稿 %s", id)
+				return nil, Errorf("Draft %s not found", id)
 			}
 			return core.FBDraftJSON(a, *d), nil
 		}
@@ -228,7 +228,7 @@ func init() {
 			status = s
 		}
 		if !slicesContains([]string{"draft", "scheduled", "published", "all"}, status) {
-			return nil, ToolError{Message: "status 必須是 draft、scheduled、published、all 之一"}
+			return nil, ToolError{Message: "status must be one of draft, scheduled, published, all"}
 		}
 		list := []core.FBDraft{}
 		for _, d := range core.FBSettingsNow(a).Drafts {
@@ -239,7 +239,7 @@ func init() {
 		if ref := c.Args.Str("page"); ref != "" {
 			p := core.FBFindPage(a, ref)
 			if p == nil {
-				return nil, Errorf("找不到專頁 %s", ref)
+				return nil, Errorf("Page %s not found", ref)
 			}
 			kept := []core.FBDraft{}
 			for _, d := range list {
@@ -277,7 +277,7 @@ func init() {
 			if u := c.Args.Str(k); u != "" {
 				l := strings.ToLower(u)
 				if !strings.HasPrefix(l, "https://") && !strings.HasPrefix(l, "http://") {
-					return nil, Errorf("%s 必須是 http 或 https 網址", k)
+					return nil, Errorf("%s must be an http or https URL", k)
 				}
 			}
 		}
@@ -285,7 +285,7 @@ func init() {
 		if t := c.Args.Str("proposed_time"); t != "" {
 			d, ok := fbParseISO(t)
 			if !ok {
-				return nil, ToolError{Message: "proposed_time 要用 ISO 8601,例如 2026-11-20T20:00:00+08:00"}
+				return nil, ToolError{Message: "proposed_time must be ISO 8601, e.g. 2026-11-20T20:00:00+08:00"}
 			}
 			proposed = &d
 		}
@@ -293,7 +293,7 @@ func init() {
 		if ref := c.Args.Str("page"); ref != "" {
 			p := core.FBFindPage(a, ref)
 			if p == nil {
-				return nil, Errorf("找不到專頁 %s。可用:%s", ref, fbAvailable(core.FBSettingsNow(a).Pages))
+				return nil, Errorf("Page %s not found. Available: %s", ref, fbAvailable(core.FBSettingsNow(a).Pages))
 			}
 			pageID = &p.ID
 		}
@@ -302,10 +302,10 @@ func init() {
 		if id := c.Args.Str("id"); id != "" {
 			old := core.FBFindDraft(a, id)
 			if old == nil {
-				return nil, Errorf("找不到草稿 %s", id)
+				return nil, Errorf("Draft %s not found", id)
 			}
 			if old.Status != core.FBDraftDraft {
-				return nil, Errorf("草稿 %s %s,不能修改", old.ID, core.FBStatusLabel(old.Status))
+				return nil, Errorf("Draft %s is %s and cannot be edited", old.ID, core.FBStatusLabel(old.Status))
 			}
 			d = *old
 		} else {
@@ -334,7 +334,7 @@ func init() {
 			d.PageID = *pageID
 		}
 		if d.IsEmpty() {
-			return nil, ToolError{Message: "草稿至少要有 message、link 或 image_url"}
+			return nil, ToolError{Message: "A draft needs at least one of message, link or image_url"}
 		}
 		saved := core.FBSaveDraft(a, d, author)
 		verb := "修改"
@@ -343,7 +343,7 @@ func init() {
 		}
 		a.Log(core.AuthorActor(author), "square.and.pencil", verb+" Facebook 草稿 "+saved.ID+"「"+saved.TitleLine()+"」", "automation")
 		o := core.FBDraftJSON(a, saved)
-		o["note"] = "只存成草稿。發佈或排程要由人在 omixor 的 AI 自動化 › 粉絲專頁 按。"
+		o["note"] = "Saved as a draft only. A human must publish or schedule it in omixor under AI Automation > Fan Pages."
 		return o, nil
 	})
 }

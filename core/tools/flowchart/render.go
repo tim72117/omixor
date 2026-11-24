@@ -113,7 +113,7 @@ func RenderGraph(g *Graph) *Result {
 	}
 	for gi, gr := range g.Groups {
 		if !has[gi] {
-			g.warn("群組「%s」沒有任何節點,不畫", gr.ID)
+			g.warn("group \"%s\" has no nodes and was not drawn", gr.ID)
 		}
 	}
 
@@ -277,7 +277,7 @@ func RenderGraph(g *Graph) *Result {
 	var out strings.Builder
 	title := g.Title
 	if title == "" {
-		title = "流程圖"
+		title = "Flowchart"
 	}
 	out.WriteString(`<svg xmlns="http://www.w3.org/2000/svg" width="` + f(W) + `" height="` + f(H) + `" viewBox="0 0 ` + f(W) + ` ` + f(H) +
 		`" role="img" aria-label="` + esc(title) + `"><title>` + esc(title) + `</title><style>` + fontCSS + `</style>`)

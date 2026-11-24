@@ -65,10 +65,11 @@ struct DiagramRender: Equatable {
 
     /// 把 core 工具的回應(tools/call 的 result)轉成渲染結果
     static func from(toolResult r: [String: Any]) -> DiagramRender {
-        let text = ((r["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
-        if r["isError"] as? Bool == true { return DiagramRender(error: text.isEmpty ? "渲染失敗" : text) }
-        guard let obj = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else {
-            return DiagramRender(error: "server 的回應看不懂")
+        // 結果形狀:成功與失敗的本體都在 structuredContent(失敗是 {"error": {code, message, status}})
+        guard let obj = r["structuredContent"] as? [String: Any] else { return DiagramRender(error: "server 的回應看不懂") }
+        if r["isError"] as? Bool == true {
+            let msg = (obj["error"] as? [String: Any])?["message"] as? String ?? ""
+            return DiagramRender(error: msg.isEmpty ? "渲染失敗" : msg)
         }
         guard let svg = obj["svg"] as? String, !svg.isEmpty else { return DiagramRender(error: "server 沒有回傳 SVG") }
         return DiagramRender(svg: svg, width: (obj["width"] as? NSNumber)?.intValue ?? 0,

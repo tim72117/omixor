@@ -53,7 +53,7 @@ final class MCPGatewayTests: XCTestCase {
         do {
             _ = try await c.callTool("echo", ["text": "slow"], timeout: 0.5)
             XCTFail("要逾時")
-        } catch { XCTAssertTrue(error.localizedDescription.contains("秒內"), error.localizedDescription) }
+        } catch { XCTAssertTrue(error.localizedDescription.contains("seconds"), error.localizedDescription) }
         do { _ = try await c.callTool("nope", [:]); XCTFail() } catch { XCTAssertTrue(error.localizedDescription.contains("沒有這個工具")) }
         let pid = try XCTUnwrap(t.pid)
         c.close()
@@ -62,7 +62,7 @@ final class MCPGatewayTests: XCTestCase {
         do { _ = try await c.callTool("echo", [:]); XCTFail() } catch {}
         // 指令不存在
         let bad = MCPClient(transport: MCPStdioTransport(command: "/no/such/mcp", args: [], cwd: nil, secretEnv: [:]))
-        do { try await bad.connect(); XCTFail() } catch { XCTAssertTrue(error.localizedDescription.contains("啟動不了")) }
+        do { try await bad.connect(); XCTFail() } catch { XCTAssertTrue(error.localizedDescription.contains("Could not start")) }
     }
 
     /// 啟動 HTTP 版的假伺服器,回傳網址
@@ -115,7 +115,7 @@ final class MCPGatewayTests: XCTestCase {
                           secrets: ["good-key-999", "k-777"])
         do { try await c.connect(); XCTFail("重新導向要失敗") } catch {
             let m = error.localizedDescription
-            XCTAssertTrue(m.contains("重新導向") && m.contains("307"), m)
+            XCTAssertTrue(m.contains("redirect") && m.contains("307"), m)
             XCTAssertTrue(m.contains(evil.host ?? "127.0.0.1"), "說明導向哪裡:\(m)")
             XCTAssertFalse(m.contains("x=1"), "不顯示 query")
             XCTAssertFalse(m.contains("good-key-999") || m.contains("k-777"))
@@ -129,7 +129,7 @@ final class MCPGatewayTests: XCTestCase {
         let same = try startHTTPFake(expectAuth: "good-key-999", env: ["REDIRECT_TO": "/other"])
         let c2 = MCPClient(transport: MCPHTTPTransport(url: same, secretHeaders: ["Authorization": "Bearer good-key-999"]))
         do { try await c2.connect(); XCTFail("同主機的重新導向也要失敗") } catch {
-            XCTAssertTrue(error.localizedDescription.contains("重新導向"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("redirect"), error.localizedDescription)
         }
         c2.close()
     }
@@ -271,7 +271,7 @@ final class MCPGatewayTests: XCTestCase {
         defer { MCPGateway.maxConfirmArgsBytes = 20 * 1024 }
         let big = await gw.call("fake__write_note", ["note": String(repeating: "x", count: 4096)], caller: .member)
         XCTAssertEqual(big["isError"] as? Bool, true)
-        XCTAssertTrue(text(big).contains("參數太大"), text(big))
+        XCTAssertTrue(text(big).contains("arguments are too large"), text(big))
         XCTAssertTrue(asked.isEmpty, "太大的不會跳確認")
         MCPGateway.maxConfirmArgsBytes = 20 * 1024
         gw.confirmer = { _ in true }

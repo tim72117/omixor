@@ -161,10 +161,10 @@ func TestMCPFBReadTools(t *testing.T) {
 			}
 		}
 	}
-	if msg := extErr(t, a, "fb_insights", map[string]any{"period": "month"}); msg != "period 必須是 day、week、days_28 之一" {
+	if msg := extErr(t, a, "fb_insights", map[string]any{"period": "month"}); msg != "period must be one of day, week, days_28" {
 		t.Fatal(msg)
 	}
-	if msg := extErr(t, a, "fb_posts", map[string]any{"page": "nope"}); msg != "找不到專頁 nope。可用:evoleap(1001)" {
+	if msg := extErr(t, a, "fb_posts", map[string]any{"page": "nope"}); msg != "Page nope not found. Available: evoleap(1001)" {
 		t.Fatal(msg)
 	}
 	if fbGraphPosts(f) != 0 {
@@ -221,13 +221,13 @@ func TestMCPFBDraftSaveSignsCallerAndCannotPublish(t *testing.T) {
 		want string
 	}{
 		{map[string]any{"message": "x", "agent": "nobody"}, coremcp.IdentityAgentError},
-		{map[string]any{}, "草稿至少要有 message、link 或 image_url"},
-		{map[string]any{"message": "   "}, "草稿至少要有 message、link 或 image_url"},
-		{map[string]any{"message": "x", "link": "javascript:alert(1)"}, "link 必須是 http 或 https 網址"},
-		{map[string]any{"message": "x", "image_url": "ftp://x"}, "image_url 必須是 http 或 https 網址"},
-		{map[string]any{"message": "x", "proposed_time": "明天"}, "proposed_time 要用 ISO 8601,例如 2026-11-20T20:00:00+08:00"},
-		{map[string]any{"message": "x", "page": "nope"}, "找不到專頁 nope。可用:evoleap(1001)"},
-		{map[string]any{"id": "FD-99", "message": "x"}, "找不到草稿 FD-99"},
+		{map[string]any{}, "A draft needs at least one of message, link or image_url"},
+		{map[string]any{"message": "   "}, "A draft needs at least one of message, link or image_url"},
+		{map[string]any{"message": "x", "link": "javascript:alert(1)"}, "link must be an http or https URL"},
+		{map[string]any{"message": "x", "image_url": "ftp://x"}, "image_url must be an http or https URL"},
+		{map[string]any{"message": "x", "proposed_time": "明天"}, "proposed_time must be ISO 8601, e.g. 2026-11-20T20:00:00+08:00"},
+		{map[string]any{"message": "x", "page": "nope"}, "Page nope not found. Available: evoleap(1001)"},
+		{map[string]any{"id": "FD-99", "message": "x"}, "Draft FD-99 not found"},
 	} {
 		if msg := extErr(t, a, "fb_draft_save", c.args); msg != c.want {
 			t.Fatalf("%v:%s", c.args, msg)
@@ -236,7 +236,7 @@ func TestMCPFBDraftSaveSignsCallerAndCannotPublish(t *testing.T) {
 	if _, err := core.FBPublish(a, id, nil, time.Now(), core.Person("tim")); err != nil {
 		t.Fatal(err)
 	}
-	if msg := extErr(t, a, "fb_draft_save", map[string]any{"id": id, "message": "改"}); msg != "草稿 FD-1 已發佈,不能修改" {
+	if msg := extErr(t, a, "fb_draft_save", map[string]any{"id": id, "message": "改"}); msg != "Draft FD-1 is 已發佈 and cannot be edited" {
 		t.Fatal(msg)
 	}
 	// MCP 存草稿不會碰 Graph API 的寫入
@@ -255,10 +255,10 @@ func TestMCPFBDraftSaveSignsCallerAndCannotPublish(t *testing.T) {
 	if one["status"] != "published" || one["postId"] != "1001_555" || one["publishedBy"] != "tim" {
 		t.Fatalf("%v", one)
 	}
-	if msg := extErr(t, a, "fb_drafts", map[string]any{"status": "x"}); msg != "status 必須是 draft、scheduled、published、all 之一" {
+	if msg := extErr(t, a, "fb_drafts", map[string]any{"status": "x"}); msg != "status must be one of draft, scheduled, published, all" {
 		t.Fatal(msg)
 	}
-	if msg := extErr(t, a, "fb_drafts", map[string]any{"page": "nope"}); msg != "找不到專頁 nope" {
+	if msg := extErr(t, a, "fb_drafts", map[string]any{"page": "nope"}); msg != "Page nope not found" {
 		t.Fatal(msg)
 	}
 	if byPage := extOK(t, a, "fb_drafts", map[string]any{"page": "EVOLEAP", "status": "all"}); byPage["total"] != float64(2) {

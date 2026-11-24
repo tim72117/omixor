@@ -109,6 +109,6 @@ func TestDiagramSaveEditsAndNestedAllow(t *testing.T) {
 	if out := ok(t, role, auth, "flowchart_render", map[string]any{"spec": "flowchart TD\n  a --> b", "svg": false}); out["width"] == nil {
 		t.Fatal(out)
 	}
-	failsWith(t, role, auth, "flowchart_render", map[string]any{"spec": "flowchart TD\n  a --> b", "save": map[string]any{"section": "ideas", "title": "偷存"}}, "沒有開放 doc_save")
-	failsWith(t, role, auth, "flowchart_render", map[string]any{"doc": id}, "沒有開放 docs")
+	failsWith(t, role, auth, "flowchart_render", map[string]any{"spec": "flowchart TD\n  a --> b", "save": map[string]any{"section": "ideas", "title": "偷存"}}, "does not expose doc_save")
+	failsWith(t, role, auth, "flowchart_render", map[string]any{"doc": id}, "does not expose docs")
 }

@@ -2,9 +2,10 @@ package mcp
 
 import "strings"
 
-// identityDescReplacer 外部規格(console 的 spec/tools.json,Swift 匯出、不手改)裡提到「帶 agent」的句子
+// identityDescReplacer 外部規格(console 的 spec/tools.json,Swift 匯出、不手改)裡提到「帶 agent」的句子;
+// Swift 改了句子要同步改這裡(console/internal/mcp/identity_spec_test.go 擋下對不上的情況)
 var identityDescReplacer = strings.NewReplacer(
-	"以角色身分工作時帶 agent,草稿會署名該角色。", "The draft is signed by the caller; an agent identity cannot be specified.",
+	"When working as a role, pass agent and the draft is attributed to that role.", "The draft is signed by the caller; an agent identity cannot be specified.",
 )
 
 // 「身分假冒」型的 agent 參數:讓呼叫者以某角色的身分署名、或依該角色的 docAccess 讀寫。
@@ -28,7 +29,7 @@ var IdentityAgentTools = map[string]bool{
 }
 
 // IdentityAgentError 人類端點收到身分假冒型 agent 參數的固定錯誤句子(狀態碼 400)
-const IdentityAgentError = "不能指定角色身分;要以角色身分工作請先領任務(agent_task_claim)取得角色憑證,連角色端點(/mcp/agent)"
+const IdentityAgentError = "An agent identity cannot be specified here; to work as an agent, first claim a task (agent_task_claim) to get an agent credential, then connect to the agent endpoint (/mcp/agent)"
 
 // RejectIdentityAgent 人類端點的檢查:身分假冒型的工具帶了非空的 agent 就回 400。
 // agent_task_delegate 的委派者只能由角色憑證決定,人類端點一律拒絕(不論有沒有帶 agent)。

@@ -41,16 +41,22 @@ type callCtx struct {
 	locked bool
 }
 
-var initInstructionsReplacer = strings.NewReplacer(
-	"以角色身分開 Issue 或留言時,issue_create / issue_update 帶上 agent(角色 id),才會署名該角色。",
-	"issue_create / issue_update 一律署名你自己,不能指定角色身分;要以角色身分工作,用 agent_task_claim 領任務拿角色憑證,連角色端點 /mcp/agent(身分由憑證決定)。",
-	"以角色身分工作時一律帶 agent,只能讀寫該角色 docAccess 範圍內的文件。",
-	"署名是你,不能指定角色身分(依角色 docAccess 讀寫只有角色端點)。",
-	"以角色身分工作時,agent_context 的 mentions 列出提到它的未讀訊息,讀(channel_messages)與回覆(channel_post)都帶 agent。",
-	"角色端點的 agent_context 的 mentions 列出提到該角色的未讀訊息;這個端點的 channel_messages、channel_post 一律以你自己的身分。",
-	"(以角色身分寫時帶 agent)",
-	"(署名你自己)",
-)
+// initInstructionRewrites 把 initialize 規格(spec/initialize.json,與 Swift 共用、不改檔)裡本機端點不成立的句子換掉。
+// 其他「帶 agent 署名」的句子,Swift 的英文版本來就寫明「這條連線不能帶 agent」,不必改寫;
+// 只有 fb_draft_save 的括號說明還叫人帶 agent,而本機端點會拒絕(見 coremcp.IdentityAgentTools)。
+// 每組是 {Swift 原文, 換成的英文};換成的文字是給 LLM 看的,一律英文。
+// TestInitInstructionRewritesApply 會在原文對不上時擋下,Swift 改句子不會讓改寫悄悄失效。
+var initInstructionRewrites = [][2]string{
+	{"(pass agent when writing as a role)", "(signed as you; an agent identity cannot be specified)"},
+}
+
+var initInstructionsReplacer = func() *strings.Replacer {
+	var kv []string
+	for _, p := range initInstructionRewrites {
+		kv = append(kv, p[0], p[1])
+	}
+	return strings.NewReplacer(kv...)
+}()
 
 // initializeWithVersion initialize 規格(與 Swift 共用,不改檔)的 serverInfo.version 換成實際版本
 func initializeWithVersion(b []byte) []byte {

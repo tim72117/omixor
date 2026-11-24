@@ -30,8 +30,8 @@ func wireframeDef() map[string]any {
 			"description": "Wireframe description: an object, or a JSON string ({title?, device, root})",
 			"anyOf":       []any{map[string]any{"type": "object"}, map[string]any{"type": "string"}},
 		},
-		"doc":   pStr("Document id: when spec is not given, the first ```wireframe block of this document is read and redrawn"),
-		"svg":   pBool("Return the SVG source, default true; set false to save context when you only want to save the document"),
+		"doc": pStr("Document id: when spec is not given, the first ```wireframe block of this document is read and redrawn"),
+		"svg": pBool("Return the SVG source, default true; set false to save context when you only want to save the document"),
 		"save": map[string]any{
 			"type":        "object",
 			"description": "Saves to the cabinet: without id, creates a new document (section or tab and title are required; note is explanatory text placed before the block); with id, updates the first ```wireframe block of that document (appended at the end if there is none) and leaves the rest of the body untouched",
@@ -61,7 +61,7 @@ func RegisterWireframeTools(s *Server) {
 
 func wireframeRender(s *Server, c *Call) (any, error) {
 	return renderDiagram(s, c, diagramKind{
-		noun: "線框圖", lang: wireframe.Lang,
+		noun: "wireframe", lang: wireframe.Lang,
 		render: func(spec any) (int, int, []string, string, error) {
 			r, err := wireframe.Render(spec)
 			if err != nil {

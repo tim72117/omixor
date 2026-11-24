@@ -71,11 +71,11 @@ func orgDenied(why string, avail []model.Org) error {
 			parts = append(parts, o.ID)
 		}
 	}
-	list := "目前沒有可用的組織"
+	list := "There are no organizations available"
 	if len(parts) > 0 {
-		list = "可用的組織:" + strings.Join(parts, "、")
+		list = "Available organizations: " + strings.Join(parts, ", ")
 	}
-	return ToolError{Message: why + "。" + list + "。", Status: 403}
+	return ToolError{Message: why + ". " + list + ".", Status: 403}
 }
 
 // UnifiedOrg 統一入口解析這次呼叫的組織:args["org"] 必填,而且是呼叫者能用的組織(成員;伺服器管理員視同全部)。
@@ -95,7 +95,7 @@ func unifiedOrgIn(avail []model.Org, args map[string]any) (string, error) {
 	s, isStr := v.(string)
 	s = strings.TrimSpace(s)
 	if !has || !isStr || s == "" {
-		e := orgDenied("統一入口每次呼叫都要帶 org 參數(組織 id)", avail).(ToolError)
+		e := orgDenied("The unified entry point requires the org parameter (organization id) on every call", avail).(ToolError)
 		e.Status = 400
 		return "", e
 	}
@@ -106,7 +106,7 @@ func unifiedOrgIn(avail []model.Org, args map[string]any) (string, error) {
 			}
 		}
 	}
-	return "", orgDenied("你沒有組織 "+s+" 的權限(或沒有這個組織)", avail)
+	return "", orgDenied("You do not have access to organization "+s+" (or it does not exist)", avail)
 }
 
 // WithOrgParam 統一入口的規格:需要組織的工具加上必填的 org 屬性(複製,不改共用的規格);

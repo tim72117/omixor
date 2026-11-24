@@ -121,7 +121,7 @@ func TestRestrictedProjectTools(t *testing.T) {
 			}
 			if who.auth == "" { // 人類端點:project_save 加成員、設旗標
 				_, e := call(t, who.h, who.auth, "project_save", map[string]any{"id": "PRJ-1", "add_members": []any{"alice@x"}})
-				if e != "找不到專案 PRJ-1" {
+				if e != "Project PRJ-1 not found" {
 					t.Fatal("非成員加成員:看不到專案", e)
 				}
 				_, e = call(t, who.h, who.auth, "project_save", map[string]any{"id": "PRJ-1", "restricted": false})

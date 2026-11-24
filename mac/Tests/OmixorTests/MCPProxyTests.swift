@@ -55,9 +55,17 @@ final class FakeServerMCP: URLProtocol {
             Self.fail(self, id: 1, code: -32601, "不支援的方法")
             return
         case "tools/call":
-            let text = String(data: try! JSONSerialization.data(withJSONObject: ["from": "server", "name": params["name"] ?? "",
-                                                                                 "arguments": params["arguments"] ?? [:]]), encoding: .utf8)!
-            result = ["content": [["type": "text", "text": text]], "isError": false,
+            // core 的結果形狀:structuredContent 與 content[0].text 是同一個物件;失敗是 {"error": {code, message, status, data}}
+            let isFail = (params["arguments"] as? [String: Any])?["fail"] as? Bool == true
+            let current = ["body": String(repeating: "x", count: 500)]
+            let full: [String: Any] = ["error": ["code": "conflict", "message": "版本衝突", "status": 409, "data": ["currentVersion": 7, "current": current]]]
+            // core 的失敗結果:text 的 data 拿掉 current、加 truncated(structuredContent 留完整)
+            let trimmed: [String: Any] = ["error": ["code": "conflict", "message": "版本衝突", "status": 409, "data": ["currentVersion": 7, "truncated": true]]]
+            let body: [String: Any] = isFail
+                ? full
+                : ["from": "server", "name": params["name"] ?? "", "arguments": params["arguments"] ?? [:]]
+            let text = String(data: try! JSONSerialization.data(withJSONObject: isFail ? trimmed : body, options: [.sortedKeys]), encoding: .utf8)!
+            result = ["content": [["type": "text", "text": text]], "structuredContent": body, "isError": isFail,
                       "_meta": ["omixor/org": "default", "omixor/server": ["name": "fake", "origin": "http://127.0.0.1:5998", "version": "t", "env": "local"]]]
         default:
             break
@@ -97,6 +105,33 @@ final class MCPProxyTests: XCTestCase {
         let msg: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": method, "params": params]
         let raw = await mcp.handle(try JSONSerialization.data(withJSONObject: msg))
         return try XCTUnwrap((try JSONSerialization.jsonObject(with: try XCTUnwrap(raw)) as? [String: Any])?["result"] as? [String: Any])
+    }
+
+    /// core 回的結果(成功與失敗)原樣轉給用戶端,不重新包、不改欄位
+    func testCoreResultShapeForwardedUnchanged() async throws {
+        let mcp = MCPHandler(app: AppState())
+        let ok = try await rpc(mcp, "tools/call", ["name": "issues", "arguments": ["q": "x"]])
+        XCTAssertEqual(ok["isError"] as? Bool, false)
+        XCTAssertEqual(NSDictionary(dictionary: try XCTUnwrap(ok["structuredContent"] as? [String: Any])), NSDictionary(dictionary: text(ok)))
+        XCTAssertEqual((ok["structuredContent"] as? [String: Any])?["from"] as? String, "server")
+        XCTAssertNotNil((ok["_meta"] as? [String: Any])?["omixor/server"])
+
+        let bad = try await rpc(mcp, "tools/call", ["name": "issues", "arguments": ["fail": true]])
+        XCTAssertEqual(bad["isError"] as? Bool, true)
+        let err = try XCTUnwrap((bad["structuredContent"] as? [String: Any])?["error"] as? [String: Any])
+        XCTAssertEqual(err["code"] as? String, "conflict")
+        XCTAssertEqual(err["status"] as? Int, 409)
+        XCTAssertEqual((err["data"] as? [String: Any])?["currentVersion"] as? Int, 7)
+        // 完整的 current 只在 structuredContent、text 只有 truncated 標記:兩邊都原樣轉給用戶端,不補、不裁
+        XCTAssertNotNil((err["data"] as? [String: Any])?["current"])
+        XCTAssertEqual(((text(bad)["error"] as? [String: Any])?["data"] as? NSDictionary), ["currentVersion": 7, "truncated": true])
+        XCTAssertEqual(errorMessage(bad), "版本衝突")
+        XCTAssertEqual(Set(bad.keys), ["content", "structuredContent", "isError", "_meta"], "沒有多包一層或加欄位")
+    }
+
+    /// 失敗結果的 error.message(結果形狀見 MCPResult)
+    private func errorMessage(_ r: [String: Any]) -> String {
+        ((r["structuredContent"] as? [String: Any])?["error"] as? [String: Any])?["message"] as? String ?? ""
     }
 
     private func text(_ r: [String: Any]) -> [String: Any] {
@@ -163,8 +198,9 @@ final class MCPProxyTests: XCTestCase {
         for name in ["issues", "ops_issues", "agents", "channel_post"] {
             let r = try await rpc(mcp, "tools/call", ["name": name, "arguments": [:]])
             XCTAssertEqual(r["isError"] as? Bool, true, name)
-            let msg = (r["content"] as? [[String: Any]])?.first?["text"] as? String ?? ""
-            XCTAssertTrue(msg.contains("core server") && msg.contains("連不上"), "\(name):\(msg)")
+            let msg = errorMessage(r)
+            XCTAssertEqual((r["structuredContent"] as? [String: Any]).flatMap { ($0["error"] as? [String: Any])?["status"] as? Int }, 503)
+            XCTAssertTrue(msg.contains("core server") && msg.contains("unreachable"), "\(name):\(msg)")
             XCTAssertTrue(msg.hasPrefix(name.replacingOccurrences(of: "ops_", with: "")), msg)
         }
     }
@@ -177,8 +213,8 @@ final class MCPProxyTests: XCTestCase {
         for name in ["agents", "ops_agents", "doc_save", "chain"] {
             let r = try await rpc(mcp, "tools/call", ["name": name, "arguments": [:]])
             XCTAssertEqual(r["isError"] as? Bool, true, name)
-            let msg = (r["content"] as? [[String: Any]])?.first?["text"] as? String ?? ""
-            XCTAssertTrue(msg.contains("工具清單裡沒有這個工具"), "\(name):\(msg)")
+            let msg = errorMessage(r)
+            XCTAssertTrue(msg.contains("tool list does not include this tool"), "\(name):\(msg)")
         }
         XCTAssertTrue(FakeServerMCP.calls.filter { $0.method == "tools/call" }.isEmpty, "server 沒有的工具不轉送")
         // App 自己的工具(含 agent_task_delegate)仍在清單裡

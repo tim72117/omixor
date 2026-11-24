@@ -18,7 +18,7 @@ func init() {
 				if d, err := version.Fetch(url, 3*time.Second); err == nil { // 錯誤文字含網址,不回給呼叫端
 					ver["server"] = d
 				} else {
-					ver["server"] = map[string]any{"error": "查不到遠端 server 的版本(連不上、逾時或不支援)"}
+					ver["server"] = map[string]any{"error": "Could not read the remote server version (unreachable, timed out or unsupported)"}
 				}
 			}
 		}

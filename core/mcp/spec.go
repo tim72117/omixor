@@ -38,13 +38,13 @@ func ToolDef(name, title, desc string, readOnly bool, schema map[string]any) map
 	}
 }
 
-// coreDef 核心工具的規格:標題取自登記表(model.CoreTools);沒登記的名稱直接 panic(啟動時就會發現)
+// coreDef 核心工具的規格:標題取自登記表(model.CoreTools)的英文標題 TitleEN(給 LLM 看);沒登記的名稱直接 panic(啟動時就會發現)
 func coreDef(name, desc string, readOnly bool, schema map[string]any) map[string]any {
 	t, ok := model.CoreToolByName(name)
 	if !ok {
-		panic("mcp: 工具 " + name + " 沒有登記在 model.CoreTools")
+		panic("mcp: tool " + name + " is not registered in model.CoreTools")
 	}
-	return ToolDef(name, t.Title, desc, readOnly, schema)
+	return ToolDef(name, t.TitleEN, desc, readOnly, schema)
 }
 
 // projectParam 文件櫃工具的 project 參數說明
@@ -238,7 +238,7 @@ func CoreToolDefs() []any {
 			"Creates a document (no id) or modifies one (with id). The content is plain text/Markdown, placed in the given section and tab. The signature is the caller (on the agent endpoint, the credential's agent, which can write only to locations where the agent has read-write access). "+
 				"Projects: when creating, project is the project to put it in (omitted = no project), and section and tab are resolved against that project's structure; when modifying, giving project moves the document to that project (empty string = move back to no project; without section the original section and tab are kept, and the target project must have them), omitted = no move. "+
 				"The body may start with fields (one key: value per line between ---); kind is the document type: when a matching template exists (a document with kind: template and for: <type>, containing an ```html layout and ```css styles), the page is rendered by the template, and the template's required fields are also checked before saving. "+
-				"When modifying long documents, prefer partial edits (choose one of edits, replace_part, append_to_part; no need to send the full text); the response contains only the changed lines and the new version.", false,
+				"When modifying long documents, prefer partial edits (choose one of edits, replace_part, append_to_part; no need to send the full text); the response contains only the changed lines and the new version. Every successful save (create, full update, partial edit) returns the new version, which can be passed as base_version to the next partial edit without re-reading.", false,
 			obj(map[string]any{
 				"append_body": pStr("Text to append after the body"),
 				"body":        pStr("Replaces the body (Markdown)"),
@@ -374,7 +374,7 @@ func WorkerToolDefs() []any {
 // WorkerInitialize 執行者端點 initialize 的回應內容
 func WorkerInitialize(instructions string) map[string]any {
 	m := CoreInitialize(instructions)
-	m["serverInfo"] = map[string]any{"name": "omixor-worker", "title": "omixor 派發", "version": "0.1.0"}
+	m["serverInfo"] = map[string]any{"name": "omixor-worker", "title": "omixor dispatch", "version": "0.1.0"}
 	return m
 }
 

@@ -86,8 +86,8 @@ func TestIssueToolsAuthors(t *testing.T) {
 	if i["status"] != "closed" || i["comments"].([]any)[0].(map[string]any)["author"] != core.LocalIdentity {
 		t.Fatal(i)
 	}
-	iaErr(t, a, "issue_update", map[string]any{"id": "ISS-9"}, "找不到 Issue ISS-9")
-	iaErr(t, a, "issues", map[string]any{"status": "x"}, "status 必須是 open、closed、all 之一")
+	iaErr(t, a, "issue_update", map[string]any{"id": "ISS-9"}, "Issue ISS-9 not found")
+	iaErr(t, a, "issues", map[string]any{"status": "x"}, "status must be one of open, closed, all")
 	l := iaRun(t, a, core.MCPActor, "issues", map[string]any{"status": "all", "limit": 1})
 	if l["total"].(float64) != 2 || len(l["issues"].([]any)) != 1 {
 		t.Fatal(l)

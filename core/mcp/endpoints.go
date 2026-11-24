@@ -199,7 +199,7 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 				if v, ok := args["agent"]; ok {
 					s, _ := v.(string)
 					if s = strings.TrimSpace(s); s != "" && !strings.EqualFold(s, role.AgentID) {
-						return Errorf("角色端點只能以自己的身分操作,不能指定其他角色")
+						return Errorf("The agent endpoint can only act as its own identity; another agent cannot be specified")
 					}
 				}
 				args["agent"] = role.AgentID
@@ -211,7 +211,7 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 					if strings.TrimSpace(id) == "" {
 						args["id"] = role.TaskID
 					} else if !strings.EqualFold(strings.TrimSpace(id), role.TaskID) {
-						return Errorf("這組憑證只能回報任務 %s", role.TaskID)
+						return Errorf("This credential can only report task %s", role.TaskID)
 					}
 				}
 				if cfg.Filter != nil {
@@ -324,10 +324,10 @@ func rejectOtherOrg(args map[string]any, pathOrg string) error {
 	}
 	s, isStr := v.(string)
 	if !isStr {
-		return ToolError{Message: "org 參數必須是字串(組織 id);這個端點的組織固定是 " + pathOrg, Status: 400}
+		return ToolError{Message: "The org parameter must be a string (organization id); this endpoint is fixed to organization " + pathOrg, Status: 400}
 	}
 	if s = strings.TrimSpace(s); s != "" && s != pathOrg {
-		return ToolError{Message: "這個端點的組織固定是 " + pathOrg + "(網址路徑),不能用 org 參數改成 " + s + ";要跨組織請改連統一入口 /mcp,或連 /mcp/org/" + s, Status: 400}
+		return ToolError{Message: "This endpoint is fixed to organization " + pathOrg + " (from the URL path), so the org parameter cannot change it to " + s + "; to work across organizations, connect to the unified entry point /mcp or to /mcp/org/" + s, Status: 400}
 	}
 	return nil
 }

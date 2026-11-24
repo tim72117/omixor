@@ -230,7 +230,7 @@ func (w *taskWatcher) poll() []any {
 	}
 	sort.Slice(fresh, func(i, j int) bool { return fresh[i].Number() < fresh[j].Number() })
 	if first {
-		lines := []string{fmt.Sprintf("目前有 %d 筆待領取任務:", len(fresh))}
+		lines := []string{fmt.Sprintf("%d task(s) currently waiting to be claimed:", len(fresh))}
 		for _, t := range fresh {
 			lines = append(lines, "- "+taskLine(t))
 		}
@@ -238,9 +238,9 @@ func (w *taskWatcher) poll() []any {
 	}
 	out := make([]any, 0, len(fresh))
 	for _, t := range fresh {
-		kind, head := "task_queued", "新的待領取任務:"
+		kind, head := "task_queued", "New task waiting to be claimed: "
 		if changed[t.ID] {
-			kind, head = "task_changed", "待領取任務有變動(可能被退回待領取或內容有改):"
+			kind, head = "task_changed", "Claimable task changed (it may have been returned to the queue or edited): "
 		}
 		out = append(out, channelNote(head+taskLine(t), map[string]string{
 			"org": org, "kind": kind, "task_id": t.ID, "agent_id": t.AgentID, "priority": t.Priority,
@@ -250,11 +250,11 @@ func (w *taskWatcher) poll() []any {
 }
 
 func taskLine(t model.AgentTask) string {
-	s := fmt.Sprintf("%s(角色 %s", t.ID, t.AgentID)
+	s := fmt.Sprintf("%s (agent %s", t.ID, t.AgentID)
 	if t.Priority != "" {
-		s += ",優先度 " + t.Priority
+		s += ", priority " + t.Priority
 	}
-	return s + ")" + t.Title
+	return s + ") " + t.Title
 }
 
 func channelNote(content string, meta map[string]string) map[string]any {

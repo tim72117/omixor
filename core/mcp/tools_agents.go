@@ -74,7 +74,7 @@ func taskJSON(e AgentEnv, t model.AgentTask) map[string]any {
 }
 
 // terr 核心 / 後端的錯誤轉成工具錯誤:狀態碼、訊息、data 取自 httperr(409 的 currentVersion、taskCounts 隨
-// structuredContent 回給呼叫端);資料庫錯誤等內部細節換成通用訊息,原文由 toolFailure 連同工具名稱寫進 log
+// structuredContent 回給呼叫端);資料庫錯誤等內部細節換成通用訊息,原文由 FailureResult 連同工具名稱寫進 log
 func terr(err error) error {
 	var te ToolError
 	if errors.As(err, &te) {
@@ -273,7 +273,7 @@ func RegisterAgentTools(s *Server) {
 		res, err := e.Backend().ClaimTask(e.Org(), in)
 		if err != nil {
 			if service.Code(err) == 409 { // 含「已被領取、處理中,鎖定到 hh:mm」:原文轉給呼叫端
-				return nil, prefixErr("領取失敗:", err)
+				return nil, prefixErr("Claim failed: ", err)
 			}
 			return nil, terr(err)
 		}
@@ -284,7 +284,7 @@ func RegisterAgentTools(s *Server) {
 			name = res.Agent.Name
 		}
 		if res.Task == nil {
-			out["message"] = name + " 目前沒有待領取的任務"
+			out["message"] = name + " has no tasks waiting to be claimed"
 			return out, nil
 		}
 		out["task"] = taskJSON(e, *res.Task)
@@ -298,9 +298,9 @@ func RegisterAgentTools(s *Server) {
 		}
 		lockNote := ""
 		if res.Task.LockedUntil != nil {
-			lockNote = "已鎖定到 " + res.Task.LockedUntil.Time.In(time.Local).Format("15:04") + "(其他人不能再領);長任務請定期用 agent_task_report(status: inProgress)回報進度以續約,逾時未回報會被自動退回待領取。"
+			lockNote = "Locked until " + res.Task.LockedUntil.Time.In(time.Local).Format("15:04") + " (nobody else can claim it); for long tasks report progress periodically with agent_task_report(status: inProgress) to renew the lease, otherwise it is automatically returned to the queue after the timeout. "
 		}
-		out["message"] = "已領取。" + lockNote + "要以這個角色身分工作(署名、文件權限),用 credential 連角色端點(Authorization: Bearer <agentId>:<secret>),身分由憑證決定;做完用 agent_task_report 回報。這個端點不能指定角色身分署名"
+		out["message"] = "Claimed. " + lockNote + "To work as this agent (signing, document permissions), connect to the agent endpoint with the credential (Authorization: Bearer <agentId>:<secret>); the identity is determined by the credential. Report with agent_task_report when done. This endpoint cannot sign as an agent identity"
 		return out, nil
 	})
 
@@ -312,7 +312,7 @@ func RegisterAgentTools(s *Server) {
 		}
 		in := service.TaskReport{Status: c.Args.Opt("status"), Note: c.Args.Opt("note")}
 		if in.Status != nil && !slices.Contains([]string{"inProgress", "blocked", "done"}, *in.Status) {
-			return nil, ToolError{Message: "status 必須是 inProgress、blocked、done 之一"}
+			return nil, ToolError{Message: "status must be one of inProgress, blocked, done"}
 		}
 		if r, ok := c.Args.RawString("result"); ok {
 			in.Result = &r
@@ -342,10 +342,10 @@ func RegisterAgentTools(s *Server) {
 			g = found.Clone()
 		case id != nil:
 			if c.Args.Str("name") == "" {
-				return nil, Errorf("找不到角色 %s;要新增就一起給 name", *id)
+				return nil, Errorf("Agent %s not found; to create it, also give name", *id)
 			}
 			if !model.ValidAgentID(*id) {
-				return nil, ToolError{Message: "新角色的 id 只能用小寫英文、數字與 -"}
+				return nil, ToolError{Message: "A new agent id may only use lowercase letters, digits and -"}
 			}
 			g = model.Agent{ID: *id, Active: true, Symbol: "person.crop.circle", Color: "blue", DocAccess: map[string]string{}}
 			isNew = true
@@ -371,7 +371,7 @@ func RegisterAgentTools(s *Server) {
 		}
 		if v := c.Args.Opt("color"); v != nil {
 			if !model.OneOf(*v, model.AgentColors) {
-				return nil, ToolError{Message: "color 必須是 " + strings.Join(model.AgentColors, "、") + " 之一"}
+				return nil, ToolError{Message: "color must be one of " + strings.Join(model.AgentColors, ", ") + ""}
 			}
 			g.Color = *v
 		}
@@ -411,7 +411,7 @@ func RegisterAgentTools(s *Server) {
 			for _, k := range keys {
 				level, _ := m[k].(string)
 				if !model.OneOf(level, model.DocAccessLevels) {
-					return nil, ToolError{Message: "doc_access 的值必須是 read、write 或 none"}
+					return nil, ToolError{Message: "doc_access values must be read, write or none"}
 				}
 				key := k
 				if pid, rest := model.SplitDocAccessKey(k); pid != "" {
@@ -420,12 +420,12 @@ func RegisterAgentTools(s *Server) {
 					pl := cabLayoutOf(e, pid)
 					if pl == nil {
 						if level != "none" {
-							return nil, Errorf("doc_access 的 %s:找不到專案 %s", k, pid)
+							return nil, Errorf("doc_access %s: project %s not found", k, pid)
 						}
 						key = model.NormalizeDocAccessKey(k)
 					} else if rk, msg := pl.ResolveAccessKey(rest); msg != "" {
 						if level != "none" {
-							return nil, Errorf("專案 %s:%s", pid, msg)
+							return nil, Errorf("Project %s: %s", pid, msg)
 						}
 						key = model.NormalizeDocAccessKey(k)
 					} else {
@@ -462,13 +462,13 @@ func RegisterAgentTools(s *Server) {
 		e := agentEnv(c)
 		ag := c.Args.Str("assign_to")
 		if ag == "" {
-			return nil, ToolError{Message: "要用 assign_to 指定接任務的角色(agent 是你自己扮演的角色,用來署名)"}
+			return nil, ToolError{Message: "Use assign_to to name the agent that takes the task (agent is the agent you act as, used for signing)"}
 		}
 		bk, org := e.Backend(), e.Org()
 		target, err := bk.GetAgent(org, ag)
 		if err != nil {
 			if backend.NotFound(err) {
-				return nil, Errorf("找不到角色 %s", ag)
+				return nil, Errorf("Agent %s not found", ag)
 			}
 			return nil, terr(err)
 		}
@@ -477,7 +477,7 @@ func RegisterAgentTools(s *Server) {
 			return nil, err
 		}
 		if by == model.AgentPrefix+target.ID {
-			return nil, Errorf("不能把任務派給自己(%s);要派給別的角色請改 assign_to", target.Name)
+			return nil, Errorf("A task cannot be assigned to yourself (%s); to assign it to another agent, change assign_to", target.Name)
 		}
 		title, err := c.Args.Require("title")
 		if err != nil {

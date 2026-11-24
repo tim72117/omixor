@@ -43,7 +43,7 @@ func (b appBackend) DeclareIncident(org string, in service.IncidentInput) (*mode
 		}
 		_, person := a.Find("people", in.Commander)
 		if person == nil || core.Str(person, "id") != in.Commander {
-			return Errorf("找不到 person %s", in.Commander)
+			return Errorf("Person %s not found", in.Commander)
 		}
 		in.CommanderName = core.Str(person, "name")
 		for k, s := range in.Services {
@@ -57,7 +57,7 @@ func (b appBackend) DeclareIncident(org string, in service.IncidentInput) (*mode
 		for _, id := range in.AlertIDs {
 			_, al := a.Find("alerts", id)
 			if al == nil || core.Str(al, "id") != id {
-				return Errorf("找不到告警 %s", id)
+				return Errorf("Alert %s not found", id)
 			}
 			in.AlertTitles[id] = core.Str(al, "title")
 		}
@@ -75,5 +75,5 @@ func (b appBackend) UpdateIncident(org, id string, p service.IncidentPatch) (*mo
 }
 
 func (b appBackend) ImportIncidents(string, []model.Incident) (*model.ImportResult, error) {
-	return nil, Errorf("omixor-web 的 MCP 不提供匯入事件")
+	return nil, Errorf("The omixor-web MCP does not support importing incidents")
 }

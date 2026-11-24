@@ -98,7 +98,7 @@ func TestAdminEndpointRejectsIdentityAgent(t *testing.T) {
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	w := httptest.NewRecorder()
 	admin.ServeHTTP(w, req)
-	if !strings.Contains(w.Body.String(), "沒有這個工具") {
+	if !strings.Contains(w.Body.String(), "Unknown tool") {
 		t.Fatal("人類端點不該有 agent_task_delegate:", w.Body.String())
 	}
 }
@@ -183,7 +183,7 @@ func TestRoleEndpointIdentityUnchanged(t *testing.T) {
 	if i["createdBy"] != "研發長" {
 		t.Fatal(i)
 	}
-	fails(t, role, auth, "issue_create", map[string]any{"title": "冒充", "agent": "pm"}, "角色端點只能以自己的身分操作,不能指定其他角色")
+	fails(t, role, auth, "issue_create", map[string]any{"title": "冒充", "agent": "pm"}, "The agent endpoint can only act as its own identity; another agent cannot be specified")
 	ok(t, role, auth, "issue_create", map[string]any{"title": "帶自己", "agent": "cto"})
 	if r := ok(t, role, auth, "issues", map[string]any{}); r["total"].(float64) != 2 {
 		t.Fatal(r)

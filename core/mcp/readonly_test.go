@@ -102,7 +102,12 @@ func TestUIViewsCommonBlock(t *testing.T) {
 			}
 		}
 	}
-	if blocks[0][0] != blocks[1][0] || blocks[0][1] != blocks[1][1] {
-		t.Fatal("兩個畫面的共用區塊不一致")
+	for _, b := range blocks[1:] {
+		if blocks[0][0] != b[0] || blocks[0][1] != b[1] {
+			t.Fatal("畫面的共用區塊不一致")
+		}
+	}
+	if len(blocks) < 3 {
+		t.Fatal("畫面數量不對(要含 flowchart、items、decisions)")
 	}
 }

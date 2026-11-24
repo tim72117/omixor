@@ -61,7 +61,7 @@ func featureLabel(f model.Feature) string {
 
 // featureClosedError tools/call 呼叫到關掉的功能的工具
 func featureClosedError(name string, f model.Feature) error {
-	return ToolError{Message: "這個功能已關閉:「" + featureLabel(f) + "」在系統設定裡關閉了,不能使用 " + name + " 工具。請組織管理員到 設定 › 功能 開啟。"}
+	return ToolError{Message: "This feature is turned off: \"" + featureLabel(f) + "\" is disabled in system settings, so the " + name + " tool cannot be used. Ask an organization admin to enable it under Settings > Features."}
 }
 
 // handleMessages 一則或一批 JSON-RPC 訊息:每則分開交給核心處理,tools/list 才套用「不列關掉的功能」

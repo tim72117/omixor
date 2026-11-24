@@ -371,27 +371,27 @@ func TestGroupsJSON(t *testing.T) {
 
 func TestErrors(t *testing.T) {
 	cases := map[string]string{
-		"":                                      "描述是空的",
-		"{":                                     "不是有效的 JSON",
-		`{"nodes": []}`:                         "沒有節點",
-		`{"nodes": [{"id": "a"}, {"id": "a"}]}`: "節點 id 重複:「a」",
-		`{"nodes": [{"id": "a"}], "edges": [{"from": "a", "to": "x"}]}`: "edges[0] 的 to「x」不是已知的節點 id",
-		"sequenceDiagram\n  A->>B: hi":                                  "第 1 行:只支援 Mermaid 的 flowchart / graph 圖(這裡是「sequenceDiagram」)",
-		"flowchart TD\n  A --> B\n  B --> C[沒結束":                        "第 3 行:節點「C」的形狀括號沒有結束(缺少「]」)",
-		"flowchart TD\n  A -->":                                         "第 2 行:連線後面少了節點",
-		"flowchart TD\n  A --> B\n  end":                                "第 3 行:多了一個 end",
-		"flowchart TD\n  subgraph s1\n  A --> B":                        "第 2 行:subgraph「s1」沒有對應的 end",
-		"flowchart XY\n  A --> B":                                       "第 1 行:不認得的方向「XY」",
-		"flowchart TD\n  A -- 沒有結尾 B":                                   "第 2 行:「-- 文字 -->」沒有結尾的 -->",
-		"flowchart TD\n  A@{ shape: rect }":                             "不支援 @{ shape: … } 的新語法",
-		"flowchart TD\n  subgraph s1\n  A\n  end\n  B --> s1":           "第 5 行:「s1」是 subgraph 的 id",
-		"flowchart TD\n  A --> B |x":                                    "預期連線",
+		"":                                      "the description is empty",
+		"{":                                     "not valid JSON",
+		`{"nodes": []}`:                         "no nodes",
+		`{"nodes": [{"id": "a"}, {"id": "a"}]}`: "duplicate node id: \"a\"",
+		`{"nodes": [{"id": "a"}], "edges": [{"from": "a", "to": "x"}]}`: "to \"x\" of edges[0] is not a known node id",
+		"sequenceDiagram\n  A->>B: hi":                                  "line 1: only Mermaid flowchart / graph diagrams are supported (found \"sequenceDiagram\")",
+		"flowchart TD\n  A --> B\n  B --> C[沒結束":                        "line 3: the shape bracket of node \"C\" is not closed (missing \"]\")",
+		"flowchart TD\n  A -->":                                         "line 2: a node is missing after the link",
+		"flowchart TD\n  A --> B\n  end":                                "line 3: unexpected end",
+		"flowchart TD\n  subgraph s1\n  A --> B":                        "line 2: subgraph \"s1\" has no matching end",
+		"flowchart XY\n  A --> B":                                       "line 1: unknown direction \"XY\"",
+		"flowchart TD\n  A -- 沒有結尾 B":                                   "line 2: \"-- text -->\" has no closing -->",
+		"flowchart TD\n  A@{ shape: rect }":                             "the new @{ shape: … } syntax is not supported",
+		"flowchart TD\n  subgraph s1\n  A\n  end\n  B --> s1":           "line 5: \"s1\" is a subgraph id",
+		"flowchart TD\n  A --> B |x":                                    "expected a link",
 	}
 	for in, want := range cases {
 		_, err := Render(in)
 		var fe *Error
 		if !errors.As(err, &fe) || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q:%v,應該包含 %q", in, err, want)
+			t.Errorf("%q:%v,should contain %q", in, err, want)
 		}
 	}
 	// 上限
@@ -400,10 +400,10 @@ func TestErrors(t *testing.T) {
 	for i := 0; i <= MaxNodes; i++ {
 		b.WriteString("  n" + itoa(i) + "\n")
 	}
-	if _, err := Render(b.String()); err == nil || !strings.Contains(err.Error(), "節點太多") {
+	if _, err := Render(b.String()); err == nil || !strings.Contains(err.Error(), "too many nodes") {
 		t.Fatal(err)
 	}
-	if _, err := Render(strings.Repeat(" ", MaxBytes+1) + "x"); err == nil || !strings.Contains(err.Error(), "描述太大") {
+	if _, err := Render(strings.Repeat(" ", MaxBytes+1) + "x"); err == nil || !strings.Contains(err.Error(), "the description is too large") {
 		t.Fatal(err)
 	}
 	// 可以容忍的:不認得的形狀與樣式

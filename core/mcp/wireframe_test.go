@@ -37,8 +37,8 @@ func TestWireframeTool(t *testing.T) {
 	if out["width"].(float64) != 390 || !strings.HasPrefix(out["svg"].(string), "<svg") || len(out["warnings"].([]any)) != 0 {
 		t.Fatal(out)
 	}
-	fails(t, admin, "", "wireframe_render", map[string]any{"spec": "{"}, "線框圖描述錯誤:不是有效的 JSON(unexpected end of JSON input)")
-	fails(t, admin, "", "wireframe_render", map[string]any{}, "要給 spec(線框圖描述),或給 doc(文件 id)讀文件裡的 ```wireframe 區塊")
+	fails(t, admin, "", "wireframe_render", map[string]any{"spec": "{"}, "Wireframe description error: not valid JSON (unexpected end of JSON input)")
+	fails(t, admin, "", "wireframe_render", map[string]any{}, "Give spec (the wireframe description), or give doc (document id) to read the ```wireframe block in the document")
 
 	// 存成新文件:內文是 note + ```wireframe 區塊
 	out = ok(t, admin, "", "wireframe_render", map[string]any{"spec": spec, "svg": false, "save": map[string]any{"section": "構想", "title": "登入頁草稿", "note": "第一版"}})

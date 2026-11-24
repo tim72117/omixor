@@ -32,7 +32,7 @@ func TestHideMissingTools(t *testing.T) {
 			Content []struct{ Text string }
 		} `json:"result"`
 	}
-	if json.Unmarshal(out, &r) != nil || !r.Result.IsError || !strings.Contains(r.Result.Content[0].Text, "沒有編進") {
+	if json.Unmarshal(out, &r) != nil || !r.Result.IsError || !strings.Contains(r.Result.Content[0].Text, "built without") {
 		t.Fatalf("%s", out)
 	}
 }

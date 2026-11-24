@@ -53,7 +53,7 @@ func TestConsoleIssueItemTools(t *testing.T) {
 	if y["dependsOn"] != k+".1" {
 		t.Fatal(y)
 	}
-	iaErr(t, a, "issue_item_claim", map[string]any{"id": k + ".2"}, "領取失敗:"+k+".2 的前置 "+k+".1 還沒完成(待領取)")
+	iaErr(t, a, "issue_item_claim", map[string]any{"id": k + ".2"}, "Claim failed: "+k+".2 的前置 "+k+".1 還沒完成(待領取)")
 	c := iaRun(t, a, core.MCPActor, "issue_item_claim", map[string]any{"id": k + ".1"})
 	if it, _ := c["item"].(map[string]any); it == nil || it["status"] != "doing" {
 		t.Fatal(c)

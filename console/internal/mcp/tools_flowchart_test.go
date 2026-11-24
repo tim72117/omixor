@@ -33,7 +33,7 @@ func TestFlowchartToolAndAction(t *testing.T) {
 		t.Fatal(r)
 	}
 	r, _ = core.Action(a, "diagram_svg", map[string]any{"kind": "flowchart", "spec": "sequenceDiagram\n  A->>B: x"})
-	if m := r.(map[string]any); !strings.Contains(m["error"].(string), "只支援 Mermaid 的 flowchart") {
+	if m := r.(map[string]any); !strings.Contains(m["error"].(string), "only Mermaid flowchart / graph diagrams are supported") {
 		t.Fatal(r)
 	}
 	r, _ = core.Action(a, "diagram_svg", map[string]any{"kind": "pie", "spec": "x"})

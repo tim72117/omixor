@@ -78,6 +78,8 @@ function dataOf(r) {
   try { return JSON.parse(t.text); } catch (e) { return null; }
 }
 function errText(r) {
+  var e = r && r.structuredContent && r.structuredContent.error; // {code, message, status}
+  if (e && e.message) return e.message;
   var t = r && r.content && r.content.filter(function (c) { return c.type === "text"; })[0];
   return (t && t.text) || "發生錯誤";
 }

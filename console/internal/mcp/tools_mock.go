@@ -41,7 +41,7 @@ func items(a *core.App, collection string) ([]any, error) {
 			return core.List(a.C[collection]), nil
 		}
 	}
-	return nil, ToolError{Message: "沒有這個集合:" + collection + "。可用:" + strings.Join(collections, "、")}
+	return nil, ToolError{Message: "No such collection: " + collection + ". Available: " + strings.Join(collections, ", ")}
 }
 
 func serviceID(a *core.App, id string) (string, error) {
@@ -52,7 +52,7 @@ func serviceID(a *core.App, id string) (string, error) {
 	for _, s := range a.C["services"] {
 		ids = append(ids, core.Str(s, "id"))
 	}
-	return "", ToolError{Message: "找不到服務 " + id + "。可用:" + strings.Join(ids, "、")}
+	return "", ToolError{Message: "Service " + id + " not found. Available: " + strings.Join(ids, ", ")}
 }
 
 func picks(list []map[string]any, keys ...string) []any {
@@ -207,7 +207,7 @@ func init() {
 					return r, nil
 				}
 			}
-			return nil, ToolError{Message: collection + " 裡找不到 id「" + id + "」"}
+			return nil, ToolError{Message: "No id \"" + id + "\" in " + collection}
 		})
 	})
 
@@ -259,12 +259,12 @@ func init() {
 		return locked(c, func(a *core.App) (any, error) {
 			_, al := a.Find("alerts", id)
 			if al == nil || core.Str(al, "id") != id {
-				return nil, Errorf("找不到告警 %s", id)
+				return nil, Errorf("Alert %s not found", id)
 			}
 			action, hasAction := c.Args.String("action")
 			note, hasNote := c.Args.String("ai_note")
 			if !hasAction && !hasNote {
-				return nil, ToolError{Message: "action 與 ai_note 至少要給一項"}
+				return nil, ToolError{Message: "Give at least one of action and ai_note"}
 			}
 			if hasNote {
 				al["aiNote"] = note
@@ -278,7 +278,7 @@ func init() {
 				case "silence":
 					a.SilenceAlert(id, c.Actor)
 				default:
-					return nil, Errorf("action 必須是 acknowledge、resolve 或 silence,收到「%s」", action)
+					return nil, Errorf("action must be acknowledge, resolve or silence; got \"%s\"", action)
 				}
 			}
 			return al, nil
@@ -357,13 +357,13 @@ func init() {
 			assignee, hasAssignee := c.Args.String("assignee")
 			if hasAssignee {
 				if _, p := a.Find("people", assignee); p == nil || core.Str(p, "id") != assignee {
-					return nil, Errorf("找不到 person %s", assignee)
+					return nil, Errorf("Person %s not found", assignee)
 				}
 			}
 			if id, ok := c.Args.String("incident_id"); ok {
 				_, inc := a.Find("incidents", id)
 				if inc == nil || core.Str(inc, "id") != id {
-					return nil, Errorf("找不到事件 %s", id)
+					return nil, Errorf("Incident %s not found", id)
 				}
 				incID, org = id, a.CurrentOrgID()
 			}
@@ -389,7 +389,7 @@ func init() {
 		item, _ := out.(map[string]any)
 		if _, err := c.App.UpdateIncidentCore(org, incID, service.IncidentPatch{AddFollowUps: []string{core.Str(item, "id")},
 			Actor: coreActorOf(c.Actor), Author: core.ActorAuthor(c.Actor)}); err != nil {
-			return nil, Errorf("工作項目 %s 建好了,但沒有加進事件 %s 的後續工作:%s", core.Str(item, "id"), incID, err.Error())
+			return nil, Errorf("Work item %s was created but could not be added to the follow-ups of incident %s: %s", core.Str(item, "id"), incID, err.Error())
 		}
 		return out, nil
 	})
@@ -402,7 +402,7 @@ func init() {
 		return locked(c, func(a *core.App) (any, error) {
 			_, it := a.Find("work_items", id)
 			if it == nil || core.Str(it, "id") != id {
-				return nil, Errorf("找不到工作項目 %s", id)
+				return nil, Errorf("Work item %s not found", id)
 			}
 			status, err := c.Args.RequireEnum("status", core.WorkStatuses)
 			if err != nil {
@@ -428,12 +428,12 @@ func init() {
 				}
 			}
 			if run == nil {
-				return nil, Errorf("找不到 pipeline run #%d", id)
+				return nil, Errorf("Pipeline run #%d not found", id)
 			}
 			action, hasAction := c.Args.String("action")
 			diagnosis, hasDiag := c.Args.String("ai_diagnosis")
 			if !hasAction && !hasDiag {
-				return nil, ToolError{Message: "action 與 ai_diagnosis 至少要給一項"}
+				return nil, ToolError{Message: "Give at least one of action and ai_diagnosis"}
 			}
 			if hasDiag {
 				run["aiDiagnosis"] = diagnosis
@@ -446,11 +446,11 @@ func init() {
 				case "cancel":
 					s := core.Str(run, "status")
 					if s != "running" && s != "queued" && s != "waitingApproval" {
-						return nil, Errorf("#%d 目前是「%s」,不能取消", id, core.RunStatusLabel[s])
+						return nil, Errorf("#%d is \"%s\" and cannot be canceled", id, core.RunStatusLabel[s])
 					}
 					a.CancelRun(id, c.Actor)
 				default:
-					return nil, Errorf("action 必須是 retry 或 cancel,收到「%s」", action)
+					return nil, Errorf("action must be retry or cancel; got \"%s\"", action)
 				}
 			}
 			return core.Compact(run), nil
@@ -465,7 +465,7 @@ func init() {
 			}
 			if automation != core.MCPActorID {
 				if _, au := a.Find("automations", automation); au == nil || core.Str(au, "id") != automation {
-					return nil, Errorf("找不到自動化 %s", automation)
+					return nil, Errorf("Automation %s not found", automation)
 				}
 			}
 			minutes, ok := c.Args.Int("expires_in_minutes")

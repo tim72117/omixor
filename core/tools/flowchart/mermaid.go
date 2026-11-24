@@ -63,13 +63,13 @@ func parseMermaid(src string) (*Graph, error) {
 			j++
 		}
 		if j >= len(lines) {
-			return nil, errf("第 %d 行:前置區塊(---)沒有結束", i+1)
+			return nil, errf("line %d: front matter block (---) is not closed", i+1)
 		}
 		i = j + 1
 		skipBlank()
 	}
 	if i >= len(lines) {
-		return nil, errf("Mermaid 描述是空的(第一行要是 flowchart TD 或 graph LR)")
+		return nil, errf("The Mermaid description is empty (the first line must be like flowchart TD or graph LR)")
 	}
 	// 標頭:flowchart|graph [方向] [; 敘述…]
 	head := strings.TrimSpace(lines[i])
@@ -81,7 +81,7 @@ func parseMermaid(src string) (*Graph, error) {
 	switch strings.ToLower(base) {
 	case "flowchart", "graph", "flowchart-elk":
 	default:
-		return nil, errf("第 %d 行:只支援 Mermaid 的 flowchart / graph 圖(這裡是「%s」);第一行要像 flowchart TD", i+1, short(base))
+		return nil, errf("line %d: only Mermaid flowchart / graph diagrams are supported (found \"%s\"); the first line must be like flowchart TD", i+1, short(base))
 	}
 	if k := strings.IndexByte(kw, ';'); k >= 0 { // graph;A-->B
 		rest = kw[k:] + rest
@@ -93,7 +93,7 @@ func parseMermaid(src string) (*Graph, error) {
 	if dd := strings.ToUpper(d); len(dd) == 2 && dirAlias[dd] != "" {
 		p.g.Direction, rest = dd, r
 	} else if d != "" && !strings.HasPrefix(d, ";") {
-		return nil, errf("第 %d 行:不認得的方向「%s」(只有 TB、TD、LR、RL、BT)", i+1, short(d))
+		return nil, errf("line %d: unknown direction \"%s\" (only TB, TD, LR, RL, BT)", i+1, short(d))
 	}
 	if p.g.Direction == "" {
 		p.g.Direction = "TB"
@@ -109,16 +109,16 @@ func parseMermaid(src string) (*Graph, error) {
 		}
 	}
 	if len(p.stack) > 0 {
-		return nil, errf("第 %d 行:subgraph「%s」沒有對應的 end", p.stackAt[len(p.stackAt)-1], p.stack[len(p.stack)-1].ID)
+		return nil, errf("line %d: subgraph \"%s\" has no matching end", p.stackAt[len(p.stackAt)-1], p.stack[len(p.stack)-1].ID)
 	}
 	// 邊連到 subgraph 的 id(Mermaid 允許,這裡不支援)
 	for id, ln := range p.auto {
 		if p.groups[id] != nil {
-			return nil, errf("第 %d 行:「%s」是 subgraph 的 id,目前不支援把邊連到 subgraph,請改連到裡面的節點", ln, id)
+			return nil, errf("line %d: \"%s\" is a subgraph id; edges to a subgraph are not supported, connect to a node inside it instead", ln, id)
 		}
 	}
 	if len(p.g.Nodes) == 0 {
-		return nil, errf("Mermaid 描述裡沒有節點")
+		return nil, errf("The Mermaid description has no nodes")
 	}
 	return p.g, nil
 }
@@ -142,15 +142,15 @@ func short(s string) string {
 
 func (p *mparser) fail(msg string, near string) error {
 	if near = short(near); near != "" {
-		return errf("第 %d 行:%s(在「%s」附近)", p.line, msg, near)
+		return errf("line %d: %s (near \"%s\")", p.line, msg, near)
 	}
-	return errf("第 %d 行:%s", p.line, msg)
+	return errf("line %d: %s", p.line, msg)
 }
 
 func (p *mparser) ignore(kind string) {
 	if !p.ignored[kind] {
 		p.ignored[kind] = true
-		p.g.warn("Mermaid 的 %s 目前不支援,已忽略(第 %d 行)", kind, p.line)
+		p.g.warn("Mermaid %s is not supported and was ignored (line %d)", kind, p.line)
 	}
 }
 
@@ -197,13 +197,13 @@ func (p *mparser) statement(s string) error {
 		return p.subgraph(strings.TrimSpace(rest))
 	case lk == "end" && strings.TrimSpace(rest) == "":
 		if len(p.stack) == 0 {
-			return p.fail("多了一個 end(前面沒有 subgraph)", s)
+			return p.fail("unexpected end (no open subgraph)", s)
 		}
 		p.stack = p.stack[:len(p.stack)-1]
 		p.stackAt = p.stackAt[:len(p.stackAt)-1]
 		return nil
 	case lk == "direction":
-		p.ignore("subgraph 內的 direction")
+		p.ignore("direction inside a subgraph")
 		return nil
 	case lk == "classdef" || lk == "style" || lk == "linkstyle" || lk == "click":
 		p.ignore(kw)
@@ -216,7 +216,7 @@ func (p *mparser) statement(s string) error {
 		cls = strings.TrimSpace(cls)
 		st := classStyle(cls)
 		if st == "" {
-			p.ignore("class(只認得 highlight、muted)")
+			p.ignore("class (only highlight and muted are recognized)")
 			return nil
 		}
 		for _, id := range strings.Split(ids, ",") {
@@ -246,7 +246,7 @@ func classStyle(c string) string {
 // subgraph id [標題] | subgraph id["標題"] | subgraph "標題" | subgraph 標題文字
 func (p *mparser) subgraph(rest string) error {
 	if len(p.groups) >= MaxGroups {
-		return p.fail(fmt.Sprintf("subgraph 太多(最多 %d)", MaxGroups), rest)
+		return p.fail(fmt.Sprintf("too many subgraphs (max %d)", MaxGroups), rest)
 	}
 	var id, label string
 	switch {
@@ -265,7 +265,7 @@ func (p *mparser) subgraph(rest string) error {
 			r := strings.TrimSpace(rest[k:])
 			if strings.HasPrefix(r, "[") {
 				if !strings.HasSuffix(r, "]") {
-					return p.fail("subgraph 的標題括號沒有結束(缺少「]」)", rest)
+					return p.fail("the subgraph title bracket is not closed (missing \"]\")", rest)
 				}
 				label = strings.Trim(strings.TrimSpace(r[1:len(r)-1]), `"`)
 			} else if r != "" { // subgraph 一段標題:整段當 id 與標題
@@ -278,7 +278,7 @@ func (p *mparser) subgraph(rest string) error {
 		label = id
 	}
 	if p.groups[id] != nil {
-		return p.fail("subgraph 的 id 重複", id)
+		return p.fail("duplicate subgraph id", id)
 	}
 	gr := &Group{ID: id, Label: label}
 	if len(p.stack) > 0 {
@@ -311,7 +311,7 @@ func (p *mparser) touch(id, label, shape string, hasShape bool) (*Node, error) {
 	n := p.nodes[id]
 	if n == nil {
 		if len(p.g.Nodes) >= MaxNodes {
-			return nil, p.fail(fmt.Sprintf("節點太多(最多 %d 個)", MaxNodes), id)
+			return nil, p.fail(fmt.Sprintf("too many nodes (max %d)", MaxNodes), id)
 		}
 		n = &Node{ID: id, Label: id, Shape: "process"}
 		p.nodes[id] = n
@@ -363,7 +363,7 @@ func (p *mparser) chain(s string) error {
 		for _, a := range left {
 			for _, b := range right {
 				if len(p.g.Edges) >= MaxEdges {
-					return p.fail(fmt.Sprintf("邊太多(最多 %d 條)", MaxEdges), s[pos:])
+					return p.fail(fmt.Sprintf("too many edges (max %d)", MaxEdges), s[pos:])
 				}
 				p.g.Edges = append(p.g.Edges, &Edge{From: a, To: b, Label: lk.label, Style: lk.style, Arrow: lk.arrow})
 			}
@@ -429,15 +429,15 @@ func (p *mparser) node(s string, pos int) (string, int, error) {
 	id := s[start:pos]
 	if id == "" {
 		if pos >= len(s) {
-			return "", pos, p.fail("連線後面少了節點", s)
+			return "", pos, p.fail("a node is missing after the link", s)
 		}
-		return "", pos, p.fail("預期節點 id(英數字、底線、中文)", s[pos:])
+		return "", pos, p.fail("expected a node id (letters, digits, underscore, CJK characters)", s[pos:])
 	}
 	if l := strings.ToLower(id); l == "end" || l == "subgraph" {
-		return "", pos, p.fail(fmt.Sprintf("「%s」是保留字,不能當節點 id", id), s[start:])
+		return "", pos, p.fail(fmt.Sprintf("\"%s\" is a reserved word and cannot be used as a node id", id), s[start:])
 	}
 	if strings.HasPrefix(s[pos:], "@{") {
-		return "", pos, p.fail("不支援 @{ shape: … } 的新語法,請改用 [ ]、( )、{ } 等括號", s[start:])
+		return "", pos, p.fail("the new @{ shape: … } syntax is not supported; use brackets such as [ ], ( ), { } instead", s[start:])
 	}
 	label, shape, has := "", "", false
 	for _, so := range shapeOpen {
@@ -452,7 +452,7 @@ func (p *mparser) node(s string, pos int) (string, int, error) {
 		if bp < len(s) && s[bp] == '"' { // "…" 包起來的文字可以有括號
 			q := strings.IndexByte(s[bp+1:], '"')
 			if q < 0 {
-				return "", pos, p.fail(fmt.Sprintf("節點「%s」的文字引號沒有結束", id), s[start:])
+				return "", pos, p.fail(fmt.Sprintf("the text quote of node \"%s\" is not closed", id), s[start:])
 			}
 			text = s[bp+1 : bp+1+q]
 			after := skipSpace(s, bp+2+q)
@@ -463,7 +463,7 @@ func (p *mparser) node(s string, pos int) (string, int, error) {
 				}
 			}
 			if end < 0 {
-				return "", pos, p.fail(fmt.Sprintf("節點「%s」的形狀括號沒有結束(缺少「%s」)", id, shapeClose[so.open][0]), s[start:])
+				return "", pos, p.fail(fmt.Sprintf("the shape bracket of node \"%s\" is not closed (missing \"%s\")", id, shapeClose[so.open][0]), s[start:])
 			}
 		} else {
 			for _, c := range shapeClose[so.open] {
@@ -472,7 +472,7 @@ func (p *mparser) node(s string, pos int) (string, int, error) {
 				}
 			}
 			if end < 0 {
-				return "", pos, p.fail(fmt.Sprintf("節點「%s」的形狀括號沒有結束(缺少「%s」)", id, shapeClose[so.open][0]), s[start:])
+				return "", pos, p.fail(fmt.Sprintf("the shape bracket of node \"%s\" is not closed (missing \"%s\")", id, shapeClose[so.open][0]), s[start:])
 			}
 			text = s[body:end]
 		}
@@ -492,7 +492,7 @@ func (p *mparser) node(s string, pos int) (string, int, error) {
 		if st := classStyle(s[pos+3 : k]); st != "" {
 			n.Style = st
 		} else {
-			p.ignore("::: class(只認得 highlight、muted)")
+			p.ignore("::: class (only highlight and muted are recognized)")
 		}
 		pos = k
 	}
@@ -561,7 +561,7 @@ func (p *mparser) link(s string, pos int) (link, int, error) {
 		default: // -. 文字 .->
 			text, end, ok := labeled(".->", ".-")
 			if !ok {
-				return lk, pos, p.fail("虛線「-. 文字 .->」沒有結尾", s[start:])
+				return lk, pos, p.fail("the dotted link \"-. text .->\" is not terminated", s[start:])
 			}
 			lk.label = mermaidLabel(text)
 			if end == ".-" {
@@ -580,7 +580,7 @@ func (p *mparser) link(s string, pos int) (link, int, error) {
 		default: // -- 文字 --> / -- 文字 ---
 			text, end, ok := labeled("-->", "---")
 			if !ok {
-				return lk, pos, p.fail("「-- 文字 -->」沒有結尾的 -->", s[start:])
+				return lk, pos, p.fail("\"-- text -->\" has no closing -->", s[start:])
 			}
 			for pos < len(s) && s[pos] == '-' {
 				pos++
@@ -605,7 +605,7 @@ func (p *mparser) link(s string, pos int) (link, int, error) {
 		default:
 			text, end, ok := labeled("==>", "===")
 			if !ok {
-				return lk, pos, p.fail("「== 文字 ==>」沒有結尾的 ==>", s[start:])
+				return lk, pos, p.fail("\"== text ==>\" has no closing ==>", s[start:])
 			}
 			for pos < len(s) && s[pos] == '=' {
 				pos++
@@ -621,11 +621,11 @@ func (p *mparser) link(s string, pos int) (link, int, error) {
 		}
 		lk.style = "thick"
 	default:
-		return lk, pos, p.fail("預期連線(-->、---、-.->、==> …)", s[start:])
+		return lk, pos, p.fail("expected a link (-->, ---, -.->, ==> …)", s[start:])
 	}
 	if both {
 		if lk.arrow == "none" {
-			return lk, pos, p.fail("「<」開頭的連線要有箭頭,例如 <-->", s[start:])
+			return lk, pos, p.fail("a link starting with \"<\" needs an arrow, e.g. <-->", s[start:])
 		}
 		lk.arrow = "both"
 	}
@@ -634,7 +634,7 @@ func (p *mparser) link(s string, pos int) (link, int, error) {
 	if q < len(s) && s[q] == '|' {
 		k := strings.IndexByte(s[q+1:], '|')
 		if k < 0 {
-			return lk, pos, p.fail("連線標籤 |…| 沒有結束", s[q:])
+			return lk, pos, p.fail("the link label |…| is not closed", s[q:])
 		}
 		lk.label = mermaidLabel(s[q+1 : q+1+k])
 		pos = q + 2 + k

@@ -52,7 +52,7 @@ func IncidentToolDefs() []any {
 // incidentErr 核心回的錯誤轉成工具錯誤(找不到事件的訊息同 Swift)
 func incidentErr(id string, err error) error {
 	if backend.NotFound(err) && id != "" {
-		return Errorf("找不到事件 %s", id)
+		return Errorf("Incident %s not found", id)
 	}
 	return terr(err)
 }
@@ -156,7 +156,7 @@ func registerIncidentWrites(s *Server) {
 			return nil, err
 		}
 		if sev < model.MinIncidentSev || sev > model.MaxIncidentSev {
-			return nil, Errorf("sev 必須是 1–4")
+			return nil, Errorf("sev must be 1-4")
 		}
 		impact, err := c.Args.Require("impact")
 		if err != nil {
@@ -192,7 +192,7 @@ func registerIncidentWrites(s *Server) {
 			p.Status = &status
 		}
 		if p.Empty() {
-			return nil, Errorf("status、note、finding、ai_summary、impact 至少要給一項")
+			return nil, Errorf("Give at least one of status, note, finding, ai_summary, impact")
 		}
 		if p.Author, err = e.Author(""); err != nil {
 			return nil, err

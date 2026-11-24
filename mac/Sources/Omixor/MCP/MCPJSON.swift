@@ -146,19 +146,19 @@ struct MCPArgs {
     }
 
     func require(_ k: String) throws -> String {
-        guard let s = string(k), !s.isEmpty else { throw MCPToolError("缺少參數 \(k)") }
+        guard let s = string(k), !s.isEmpty else { throw MCPToolError("Missing argument \(k)") }
         return s
     }
 
     func requireInt(_ k: String) throws -> Int {
-        guard let n = int(k) else { throw MCPToolError("缺少或無效的整數參數 \(k)") }
+        guard let n = int(k) else { throw MCPToolError("Missing or invalid integer argument \(k)") }
         return n
     }
 
     func requireEnum<E: RawRepresentable & CaseIterable>(_ k: String, _: E.Type) throws -> E where E.RawValue == String {
         let s = try require(k)
         guard let e = E(rawValue: s) else {
-            throw MCPToolError("\(k) 必須是 \(E.allCases.map(\.rawValue).joined(separator: "、")) 之一,收到「\(s)」")
+            throw MCPToolError("\(k) must be one of \(E.allCases.map(\.rawValue).joined(separator: ", ")); got \"\(s)\"")
         }
         return e
     }
@@ -170,7 +170,19 @@ struct MCPArgs {
 }
 
 /// 工具執行失敗:回給用戶端 isError = true 的結果,而不是 JSON-RPC 錯誤
+/// status 預設 400(參數或狀態不對);code 空就依 status 取(MCPResult.code(forStatus:));data 是額外欄位
 struct MCPToolError: Error {
     let message: String
-    init(_ message: String) { self.message = message }
+    let status: Int
+    let code: String?
+    let data: [String: Any]
+    init(_ message: String, status: Int = 400, code: String? = nil, data: [String: Any] = [:]) {
+        self.message = message
+        self.status = status
+        self.code = code
+        self.data = data
+    }
+
+    /// 找不到對象(404)
+    static func notFound(_ message: String) -> MCPToolError { MCPToolError(message, status: 404) }
 }

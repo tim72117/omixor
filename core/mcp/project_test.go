@@ -35,7 +35,7 @@ func TestProjectTools(t *testing.T) {
 	if l := ok(t, admin, "", "projects", map[string]any{}); len(l["projects"].([]any)) != 0 {
 		t.Fatal(l)
 	}
-	fails(t, admin, "", "project_save", map[string]any{"description": "x"}, "缺少參數 name")
+	fails(t, admin, "", "project_save", map[string]any{"description": "x"}, "Missing parameter name")
 	p := ok(t, admin, "", "project_save", map[string]any{"name": "官網", "description": "改版"})
 	if p["id"] != "PRJ-1" || p["name"] != "官網" || p["description"] != "改版" {
 		t.Fatal(p)
@@ -44,7 +44,7 @@ func TestProjectTools(t *testing.T) {
 	if u := ok(t, admin, "", "project_save", map[string]any{"id": "prj-1", "description": "官網改版"}); u["name"] != "官網" || u["description"] != "官網改版" {
 		t.Fatal(u)
 	}
-	fails(t, admin, "", "project_save", map[string]any{"id": "PRJ-1"}, "要給 name、key、description、restricted、link_repos、unlink_repos、add_members 或 remove_members")
+	fails(t, admin, "", "project_save", map[string]any{"id": "PRJ-1"}, "Give at least one of name, key, description, restricted, link_repos, unlink_repos, add_members or remove_members")
 
 	// 專案的結構:cabinet_layout_save 帶 project,不影響未分專案
 	lay := ok(t, admin, "", "cabinet_layout_save", map[string]any{"project": "PRJ-1",
@@ -88,7 +88,7 @@ func TestProjectTools(t *testing.T) {
 	ok(t, admin, "", "cabinet_layout_save", map[string]any{"project": "PRJ-2", "remove": []any{"overview", "docs"},
 		"add_sections": []any{map[string]any{"id": "spec", "label": "規格"}}})
 	fails(t, admin, "", "doc_save", map[string]any{"id": "DOC-1", "project": "prj-2"},
-		"要搬到的專案沒有「文件」這個位置;請一起給 section(和 tab)指定目標專案裡的位置")
+		"The target project has no place \"文件\"; also give section (and tab) to name a place in the target project")
 	if m := ok(t, admin, "", "doc_save", map[string]any{"id": "DOC-1", "project": "PRJ-1"}); m["project"] != "PRJ-1" || m["section"] != "docs" {
 		t.Fatal("目標專案有原本的位置:沿用", m)
 	}
@@ -97,7 +97,7 @@ func TestProjectTools(t *testing.T) {
 		t.Fatal(m)
 	}
 	fails(t, admin, "", "doc_save", map[string]any{"id": "DOC-2", "project": "", "edits": []any{map[string]any{"old": "GET", "new": "POST"}}},
-		"局部修改(edits、replace_part、append_to_part)不能同時搬到別的專案;分兩次存")
+		"Partial edits (edits, replace_part, append_to_part) cannot move the document to another project at the same time; save in two steps")
 	if r := ok(t, admin, "", "doc_save", map[string]any{"id": "DOC-2", "project": "PRJ-1", "edits": []any{map[string]any{"old": "GET", "new": "POST"}}}); r["unchanged"] == true {
 		t.Fatal(r)
 	}
@@ -118,8 +118,8 @@ func TestProjectTools(t *testing.T) {
 	if a, _ := st.GetAgent("lab", "writer"); a.DocAccess["PRJ-1:/spec/api"] != "write" || a.DocAccess["docs"] != "write" {
 		t.Fatal(a.DocAccess)
 	}
-	fails(t, admin, "", "agent_upsert", map[string]any{"id": "writer", "doc_access": map[string]any{"PRJ-1:沒有": "read"}}, "專案 PRJ-1:文件櫃沒有「沒有」這個區塊或頁籤")
-	fails(t, admin, "", "agent_upsert", map[string]any{"id": "writer", "doc_access": map[string]any{"PRJ-9:docs": "read"}}, "doc_access 的 PRJ-9:docs:找不到專案 PRJ-9")
+	fails(t, admin, "", "agent_upsert", map[string]any{"id": "writer", "doc_access": map[string]any{"PRJ-1:沒有": "read"}}, "Project PRJ-1: 文件櫃沒有「沒有」這個區塊或頁籤")
+	fails(t, admin, "", "agent_upsert", map[string]any{"id": "writer", "doc_access": map[string]any{"PRJ-9:docs": "read"}}, "doc_access PRJ-9:docs: project PRJ-9 not found")
 	fails(t, admin, "", "doc_save", map[string]any{"project": "PRJ-1", "title": "x", "section": "規格", "agent": "writer"}, mcp.IdentityAgentError)
 	fails(t, admin, "", "cabinet", map[string]any{"project": "PRJ-1", "agent": "writer"}, mcp.IdentityAgentError)
 	ctx := ok(t, admin, "", "agent_context", map[string]any{"agent": "writer"})
@@ -190,8 +190,8 @@ func TestAgentUpsertRemovesStaleProjectKey(t *testing.T) {
 	// 直接寫進存放處:PRJ-5 不存在(專案已刪)、PRJ-1 的 /gone 位置已經不在結構裡
 	_ = st.SaveAgent("lab", model.Agent{ID: "g", Name: "角色", Active: true, CreatedAt: now,
 		DocAccess: map[string]string{"docs": "write", "PRJ-5:/x": "read", "PRJ-1:/gone": "read"}})
-	fails(t, admin, "", "agent_upsert", map[string]any{"id": "g", "doc_access": map[string]any{"PRJ-5:/x": "write"}}, "doc_access 的 PRJ-5:/x:找不到專案 PRJ-5")
-	fails(t, admin, "", "agent_upsert", map[string]any{"id": "g", "doc_access": map[string]any{"PRJ-1:/gone": "write"}}, "專案 PRJ-1:文件櫃沒有「/gone」這個區塊或頁籤")
+	fails(t, admin, "", "agent_upsert", map[string]any{"id": "g", "doc_access": map[string]any{"PRJ-5:/x": "write"}}, "doc_access PRJ-5:/x: project PRJ-5 not found")
+	fails(t, admin, "", "agent_upsert", map[string]any{"id": "g", "doc_access": map[string]any{"PRJ-1:/gone": "write"}}, "Project PRJ-1: 文件櫃沒有「/gone」這個區塊或頁籤")
 	ok(t, admin, "", "agent_upsert", map[string]any{"id": "g", "doc_access": map[string]any{"prj-5:/x": "none", "PRJ-1:/gone": "none"}})
 	a, err := st.GetAgent("lab", "g")
 	if err != nil {

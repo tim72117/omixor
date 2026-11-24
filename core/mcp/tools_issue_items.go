@@ -94,14 +94,14 @@ func itemRefs(c *Call) (issue, item string, err error) {
 	}
 	issue, item = service.SplitItemKey(id)
 	if issue == "" {
-		return "", "", Errorf("id 要是子項編號,例如 ISS-37.2(Issue key 加序號)")
+		return "", "", Errorf("id must be an item number such as ISS-37.2 (issue key plus sequence number)")
 	}
 	return issue, item, nil
 }
 
 func itemErr(ref string, err error) error {
 	if backend.NotFound(err) && ref != "" {
-		return Errorf("找不到 %s", ref)
+		return Errorf("%s not found", ref)
 	}
 	return terr(err)
 }
@@ -113,7 +113,7 @@ func evidenceArg(v any) (json.RawMessage, error) {
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
-		return nil, Errorf("evidence 要是 JSON 物件或字串")
+		return nil, Errorf("evidence must be a JSON object or a string")
 	}
 	return b, nil
 }
@@ -145,7 +145,7 @@ func RegisterItemTools(s *Server) {
 		if id := c.Args.Str("id"); id != "" {
 			issue, item := service.SplitItemKey(id)
 			if issue == "" {
-				return nil, Errorf("id 要是子項編號,例如 ISS-37.2(Issue key 加序號)")
+				return nil, Errorf("id must be an item number such as ISS-37.2 (issue key plus sequence number)")
 			}
 			it, err := bk.GetIssueItem(org, issue, item)
 			if err != nil {
@@ -214,14 +214,14 @@ func RegisterItemTools(s *Server) {
 		res, err := e.Backend().ClaimIssueItem(e.Org(), issue, item, service.ItemClaimInput{Note: c.Args.Str("note")})
 		if err != nil {
 			if service.Code(err) == 409 { // 含「已被領取、處理中,鎖定到 hh:mm」:原文轉給呼叫端
-				return nil, prefixErr("領取失敗:", err)
+				return nil, prefixErr("Claim failed: ", err)
 			}
 			return nil, itemErr(id, err)
 		}
 		out := map[string]any{"item": res.Item}
-		msg := "已領取" + id + "。"
+		msg := "Claimed " + id + ". "
 		if res.Item.LockedUntil != nil {
-			msg += "已鎖定到 " + res.Item.LockedUntil.Time.Local().Format("15:04") + "(其他人不能再領);長時間工作請定期用 issue_item_report(status: doing)續約。"
+			msg += "Locked until " + res.Item.LockedUntil.Time.Local().Format("15:04") + " (nobody else can claim it); for long work renew the lease periodically with issue_item_report(status: doing). "
 		}
 		if res.Task != nil {
 			out["task"] = toMap(*res.Task)
@@ -234,7 +234,7 @@ func RegisterItemTools(s *Server) {
 				}
 			}
 			out["credential"] = m
-			msg += "負責人是角色:已建立並領取綁定的任務 " + res.Task.ID + "。要以該角色身分工作,用 credential 連角色端點(Authorization: Bearer <agentId>:<secret>);做完用 issue_item_report 回報。"
+			msg += "The assignee is an agent: a bound task was created and claimed: " + res.Task.ID + ". To work as that agent, connect to the agent endpoint with the credential (Authorization: Bearer <agentId>:<secret>); report with issue_item_report when done."
 		}
 		out["message"] = msg
 		return out, nil
@@ -285,6 +285,6 @@ func RegisterItemTools(s *Server) {
 			return nil, itemErr(id, err)
 		}
 		return map[string]any{"issue": issueJSON(e, *r.Issue), "item": r.Item,
-			"message": fmt.Sprintf("已提升為 %s,%s 標為取消並記下關聯", r.Issue.Key, id)}, nil
+			"message": fmt.Sprintf("Promoted to %s; %s is marked cancelled and the link is recorded", r.Issue.Key, id)}, nil
 	})
 }

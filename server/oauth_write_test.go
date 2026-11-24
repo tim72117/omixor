@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"omixor-core/mcp"
 )
 
 // OAuth 寫入(mcp:write)端到端(HTTP 層):同意畫面的讀寫選項、伺服器端驗證 scope、CSRF 綁定、token、MCP 寫入白名單
@@ -165,7 +167,7 @@ func TestOAuthWriteNotChosenStaysReadOnly(t *testing.T) {
 			t.Fatalf("grant=%q 要是唯讀:%v", grant, m)
 		}
 		w := o.mcpPost("/mcp", m["access_token"].(string), callBody("issue_create", `{"org":"o","title":"唯讀"}`))
-		if !strings.Contains(w.Body.String(), "此連線是唯讀授權") {
+		if !strings.Contains(w.Body.String(), mcp.ReadOnlyMessage) {
 			t.Fatalf("grant=%q:%s", grant, w.Body.String())
 		}
 	}

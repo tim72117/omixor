@@ -93,7 +93,7 @@ func TestOfficeTools(t *testing.T) {
 	if one["id"] != id || one["status"] != office.StatusArrived {
 		t.Fatal(one)
 	}
-	if msg := extErr(t, a, "office_state", map[string]any{"command": "oc-x"}); !strings.Contains(msg, "找不到命令") {
+	if msg := extErr(t, a, "office_state", map[string]any{"command": "oc-x"}); !strings.Contains(msg, "Command oc-x not found") {
 		t.Fatal(msg)
 	}
 	if msg := extErr(t, a, "office_state", map[string]any{"limit": 0}); msg == "" {

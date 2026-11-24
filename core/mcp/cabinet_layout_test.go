@@ -64,14 +64,14 @@ func TestCabinetLayoutSave(t *testing.T) {
 	}
 
 	// 錯誤:重複名稱、找不到、還有文件的位置不能移除(整批都不存)
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{"add_sections": []any{map[string]any{"label": "行銷"}}}, "已經有區塊「行銷」")
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{"add_tabs": []any{map[string]any{"section": "nope", "label": "x"}}}, "找不到區塊「nope」")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{"add_sections": []any{map[string]any{"label": "行銷"}}}, "Section \"行銷\" already exists")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{"add_tabs": []any{map[string]any{"section": "nope", "label": "x"}}}, "Section \"nope\" not found")
 	fails(t, admin, "", "cabinet_layout_save", map[string]any{"add_tabs": []any{map[string]any{"section": "行銷", "label": "IG"}}, "remove": []any{"AI 工具"}},
 		"「腳本」還在被拿掉的頁籤裡,先搬走或刪除")
 	if l, _ := getLayoutOnly(st); len(model.Layout(l).Section("marketing").Tabs) != 1 {
 		t.Fatal("失敗時不能存一半")
 	}
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{}, "要給 add_sections、add_tabs、update 或 remove")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{}, "Give at least one of add_sections, add_tabs, update or remove")
 
 	// 移除:頁籤、區塊(連同頁籤)
 	out = ok(t, admin, "", "cabinet_layout_save", map[string]any{"remove": []any{"零基礎", "行銷"}})
@@ -84,22 +84,22 @@ func TestCabinetLayoutSave(t *testing.T) {
 		"add_sections": []any{map[string]any{"label": "行銷", "id": "mk"}},
 		"add_tabs":     []any{map[string]any{"section": "mk", "label": "AI 工具"}, map[string]any{"section": "mk", "label": "Y", "code": "K1"}},
 	})
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"section": "nope", "tab": "AI 工具", "label": "x"}}}, "找不到區塊「nope」")
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"tab": "AI 工具", "label": "x"}}}, "「AI 工具」對到多個頁籤(/s3/1、/mk/1),用頁籤網址指定")
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{"remove": []any{"AI 工具"}}, "「AI 工具」對到多個頁籤(/s3/1、/mk/1),用頁籤網址指定")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"section": "nope", "tab": "AI 工具", "label": "x"}}}, "Section \"nope\" not found")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"tab": "AI 工具", "label": "x"}}}, "\"AI 工具\" matches several tabs (/s3/1, /mk/1); specify the tab by its path")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{"remove": []any{"AI 工具"}}, "\"AI 工具\" matches several tabs (/s3/1, /mk/1); specify the tab by its path")
 	ok(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"section": "mk", "tab": "AI 工具", "label": "AI"}}})
 	l, _ = getLayoutOnly(st)
 	if model.Layout(l).TabByPath("/mk/1").Label != "AI" || model.Layout(l).TabByPath("/s3/1").Label != "AI 工具" {
 		t.Fatalf("限定區塊改名:%+v", l)
 	}
 	// 代號整個文件櫃不能重複;名稱同一個區塊不能重複
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{"add_tabs": []any{map[string]any{"section": "課程規劃", "label": "Z", "code": "K1"}}}, "頁籤代號「K1」已經用在「行銷 › K1 Y」")
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"tab": "/s3/1", "code": "K1"}}}, "頁籤代號「K1」已經用在「行銷 › K1 Y」")
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"tab": "/mk/1", "label": "Y"}}}, "「行銷」已經有頁籤「Y」")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{"add_tabs": []any{map[string]any{"section": "課程規劃", "label": "Z", "code": "K1"}}}, "Tab code \"K1\" is already used by \"行銷 › K1 Y\"")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"tab": "/s3/1", "code": "K1"}}}, "Tab code \"K1\" is already used by \"行銷 › K1 Y\"")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"tab": "/mk/1", "label": "Y"}}}, "\"行銷\" already has a tab \"Y\"")
 	ok(t, admin, "", "cabinet_layout_save", map[string]any{"update": []any{map[string]any{"tab": "K1", "label": "Y2", "code": "K1"}}}) // 自己的代號不算重複
 	// 區塊名稱剛好也是頁籤名稱:要用區塊 id 或頁籤網址
 	ok(t, admin, "", "cabinet_layout_save", map[string]any{"add_sections": []any{map[string]any{"label": "AI", "id": "ai"}}})
-	fails(t, admin, "", "cabinet_layout_save", map[string]any{"remove": []any{"AI"}}, "「AI」同時是區塊和頁籤(/mk/1)的名稱:區塊用 id「ai」,頁籤用網址指定")
+	fails(t, admin, "", "cabinet_layout_save", map[string]any{"remove": []any{"AI"}}, "\"AI\" is both a section name and a tab name (/mk/1): refer to the section by id \"ai\" and to the tab by its path")
 	out = ok(t, admin, "", "cabinet_layout_save", map[string]any{"remove": []any{"ai", "/mk/1"}})
 	if l, _ := getLayoutOnly(st); model.Layout(l).Section("ai") != nil || model.Layout(l).TabByPath("/mk/1") != nil || len(model.Layout(l).Section("mk").Tabs) != 1 {
 		t.Fatalf("用 id 與網址移除:%+v", l)

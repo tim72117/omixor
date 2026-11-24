@@ -113,7 +113,7 @@ func decisionTransition(c *Call, do func(appBackend, string, string) (*model.Dec
 	d, err := do(appBackend{a: c.App}, x.Org(), id)
 	if err != nil {
 		if backend.NotFound(err) {
-			return nil, Errorf("找不到 %s", id)
+			return nil, Errorf("%s not found", id)
 		}
 		return nil, ToolErr(err)
 	}

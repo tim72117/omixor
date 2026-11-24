@@ -43,8 +43,29 @@ final class MCPTests: XCTestCase {
         let result = try XCTUnwrap(r["result"] as? [String: Any], "\(r)")
         let text = try XCTUnwrap((result["content"] as? [[String: Any]])?.first?["text"] as? String)
         let isError = result["isError"] as? Bool ?? false
-        if isError { return (text, true) }
-        return (try JSONSerialization.jsonObject(with: Data(text.utf8), options: .fragmentsAllowed), false)
+        // 統一的結果形狀:structuredContent 是物件,content[0].text 是同一份 JSON;唯一例外是失敗結果 text 的 error.data 少了大欄位、多 truncated
+        let structured = try XCTUnwrap(result["structuredContent"] as? [String: Any], "\(result)")
+        let parsed = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        let expected = isError ? Self.withoutLargeErrData(structured) : structured
+        XCTAssertEqual(NSDictionary(dictionary: isError ? Self.withoutTruncated(parsed) : parsed), NSDictionary(dictionary: expected), name)
+        if isError { return (try XCTUnwrap((structured["error"] as? [String: Any])?["message"] as? String), true) }
+        return (structured, false)
+    }
+
+    /// 同 core 的 sameExceptLargeErrData:structuredContent 拿掉 error.data 的 current 與超過 300 位元組的欄位,應等於 text(扣掉 truncated)
+    private static func withoutLargeErrData(_ sc: [String: Any]) -> [String: Any] {
+        guard var e = sc["error"] as? [String: Any], let d = e["data"] as? [String: Any] else { return sc }
+        e["data"] = d.filter { k, v in
+            k != "current" && ((try? JSONSerialization.data(withJSONObject: v, options: [.fragmentsAllowed]).count) ?? .max) <= MCPResult.errDataValueMax
+        }
+        return ["error": e]
+    }
+
+    private static func withoutTruncated(_ text: [String: Any]) -> [String: Any] {
+        guard var e = text["error"] as? [String: Any], var d = e["data"] as? [String: Any] else { return text }
+        d["truncated"] = nil
+        e["data"] = d
+        return ["error": e]
     }
 
     private func ok(_ name: String, _ args: [String: Any] = [:]) async throws -> [String: Any] {
@@ -104,10 +125,10 @@ final class MCPTests: XCTestCase {
             let schema = try XCTUnwrap(t["inputSchema"] as? [String: Any], "\(t["name"] ?? "")")
             XCTAssertEqual(schema["type"] as? String, "object")
         }
-        // 每個工具都要有實作(呼叫不會落到「沒有這個工具」)
+        // 每個工具都要有實作(呼叫不會落到「Unknown tool」)
         for t in MCPHandler.tools {
             let (out, _) = try await tool(t.name, [:])
-            XCTAssertFalse("\(out)".contains("沒有這個工具"), t.name)
+            XCTAssertFalse("\(out)".contains("Unknown tool"), t.name)
         }
     }
 
@@ -161,7 +182,7 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual(out["id"] as? Int, run.id)
         let (msg, isError) = try await tool("get", ["collection": "alerts", "id": "NOPE-1"])
         XCTAssertTrue(isError)
-        XCTAssertTrue("\(msg)".contains("找不到"))
+        XCTAssertTrue("\(msg)".contains("No record with id"))
     }
 
     // MARK: - 寫入
@@ -214,7 +235,7 @@ final class MCPTests: XCTestCase {
         (msg, isError) = try await tool("incident_declare", ["title": "x", "sev": 9, "impact": "y"])
         XCTAssertTrue(isError)
         (msg, isError) = try await tool("alert_create", ["title": "x", "severity": "info", "service": "nope", "rule": "r", "value": "v"])
-        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("找不到服務"))
+        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("Service not found"))
     }
 
     func testRetryPipelineAndRequestApproval() async throws {
@@ -231,7 +252,7 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual(app.pendingApprovals.count, pending + 1)
     }
 
-    /// 範例資料工具依功能開關:功能關了 tools/list 不列、tools/call 回「這個功能已關閉」;核心工具不擋
+    /// 範例資料工具依功能開關:功能關了 tools/list 不列、tools/call 回「this feature is turned off」;核心工具不擋
     func testSampleToolsFollowFeatureFlags() async throws {
         func listed() async throws -> Set<String> {
             let r = try await rpc("tools/list")
@@ -249,13 +270,13 @@ final class MCPTests: XCTestCase {
         let alerts = app.alerts
         var (msg, isError) = try await tool("alert_create", ["title": "x", "severity": "info", "service": app.services[0].id,
                                                           "rule": "r", "value": "v"])
-        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("這個功能已關閉"), "\(msg)")
+        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("this feature is turned off"), "\(msg)")
         XCTAssertEqual(app.alerts, alerts, "關掉時不改資料")
         // list / get:關掉的集合回錯誤,開著的照常
         (msg, isError) = try await tool("list", ["collection": "alerts"])
-        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("這個功能已關閉"), "\(msg)")
+        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("this feature is turned off"), "\(msg)")
         (msg, isError) = try await tool("get", ["collection": "alerts", "id": alerts[0].id])
-        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("這個功能已關閉"), "\(msg)")
+        XCTAssertTrue(isError); XCTAssertTrue("\(msg)".contains("this feature is turned off"), "\(msg)")
         _ = try await ok("list", ["collection": "pipeline_runs"])
         _ = try await ok("list", ["collection": "people"])
 
@@ -267,7 +288,7 @@ final class MCPTests: XCTestCase {
         XCTAssertTrue(names.isSuperset(of: MCPHandler.coreTools), "核心工具不擋:\(MCPHandler.coreTools.subtracting(names))")
         for n in ["overview", "ops_overview", "pipeline_update", "request_approval", "work_item_create", "log_append"] {
             (msg, isError) = try await tool(n, [:])
-            XCTAssertTrue(isError, n); XCTAssertTrue("\(msg)".contains("這個功能已關閉"), "\(n):\(msg)")
+            XCTAssertTrue(isError, n); XCTAssertTrue("\(msg)".contains("this feature is turned off"), "\(n):\(msg)")
         }
         (msg, isError) = try await tool("issues")   // 核心工具(轉給 core server)不擋
         XCTAssertFalse(isError, "\(msg)")

@@ -50,7 +50,7 @@ func Render(in any) (*Result, error) {
 		H = math.Max(H, math.Ceil(my+mh+24))
 	}
 	if H > MaxCanvas {
-		s.warn("畫面太長,只畫到 %d px", MaxCanvas)
+		s.warn("the screen is too tall; drawn only up to %d px", MaxCanvas)
 		H = MaxCanvas
 	}
 	if H > s.h+1 { // 第一屏的位置
@@ -65,7 +65,7 @@ func Render(in any) (*Result, error) {
 	var out strings.Builder
 	title := s.title
 	if title == "" {
-		title = "線框圖"
+		title = "Wireframe"
 	}
 	out.WriteString(`<svg xmlns="http://www.w3.org/2000/svg" width="` + f(s.w) + `" height="` + f(H) + `" viewBox="0 0 ` + f(s.w) + ` ` + f(H) +
 		`" role="img" aria-label="` + esc(title) + `"><title>` + esc(title) + `</title><style>` + fontCSS + `</style>`)
@@ -478,7 +478,7 @@ func (r *renderer) rowWidths(n *node, kids []*node, iw, gap float64) ([]float64,
 	}
 	reserve := minFill * float64(solid)
 	if used+reserve > room+0.5 && used > 0 {
-		r.s.warn("%s 的內容比可用寬度寬,已壓縮", n.path)
+		r.s.warn("the content of %s is wider than the available width and was compressed", n.path)
 		scale := math.Max(0, room-reserve) / used
 		used = 0
 		for i := range ws {

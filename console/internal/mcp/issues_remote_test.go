@@ -135,8 +135,8 @@ func TestIssueServerMode(t *testing.T) {
 	f.mu.Unlock()
 	// 伺服器關掉:建立與修改要回錯誤,不能假裝成功
 	srv.Close()
-	iaErrPrefix(t, a, "issue_create", map[string]any{"title": "x"}, "Issue 沒有存起來:連不到 omixor server")
-	iaErrPrefix(t, a, "issue_update", map[string]any{"id": "ISS-1", "title": "y"}, "Issue 沒有改成:連不到 omixor server")
+	iaErrPrefix(t, a, "issue_create", map[string]any{"title": "x"}, "The issue was not saved: 連不到 omixor server")
+	iaErrPrefix(t, a, "issue_update", map[string]any{"id": "ISS-1", "title": "y"}, "The issue was not changed: 連不到 omixor server")
 }
 
 func iaErrPrefix(t *testing.T, a *core.App, name string, args map[string]any, want string) {
@@ -186,7 +186,7 @@ func TestIssueServerOmixorToken(t *testing.T) {
 	core.Vault = core.NewMemoryVault()
 	a := iaApp(t)
 	// 沒登入 evoleap:錯誤訊息要說清楚
-	iaErrPrefix(t, a, "issue_create", map[string]any{"title": "x"}, "Issue 沒有存起來:還沒登入 omixor server")
+	iaErrPrefix(t, a, "issue_create", map[string]any{"title": "x"}, "The issue was not saved: 還沒登入 omixor server")
 	core.ConnSetBearer(a, "evoleap", "evo-tok")                 // 自己會拿鎖
 	if err := a.SetMode(core.ModeRemote, srv.URL); err != nil { // 用 evoleap 連線換 token、讀組織清單
 		t.Fatal(err)

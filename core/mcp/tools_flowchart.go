@@ -15,8 +15,8 @@ const flowchartDesc = "Draws a flowchart: give nodes and edges and it lays them 
 	"(1) Mermaid flowchart text (recommended): the first line is flowchart TD|LR|BT|RL (or graph); nodes A[process], A([start/end]), A{decision}, A[(database)], A[/input-output/], A[[subprocess]], A(rounded), A((circle)), A{{prepare}}; " +
 	"edges -->, --- (no arrow), -.-> (dashed), ==> (thick), <--> (bidirectional), -->|label|, -- label -->; edges can be chained: A --> B --> C, A & B --> C; subgraph id [title] ... end draws a group box; %% comment; A:::highlight or class A highlight emphasizes a node. " +
 	"Undeclared nodes are created automatically. classDef, style, click and linkStyle are ignored and listed in warnings. " +
-	"(2) JSON:{title?, direction: TB|LR|BT|RL, nodes: [{id, label, shape?: process|decision|start|end|io|subprocess|database|note|round|circle|hexagon, group?, style?: highlight|muted}], " +
-	"edges: [{from, to, label?, style?: solid|dashed|thick, arrow?: end|none|both}], groups?: [{id, label, parent?}]}。" +
+	"(2) JSON: {title?, direction: TB|LR|BT|RL, nodes: [{id, label, shape?: process|decision|start|end|io|subprocess|database|note|round|circle|hexagon, group?, style?: highlight|muted}], " +
+	"edges: [{from, to, label?, style?: solid|dashed|thick, arrow?: end|none|both}], groups?: [{id, label, parent?}]}. " +
 	"Limits: 300 nodes, 600 edges, 256KB description. " +
 	"Example: flowchart TD\\n  A([Start]) --> B[/Enter credentials/] --> C{Verified?}\\n  C -->|Yes| D([Go to home page])\\n  C -->|No| E[Failure count +1] --> B. " +
 	"When doc is given without spec, the first ```flowchart block (or ```mermaid block in flowchart syntax) of that document is read and redrawn. When saving a document, the caller's document permissions apply (on the agent endpoint, the credential's agent)."
@@ -30,9 +30,9 @@ func flowchartDef() map[string]any {
 			"description": "Flowchart description: Mermaid flowchart text, or JSON (an object or a string {direction, nodes, edges, groups?}); it may also be wrapped in a ```flowchart / ```mermaid block",
 			"anyOf":       []any{map[string]any{"type": "object"}, map[string]any{"type": "string"}},
 		},
-		"doc":   pStr("Document id: when spec is not given, the first ```flowchart block (or ```mermaid block in flowchart syntax) of this document is read and redrawn"),
-		"svg":   pBool("Return the SVG source, default true; set false to save context when you only want to save the document"),
-		"save":  diagramSaveParam(flowchart.Lang),
+		"doc":  pStr("Document id: when spec is not given, the first ```flowchart block (or ```mermaid block in flowchart syntax) of this document is read and redrawn"),
+		"svg":  pBool("Return the SVG source, default true; set false to save context when you only want to save the document"),
+		"save": diagramSaveParam(flowchart.Lang),
 	}))
 }
 
@@ -48,7 +48,7 @@ func RegisterFlowchartTools(s *Server) {
 
 func flowchartRender(s *Server, c *Call) (any, error) {
 	return renderDiagram(s, c, diagramKind{
-		noun: "流程圖", lang: flowchart.Lang,
+		noun: "flowchart", lang: flowchart.Lang,
 		render: func(spec any) (int, int, []string, string, error) {
 			r, err := flowchart.Render(spec)
 			if err != nil {

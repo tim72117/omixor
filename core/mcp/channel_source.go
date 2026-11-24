@@ -88,7 +88,15 @@ func (m *MCPTasks) call(tool string, args map[string]any, out any) error {
 		return fmt.Errorf("%s 沒有回傳內容", tool)
 	}
 	text := r.Result.Content[0].Text
-	if r.Result.IsError {
+	if r.Result.IsError { // 失敗本體是 {"error": {"message": ...}};不是這個形狀就原文
+		var e struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal([]byte(text), &e) == nil && e.Error.Message != "" {
+			text = e.Error.Message
+		}
 		return fmt.Errorf("%s:%s", tool, text)
 	}
 	return json.Unmarshal([]byte(text), out)

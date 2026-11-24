@@ -151,7 +151,7 @@ func RegisterIssueTools(s *Server) {
 			Labels: labels, Source: c.Args.Str("source"), Link: c.Args.Str("link"), Repo: c.Args.Str("repo"), Author: author, Assignee: c.Args.Str("assignee"),
 			Project: c.Args.Opt("project")}) // 沒給 = 依 repo 的專案連結預設;空字串 = 不分專案
 		if err != nil { // Issue 伺服器連不上(同 Swift)
-			return nil, prefixErr("Issue 沒有存起來:", err)
+			return nil, prefixErr("The issue was not saved: ", err)
 		}
 		if !full {
 			return issueAck(*issue, []string{"created"}, ""), nil
@@ -171,9 +171,9 @@ func RegisterIssueTools(s *Server) {
 		cur, err := bk.GetIssue(org, id)
 		if err != nil {
 			if backend.NotFound(err) {
-				return nil, Errorf("找不到 Issue %s", id)
+				return nil, Errorf("Issue %s not found", id)
 			}
-			return nil, prefixErr("Issue 沒有改成:", err)
+			return nil, prefixErr("The issue was not changed: ", err)
 		}
 		author, err := e.Author(c.Args.Str("agent"))
 		if err != nil {
@@ -193,7 +193,7 @@ func RegisterIssueTools(s *Server) {
 		}
 		title := c.Args.Opt("title")
 		if title != nil && *title == "" {
-			return nil, ToolError{Message: "標題不能是空的"}
+			return nil, ToolError{Message: "The title cannot be empty"}
 		}
 
 		// 變更的順序同 Swift 版:body → append_body、labels → add_labels
@@ -264,14 +264,14 @@ func RegisterIssueTools(s *Server) {
 		}
 		updated, err := bk.UpdateIssue(org, id, patch)
 		if err != nil {
-			return nil, prefixErr("Issue 沒有改成:", err)
+			return nil, prefixErr("The issue was not changed: ", err)
 		}
 		commentID := ""
 		if cm := c.Args.Opt("comment"); cm != nil {
 			if t := strings.TrimSpace(*cm); t != "" { // 空白留言不做事
 				updated, err = addIssueComment(bk, org, id, t, author)
 				if err != nil {
-					return nil, prefixErr("Issue 沒有改成:", err)
+					return nil, prefixErr("The issue was not changed: ", err)
 				}
 				changed = append(changed, "comment")
 				if n := len(updated.Comments); n > 0 {
@@ -305,7 +305,7 @@ func RegisterIssueTools(s *Server) {
 		before, err := e.Backend().GetIssue(e.Org(), id)
 		if err != nil {
 			if backend.NotFound(err) {
-				return nil, Errorf("找不到 Issue %s", id)
+				return nil, Errorf("Issue %s not found", id)
 			}
 			before = nil
 		}
@@ -315,17 +315,17 @@ func RegisterIssueTools(s *Server) {
 		)
 		if release {
 			i, err = e.Backend().ReleaseIssue(e.Org(), id)
-			msg = "已放回 " + id + ",退回待處理。"
+			msg = "Released " + id + "; it is back to open."
 		} else {
 			i, err = e.Backend().AcceptIssue(e.Org(), id)
-			msg = "已接受 " + id + ",你是負責人、Issue 進行中。接下來可用 issue_item_add 拆子項;做完再用 issue_update 關閉。"
+			msg = "Accepted " + id + "; you are the assignee and the issue is in progress. Next, you can break it down with issue_item_add; close it with issue_update when done."
 		}
 		if err != nil {
 			if backend.NotFound(err) {
-				return nil, Errorf("找不到 Issue %s", id)
+				return nil, Errorf("Issue %s not found", id)
 			}
 			if service.Code(err) == 409 || service.Code(err) == 403 {
-				return nil, prefixErr("沒有成功:", err)
+				return nil, prefixErr("Failed: ", err)
 			}
 			return nil, terr(err)
 		}
@@ -350,7 +350,7 @@ func RegisterIssueTools(s *Server) {
 			i, err := bk.GetIssue(org, *id)
 			if err != nil {
 				if backend.NotFound(err) {
-					return nil, Errorf("找不到 Issue %s", *id)
+					return nil, Errorf("Issue %s not found", *id)
 				}
 				return nil, terr(err)
 			}
@@ -363,7 +363,7 @@ func RegisterIssueTools(s *Server) {
 			status = *s
 		}
 		if status != "open" && status != "closed" && status != "all" {
-			return nil, ToolError{Message: "status 必須是 open、closed、all 之一"}
+			return nil, ToolError{Message: "status must be one of open, closed, all"}
 		}
 		all, err := bk.ListIssues(org)
 		if err != nil {

@@ -192,16 +192,16 @@ func TestErrors(t *testing.T) {
 		in   any
 		want string
 	}{
-		{"{不是 JSON", "不是有效的 JSON"},
-		{`[1, 2]`, "要是 JSON 物件"},
-		{`{"device": "mobile"}`, "缺少 root"},
+		{"{不是 JSON", "not valid JSON"},
+		{`[1, 2]`, "must be a JSON object"},
+		{`{"device": "mobile"}`, "missing root"},
 		{`{"device": "watch", "root": {"type": "col"}}`, "device"},
-		{`{"device": {"w": 10, "h": 10}, "root": {"type": "col"}}`, "200~4000"},
-		{`{"root": {"type": "col", "children": {"type": "text"}}}`, "children 要是陣列"},
-		{`{"root": [1]}`, "要是物件"},
-		{map[string]any{"root": deep}, "巢狀超過"},
-		{map[string]any{"root": map[string]any{"type": "col", "children": many}}, "節點超過"},
-		{nil, "沒有描述"},
+		{`{"device": {"w": 10, "h": 10}, "root": {"type": "col"}}`, "between 200 and 4000"},
+		{`{"root": {"type": "col", "children": {"type": "text"}}}`, "children must be an array"},
+		{`{"root": [1]}`, "must be an object"},
+		{map[string]any{"root": deep}, "nesting is deeper than"},
+		{map[string]any{"root": map[string]any{"type": "col", "children": many}}, "more than"},
+		{nil, "no description"},
 	}
 	for _, c := range cases {
 		_, err := Render(c.in)

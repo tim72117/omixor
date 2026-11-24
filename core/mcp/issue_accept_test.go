@@ -42,8 +42,8 @@ func TestIssueAcceptTool(t *testing.T) {
 	}
 	k := iss.Key
 
-	fails(t, admin, "", "issue_accept", map[string]any{}, "缺少參數 id")
-	fails(t, admin, "", "issue_accept", map[string]any{"id": "ISS-999"}, "找不到 Issue ISS-999")
+	fails(t, admin, "", "issue_accept", map[string]any{}, "Missing parameter id")
+	fails(t, admin, "", "issue_accept", map[string]any{"id": "ISS-999"}, "Issue ISS-999 not found")
 	a := ok(t, admin, "", "issue_accept", map[string]any{"id": k, "return": "full"})
 	ac, _ := a["assigneeActor"].(map[string]any)
 	if a["status"] != "open" || ac == nil || ac["email"] != "amy@x" || a["assignee"] != nil || a["message"] == nil {
@@ -52,7 +52,7 @@ func TestIssueAcceptTool(t *testing.T) {
 	if again := ok(t, admin, "", "issue_accept", map[string]any{"id": k}); again["version"] != a["version"] {
 		t.Fatal("重複接受要冪等", again)
 	}
-	failsWith(t, bossEp, "", "issue_accept", map[string]any{"id": k}, "沒有成功:")
+	failsWith(t, bossEp, "", "issue_accept", map[string]any{"id": k}, "Failed: ")
 	// issues 列表要帶出人類接受者
 	l := ok(t, admin, "", "issues", map[string]any{})
 	rows, _ := l["issues"].([]any)
@@ -81,8 +81,8 @@ func TestIssueAcceptTool(t *testing.T) {
 	if g["assignee"] != "cto" {
 		t.Fatal("角色接受後 assignee 是 cto", g)
 	}
-	failsWith(t, admin, "", "issue_accept", map[string]any{"id": k}, "沒有成功:")
-	failsWith(t, admin, "", "issue_accept", map[string]any{"id": k, "release": true}, "沒有成功:")
+	failsWith(t, admin, "", "issue_accept", map[string]any{"id": k}, "Failed: ")
+	failsWith(t, admin, "", "issue_accept", map[string]any{"id": k, "release": true}, "Failed: ")
 	ok(t, role, auth, "issue_accept", map[string]any{"id": k, "release": true})
 }
 

@@ -126,14 +126,14 @@ func RegisterDispatchTools(s *Server) {
 		}
 		if err != nil {
 			if service.Code(err) == 409 { // 含「已被領取、處理中,鎖定到 hh:mm」:原文轉給呼叫端
-				return nil, prefixErr("領取失敗:", err)
+				return nil, prefixErr("Claim failed: ", err)
 			}
 			return nil, terr(err)
 		}
 		if res.Task == nil {
-			msg := "目前沒有可領的待領取任務"
+			msg := "There are no tasks currently available to claim"
 			if res.Agent != nil {
-				msg = res.Agent.Name + " 目前沒有待領取的任務"
+				msg = res.Agent.Name + " has no tasks waiting to be claimed"
 			}
 			return map[string]any{"task": nil, "message": msg}, nil
 		}
@@ -165,7 +165,7 @@ func RegisterDispatchTools(s *Server) {
 		bk, org := e.Backend(), e.Org()
 		me := bk.Whoami()
 		if me == "" {
-			return nil, Errorf("無法判斷你的身分,查不到你領取中的任務")
+			return nil, Errorf("Cannot determine your identity, so your claimed tasks cannot be looked up")
 		}
 		list, err := bk.ListAgentTasks(org, service.TaskFilter{Status: "inProgress"})
 		if err != nil {
@@ -282,7 +282,7 @@ func RegisterDispatchTools(s *Server) {
 			return nil, terr(err)
 		}
 		return map[string]any{"task": taskJSON(e, *t),
-			"message": "已委派 " + t.ID + "「" + t.Title + "」給 " + e.AgentName(t.AgentID) + ";對方做完會自動替你的角色排一筆「檢視回報」任務"}, nil
+			"message": "Delegated " + t.ID + " \"" + t.Title + "\" to " + e.AgentName(t.AgentID) + "; when they finish, a \"review report\" task is queued for your agent automatically"}, nil
 	})
 
 	s.Register("dispatch_release", func(c *Call) (any, error) {
@@ -296,7 +296,7 @@ func RegisterDispatchTools(s *Server) {
 			return nil, terr(err)
 		}
 		return map[string]any{"released": true, "task": taskJSON(e, *t),
-			"message": t.ID + " 已退回待領取,鎖定解除、憑證作廢,別人可以領了"}, nil
+			"message": t.ID + " was returned to the queue: the lock is released, the credential is revoked, and others can claim it"}, nil
 	})
 }
 
@@ -307,17 +307,17 @@ func nextSteps(res *service.ClaimResult, agentName, endpoint, lockHHMM string) s
 		code = res.Credential.Code
 	}
 	var b strings.Builder
-	b.WriteString("已領取 " + t.ID + "「" + t.Title + "」,你現在是虛擬角色「" + agentName + "」。")
-	b.WriteString("\n1. 照上面的角色設定(instructions)與任務說明完成工作;相關 Issue 見 task.links。")
-	b.WriteString("\n2. 任務已鎖定")
+	b.WriteString("Claimed " + t.ID + " \"" + t.Title + "\"; you are now the agent \"" + agentName + "\".")
+	b.WriteString("\n1. Complete the work following the agent instructions above and the task description; related issues are in task.links.")
+	b.WriteString("\n2. The task is locked")
 	if lockHHMM != "" {
-		b.WriteString("到 " + lockHHMM)
+		b.WriteString(" until " + lockHHMM)
 	}
-	b.WriteString(",鎖定期間別人不能領取。工作期間請定期(至少每小時)用 dispatch_report(id: " + t.ID + ", code: " + code + ", status: inProgress,可附 note)回報進度以續約;逾時沒回報會被自動退回待領取。")
-	b.WriteString("\n3. 用 dispatch_comment(id: " + t.ID + ", code: " + code + ", issue, comment)在相關 Issue 以角色身分留言說明結果;做完用 dispatch_report status=done 並在 result 寫結果,需要人決定就用 status=blocked 並在 note 提問。")
-	b.WriteString("\n4. 不想做了或做不下去(又不需要人決定):用 dispatch_release 放棄,任務會退回待領取。")
-	b.WriteString("\n領取驗證碼 " + code + ":dispatch_report、dispatch_comment 一定要帶,伺服器用它確認你操作的是這次領取的任務與角色(同時領了好幾筆時不會選錯)。")
-	b.WriteString("\n以上工具都以你登入 omixor 的身分呼叫,伺服器確認你是領取者後替你以角色署名,不需要使用 credential 的密鑰(密鑰給直接連角色端點 /mcp/agent 的程式用,不要寫進 Issue、留言、任務結果或檔案)。")
+	b.WriteString("; nobody else can claim it while it is locked. While working, report periodically (at least hourly) with dispatch_report(id: " + t.ID + ", code: " + code + ", status: inProgress, optionally with a note) to renew the lease; if you do not report in time, the task is automatically returned to the queue.")
+	b.WriteString("\n3. Use dispatch_comment(id: " + t.ID + ", code: " + code + ", issue, comment) to comment on the related issue as the agent and explain the result; when finished, use dispatch_report status=done and write the result in result; if a human must decide, use status=blocked and ask in note.")
+	b.WriteString("\n4. If you do not want to do it or cannot continue (and no human decision is needed): abandon it with dispatch_release and the task returns to the queue.")
+	b.WriteString("\nClaim verification code " + code + ": always include it with dispatch_report and dispatch_comment; the server uses it to confirm you are acting on the task and agent from this claim (so the wrong one is never picked when you have claimed several).")
+	b.WriteString("\nThe tools above are called as your signed-in omixor identity; after the server confirms you are the claimer it signs as the agent for you, so you do not need the credential secret (the secret is for programs that connect directly to the agent endpoint /mcp/agent; never write it into issues, comments, task results or files).")
 	return b.String()
 }
 
@@ -332,5 +332,5 @@ func delegateStep(e AgentEnv, res *service.ClaimResult) string {
 	if res.Credential != nil {
 		code = res.Credential.Code
 	}
-	return "\n5. 依組織鏈,這個角色可以把工作委派給:" + can + "。用 dispatch_delegate(id: " + t.ID + ", code: " + code + ", to, title, instructions)委派,對方做完會自動替你排一筆「檢視回報」任務。"
+	return "\n5. According to the organization chain, this agent can delegate work to: " + can + ". Use dispatch_delegate(id: " + t.ID + ", code: " + code + ", to, title, instructions) to delegate; when they finish, a \"review report\" task is queued for you automatically."
 }

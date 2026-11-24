@@ -52,7 +52,7 @@ func TestUnifiedReadOnlyOnlyReadTools(t *testing.T) {
 	}
 	for _, org := range []string{"other", "nope"} {
 		r := callRes(t, ro, "issues", map[string]any{"org": org})
-		if !r.isErr || !strings.Contains(r.all(), "你沒有組織 "+org+" 的權限") || strings.Contains(r.all(), "別人的組織") {
+		if !r.isErr || !strings.Contains(r.all(), "You do not have access to organization "+org) || strings.Contains(r.all(), "別人的組織") {
 			t.Fatalf("%s:%v", org, r)
 		}
 	}

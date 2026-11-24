@@ -18,7 +18,7 @@ func TestGitHubToolsHiddenWithoutModule(t *testing.T) {
 			t.Fatal("規格照舊有", n)
 		}
 		msg := extErr(t, a, n, map[string]any{"repo": "a/b"})
-		if !strings.Contains(msg, "沒有編進") {
+		if !strings.Contains(msg, "built without the") {
 			t.Fatal(n, msg)
 		}
 	}

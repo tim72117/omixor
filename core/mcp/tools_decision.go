@@ -63,7 +63,7 @@ func DecisionToolDefs() []any {
 
 func decisionErr(id string, err error) error {
 	if backend.NotFound(err) && id != "" {
-		return Errorf("找不到 %s", id)
+		return Errorf("%s not found", id)
 	}
 	return terr(err)
 }
@@ -90,7 +90,7 @@ func parseOptions(raw any) ([]model.DecisionOption, error) {
 		return nil, nil
 	}
 	if !ok {
-		return nil, Errorf("options 要是陣列")
+		return nil, Errorf("options must be an array")
 	}
 	out := []model.DecisionOption{}
 	for k, x := range list {
@@ -110,7 +110,7 @@ func parseOptions(raw any) ([]model.DecisionOption, error) {
 			}
 			out = append(out, o)
 		default:
-			return nil, Errorf("options[%d] 要是物件 {label, description?, recommended?}", k)
+			return nil, Errorf("options[%d] must be an object {label, description?, recommended?}", k)
 		}
 	}
 	return out, nil
@@ -226,6 +226,6 @@ func RegisterDecisionTools(s *Server) {
 			return nil, decisionErr(id, err)
 		}
 		return map[string]any{"issue": issueJSON(e, *r.Issue), "decision": decisionJSON(e, *r.Decision),
-			"message": fmt.Sprintf("已開出 %s,%s 的來源 Issue 指向它", r.Issue.Key, r.Decision.ID)}, nil
+			"message": fmt.Sprintf("Opened %s; the source issue of %s now points to it", r.Issue.Key, r.Decision.ID)}, nil
 	})
 }

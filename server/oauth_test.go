@@ -347,9 +347,9 @@ func TestOAuthFullFlowAndReadOnlyMCP(t *testing.T) {
 			t.Fatalf("唯讀授權不能列 %s", n)
 		}
 	}
-	// tools/call 其他工具:isError「此連線是唯讀授權」,而且真的沒執行
+	// tools/call 其他工具:isError ReadOnlyMessage,而且真的沒執行
 	res := o.rpc(access, "tools/call", map[string]any{"name": "issue_create", "arguments": map[string]any{"title": "不該建立"}})["result"].(map[string]any)
-	if res["isError"] != true || !strings.Contains(res["content"].([]any)[0].(map[string]any)["text"].(string), "此連線是唯讀授權") {
+	if res["isError"] != true || !strings.Contains(res["content"].([]any)[0].(map[string]any)["text"].(string), mcp.ReadOnlyMessage) {
 		t.Fatal(res)
 	}
 	if list, _ := o.svc.Store.ListIssues("o"); len(list) != 0 {
@@ -370,7 +370,7 @@ func TestOAuthFullFlowAndReadOnlyMCP(t *testing.T) {
 	}
 	res = o.rpc(access, "tools/call", map[string]any{"name": "flowchart_render", "arguments": map[string]any{"spec": "flowchart TD\n A --> B",
 		"save": map[string]any{"title": "x", "section": "s"}}})["result"].(map[string]any)
-	if res["isError"] != true || !strings.Contains(res["content"].([]any)[0].(map[string]any)["text"].(string), "唯讀") {
+	if res["isError"] != true || !strings.Contains(res["content"].([]any)[0].(map[string]any)["text"].(string), mcp.ReadOnlyMessage) {
 		t.Fatal("flowchart_render 不能存檔", res)
 	}
 
@@ -385,7 +385,7 @@ func TestOAuthFullFlowAndReadOnlyMCP(t *testing.T) {
 		t.Fatal("其他工具不帶 UI")
 	}
 	list := o.rpc(access, "resources/list", map[string]any{})["result"].(map[string]any)["resources"].([]any)
-	if len(list) != 2 {
+	if len(list) != len(mcp.UIResources()) { // 登記的畫面全列出(flowchart、items、decisions…),不寫死數量
 		t.Fatal(list)
 	}
 	for _, uri := range []string{"ui://omixor/flowchart", "ui://omixor/items"} {

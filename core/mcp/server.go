@@ -14,8 +14,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
-	"omixor-core/httperr"
 )
 
 // ToolError 工具執行失敗:回 isError = true 的結果(不是 JSON-RPC 錯誤),同 Swift 的 MCPToolError
@@ -25,7 +23,7 @@ type ToolError struct {
 	// 有的話隨結果的 structuredContent 一起回給呼叫端(沒有是 0 / nil)
 	Status int
 	Data   map[string]any
-	// cause 訊息被換成通用訊息時的原文(只進 log,不對外;見 toolFailure)
+	// cause 訊息被換成通用訊息時的原文(只進 log,不對外;見 FailureResult)
 	cause error
 }
 
@@ -41,34 +39,6 @@ func (e ToolError) Unwrap() error { return e.cause }
 func (e ToolError) Cause() error { return e.cause }
 
 func Errorf(format string, a ...any) error { return ToolError{Message: fmt.Sprintf(format, a...)} }
-
-// toolFailure 工具執行失敗的結果:訊息一律經過 httperr(資料庫錯誤等內部細節換成通用訊息,原文連同工具名稱 name 進 log);
-// ToolError 是刻意給 agent 看的,訊息照給(它的 cause 進 log)。
-// 有狀態碼或 data(例如 409 的 currentVersion)放進 structuredContent,同時把 data 以一行緊湊 JSON 附在 text 末尾
-// (Claude Code 只顯示 content 的 text,agent 才看得到 currentVersion、taskCounts 這些欄位)。
-func toolFailure(name string, err error) map[string]any {
-	in := httperr.Report("mcp 工具 "+name, err)
-	data := map[string]any{}
-	for k, v := range in.Data {
-		if k != "error" && k != "status" {
-			data[k] = v
-		}
-	}
-	text := in.Msg
-	if len(data) > 0 {
-		text += "\n" + compactData(data)
-	}
-	res := map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": true}
-	if in.Status > 0 || len(data) > 0 {
-		sc := map[string]any{"error": in.Msg}
-		if in.Status > 0 {
-			sc["status"] = in.Status
-		}
-		maps.Copy(sc, data)
-		res["structuredContent"] = sc
-	}
-	return res
-}
 
 // Call 一次工具呼叫。Ctx 由使用的程式決定(例如 web 放 App 與呼叫者),
 // 核心的工具透過 Env 介面從 Ctx 取得 Backend。
@@ -271,7 +241,7 @@ func (s *Server) RunNested(c *Call, name string, args map[string]any) (any, erro
 	}
 	if h := c.hooks; h != nil {
 		if h.Allow != nil && !h.Allow(name) {
-			return nil, Errorf("這個連線沒有開放 %s(角色設定或端點限制),不能代為呼叫", name)
+			return nil, Errorf("This connection does not expose %s (agent settings or endpoint restriction), so it cannot be called", name)
 		}
 		if h.Guard != nil {
 			if err := h.Guard(name, args); err != nil {
@@ -286,9 +256,9 @@ func (s *Server) run(name string, args map[string]any, ctx any, h *Hooks) (out a
 	f := s.registry[name]
 	if f == nil {
 		if s.HideMissing {
-			return nil, ToolError{Message: "這台伺服器沒有編進 " + name + " 工具(它屬於沒有編進來的選用模組)"}
+			return nil, ToolError{Message: "This server was built without the " + name + " tool (it belongs to an optional module that is not compiled in)"}
 		}
-		return nil, ToolError{Message: "這個工具在 Go 版還沒實作:" + name}
+		return nil, ToolError{Message: "This tool is not implemented in the Go build yet: " + name}
 	}
 	if args == nil {
 		args = map[string]any{}
@@ -307,7 +277,7 @@ func (s *Server) Handle(data []byte, h Hooks) []byte {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	if err := dec.Decode(&parsed); err != nil {
-		return s.Marshal(errorResponse(nil, -32700, "JSON 解析失敗"))
+		return s.Marshal(errorResponse(nil, -32700, "JSON parse error"))
 	}
 	parsed = normalizeNumbers(parsed)
 	if batch, ok := parsed.([]any); ok {
@@ -352,7 +322,7 @@ func (s *Server) dispatch(obj any, h Hooks) map[string]any {
 		if ok && (msg["result"] != nil || msg["error"] != nil) {
 			return nil
 		}
-		return errorResponse(nil, -32600, "不是有效的 JSON-RPC 請求")
+		return errorResponse(nil, -32600, "Not a valid JSON-RPC request")
 	}
 	id, hasID := msg["id"]
 	if !hasID {
@@ -424,7 +394,7 @@ func (s *Server) dispatch(obj any, h Hooks) map[string]any {
 	case "tools/call":
 		name, ok := params["name"].(string)
 		if !ok {
-			return errorResponse(id, -32602, "缺少工具名稱")
+			return errorResponse(id, -32602, "Missing tool name")
 		}
 		name = LegacyToolName(name, s.toolNames)
 		if slices.Contains(s.toolNames, name) && h.Allow != nil && !h.Allow(name) && h.Deny != nil {
@@ -435,11 +405,11 @@ func (s *Server) dispatch(obj any, h Hooks) map[string]any {
 						te.Data = map[string]any{"code": code}
 					}
 				}
-				return result(id, toolFailure(name, te))
+				return result(id, FailureResult(name, te))
 			}
 		}
 		if !slices.Contains(s.toolNames, name) || (h.Allow != nil && !h.Allow(name)) {
-			return errorResponse(id, -32602, "沒有這個工具:"+name)
+			return errorResponse(id, -32602, "Unknown tool: "+name)
 		}
 		args, _ := params["arguments"].(map[string]any)
 		if args == nil {
@@ -449,7 +419,7 @@ func (s *Server) dispatch(obj any, h Hooks) map[string]any {
 		if h.CallCtx != nil {
 			c, n, err := h.CallCtx(name, args)
 			if err != nil {
-				return result(id, toolFailure(name, err))
+				return result(id, FailureResult(name, err))
 			}
 			callCtx, meta = c, n
 		}
@@ -458,7 +428,7 @@ func (s *Server) dispatch(obj any, h Hooks) map[string]any {
 				if h.Done != nil {
 					h.Done(name, err)
 				}
-				return result(id, toolFailure(name, err))
+				return result(id, FailureResult(name, err))
 			}
 		}
 		if h.Tool != nil {
@@ -469,14 +439,9 @@ func (s *Server) dispatch(obj any, h Hooks) map[string]any {
 			h.Done(name, err)
 		}
 		if err != nil {
-			return result(id, toolFailure(name, err))
+			return result(id, FailureResult(name, err))
 		}
-		content := []any{map[string]any{"type": "text", "text": string(s.Marshal(out))}}
-		res := map[string]any{"content": content, "isError": false}
-		if len(meta) > 0 {
-			res["_meta"] = meta
-		}
-		return result(id, res)
+		return result(id, OKResult(out, s.Marshal, meta))
 	case "resources/list":
 		list := []any{}
 		for _, r := range h.Resources {
@@ -493,11 +458,11 @@ func (s *Server) dispatch(obj any, h Hooks) map[string]any {
 		if modern { // 2026-07-28: invalid params with the uri, never -32002
 			return errorResponseData(id, &rpcError{-32602, "Resource not found: " + uri, map[string]any{"uri": uri}})
 		}
-		return errorResponse(id, -32002, "找不到資源:"+uri)
+		return errorResponse(id, -32002, "Resource not found: "+uri)
 	case "prompts/list":
 		return result(id, map[string]any{"prompts": []any{}})
 	}
-	return errorResponse(id, -32601, "不支援的方法:"+method)
+	return errorResponse(id, -32601, "Unsupported method: "+method)
 }
 
 func result(id any, r map[string]any) map[string]any {
@@ -542,26 +507,4 @@ func LegacyToolName(name string, names []string) string {
 		return n
 	}
 	return name
-}
-
-// textValueMax 附在 text 末尾的 data 裡,單一欄位的 JSON 最長的長度
-const textValueMax = 300
-
-// compactData 把 data 精簡成附在 text 末尾的一行 JSON:純量與短的欄位(currentVersion、taskCounts)留下,
-// 太長的(例如 409 版本衝突的 current 是整張 Issue)和 current 不放(完整內容仍在 structuredContent)
-func compactData(data map[string]any) string {
-	small := map[string]any{}
-	for k, v := range data {
-		if k == "current" {
-			continue
-		}
-		if b, err := json.Marshal(v); err == nil && len(b) <= textValueMax {
-			small[k] = v
-		}
-	}
-	if len(small) == 0 {
-		return ""
-	}
-	b, _ := json.Marshal(small)
-	return string(b)
 }

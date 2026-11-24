@@ -80,8 +80,8 @@ func TestMCPSampleToolsFollowFeatures(t *testing.T) {
 	r := gateCall(t, h, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call",
 		"params": map[string]any{"name": "alert_create", "arguments": map[string]any{"service": "api-server"}}})
 	if r.Error != nil || !r.Result.IsError || len(r.Result.Content) == 0 ||
-		!strings.Contains(r.Result.Content[0].Text, "這個功能已關閉") || !strings.Contains(r.Result.Content[0].Text, "告警") {
-		t.Fatalf("關掉的功能要回「這個功能已關閉」:%+v", r)
+		!strings.Contains(r.Result.Content[0].Text, "This feature is turned off") || !strings.Contains(r.Result.Content[0].Text, "alert_create") {
+		t.Fatalf("關掉的功能要回 This feature is turned off:%+v", r)
 	}
 	alerts := len(a.C["alerts"])
 
@@ -99,12 +99,12 @@ func TestMCPSampleToolsFollowFeatures(t *testing.T) {
 			t.Fatal("批次的 tools/list 也不應該列 request_approval")
 		}
 	}
-	if !batch[1].Result.IsError || !strings.Contains(batch[1].Result.Content[0].Text, "這個功能已關閉") {
+	if !batch[1].Result.IsError || !strings.Contains(batch[1].Result.Content[0].Text, "This feature is turned off") {
 		t.Fatalf("批次的 tools/call:%+v", batch[1])
 	}
 
 	// 畫面(/api/tool → Run)不經過這個過濾:事件的後續工作等開著的功能也會用到
-	if _, err := Run(a, "alert_update", map[string]any{"alert_id": "ALT-1"}, core.MCPActor); err == nil || strings.Contains(err.Error(), "已關閉") {
+	if _, err := Run(a, "alert_update", map[string]any{"alert_id": "ALT-1"}, core.MCPActor); err == nil || strings.Contains(err.Error(), "turned off") {
 		t.Fatalf("Run 不應該被功能開關擋:%v", err)
 	}
 
@@ -120,7 +120,7 @@ func TestMCPSampleToolsFollowFeatures(t *testing.T) {
 	}
 	r = gateCall(t, h, map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call",
 		"params": map[string]any{"name": "alert_create", "arguments": map[string]any{"service": "nope"}}})
-	if len(r.Result.Content) == 0 || strings.Contains(r.Result.Content[0].Text, "已關閉") || !strings.Contains(r.Result.Content[0].Text, "找不到服務 nope") {
+	if len(r.Result.Content) == 0 || strings.Contains(r.Result.Content[0].Text, "turned off") || !strings.Contains(r.Result.Content[0].Text, "Service nope not found") {
 		t.Fatalf("告警開了要照常執行:%+v", r)
 	}
 	if len(a.C["alerts"]) != alerts {

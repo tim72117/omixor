@@ -56,7 +56,7 @@ func TestDocPartsTools(t *testing.T) {
 	fails(t, admin, "", "doc_save", map[string]any{"id": id, "base_version": ver, "replace_part": "定位", "content": "x"},
 		id+" 已經被改過(目前版本 "+mustVersion(t, svc, boss, id)+",你讀到的是 "+ver+"):請重讀大綱與那一段再改")
 	fails(t, admin, "", "doc_save", map[string]any{"id": id, "edits": []any{map[string]any{"old": "x", "new": "y"}}, "body": "z"},
-		"局部修改(edits、replace_part、append_to_part)不能和 body 一起用;分兩次存")
+		"Partial edits (edits, replace_part, append_to_part) cannot be combined with body; save in two steps")
 	got, _ := svc.GetDoc(boss, "lab", id)
 	if !strings.Contains(got.Body, "- 一句話:動態牆\n\n- 對象:學員\n\n## 待決定") {
 		t.Fatalf("%q", got.Body)
@@ -81,4 +81,48 @@ func mustVersion(t *testing.T, svc *service.Service, p *model.Principal, id stri
 		t.Fatal(err)
 	}
 	return model.DocVersion(d.Body)
+}
+
+// TestDocSaveReturnsVersion 每一條存檔路徑都要回 version,且等於之後 docs 讀到的版本,
+// 並且能直接拿來當下一次局部修改的 base_version(不必重讀)
+func TestDocSaveReturnsVersion(t *testing.T) {
+	st := storetest.New(t)
+	svc := &service.Service{Store: st}
+	now := model.Now()
+	_ = st.SaveUser(model.User{ID: "u1", Email: "boss@x", Role: "member", CreatedAt: now})
+	_ = st.CreateOrg(model.Org{ID: "lab", Name: "實驗室", CreatedAt: now})
+	_ = st.SaveMember(model.Member{Org: "lab", UserID: "u1", Email: "boss@x", Role: "admin", AddedAt: now})
+	boss := &model.Principal{User: model.User{ID: "u1", Email: "boss@x", Role: "member"}}
+	admin := mcp.AdminEndpoint(mcp.AdminEndpointConfig{
+		Resolve: func(r *http.Request) (backend.Backend, string, error) {
+			return &backend.Local{Svc: svc, P: boss}, "lab", nil
+		},
+	})
+	// 驗證回傳的 version 與 docs 讀到的一致
+	same := func(step string, r map[string]any, id string) {
+		t.Helper()
+		v, _ := r["version"].(string)
+		if v == "" {
+			t.Fatalf("%s:回傳沒有 version:%v", step, r)
+		}
+		if got := ok(t, admin, "", "docs", map[string]any{"id": id})["version"]; got != v {
+			t.Fatalf("%s:version %v 與 docs 讀到的 %v 不一致", step, v, got)
+		}
+	}
+	r := ok(t, admin, "", "doc_save", map[string]any{"title": "版本", "section": "docs", "body": "# 甲\n\n一\n\n# 乙\n\n二\n"})
+	id := r["id"].(string)
+	same("create", r, id)
+	same("body", ok(t, admin, "", "doc_save", map[string]any{"id": id, "body": "# 甲\n\n一\n\n# 乙\n\n二\n三\n"}), id)
+	same("append_body", ok(t, admin, "", "doc_save", map[string]any{"id": id, "append_body": "四\n"}), id)
+	same("title/tags", ok(t, admin, "", "doc_save", map[string]any{"id": id, "title": "新標題", "tags": []any{"a"}}), id)
+	same("move", ok(t, admin, "", "doc_save", map[string]any{"id": id, "section": "overview"}), id)
+	e := ok(t, admin, "", "doc_save", map[string]any{"id": id, "edits": []any{map[string]any{"old": "二", "new": "二二"}}})
+	same("edits", e, id)
+	// 連續局部修改:直接用上一次回傳的 version 當 base_version,不重讀
+	e2 := ok(t, admin, "", "doc_save", map[string]any{"id": id, "base_version": e["version"], "edits": []any{map[string]any{"old": "二二", "new": "二二二"}}})
+	same("chained edit", e2, id)
+	// 完整更新的 version 也能直接當 base_version
+	u := ok(t, admin, "", "doc_save", map[string]any{"id": id, "body": "# 甲\n\n新\n"})
+	e3 := ok(t, admin, "", "doc_save", map[string]any{"id": id, "base_version": u["version"], "append_to_part": "甲", "content": "尾"})
+	same("edit after full update", e3, id)
 }

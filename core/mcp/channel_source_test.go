@@ -40,7 +40,7 @@ func TestMCPTasksSource(t *testing.T) {
 		case "agent_tasks":
 			text = `{"total":1,"tasks":[{"id":"T-7","title":"做事","agent":"dev","status":"queued","priority":"high","updatedAt":"2026-11-18T03:00:00Z"}]}`
 		default:
-			text, isErr = "沒有這個工具", true
+			text, isErr = "Unknown tool", true
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID,
 			"result": map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": isErr}})

@@ -21,7 +21,7 @@ final class MCPHandler {
     /// 處理一則(或一批)JSON-RPC 訊息。回傳 nil 表示只有通知,不需要回應內容。
     func handle(_ data: Data) async -> Data? {
         guard let parsed = try? JSONSerialization.jsonObject(with: data) else {
-            return MCPJSON.data(errorResponse(id: NSNull(), code: -32700, message: "JSON 解析失敗"))
+            return MCPJSON.data(errorResponse(id: NSNull(), code: -32700, message: "Failed to parse JSON"))
         }
         if let batch = parsed as? [Any] {
             var responses: [[String: Any]] = []
@@ -35,7 +35,7 @@ final class MCPHandler {
         guard let msg = obj as? [String: Any], let method = msg["method"] as? String else {
             // 用戶端送來的 response(我們不會發 request 給它)或格式錯誤
             if let msg = obj as? [String: Any], msg["result"] != nil || msg["error"] != nil { return nil }
-            return errorResponse(id: NSNull(), code: -32600, message: "不是有效的 JSON-RPC 請求")
+            return errorResponse(id: NSNull(), code: -32600, message: "Not a valid JSON-RPC request")
         }
         guard let id = msg["id"] else { return nil }  // 通知:notifications/initialized 等,不回應
         let params = msg["params"] as? [String: Any] ?? [:]
@@ -73,7 +73,7 @@ final class MCPHandler {
             return result(id: id, ["tools": local.filter { !names.contains($0.name) }.map(\.definition) + remote + external])
         case "tools/call":
             guard let raw = params["name"] as? String else {
-                return errorResponse(id: id, code: -32602, message: "缺少工具名稱")
+                return errorResponse(id: id, code: -32602, message: "Missing tool name")
             }
             // 外部 MCP 閘道的工具(權限問 core、需要確認的先問人)
             if raw.contains("__"), app.isFeatureEnabled("mcpGateway") {
@@ -91,7 +91,7 @@ final class MCPHandler {
                let who = (params["arguments"] as? [String: Any])?["agent"],
                !((who as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false) {
                 app.mcp.lastTool = "agent_task_create"
-                return result(id: id, ["content": [["type": "text", "text": Self.agentTaskCreateAsAgentError]], "isError": true])
+                return result(id: id, MCPResult.error(message: Self.agentTaskCreateAsAgentError, status: 400))
             }
             if let proxied = await callOnServer(id: id, raw, params["arguments"] as? [String: Any] ?? [:]) { return proxied }
             let name = Self.legacyToolName(raw)
@@ -100,48 +100,45 @@ final class MCPHandler {
                 app.mcp.lastTool = name
                 let why: String
                 if await serverTools() == nil {
-                    why = "現在連不上:" + (serverToolError ?? "讀不到 core server 的工具清單")
+                    why = "it is currently unreachable: " + (serverToolError ?? "could not read the core server tool list")
                 } else {
-                    why = "但 core server 的工具清單裡沒有這個工具(server 版本可能比 App 舊,請更新 server)"
+                    why = "the core server tool list does not include this tool (the server may be older than the app; update the server)"
                 }
-                return result(id: id, ["content": [["type": "text", "text": "\(name) 由 omixor core server 處理,\(why)"]], "isError": true])
+                return result(id: id, MCPResult.error(code: "core_unavailable", message: "\(name) is handled by the omixor core server, but \(why)", status: 503))
             }
             guard Self.tools.contains(where: { $0.name == name }) else {
-                return errorResponse(id: id, code: -32602, message: "沒有這個工具:\(name)")
+                return errorResponse(id: id, code: -32602, message: "Unknown tool: \(name)")
             }
             let args = MCPArgs(raw: params["arguments"] as? [String: Any] ?? [:])
             app.mcp.lastTool = name
             if !toolEnabled(name) {
-                return result(id: id, ["content": [["type": "text", "text": featureOffMessage(name)]], "isError": true])
+                return result(id: id, MCPResult.error(code: "feature_disabled", message: featureOffMessage(name), status: 403))
             }
             do {
-                let out = try await call(name, args)
-                return result(id: id, ["content": [["type": "text", "text": MCPJSON.string(out)]], "isError": false])
-            } catch let e as MCPToolError {
-                return result(id: id, ["content": [["type": "text", "text": e.message]], "isError": true])
+                return result(id: id, MCPResult.ok(try await call(name, args)))
             } catch {
-                return result(id: id, ["content": [["type": "text", "text": "\(error)"]], "isError": true])
+                return result(id: id, MCPResult.error(error))
             }
         case "resources/list":
             // 轉給 core server(MCP Apps 的 ui:// 畫面);連不上或 server 沒有 resources(舊版)時回空清單
             return result(id: id, ["resources": await serverResources() ?? []])
         case "resources/read":
             guard let uri = params["uri"] as? String, !uri.isEmpty else {
-                return errorResponse(id: id, code: -32602, message: "缺少資源 uri")
+                return errorResponse(id: id, code: -32602, message: "Missing resource uri")
             }
             return await readOnServer(id: id, uri: uri)
         case "prompts/list":
             return result(id: id, ["prompts": []])
         default:
-            return errorResponse(id: id, code: -32601, message: "不支援的方法:\(method)")
+            return errorResponse(id: id, code: -32601, message: "Unsupported method: \(method)")
         }
     }
 
     // MARK: - 轉給 omixor server
 
     /// agent_task_create 帶了 agent(以角色身分派任務)時的錯誤
-    static let agentTaskCreateAsAgentError = "agent_task_create 不能帶 agent 以角色身分派任務(派任務一律署名登入的人;要指定接任務的角色用 assign_to)。"
-        + "角色要把工作交給別的角色,請用 agent_task_delegate(agent = 委派的角色、to = 接任務的角色,組織鏈上要有 agent:<委派者> → agent:<接任務者>)"
+    static let agentTaskCreateAsAgentError = "agent_task_create cannot take agent to create a task as a role (tasks are always attributed to the signed-in person; use assign_to to choose the role that receives the task). "
+        + "To hand work from one role to another, use agent_task_delegate (agent = the delegating role, to = the receiving role; the org chain must have agent:<delegator> -> agent:<receiver>)"
 
     /// 連 server 時也留在 App 處理的工具:App 自己的組織清單(含本機與各伺服器)、版本
     static let keepLocal: Set<String> = ["orgs", "server"]
@@ -222,15 +219,15 @@ final class MCPHandler {
         return app.isFeatureEnabled(key)
     }
 
-    private func featureName(_ key: String) -> String {
-        FeatureFallback.entry(key)?.name ?? key
+    /// 功能關了時回給用戶端的錯誤文字(subject = 工具或集合名稱;keys = 對應的功能 key,只有一個時附上)
+    private static func featureOffText(_ subject: String, keys: [String]) -> String {
+        let which = keys.count == 1 ? " (\(keys[0]))" : ""
+        return "\(subject): this feature is turned off\(which). The current organization has not enabled the matching sample feature; ask a person to turn it on in omixor Settings > Features (or the System page)"
     }
 
     /// 工具的功能關了時回給用戶端的錯誤
     func featureOffMessage(_ name: String) -> String {
-        let keys = Self.sampleToolFeatures[name] ?? []
-        let which = keys.count == 1 ? "(\(featureName(keys[0])),\(keys[0]))" : ""
-        return "\(name):這個功能已關閉\(which)。目前組織沒有開啟對應的範例功能,請在 omixor 的 設定 › 功能(或系統頁)打開後再用"
+        Self.featureOffText(name, keys: Self.sampleToolFeatures[name] ?? [])
     }
 
     /// 最近一次讀 server 工具清單的錯誤
@@ -316,7 +313,7 @@ final class MCPHandler {
             nonisolated(unsafe) let out = res
             return result(id: id, out)
         } catch {
-            return errorResponse(id: id, code: -32002, message: "找不到資源:\(uri)(\(error.localizedDescription))")
+            return errorResponse(id: id, code: -32002, message: "Resource not found: \(uri) (\(error.localizedDescription))")
         }
     }
 
@@ -336,7 +333,10 @@ final class MCPHandler {
             await refreshAfterServerTool(name, savedDoc: args["save"] != nil && !(args["save"] is NSNull))
             return result(id: id, res)
         } catch {
-            return result(id: id, ["content": [["type": "text", "text": error.localizedDescription]], "isError": true])
+            // 沒連上或 server 不是回 tools/call 結果(HTTP 錯誤、JSON-RPC 錯誤):有 HTTP 狀態就用它,沒有是 502
+            let e = error as? IssueRemoteError
+            let status = (e?.status ?? 0) > 0 ? e!.status : 502
+            return result(id: id, MCPResult.error(code: status == 502 ? "upstream_unavailable" : nil, message: error.localizedDescription, status: status))
         }
     }
 
@@ -371,18 +371,18 @@ final class MCPHandler {
     }
 
     static let instructions = """
-    omixor 是維運線上服務的 macOS app。這些工具直接讀寫 app 裡的即時資料,變更會立刻出現在畫面上,並以「MCP 用戶端」記在動態牆。
-    先用 overview 掌握整體狀況,再用 list / get 查細節。
-    核准 AI 請求、核准部署、回滾、調整自動化自主程度只能由人在 app 裡決定;需要這類變更時,用 request_approval 建立待核准請求,附上理由、依據與回滾方式。
-    GCP(gcp、gcp_logs、gcp_metrics)只讀:看 Cloud Run 狀態、錯誤日誌、請求量與延遲;omixor 不會部署、改流量或執行 Job。
-    GitHub(github、github_runs、github_run、github_pull)只讀:看 PR、檢查與 Actions 失敗原因;omixor 不會開 PR、留言或重跑 workflow。
-    Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織(orgs 看是哪一個);切換組織只能由人在 app 裡做。
-    omixor 有虛擬角色(agents)。使用者請你以某角色身分工作時:可先用 agent_context 取得該角色能讀取的資訊,再用 agent_task_claim 領任務,照回傳的角色設定與任務說明做,過程與結果用 agent_task_report 回報;需要人決定時回報 blocked。要以角色身分寫 Issue、留言、文件或頻道訊息,必須改用 agent_task_claim 回傳的角色憑證連角色端點(/mcp/agent);這裡(一般 omixor 連線)的 issue_create、issue_update、文件櫃與頻道工具不能帶 agent 參數指定角色署名(會被拒絕),署名一律是你登入的帳號。
-    文件櫃(cabinet、docs、doc_save)依目前組織的文件櫃結構(區塊與頁籤)分類;角色只能讀寫它 docAccess 範圍內的文件(在角色端點上由憑證決定)。組織底下可以分專案(projects、project_save),文件櫃工具帶 project(專案 id)讀寫該專案的文件櫃,省略 = 未分專案。
-    發現值得追蹤的問題(例如從 site_visitors 的數字看到異常)時,用 issue_create 存成 Issue;先用 issues 搜尋避免重複,已有就用 issue_update 加留言。
-    旁白語音(shuttle 專案的 npm run voice)可以用 voice_submit 分派成批次:omixor 會定時查、收完結果,等人在 app 裡試聽後按發佈。發佈沒有 MCP 工具。
-    訊息頻道(channels、channel_messages、channel_post、channel_create)把人與角色拉進同一個對話;@ 角色只通知、不排任務。以角色身分工作時,agent_context 的 mentions 列出提到它的未讀訊息;以角色身分讀(channel_messages)與回覆(channel_post)要在角色端點上做。
-    Facebook 粉絲專頁(fb_pages、fb_posts、fb_insights、fb_drafts)只讀;fb_draft_save 只能新增或修改草稿(以角色身分寫時帶 agent),發佈與排程只能由人在 app 的 AI 自動化 › 粉絲專頁 按。
+    omixor is a macOS app for operating live services. These tools read and write the live data in the app directly; changes show up on screen immediately and are recorded on the activity feed as "MCP client".
+    Start with overview to get the big picture, then use list / get for details.
+    Approving AI requests, approving deployments, rollbacks, and changing automation autonomy can only be decided by a person in the app; when you need such a change, create an approval request with request_approval and attach the rationale, evidence, and rollback plan.
+    GCP (gcp, gcp_logs, gcp_metrics) is read-only: check Cloud Run status, error logs, request volume, and latency; omixor does not deploy, change traffic, or run Jobs.
+    GitHub (github, github_runs, github_run, github_pull) is read-only: check PRs, checks, and why Actions failed; omixor does not open PRs, comment, or re-run workflows.
+    Issues, virtual roles and tasks, the document cabinet, and connections all belong to the current organization (orgs shows which one); switching organizations can only be done by a person in the app.
+    omixor has virtual roles (agents). When the user asks you to work as a role: first use agent_context to get what that role can read, then claim a task with agent_task_claim, follow the returned role settings and task instructions, and report progress and results with agent_task_report; report blocked when a person needs to decide. To write Issues, comments, documents, or channel messages as a role, you must connect to the role endpoint (/mcp/agent) with the role credential returned by agent_task_claim; on this general omixor connection, issue_create, issue_update, and the cabinet and channel tools cannot take an agent argument to sign as a role (it is rejected), and the author is always the signed-in account.
+    The document cabinet (cabinet, docs, doc_save) is organized by the current organization's cabinet structure (sections and tabs); a role can only read and write documents within its docAccess scope (decided by the credential on the role endpoint). An organization can be split into projects (projects, project_save); cabinet tools take project (a project id) to read and write that project's cabinet; omitted = no project.
+    When you find a problem worth tracking (for example an anomaly in the site_visitors numbers), save it as an Issue with issue_create; search with issues first to avoid duplicates, and if one exists, add a comment with issue_update.
+    Narration voice (npm run voice in the shuttle project) can be dispatched as a batch with voice_submit: omixor polls periodically and collects the results, then a person auditions them in the app and presses publish. There is no MCP tool for publishing.
+    Message channels (channels, channel_messages, channel_post, channel_create) bring people and roles into one conversation; @-mentioning a role only notifies it and does not queue a task. When working as a role, the mentions field of agent_context lists unread messages that mention it; reading (channel_messages) and replying (channel_post) as a role must be done on the role endpoint.
+    Facebook Pages (fb_pages, fb_posts, fb_insights, fb_drafts) are read-only; fb_draft_save can only create or edit drafts (pass agent when writing as a role); publishing and scheduling can only be done by a person in the app under AI Automation > Pages.
     """
 
     // MARK: - 工具定義
@@ -436,223 +436,223 @@ final class MCPHandler {
     }
 
     static let tools: [Tool] = [
-        Tool(name: "overview", title: "整體狀況",
-             description: "目前畫面狀態、服務健康、觸發中的告警、進行中的事件、執行中的 CI/CD 與部署、待核准的 AI 請求、值班人員與最近動態。",
+        Tool(name: "overview", title: "Overview",
+             description: "Current screen state, service health, firing alerts, open incidents, running CI/CD and deployments, AI requests awaiting approval, on-call staff, and recent activity.",
              properties: [:], required: [], readOnly: true),
-        Tool(name: "list", title: "列出資料",
-             description: "列出某個資料集合。where 依欄位篩選(欄位可用 a.b 路徑;陣列欄位只要包含該值即符合;執行者欄位比對 id),search 對整筆資料做不分大小寫的文字搜尋。時間序列與日誌會裁短,完整內容用 get。",
+        Tool(name: "list", title: "List records",
+             description: "List one data collection. where filters by field (fields can use an a.b path; an array field matches if it contains the value; actor fields match by id); search does a case-insensitive text search over the whole record. Time series and logs are truncated; use get for the full content.",
              properties: [
-                 "collection": prop("string", "資料集合", enum: collections),
-                 "where": ["type": "object", "description": "欄位 = 值,例如 {\"state\":\"firing\",\"service\":\"payments\"}", "additionalProperties": true],
-                 "search": prop("string", "文字搜尋"),
-                 "limit": prop("integer", "最多幾筆,預設 30,上限 200"),
-                 "offset": prop("integer", "略過前幾筆"),
+                 "collection": prop("string", "Data collection", enum: collections),
+                 "where": ["type": "object", "description": "field = value, for example {\"state\":\"firing\",\"service\":\"payments\"}", "additionalProperties": true],
+                 "search": prop("string", "Text search"),
+                 "limit": prop("integer", "Maximum number of records, default 30, max 200"),
+                 "offset": prop("integer", "Number of records to skip"),
              ], required: ["collection"], readOnly: true),
-        Tool(name: "get", title: "取得一筆資料",
-             description: "依 id 取得一筆完整資料(含時間序列、工作日誌、事件時間軸)。",
+        Tool(name: "get", title: "Get a record",
+             description: "Get one full record by id (including time series, work log, and incident timeline).",
              properties: [
-                 "collection": prop("string", "資料集合", enum: collections.filter { $0 != "sprint" }),
-                 "id": prop("string", "id,例如 ALT-5121、INC-2041、OPS-142;PR 與 pipeline run 用編號"),
+                 "collection": prop("string", "Data collection", enum: collections.filter { $0 != "sprint" }),
+                 "id": prop("string", "id, for example ALT-5121, INC-2041, OPS-142; PRs and pipeline runs use their number"),
              ], required: ["collection", "id"], readOnly: true),
-        Tool(name: "navigate", title: "切換畫面",
-             description: "讓 app 切到某個頁面,可選中某個項目(例如告警或事件 id)。也可以切換環境與時間範圍。",
+        Tool(name: "navigate", title: "Navigate",
+             description: "Switch the app to a page, optionally selecting an item (for example an alert or incident id). Can also change the environment and time range.",
              properties: [
-                 "section": prop("string", "頁面", enum: cases(AppSection.self)),
-                 "focus_id": prop("string", "要選中的項目 id"),
-                 "env": prop("string", "環境篩選", enum: cases(DeployEnv.self)),
-                 "time_range": prop("string", "時間範圍", enum: cases(TimeRange.self)),
+                 "section": prop("string", "Page", enum: cases(AppSection.self)),
+                 "focus_id": prop("string", "Id of the item to select"),
+                 "env": prop("string", "Environment filter", enum: cases(DeployEnv.self)),
+                 "time_range": prop("string", "Time range", enum: cases(TimeRange.self)),
              ], required: []),
-        Tool(name: "alert_update", title: "處理告警",
-             description: "確認、解除或靜音告警,可附上 AI 判讀。",
+        Tool(name: "alert_update", title: "Handle an alert",
+             description: "Acknowledge, resolve, or silence an alert, optionally with an AI assessment.",
              properties: [
-                 "alert_id": prop("string", "告警 id"),
-                 "action": prop("string", "動作", enum: ["acknowledge", "resolve", "silence"]),
-                 "ai_note": prop("string", "寫進告警的 AI 判讀(選填)"),
+                 "alert_id": prop("string", "Alert id"),
+                 "action": prop("string", "Action", enum: ["acknowledge", "resolve", "silence"]),
+                 "ai_note": prop("string", "AI assessment to attach to the alert (optional)"),
              ], required: ["alert_id"]),
-        Tool(name: "alert_create", title: "建立告警",
-             description: "從外部監控送進一筆觸發中的告警。",
+        Tool(name: "alert_create", title: "Create an alert",
+             description: "Push a firing alert in from external monitoring.",
              properties: [
-                 "title": prop("string", "標題"),
-                 "severity": prop("string", "嚴重度", enum: cases(Severity.self)),
-                 "service": prop("string", "服務 id"),
-                 "rule": prop("string", "觸發條件,例如 p95 latency > 800ms for 5m"),
-                 "value": prop("string", "目前數值"),
-                 "ai_note": prop("string", "AI 初步判讀"),
+                 "title": prop("string", "Title"),
+                 "severity": prop("string", "Severity", enum: cases(Severity.self)),
+                 "service": prop("string", "Service id"),
+                 "rule": prop("string", "Trigger condition, for example p95 latency > 800ms for 5m"),
+                 "value": prop("string", "Current value"),
+                 "ai_note": prop("string", "Initial AI assessment"),
              ], required: ["title", "severity", "service", "rule", "value"]),
-        Tool(name: "work_item_create", title: "建立工作項目",
-             description: "在看板建立工作項目,可掛到事件的後續工作。",
+        Tool(name: "work_item_create", title: "Create a work item",
+             description: "Create a work item on the board; it can be attached to an incident as follow-up work.",
              properties: [
-                 "title": prop("string", "標題"),
-                 "type": prop("string", "類型", enum: cases(WorkType.self)),
-                 "status": prop("string", "欄位,預設 todo", enum: cases(WorkStatus.self)),
-                 "points": prop("integer", "點數,預設 3"),
-                 "service": prop("string", "服務 id"),
-                 "assignee": prop("string", "負責人 person id"),
-                 "incident_id": prop("string", "加到這個事件的後續工作"),
+                 "title": prop("string", "Title"),
+                 "type": prop("string", "Type", enum: cases(WorkType.self)),
+                 "status": prop("string", "Column, default todo", enum: cases(WorkStatus.self)),
+                 "points": prop("integer", "Story points, default 3"),
+                 "service": prop("string", "Service id"),
+                 "assignee": prop("string", "Assignee person id"),
+                 "incident_id": prop("string", "Add as follow-up work to this incident"),
              ], required: ["title", "type"]),
-        Tool(name: "work_item_move", title: "移動工作項目",
-             description: "把工作項目移到看板的另一欄。",
+        Tool(name: "work_item_move", title: "Move a work item",
+             description: "Move a work item to another board column.",
              properties: [
-                 "id": prop("string", "工作項目 id,例如 OPS-142"),
-                 "status": prop("string", "目標欄位", enum: cases(WorkStatus.self)),
+                 "id": prop("string", "Work item id, for example OPS-142"),
+                 "status": prop("string", "Target column", enum: cases(WorkStatus.self)),
              ], required: ["id", "status"]),
-        Tool(name: "pipeline_update", title: "操作 CI/CD 執行",
-             description: "重新執行或取消 pipeline run,或寫入 AI 失敗診斷。",
+        Tool(name: "pipeline_update", title: "Control a CI/CD run",
+             description: "Retry or cancel a pipeline run, or write an AI failure diagnosis.",
              properties: [
-                 "run_id": prop("integer", "run 編號"),
-                 "action": prop("string", "動作", enum: ["retry", "cancel"]),
-                 "ai_diagnosis": prop("string", "寫入的 AI 失敗診斷"),
+                 "run_id": prop("integer", "Run number"),
+                 "action": prop("string", "Action", enum: ["retry", "cancel"]),
+                 "ai_diagnosis": prop("string", "AI failure diagnosis to write"),
              ], required: ["run_id"]),
-        Tool(name: "request_approval", title: "送出待核准請求",
-             description: "建立一筆待人核准的 AI 請求(出現在 AI 自動化 › 待核准與總覽)。用在任何需要人決定的變更:擴縮容、回滾、資料庫操作等。回傳請求 id;可之後用 get approvals 查核准結果。",
+        Tool(name: "request_approval", title: "Submit an approval request",
+             description: "Create an AI request that waits for human approval (shown under AI Automation > Pending approval and Overview). Use it for any change that needs a human decision: scaling, rollback, database operations, and so on. Returns the request id; check the outcome later with get approvals.",
              properties: [
-                 "title": prop("string", "標題"),
-                 "action": prop("string", "要執行的指令或變更"),
-                 "rationale": prop("string", "理由"),
-                 "evidence": strings("依據"),
-                 "rollback_plan": prop("string", "回滾方式"),
-                 "risk": prop("string", "風險", enum: cases(RiskLevel.self)),
-                 "automation": prop("string", "歸屬的自動化 id,預設為 mcp"),
-                 "expires_in_minutes": prop("integer", "多久後過期,預設 60"),
+                 "title": prop("string", "Title"),
+                 "action": prop("string", "Command or change to execute"),
+                 "rationale": prop("string", "Rationale"),
+                 "evidence": strings("Supporting evidence"),
+                 "rollback_plan": prop("string", "Rollback plan"),
+                 "risk": prop("string", "Risk", enum: cases(RiskLevel.self)),
+                 "automation": prop("string", "Id of the automation it belongs to, default mcp"),
+                 "expires_in_minutes": prop("integer", "Minutes until it expires, default 60"),
              ], required: ["title", "action", "rationale", "rollback_plan", "risk"]),
-        Tool(name: "log_append", title: "寫入日誌",
-             description: "把日誌寫進監控 › 日誌。",
+        Tool(name: "log_append", title: "Append a log entry",
+             description: "Write a log entry to Monitoring > Logs.",
              properties: [
-                 "service": prop("string", "服務 id"),
-                 "level": prop("string", "等級", enum: cases(LogLevel.self)),
-                 "message": prop("string", "內容"),
-                 "host": prop("string", "主機,預設 mcp"),
+                 "service": prop("string", "Service id"),
+                 "level": prop("string", "Level", enum: cases(LogLevel.self)),
+                 "message": prop("string", "Content"),
+                 "host": prop("string", "Host, default mcp"),
                  "trace_id": prop("string", "trace id"),
              ], required: ["service", "level", "message"]),
-        Tool(name: "activity_post", title: "發到動態牆",
-             description: "在總覽的動態牆發一則以「MCP 用戶端」署名的動態。",
+        Tool(name: "activity_post", title: "Post to the activity feed",
+             description: "Post an entry to the Overview activity feed, attributed to \"MCP client\".",
              properties: [
-                 "text": prop("string", "內容"),
-                 "section": prop("string", "點擊後前往的頁面,預設 overview", enum: cases(AppSection.self)),
-                 "icon": prop("string", "SF Symbol 名稱,預設 sparkles"),
+                 "text": prop("string", "Content"),
+                 "section": prop("string", "Page to open when clicked, default overview", enum: cases(AppSection.self)),
+                 "icon": prop("string", "SF Symbol name, default sparkles"),
              ], required: ["text"]),
-        Tool(name: "voice_submit", title: "分派旁白語音批次",
-             description: "把 shuttle 專案的旁白語音產生分派給 omixor:執行 npm run voice -- <腳本> --batch(Gemini Batch API,約一半價格,最長 24 小時)。立刻回傳工作 id,不用等;omixor 每隔幾分鐘查一次,完成後自動收結果(下載、轉 mp3、上傳 GCS、改寫本機 .voice.json),再由人在 omixor 試聽、按發佈上線。一次只能有一批,其餘排隊。dry_run 只列出會送哪些段落,不呼叫 API、不花錢。",
+        Tool(name: "voice_submit", title: "Dispatch a narration voice batch",
+             description: "Hand the shuttle project narration voice generation to omixor: runs npm run voice -- <script> --batch (Gemini Batch API, about half price, up to 24 hours). Returns a job id immediately, no need to wait; omixor polls every few minutes and collects the results automatically (download, convert to mp3, upload to GCS, rewrite the local .voice.json), then a person auditions them in omixor and presses publish. Only one batch runs at a time; the rest are queued. dry_run only lists which segments would be sent, without calling the API or spending money.",
              properties: [
-                 "scripts": strings("web/src/content/live/ 底下的腳本路徑,例如 launch/2.1.json"),
-                 "all": prop("boolean", "所有腳本"),
-                 "limit": prop("integer", "每份腳本只送前幾段(試做用)"),
-                 "dry_run": prop("boolean", "只試算,不送出"),
+                 "scripts": strings("Script paths under web/src/content/live/, for example launch/2.1.json"),
+                 "all": prop("boolean", "All scripts"),
+                 "limit": prop("integer", "Send only the first N segments of each script (for trials)"),
+                 "dry_run": prop("boolean", "Dry run only, do not submit"),
              ], required: []),
-        Tool(name: "voice_jobs", title: "查旁白批次",
-             description: "查旁白語音批次的狀態(排隊中、產生中、待發佈、已發佈、失敗…)、變動的旁白清單與紀錄。不給 id 時列出最近的批次。",
-             properties: ["id": prop("string", "工作 id,例如 VJ-3")], required: [], readOnly: true),
-        Tool(name: "site_visitors", title: "網站訪客統計",
-             description: "讀 evoleap 網站的會員與訪客統計(後台「會員」頁同一份資料,GET /api/admin/overview):會員數、訪客數、訪客漏斗(打開 → 載入完成 → 有播放,和後台一樣不含登入門檻與一般頁面)、各課概況、登入門檻、裝置/來源/載入錯誤、從首頁進來的路徑、首頁停留、登入頁、最近沒播放的造訪足跡。需要 omixor 已登入該連線。",
+        Tool(name: "voice_jobs", title: "Check narration batches",
+             description: "Check the status of narration voice batches (queued, generating, awaiting publish, published, failed, ...), the list of changed narrations, and the log. Without id, lists the most recent batches.",
+             properties: ["id": prop("string", "Job id, for example VJ-3")], required: [], readOnly: true),
+        Tool(name: "site_visitors", title: "Site visitor statistics",
+             description: "Read the evoleap site member and visitor statistics (the same data as the admin Members page, GET /api/admin/overview): member count, visitor count, visitor funnel (opened -> loaded -> played; like the admin page it excludes the login gate and ordinary pages), per-course summary, login gate, device / source / load errors, paths entered from the home page, home page dwell time, login page, and recent visit trails without playback. Requires omixor to be signed in to that connection.",
              properties: [
-                 "range": prop("string", "時間範圍,預設 1d", enum: ["all", "30m", "12h", "1d", "7d"]),
-                 "connection": prop("string", "連線 id,預設 omixor 網站訪客頁選的那個(evoleap)"),
+                 "range": prop("string", "Time range, default 1d", enum: ["all", "30m", "12h", "1d", "7d"]),
+                 "connection": prop("string", "Connection id; default is the one selected on the omixor site visitors page (evoleap)"),
              ], required: [], readOnly: true),
-        Tool(name: "server", title: "伺服器與連線資訊",
-             description: "目前連線資訊與版本:模式(本機/遠端)、遠端 server 名稱(不含網址)、登入狀態(帳號、角色、token 到期時間)與目前組織,以及 omixor app 與遠端 server 的版本(version、commit、buildTime)。不會顯示任何密鑰。",
+        Tool(name: "server", title: "Server and connection info",
+             description: "Current connection info and versions: mode (local / remote), remote server name (without URL), sign-in state (account, role, token expiry) and the current organization, plus the omixor app and remote server versions (version, commit, buildTime). Never shows any secret.",
              properties: [:], required: [], readOnly: true),
-        Tool(name: "orgs", title: "組織",
-             description: "列出 omixor 的組織與目前使用中的組織。Issue、虛擬角色與任務、文件櫃、連線都屬於目前的組織;切換組織只能由人在 app 裡做。",
+        Tool(name: "orgs", title: "Organizations",
+             description: "List the omixor organizations and the one currently in use. Issues, virtual roles and tasks, the document cabinet, and connections all belong to the current organization; switching organizations can only be done by a person in the app.",
              properties: [:], required: [], readOnly: true),
-        Tool(name: "agent_task_delegate", title: "依組織鏈委派任務",
-             description: "以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 agent_context 的 chain.downstream。",
+        Tool(name: "agent_task_delegate", title: "Delegate a task along the org chain",
+             description: "As a role, delegate work to a downstream role on the org chain (the chain must have agent:<yourself> -> agent:<to>). The task is attributed to your role; links carries the task that delegated it and its links; a label (goal, task, ...) goes at the start of the task instructions; when the other side finishes it reports back to you automatically (a \"review the report\" task is queued for you). See chain.downstream in agent_context for who you can delegate to.",
              properties: [
-                 "agent": prop("string", "你自己正在扮演的角色 id 或名稱(委派者)"),
-                 "to": prop("string", "接任務的角色 id 或名稱(要是鏈上的下游)"),
-                 "title": prop("string", "標題"),
-                 "instructions": prop("string", "任務說明(Markdown)"),
-                 "priority": prop("string", "優先度,預設 normal", enum: cases(IssuePriority.self)),
-                 "task": prop("string", "委派它的來源任務 id(選填;不給就用你的角色進行中的任務)"),
+                 "agent": prop("string", "Id or name of the role you are acting as (the delegator)"),
+                 "to": prop("string", "Id or name of the role receiving the task (must be downstream on the chain)"),
+                 "title": prop("string", "Title"),
+                 "instructions": prop("string", "Task instructions (Markdown)"),
+                 "priority": prop("string", "Priority, default normal", enum: cases(IssuePriority.self)),
+                 "task": prop("string", "Id of the source task that delegates it (optional; defaults to your role's task in progress)"),
              ], required: ["agent", "to", "title"]),
-        Tool(name: "github", title: "GitHub 概況",
-             description: "列出 omixor 追蹤的 GitHub repo(目前組織的)、開著的 PR(含檢查結果)與最近的 Actions 執行。資料是 omixor 最近一次讀到的(約 5 分鐘更新一次);refresh=true 先重新讀。只讀。需要人先在 omixor 的 設定 › 程式碼倉庫 登入 GitHub。",
+        Tool(name: "github", title: "GitHub overview",
+             description: "List the GitHub repos omixor tracks (for the current organization), open PRs (with check results), and recent Actions runs. The data is what omixor last read (refreshed about every 5 minutes); refresh=true re-reads first. Read-only. A person must first sign in to GitHub in omixor Settings > Repositories.",
              properties: [
-                 "refresh": prop("boolean", "先向 GitHub 重新讀一次"),
-                 "repo": prop("string", "只看這個 repo(owner/name)"),
-                 "limit": prop("integer", "每個 repo 最多幾筆執行,預設 10"),
+                 "refresh": prop("boolean", "Re-read from GitHub first"),
+                 "repo": prop("string", "Only this repo (owner/name)"),
+                 "limit": prop("integer", "Maximum runs per repo, default 10"),
              ], required: [], readOnly: true),
-        Tool(name: "github_runs", title: "查 GitHub Actions 執行",
-             description: "直接向 GitHub 查某個 repo 的 Actions 執行紀錄,可依分支、狀態、workflow 篩選。只讀。",
+        Tool(name: "github_runs", title: "List GitHub Actions runs",
+             description: "Query a repo's Actions run history directly from GitHub, filterable by branch, status, and workflow. Read-only.",
              properties: [
-                 "repo": prop("string", "owner/name;只追蹤一個 repo 時可省略"),
-                 "branch": prop("string", "分支"),
-                 "status": prop("string", "狀態篩選", enum: ["failure", "success", "in_progress", "queued", "completed", "cancelled"]),
-                 "limit": prop("integer", "筆數,預設 20,最多 100"),
+                 "repo": prop("string", "owner/name; may be omitted when only one repo is tracked"),
+                 "branch": prop("string", "Branch"),
+                 "status": prop("string", "Status filter", enum: ["failure", "success", "in_progress", "queued", "completed", "cancelled"]),
+                 "limit": prop("integer", "Number of runs, default 20, max 100"),
              ], required: [], readOnly: true),
-        Tool(name: "github_run", title: "GitHub Actions 執行詳情",
-             description: "一筆 Actions 執行的工作與步驟;log=true 時附上失敗工作紀錄的最後幾行(找失敗原因用)。只讀。",
+        Tool(name: "github_run", title: "GitHub Actions run details",
+             description: "The jobs and steps of one Actions run; with log=true, includes the last lines of failed job logs (to find the failure cause). Read-only.",
              properties: [
-                 "id": prop("integer", "執行 id(github / github_runs 的 id)"),
-                 "repo": prop("string", "owner/name;只追蹤一個 repo 時可省略"),
-                 "log": prop("boolean", "附上失敗工作紀錄的最後幾行"),
-                 "lines": prop("integer", "紀錄行數,預設 80,最多 400"),
+                 "id": prop("integer", "Run id (the id from github / github_runs)"),
+                 "repo": prop("string", "owner/name; may be omitted when only one repo is tracked"),
+                 "log": prop("boolean", "Include the last lines of failed job logs"),
+                 "lines": prop("integer", "Number of log lines, default 80, max 400"),
              ], required: ["id"], readOnly: true),
-        Tool(name: "github_pull", title: "GitHub PR 詳情",
-             description: "一個 PR 的說明、分支、檢查結果與變更的檔案清單。只讀;要改程式請照工程師角色的流程,在新分支做並等人核准。",
+        Tool(name: "github_pull", title: "GitHub PR details",
+             description: "A PR's description, branches, check results, and list of changed files. Read-only; to change code, follow the engineer role workflow: work on a new branch and wait for a person to approve.",
              properties: [
-                 "number": prop("integer", "PR 編號"),
-                 "repo": prop("string", "owner/name;只追蹤一個 repo 時可省略"),
+                 "number": prop("integer", "PR number"),
+                 "repo": prop("string", "owner/name; may be omitted when only one repo is tracked"),
              ], required: ["number"], readOnly: true),
-        Tool(name: "gcp", title: "GCP 概況",
-             description: "列出 omixor 設定的 GCP 專案(目前組織的)裡 Cloud Run 服務的狀態、目前版本、流量、網址,以及 Cloud Run Job 最近一次執行。給 service 時另外回傳最近的版本;給 job 時回傳最近的執行。只讀。需要人先在 omixor 的 伺服器與服務 › GCP 登入。",
+        Tool(name: "gcp", title: "GCP overview",
+             description: "List the status, current revision, traffic, and URL of Cloud Run services in the GCP project omixor is configured with (for the current organization), plus the latest execution of each Cloud Run Job. With service, also returns its recent revisions; with job, returns its recent executions. Read-only. A person must first sign in under omixor Servers and Services > GCP.",
              properties: [
-                 "refresh": prop("boolean", "先重新讀一次"),
-                 "service": prop("string", "Cloud Run 服務名稱,例如 shuttle-server"),
-                 "job": prop("string", "Cloud Run Job 名稱,例如 shuttle-course-sync"),
+                 "refresh": prop("boolean", "Re-read first"),
+                 "service": prop("string", "Cloud Run service name, for example shuttle-server"),
+                 "job": prop("string", "Cloud Run Job name, for example shuttle-course-sync"),
              ], required: [], readOnly: true),
-        Tool(name: "gcp_logs", title: "查 GCP 日誌",
-             description: "從 Cloud Logging 讀 Cloud Run 服務或 Job 的日誌(新的在前)。預設只看 ERROR 以上、最近 24 小時。只讀。",
+        Tool(name: "gcp_logs", title: "Query GCP logs",
+             description: "Read Cloud Run service or Job logs from Cloud Logging (newest first). By default only ERROR and above from the last 24 hours. Read-only.",
              properties: [
-                 "service": prop("string", "Cloud Run 服務名稱"),
-                 "job": prop("string", "Cloud Run Job 名稱(和 service 擇一;都不給就是全部 Cloud Run)"),
-                 "severity": prop("string", "最低嚴重度,預設 ERROR", enum: GCP.severities),
-                 "hours": prop("integer", "往前幾小時,預設 24,最多 720"),
-                 "contains": prop("string", "日誌內容要包含的文字"),
-                 "limit": prop("integer", "筆數,預設 50,最多 500"),
+                 "service": prop("string", "Cloud Run service name"),
+                 "job": prop("string", "Cloud Run Job name (choose one of this and service; with neither, all of Cloud Run)"),
+                 "severity": prop("string", "Minimum severity, default ERROR", enum: GCP.severities),
+                 "hours": prop("integer", "Hours to look back, default 24, max 720"),
+                 "contains": prop("string", "Text the log content must contain"),
+                 "limit": prop("integer", "Number of entries, default 50, max 500"),
              ], required: [], readOnly: true),
-        Tool(name: "gcp_metrics", title: "GCP 服務指標",
-             description: "從 Cloud Monitoring 讀 Cloud Run 服務的請求量(依 2xx/4xx/5xx)、p95 延遲與執行個體數,含總數與時間序列。只讀。",
+        Tool(name: "gcp_metrics", title: "GCP service metrics",
+             description: "Read a Cloud Run service's request count (by 2xx/4xx/5xx), p95 latency, and instance count from Cloud Monitoring, with totals and time series. Read-only.",
              properties: [
-                 "service": prop("string", "Cloud Run 服務名稱;只有一個服務時可省略"),
-                 "hours": prop("integer", "往前幾小時,預設 24,最多 720"),
+                 "service": prop("string", "Cloud Run service name; may be omitted when there is only one service"),
+                 "hours": prop("integer", "Hours to look back, default 24, max 720"),
              ], required: [], readOnly: true),
-        Tool(name: "fb_pages", title: "Facebook 粉絲專頁",
-             description: "列出 omixor 連上的 Facebook 粉絲專頁:id、名稱、分類、網址、按讚數、追蹤數、是否在 omixor 管理中、有沒有權杖。只讀。需要人先在 omixor 的 AI 自動化 › 粉絲專頁 設定連線。",
-             properties: ["refresh": prop("boolean", "先向 Facebook 重新讀一次專頁資料")], required: [], readOnly: true),
-        Tool(name: "fb_posts", title: "Facebook 貼文與成效",
-             description: "管理中粉絲專頁的最近貼文(新的在前)與已排程貼文。每篇含心情、留言、分享數與互動合計;insights=true 時附上前 10 篇的觸及、點擊與心情分類(Meta 已淘汰或取不到的指標 status 是 deprecated / unavailable)。只讀。",
+        Tool(name: "fb_pages", title: "Facebook Pages",
+             description: "List the Facebook Pages omixor is connected to: id, name, category, URL, like count, follower count, whether it is managed in omixor, and whether a token exists. Read-only. A person must first set up the connection in omixor AI Automation > Pages.",
+             properties: ["refresh": prop("boolean", "Re-read the Page data from Facebook first")], required: [], readOnly: true),
+        Tool(name: "fb_posts", title: "Facebook posts and performance",
+             description: "Recent posts (newest first) and scheduled posts of the managed Pages. Each post includes reactions, comments, shares, and total engagement; with insights=true, adds reach, clicks, and reaction breakdown for the first 10 posts (metrics that Meta has deprecated or cannot return have status deprecated / unavailable). Read-only.",
              properties: [
-                 "page": prop("string", "專頁 id 或名稱;不給就是全部管理中的專頁"),
-                 "limit": prop("integer", "每個專頁最多幾篇最近貼文,預設 10,最多 50"),
-                 "insights": prop("boolean", "附上每篇的成效指標,預設 true"),
-                 "scheduled": prop("boolean", "附上已排程貼文,預設 true"),
+                 "page": prop("string", "Page id or name; omitted means all managed Pages"),
+                 "limit": prop("integer", "Maximum recent posts per Page, default 10, max 50"),
+                 "insights": prop("boolean", "Include per-post performance metrics, default true"),
+                 "scheduled": prop("boolean", "Include scheduled posts, default true"),
              ], required: [], readOnly: true),
-        Tool(name: "fb_insights", title: "Facebook 專頁成效",
-             description: "粉絲專頁的成效:觸及人數、瀏覽次數、貼文互動、追蹤數、新增追蹤,含期間合計與每期的時間序列。Meta 淘汰或取不到的指標 status 是 deprecated / unavailable,total 為 null。只讀。",
+        Tool(name: "fb_insights", title: "Facebook Page insights",
+             description: "Page performance: reach, views, post engagement, followers, and new followers, with period totals and a time series per period. Metrics that Meta has deprecated or cannot return have status deprecated / unavailable and a null total. Read-only.",
              properties: [
-                 "page": prop("string", "專頁 id 或名稱;不給就是全部管理中的專頁"),
-                 "period": prop("string", "每個資料點的期間,預設 day", enum: FB.periods),
-                 "days": prop("integer", "往前幾天,預設 28,1–90"),
+                 "page": prop("string", "Page id or name; omitted means all managed Pages"),
+                 "period": prop("string", "Period of each data point, default day", enum: FB.periods),
+                 "days": prop("integer", "Days to look back, default 28, 1-90"),
              ], required: [], readOnly: true),
-        Tool(name: "fb_drafts", title: "Facebook 草稿",
-             description: "給 id 回傳一份貼文草稿;不給則列出草稿(預設只列還沒發佈的,新的在前)。只讀。",
+        Tool(name: "fb_drafts", title: "Facebook drafts",
+             description: "With id, returns one post draft; without it, lists drafts (by default only unpublished ones, newest first). Read-only.",
              properties: [
-                 "id": prop("string", "草稿 id,例如 FD-3"),
-                 "status": prop("string", "draft、scheduled、published 或 all,預設 draft", enum: ["draft", "scheduled", "published", "all"]),
-                 "page": prop("string", "只列這個專頁(id 或名稱)的草稿"),
-                 "limit": prop("integer", "最多幾筆,預設 30"),
+                 "id": prop("string", "Draft id, for example FD-3"),
+                 "status": prop("string", "draft, scheduled, published, or all; default draft", enum: ["draft", "scheduled", "published", "all"]),
+                 "page": prop("string", "Only drafts of this Page (id or name)"),
+                 "limit": prop("integer", "Maximum number of records, default 30"),
              ], required: [], readOnly: true),
-        Tool(name: "fb_draft_save", title: "存 Facebook 草稿",
-             description: "新增或修改 Facebook 貼文草稿(不給 id 是新增)。只存草稿,不會發佈:發佈與排程只能由人在 omixor 的 AI 自動化 › 粉絲專頁 按。已排程或已發佈的草稿不能修改。以角色身分工作時帶 agent,草稿會署名該角色。",
+        Tool(name: "fb_draft_save", title: "Save a Facebook draft",
+             description: "Create or edit a Facebook post draft (without id it creates one). Only saves drafts and never publishes: publishing and scheduling can only be done by a person in omixor AI Automation > Pages. Scheduled or published drafts cannot be edited. When working as a role, pass agent and the draft is attributed to that role.",
              properties: [
-                 "id": prop("string", "要修改的草稿 id;不給就是新增"),
-                 "page": prop("string", "要發到哪個專頁(id 或名稱);新增時不給就用第一個管理中的專頁"),
-                 "message": prop("string", "貼文內容(純文字)"),
-                 "link": prop("string", "附上的連結(http 或 https)"),
-                 "image_url": prop("string", "圖片網址(http 或 https;有圖片時連結會接在內文後面)"),
-                 "proposed_time": prop("string", "建議的發佈時間(ISO 8601,例如 2026-11-20T20:00:00+08:00);只是建議,實際排程由人決定"),
-                 "source": prop("string", "草稿從哪裡來,例如 doc:DOC-3、task:T-5"),
-                 "agent": prop("string", "以虛擬角色身分工作時填角色 id 或名稱,草稿會署名該角色"),
+                 "id": prop("string", "Id of the draft to edit; omitted creates a new one"),
+                 "page": prop("string", "Which Page to post to (id or name); when creating, defaults to the first managed Page"),
+                 "message": prop("string", "Post content (plain text)"),
+                 "link": prop("string", "Link to attach (http or https)"),
+                 "image_url": prop("string", "Image URL (http or https; when there is an image, the link is appended after the text)"),
+                 "proposed_time": prop("string", "Suggested publish time (ISO 8601, for example 2026-11-20T20:00:00+08:00); only a suggestion, a person decides the actual schedule"),
+                 "source": prop("string", "Where the draft came from, for example doc:DOC-3, task:T-5"),
+                 "agent": prop("string", "When working as a virtual role, the role id or name; the draft is attributed to that role"),
              ], required: []),
     ]
 
@@ -690,14 +690,14 @@ final class MCPHandler {
         case "fb_insights": return try await fbInsights(a)
         case "fb_drafts": return try fbDrafts(a)
         case "fb_draft_save": return try fbDraftSave(a)
-        default: throw MCPToolError("沒有這個工具:\(name)")
+        default: throw MCPToolError("Unknown tool: \(name)")
         }
     }
 
     private func items(_ collection: String) throws -> [Any] {
         if Self.collections.contains(collection), !collectionEnabled(collection) {
             let key = Self.collectionFeatures[collection] ?? ""
-            throw MCPToolError("\(collection):這個功能已關閉(\(featureName(key)),\(key))。請在 omixor 的 設定 › 功能(或系統頁)打開後再用")
+            throw MCPToolError(Self.featureOffText(collection, keys: [key]))
         }
         let o: Any
         switch collection {
@@ -721,7 +721,7 @@ final class MCPHandler {
         case "approvals": o = MCPJSON.object(app.approvals)
         case "activity": o = MCPJSON.object(app.activity)
         case "integrations": o = MCPJSON.object(app.integrations)
-        default: throw MCPToolError("沒有這個集合:\(collection)。可用:\(Self.collections.joined(separator: "、"))")
+        default: throw MCPToolError("Unknown collection: \(collection). Available: \(Self.collections.joined(separator: ", "))")
         }
         return o as? [Any] ?? []
     }
@@ -790,7 +790,7 @@ final class MCPHandler {
         let rows = try items(collection)
         guard let row = rows.first(where: { r in
             (value(at: "id", in: r)).flatMap(scalarString).map { $0.caseInsensitiveCompare(id) == .orderedSame } ?? false
-        }) else { throw MCPToolError("\(collection) 裡找不到 id「\(id)」") }
+        }) else { throw MCPToolError("No record with id \"\(id)\" in \(collection)") }
         return row
     }
 
@@ -800,7 +800,7 @@ final class MCPHandler {
         var notice: String?
         if let section = try a.optionalEnum("section", AppSection.self) {
             // 關掉的頁面(系統層沒開放或組織層關了):改去總覽(回傳 notice 說明)
-            if !app.go(section, focus: a.string("focus_id")) { notice = app.featureOffText(section.rawValue, name: section.title) + ",已改去總覽" }
+            if !app.go(section, focus: a.string("focus_id")) { notice = "The \(section.rawValue) page is turned off (by the system or in the organization's Settings > Features), so the app went to Overview instead" }
         } else if let focus = a.string("focus_id") {
             app.focusId = focus
         }
@@ -812,17 +812,17 @@ final class MCPHandler {
 
     private func alertUpdate(_ a: MCPArgs) throws -> Any {
         let id = try a.require("alert_id")
-        guard let i = app.alerts.firstIndex(where: { $0.id == id }) else { throw MCPToolError("找不到告警 \(id)") }
+        guard let i = app.alerts.firstIndex(where: { $0.id == id }) else { throw MCPToolError.notFound("Alert not found: \(id)") }
         let action = a.string("action")
         let note = a.string("ai_note")
-        if action == nil && note == nil { throw MCPToolError("action 與 ai_note 至少要給一項") }
+        if action == nil && note == nil { throw MCPToolError("Give at least one of action and ai_note") }
         if let note { app.alerts[i].aiNote = note }
         switch action {
         case "acknowledge": app.acknowledge(alertId: id, by: .mcp)
         case "resolve": app.resolve(alertId: id, by: .mcp)
         case "silence": app.silence(alertId: id, by: .mcp)
         case nil: break
-        case let other?: throw MCPToolError("action 必須是 acknowledge、resolve 或 silence,收到「\(other)」")
+        case let other?: throw MCPToolError("action must be acknowledge, resolve, or silence; got \"\(other)\"")
         }
         return MCPJSON.object(app.alerts[i])
     }
@@ -844,10 +844,10 @@ final class MCPHandler {
         let status = try a.optionalEnum("status", WorkStatus.self) ?? .todo
         let service = try a.string("service").map(serviceId)
         let assignee = a.string("assignee")
-        if let assignee, app.person(assignee) == nil { throw MCPToolError("找不到 person \(assignee)") }
+        if let assignee, app.person(assignee) == nil { throw MCPToolError.notFound("Person not found: \(assignee)") }
         var incidentIndex: Int?
         if let incId = a.string("incident_id") {
-            guard let i = app.incidents.firstIndex(where: { $0.id == incId }) else { throw MCPToolError("找不到事件 \(incId)") }
+            guard let i = app.incidents.firstIndex(where: { $0.id == incId }) else { throw MCPToolError.notFound("Incident not found: \(incId)") }
             incidentIndex = i
         }
         let num = (app.workItems.compactMap { Int($0.id.filter(\.isNumber)) }.max() ?? 100) + 1
@@ -859,7 +859,7 @@ final class MCPHandler {
         if let i = incidentIndex {
             let incId = app.incidents[i].id
             do { _ = try app.startIncidents().update(id: incId, addFollowUps: [item.id], by: .mcp) } catch {
-                throw MCPToolError("已建立 \(item.id),但沒有關聯到事件 \(incId):\(error.localizedDescription)")
+                throw MCPToolError("Created \(item.id), but could not link it to incident \(incId): \(error.localizedDescription)")
             }
         }
         return MCPJSON.object(item)
@@ -867,16 +867,16 @@ final class MCPHandler {
 
     private func workItemMove(_ a: MCPArgs) throws -> Any {
         let id = try a.require("id")
-        guard let i = app.workItems.firstIndex(where: { $0.id == id }) else { throw MCPToolError("找不到工作項目 \(id)") }
+        guard let i = app.workItems.firstIndex(where: { $0.id == id }) else { throw MCPToolError.notFound("Work item not found: \(id)") }
         app.moveWorkItem(id: id, to: try a.requireEnum("status", WorkStatus.self), by: .mcp)
         return MCPJSON.object(app.workItems[i])
     }
 
     private func pipelineUpdate(_ a: MCPArgs) throws -> Any {
         let id = try a.requireInt("run_id")
-        guard let i = app.pipelineRuns.firstIndex(where: { $0.id == id }) else { throw MCPToolError("找不到 pipeline run #\(id)") }
+        guard let i = app.pipelineRuns.firstIndex(where: { $0.id == id }) else { throw MCPToolError.notFound("Pipeline run not found: #\(id)") }
         let action = a.string("action"), diagnosis = a.string("ai_diagnosis")
-        if action == nil && diagnosis == nil { throw MCPToolError("action 與 ai_diagnosis 至少要給一項") }
+        if action == nil && diagnosis == nil { throw MCPToolError("Give at least one of action and ai_diagnosis") }
         if let diagnosis { app.pipelineRuns[i].aiDiagnosis = diagnosis }
         switch action {
         case "retry":
@@ -885,18 +885,18 @@ final class MCPHandler {
         case "cancel":
             let s = app.pipelineRuns[i].status
             guard s == .running || s == .queued || s == .waitingApproval else {
-                throw MCPToolError("#\(id) 目前是「\(s.label)」,不能取消")
+                throw MCPToolError("#\(id) is currently \"\(s.label)\" and cannot be cancelled")
             }
             app.cancel(runId: id, by: .mcp)
         case nil: break
-        case let other?: throw MCPToolError("action 必須是 retry 或 cancel,收到「\(other)」")
+        case let other?: throw MCPToolError("action must be retry or cancel; got \"\(other)\"")
         }
         return compact(MCPJSON.object(app.pipelineRuns[i]))
     }
 
     private func requestApproval(_ a: MCPArgs) throws -> Any {
         let automation = a.string("automation") ?? Actor.mcpId
-        if automation != Actor.mcpId && app.automation(automation) == nil { throw MCPToolError("找不到自動化 \(automation)") }
+        if automation != Actor.mcpId && app.automation(automation) == nil { throw MCPToolError.notFound("Automation not found: \(automation)") }
         let minutes = max(1, a.int("expires_in_minutes") ?? 60)
         let num = (app.approvals.compactMap { Int($0.id.filter(\.isNumber)) }.max() ?? 300) + 1
         let req = ApprovalRequest(id: "APV-\(num)", title: try a.require("title"), automation: automation,
@@ -924,7 +924,7 @@ final class MCPHandler {
     }
 
     private func voiceSubmit(_ a: MCPArgs) async throws -> Any {
-        guard let voice = app.voice else { throw MCPToolError("旁白功能還沒啟動") }
+        guard let voice = app.voice else { throw MCPToolError("The narration voice feature has not started") }
         let all = (a.raw["all"] as? Bool) ?? false
         let scripts = a.strings("scripts") ?? []
         let limit = a.int("limit")
@@ -936,7 +936,7 @@ final class MCPHandler {
             let ahead = app.voiceJobs.filter { $0.state == .queued && $0.id != job.id }.count
                 + app.voiceJobs.filter(\.state.holdsBatch).count
             return ["job": voiceJSON(job, full: false),
-                    "note": ahead > 0 ? "前面還有 \(ahead) 批,輪到時自動送出" : "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 voice_jobs 查進度"]
+                    "note": ahead > 0 ? "\(ahead) batch(es) ahead; it is submitted automatically when its turn comes" : "Submitted right away. When it finishes, a person auditions and publishes it in omixor CI/CD > Narration publishing; check progress with voice_jobs"]
         } catch {
             throw MCPToolError(error.localizedDescription)
         }
@@ -945,7 +945,7 @@ final class MCPHandler {
     private func voiceJobs(_ a: MCPArgs) throws -> Any {
         if let id = a.string("id") {
             guard let j = app.voiceJobs.first(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) else {
-                throw MCPToolError("找不到旁白批次 \(id)")
+                throw MCPToolError.notFound("Narration batch not found: \(id)")
             }
             return voiceJSON(j, full: true)
         }
@@ -1010,7 +1010,7 @@ final class MCPHandler {
                 let v = try IssueRemote(config: IssueServerConfig(url: s.url, token: nil)).version()
                 ver["server"] = ["version": v.version, "commit": v.commit, "buildTime": v.buildTime]
             } catch {
-                ver["server"] = ["error": "查不到遠端 server 的版本(連不上、逾時或不支援)"]
+                ver["server"] = ["error": "Could not get the remote server version (unreachable, timed out, or unsupported)"]
             }
         }
         out["version"] = ver
@@ -1028,19 +1028,19 @@ final class MCPHandler {
     /// 署名(fb_draft_save 用):有給 agent 就是該角色,否則是 MCP 用戶端:有給 agent 就是該角色,否則是 MCP 用戶端
     private func issueAuthor(_ a: MCPArgs) throws -> String {
         guard let name = a.string("agent"), !name.isEmpty else { return IssueStore.mcpAuthor }
-        guard let g = agentStore.agent(name) else { throw MCPToolError("找不到角色 \(name)") }
+        guard let g = agentStore.agent(name) else { throw MCPToolError.notFound("Role not found: \(name)") }
         return IssueStore.agentPrefix + g.id
     }
 
     private func siteVisitors(_ a: MCPArgs) async throws -> Any {
         let r = a.string("range") ?? "1d"
         let range = r == "all" ? SiteRange.all : SiteRange(rawValue: r)
-        guard let range else { throw MCPToolError("range 必須是 all、30m、12h、1d、7d 之一") }
+        guard let range else { throw MCPToolError("range must be one of all, 30m, 12h, 1d, 7d") }
         let d: SiteOverview
         do {
             d = try await SiteVisitors.fetch(app, connection: a.string("connection"), range: range)
         } catch {
-            throw MCPToolError("讀不到訪客統計:\(error.localizedDescription)(請在 omixor 登入對應的連線)")
+            throw MCPToolError("Could not read visitor statistics: \(error.localizedDescription) (a person must sign in to the matching connection in omixor)")
         }
         let f = d.funnel
         let g = d.guestStats
@@ -1067,25 +1067,25 @@ final class MCPHandler {
     private func ghStore() throws -> GitHubStore {
         let g = app.startGitHub(timer: false)
         guard g.connection != nil, g.isLoggedIn else {
-            throw MCPToolError("omixor 還沒登入 GitHub。請人在 omixor 的 設定 › 程式碼倉庫 設定並登入")
+            throw MCPToolError("omixor is not signed in to GitHub. Ask a person to set it up and sign in under omixor Settings > Repositories")
         }
         return g
     }
 
     private func ghRepo(_ a: MCPArgs) throws -> String {
         if let r = a.string("repo") {
-            guard let n = GitHub.normalizeRepo(r) else { throw MCPToolError("repo 要寫成 owner/name") }
+            guard let n = GitHub.normalizeRepo(r) else { throw MCPToolError("repo must be written as owner/name") }
             return n
         }
         let repos = app.githubSettings.repos
         guard repos.count == 1 else {
-            throw MCPToolError(repos.isEmpty ? "還沒追蹤任何 repo,請給 repo(owner/name)" : "請給 repo,目前追蹤:\(repos.joined(separator: "、"))")
+            throw MCPToolError(repos.isEmpty ? "No repo is tracked yet; give repo (owner/name)" : "Give repo; currently tracked: \(repos.joined(separator: ", "))")
         }
         return repos[0]
     }
 
     private func ghError(_ e: Error) -> MCPToolError {
-        MCPToolError("GitHub 回應錯誤:\(e.localizedDescription)")
+        MCPToolError("GitHub returned an error: \(e.localizedDescription)")
     }
 
     private func runJSON(_ r: GHRun) -> [String: Any] {
@@ -1100,7 +1100,7 @@ final class MCPHandler {
         if a.bool("refresh") == true || app.github.fetchedAt == nil { await g.refresh() }
         if let e = app.github.error { throw MCPToolError(e) }
         let only = try a.string("repo").map { r -> String in
-            guard let n = GitHub.normalizeRepo(r) else { throw MCPToolError("repo 要寫成 owner/name") }
+            guard let n = GitHub.normalizeRepo(r) else { throw MCPToolError("repo must be written as owner/name") }
             return n
         }
         let limit = max(1, a.int("limit") ?? 10)
@@ -1139,10 +1139,10 @@ final class MCPHandler {
     private func githubRun(_ a: MCPArgs) async throws -> Any {
         let g = try ghStore()
         let repo = try ghRepo(a)
-        guard let id = a.int("id") else { throw MCPToolError("要給 id") }
+        guard let id = a.int("id") else { throw MCPToolError("id is required") }
         do {
             guard let d = try await g.get("/repos/\(ConnHTTP.escapePath(repo))/actions/runs/\(id)") as? [String: Any] else {
-                throw MCPToolError("執行資料格式不對")
+                throw MCPToolError("Unexpected run data format")
             }
             let run = GitHub.run(d, repo: repo)
             let jobs = try await g.jobs(repo: repo, run: id)
@@ -1169,7 +1169,7 @@ final class MCPHandler {
     private func githubPull(_ a: MCPArgs) async throws -> Any {
         let g = try ghStore()
         let repo = try ghRepo(a)
-        guard let n = a.int("number") else { throw MCPToolError("要給 number") }
+        guard let n = a.int("number") else { throw MCPToolError("number is required") }
         do { return MCPJSON.object(try await g.pullDetail(repo: repo, number: n)) } catch { throw ghError(error) }
     }
 
@@ -1178,13 +1178,22 @@ final class MCPHandler {
     private func gcpStore() throws -> GCPStore {
         let g = app.startGCP(timer: false)
         guard g.connection != nil, g.isLoggedIn else {
-            throw MCPToolError("omixor 還沒登入 Google Cloud。請人在 omixor 的 伺服器與服務 › GCP 設定並登入")
+            throw MCPToolError("omixor is not signed in to Google Cloud. Ask a person to set it up and sign in under omixor Servers and Services > GCP")
         }
-        guard g.isConfigured else { throw MCPToolError("還沒設定 GCP 專案,請人在 omixor 的 伺服器與服務 › GCP 設定") }
+        guard g.isConfigured else { throw MCPToolError("No GCP project is configured; ask a person to set it up under omixor Servers and Services > GCP") }
         return g
     }
 
-    private func gcpFail(_ e: Error) -> MCPToolError { MCPToolError("GCP 回應錯誤:" + GCPStore.explain(e)) }
+    private func gcpFail(_ e: Error) -> MCPToolError {
+        guard let c = e as? ConnectionError else { return MCPToolError("GCP returned an error: \(e.localizedDescription)") }
+        let hint = switch c.status {
+        case 401: "the Google sign-in has expired; a person must sign in again"
+        case 403: "permission denied: the signed-in account needs viewer access (roles/viewer) on the project, and the Cloud Run / Logging / Monitoring APIs must be enabled"
+        case 404: "not found: check the project id and region"
+        default: ""
+        }
+        return MCPToolError("GCP returned an error: " + (hint.isEmpty ? c.localizedDescription : "\(hint) (\(c.message))"))
+    }
 
     private func gcpSummary(_ a: MCPArgs) async throws -> Any {
         let g = try gcpStore()
@@ -1218,7 +1227,7 @@ final class MCPHandler {
     private func gcpLogs(_ a: MCPArgs) async throws -> Any {
         let g = try gcpStore()
         let sev = (a.string("severity") ?? "ERROR").uppercased()
-        guard GCP.severities.contains(sev) else { throw MCPToolError("severity 必須是 \(GCP.severities.joined(separator: "、")) 之一") }
+        guard GCP.severities.contains(sev) else { throw MCPToolError("severity must be one of \(GCP.severities.joined(separator: ", "))") }
         let hours = min(720, max(1, a.int("hours") ?? 24))
         do {
             let logs = try await g.logs(service: a.string("service"), job: a.string("job"), severity: sev, hours: hours,
@@ -1233,7 +1242,7 @@ final class MCPHandler {
         if service == nil {
             if app.gcp.fetchedAt == nil { await g.refresh() }
             guard app.gcp.services.count == 1 else {
-                throw MCPToolError("請給 service,可用:\(app.gcp.services.map(\.id).joined(separator: "、"))")
+                throw MCPToolError("Give service; available: \(app.gcp.services.map(\.id).joined(separator: ", "))")
             }
             service = app.gcp.services[0].id
         }
@@ -1253,9 +1262,12 @@ final class MCPHandler {
 
     private var fb: FacebookStore { app.startFacebook() }
 
+    /// 還沒連上粉絲專頁時回給用戶端的錯誤(App 畫面用的中文版在 FacebookStore.notConnected)
+    private static let fbNotConnected = "omixor is not connected to any Facebook Page. Ask a person to set up the connection in omixor AI Automation > Pages (Meta sign-in or paste a Page access token) and tick the Pages to manage."
+
     private func fbConnected() throws -> FacebookStore {
         let f = fb
-        guard f.isConnected else { throw MCPToolError(FacebookStore.notConnected) }
+        guard f.isConnected else { throw MCPToolError(Self.fbNotConnected) }
         return f
     }
 
@@ -1268,9 +1280,9 @@ final class MCPHandler {
     private func fbTargets(_ f: FacebookStore, _ a: MCPArgs) throws -> [FBPage] {
         if let ref = a.string("page"), !ref.isEmpty {
             guard let p = f.page(ref) else {
-                throw MCPToolError("找不到專頁 \(ref)。可用:\(app.fbSettings.pages.map { "\($0.name)(\($0.id))" }.joined(separator: "、"))")
+                throw MCPToolError.notFound("Page not found: \(ref). Available: \(app.fbSettings.pages.map { "\($0.name) (\($0.id))" }.joined(separator: ", "))")
             }
-            guard FacebookStore.pageToken(p.id) != nil else { throw MCPToolError("專頁「\(p.name)」沒有權杖。" + FacebookStore.notConnected) }
+            guard FacebookStore.pageToken(p.id) != nil else { throw MCPToolError("Page \"\(p.name)\" has no token. " + Self.fbNotConnected) }
             return [p]
         }
         return app.fbSettings.managedPages.filter { FacebookStore.pageToken($0.id) != nil }
@@ -1346,7 +1358,7 @@ final class MCPHandler {
     private func fbInsights(_ a: MCPArgs) async throws -> Any {
         let f = try fbConnected()
         let period = a.string("period") ?? "day"
-        guard FB.periods.contains(period) else { throw MCPToolError("period 必須是 \(FB.periods.joined(separator: "、")) 之一") }
+        guard FB.periods.contains(period) else { throw MCPToolError("period must be one of \(FB.periods.joined(separator: ", "))") }
         let days = min(90, max(1, a.int("days") ?? 28))
         var out: [[String: Any]] = []
         for p in try fbTargets(f, a) {
@@ -1369,16 +1381,16 @@ final class MCPHandler {
     private func fbDrafts(_ a: MCPArgs) throws -> Any {
         let f = fb
         if let id = a.string("id"), !id.isEmpty {
-            guard let d = f.draft(id) else { throw MCPToolError("找不到草稿 \(id)") }
+            guard let d = f.draft(id) else { throw MCPToolError.notFound("Draft not found: \(id)") }
             return fbDraftJSON(d)
         }
         let status = a.string("status") ?? "draft"
         guard ["draft", "scheduled", "published", "all"].contains(status) else {
-            throw MCPToolError("status 必須是 draft、scheduled、published、all 之一")
+            throw MCPToolError("status must be one of draft, scheduled, published, all")
         }
         var list = app.fbSettings.drafts.filter { status == "all" || $0.status.rawValue == status }
         if let ref = a.string("page"), !ref.isEmpty {
-            guard let p = f.page(ref) else { throw MCPToolError("找不到專頁 \(ref)") }
+            guard let p = f.page(ref) else { throw MCPToolError.notFound("Page not found: \(ref)") }
             list = list.filter { $0.pageId == p.id }
         }
         list.sort { $0.updatedAt > $1.updatedAt }
@@ -1391,27 +1403,27 @@ final class MCPHandler {
         let author = try issueAuthor(a)
         for k in ["link", "image_url"] {
             if let u = a.string(k), !u.isEmpty, !(u.lowercased().hasPrefix("https://") || u.lowercased().hasPrefix("http://")) {
-                throw MCPToolError("\(k) 必須是 http 或 https 網址")
+                throw MCPToolError("\(k) must be an http or https URL")
             }
         }
         var proposed: Date?
         if let t = a.string("proposed_time"), !t.isEmpty {
             let iso = ISO8601DateFormatter()
-            guard let d = iso.date(from: t) else { throw MCPToolError("proposed_time 要用 ISO 8601,例如 2026-11-20T20:00:00+08:00") }
+            guard let d = iso.date(from: t) else { throw MCPToolError("proposed_time must be ISO 8601, for example 2026-11-20T20:00:00+08:00") }
             proposed = d
         }
         var pageId: String?
         if let ref = a.string("page"), !ref.isEmpty {
             guard let p = f.page(ref) else {
-                throw MCPToolError("找不到專頁 \(ref)。可用:\(app.fbSettings.pages.map { "\($0.name)(\($0.id))" }.joined(separator: "、"))")
+                throw MCPToolError.notFound("Page not found: \(ref). Available: \(app.fbSettings.pages.map { "\($0.name) (\($0.id))" }.joined(separator: ", "))")
             }
             pageId = p.id
         }
         var d: FBDraft
         let isNew: Bool
         if let id = a.string("id"), !id.isEmpty {
-            guard let old = f.draft(id) else { throw MCPToolError("找不到草稿 \(id)") }
-            guard old.status == .draft else { throw MCPToolError("草稿 \(old.id) \(old.status.label),不能修改") }
+            guard let old = f.draft(id) else { throw MCPToolError.notFound("Draft not found: \(id)") }
+            guard old.status == .draft else { throw MCPToolError("Draft \(old.id) is \(old.status.rawValue) and cannot be edited") }
             d = old
             isNew = false
         } else {
@@ -1425,17 +1437,17 @@ final class MCPHandler {
         if let proposed { d.proposedTime = proposed }
         if let v = a.string("source") { d.source = v }
         if let pageId { d.pageId = pageId }
-        if d.isEmpty { throw MCPToolError("草稿至少要有 message、link 或 image_url") }
+        if d.isEmpty { throw MCPToolError("A draft needs at least one of message, link, or image_url") }
         let saved = f.saveDraft(d, by: author)
         app.log(f.actor(author), "square.and.pencil", "\(isNew ? "新增" : "修改") Facebook 草稿 \(saved.id)「\(saved.titleLine)」", .automation)
         var o = fbDraftJSON(saved)
-        o["note"] = "只存成草稿。發佈或排程要由人在 omixor 的 AI 自動化 › 粉絲專頁 按。"
+        o["note"] = "Saved as a draft only. Publishing or scheduling must be done by a person in omixor AI Automation > Pages."
         return o
     }
 
     private func serviceId(_ id: String) throws -> String {
         guard app.service(id) != nil else {
-            throw MCPToolError("找不到服務 \(id)。可用:\(app.services.map(\.id).joined(separator: "、"))")
+            throw MCPToolError.notFound("Service not found: \(id). Available: \(app.services.map(\.id).joined(separator: ", "))")
         }
         return id
     }

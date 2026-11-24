@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"omixor-core/config"
+	"omixor-core/mcp"
 	"omixor-core/service"
 )
 
@@ -117,7 +118,7 @@ func TestUnifiedOAuthAccountFlow(t *testing.T) {
 	}
 	// 寫入:唯讀授權
 	w = o.mcpPost("/mcp", access, callBody("issue_create", `{"org":"o","title":"x"}`))
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"isError":true`) || !strings.Contains(w.Body.String(), "此連線是唯讀授權") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"isError":true`) || !strings.Contains(w.Body.String(), mcp.ReadOnlyMessage) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	// 帳號層級 token 不能用在組織端點;組織 token 不能用在 /mcp(都是 401 invalid_token)

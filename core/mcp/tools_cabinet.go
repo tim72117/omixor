@@ -84,7 +84,7 @@ func cabAgent(e Env, c *Call) (*model.Agent, error) {
 	}
 	g, err := e.Backend().GetAgent(e.Org(), name)
 	if err != nil {
-		return nil, Errorf("找不到角色 %s", name)
+		return nil, Errorf("Agent %s not found", name)
 	}
 	return g, nil
 }
@@ -147,6 +147,13 @@ func docJSON(e Env, l model.Layout, d model.CabinetDoc, full bool) map[string]an
 	} else {
 		o["chars"] = utf8.RuneCountInString(d.Body)
 	}
+	return o
+}
+
+// docVersionJSON 在文件的回傳物件加上 version(內文的版本代號);docs 與 doc_save 共用,
+// 讓呼叫端存檔後不必重讀就能拿它當下一次局部修改的 base_version
+func docVersionJSON(o map[string]any, d model.CabinetDoc) map[string]any {
+	o["version"] = model.DocVersion(d.Body)
 	return o
 }
 
@@ -325,10 +332,10 @@ func RegisterCabinetTools(s *Server) {
 			out = append(out, o)
 		}
 		if only != "" && len(out) == 0 {
-			return nil, Errorf("找不到專案 %s", only)
+			return nil, Errorf("Project %s not found", only)
 		}
 		return map[string]any{"organization": e.OrgName(), "projects": out,
-			"note": "文件櫃工具(cabinet、docs、doc_save、cabinet_layout_save)帶 project(專案 id)操作那個專案;不帶是未分專案"}, nil
+			"note": "Cabinet tools (cabinet, docs, doc_save, cabinet_layout_save) take project (project id) to operate on that project; omitted means no project"}, nil
 	})
 
 	s.Register("project_save", func(c *Call) (any, error) {
@@ -385,14 +392,14 @@ func RegisterCabinetTools(s *Server) {
 			p := service.ProjectPatch{Name: c.Args.Opt("name"), Key: c.Args.Opt("key"), Description: c.Args.Opt("description"), Restricted: restricted}
 			only := p.Name == nil && p.Description == nil && p.Key == nil && p.Restricted == nil // 只改連結、成員:不更新專案本身
 			if only && len(link)+len(unlink)+len(addMembers)+len(removeMembers) == 0 {
-				return nil, ToolError{Message: "要給 name、key、description、restricted、link_repos、unlink_repos、add_members 或 remove_members"}
+				return nil, ToolError{Message: "Give at least one of name, key, description, restricted, link_repos, unlink_repos, add_members or remove_members"}
 			}
 			var x *model.Project
 			var err error
 			if only { // 成員管理(專案管理員也可以):不經 UpdateProject(它要組織管理員)
 				var list []model.Project
 				if list, err = bk.ListProjects(org); err == nil {
-					err = Errorf("找不到專案 %s", *id)
+					err = Errorf("Project %s not found", *id)
 					for i := range list {
 						if strings.EqualFold(list[i].ID, strings.TrimSpace(*id)) {
 							x, err = &list[i], nil
@@ -451,7 +458,7 @@ func RegisterCabinetTools(s *Server) {
 			}
 			l := cabLayoutOf(e, d.Project)
 			if !visible(*d) {
-				return nil, Errorf("%s沒有權限讀「%s」的文件", g.Name, placeOf(e, d.Project, l, d.Section, d.TabPath()))
+				return nil, Errorf("%s has no permission to read documents in \"%s\"", g.Name, placeOf(e, d.Project, l, d.Section, d.TabPath()))
 			}
 			// 分段讀:大綱、一段、幾行、搜尋;只給 id 時回全文,太長的只回大綱與開頭
 			in := service.DocRead{Section: c.Args.Str("part"), Grep: c.Args.Str("grep")}
@@ -462,9 +469,7 @@ func RegisterCabinetTools(s *Server) {
 			full, _ := c.Args.Raw["full"].(bool)
 			partial := in.Outline || in.Section != "" || in.From > 0 || in.To > 0 || in.Grep != ""
 			if !partial && (full || utf8.RuneCountInString(d.Body) <= docFullLimit) {
-				o := docJSON(e, l, *d, true)
-				o["version"] = model.DocVersion(d.Body)
-				return o, nil
+				return docVersionJSON(docJSON(e, l, *d, true), *d), nil
 			}
 			v, err := e.Backend().ReadDoc(e.Org(), d.ID, in)
 			if err != nil {
@@ -484,7 +489,7 @@ func RegisterCabinetTools(s *Server) {
 				o["matches"] = v.Matches
 			}
 			if !partial {
-				o["note"] = fmt.Sprintf("文件很長(%d 字),只回大綱與開頭;用 part 讀一段、from/to 讀幾行,或帶 full 讀全文", o["chars"])
+				o["note"] = fmt.Sprintf("The document is long (%d characters), so only the outline and the beginning are returned; use part to read one part, from/to to read some lines, or full to read it all", o["chars"])
 			}
 			return o, nil
 		}
@@ -574,7 +579,7 @@ func RegisterCabinetTools(s *Server) {
 					labels = append(labels, label)
 				}
 			}
-			return Errorf("%s沒有權限寫入「%s」;它可以寫的範圍:%s", g.Name, placeOf(e, project, l, s, deref(t)), strings.Join(labels, "、"))
+			return Errorf("%s has no permission to write to \"%s\"; places it can write: %s", g.Name, placeOf(e, project, l, s, deref(t)), strings.Join(labels, ", "))
 		}
 		if id := c.Args.Opt("id"); id != nil {
 			d, err := bk.GetDoc(org, *id)
@@ -593,7 +598,7 @@ func RegisterCabinetTools(s *Server) {
 				return nil, err
 			} else if ok {
 				if c.Args.Opt("project") != nil && cabProject(c) != d.Project {
-					return nil, ToolError{Message: "局部修改(edits、replace_part、append_to_part)不能同時搬到別的專案;分兩次存"}
+					return nil, ToolError{Message: "Partial edits (edits, replace_part, append_to_part) cannot move the document to another project at the same time; save in two steps"}
 				}
 				r, err := bk.EditDoc(org, d.ID, ed)
 				if err != nil {
@@ -626,7 +631,7 @@ func RegisterCabinetTools(s *Server) {
 				p.Section, p.Tab = &sec.ID, tabPath(t)
 			} else if p.Project != nil {
 				if !tl.Has(d.Section, d.TabPath()) {
-					return nil, Errorf("要搬到的專案沒有「%s」這個位置;請一起給 section(和 tab)指定目標專案裡的位置", l.Location(d.Section, d.TabPath()))
+					return nil, Errorf("The target project has no place \"%s\"; also give section (and tab) to name a place in the target project", l.Location(d.Section, d.TabPath()))
 				}
 				if err := checkWrite(target, tl, d.Section, d.Tab); err != nil {
 					return nil, err
@@ -634,7 +639,7 @@ func RegisterCabinetTools(s *Server) {
 			}
 			title := c.Args.Opt("title")
 			if title != nil && *title == "" {
-				return nil, ToolError{Message: "標題不能是空的"}
+				return nil, ToolError{Message: "The title cannot be empty"}
 			}
 			p.Title = title
 			if b, ok := c.Args.RawString("body"); ok {
@@ -650,7 +655,7 @@ func RegisterCabinetTools(s *Server) {
 			if err != nil {
 				return nil, terr(err)
 			}
-			return docJSON(e, tl, *updated, false), nil
+			return docVersionJSON(docJSON(e, tl, *updated, false), *updated), nil
 		}
 		title, err := c.Args.Require("title")
 		if err != nil {
@@ -674,7 +679,7 @@ func RegisterCabinetTools(s *Server) {
 		if err != nil {
 			return nil, terr(err)
 		}
-		return docJSON(e, l, *d, false), nil
+		return docVersionJSON(docJSON(e, l, *d, false), *d), nil
 	})
 
 	s.Register("cabinet_layout_save", func(c *Call) (any, error) {
@@ -718,7 +723,7 @@ func findTab(l []model.CabinetSection, section, key string) (*model.CabinetTab, 
 	if section != "" {
 		s := model.Layout(l).Section(section)
 		if s == nil {
-			return nil, false, Errorf("找不到區塊「%s」", section)
+			return nil, false, Errorf("Section \"%s\" not found", section)
 		}
 		secID = s.ID
 	}
@@ -747,9 +752,9 @@ func findTab(l []model.CabinetSection, section, key string) (*model.CabinetTab, 
 	switch len(hits) {
 	case 0:
 		if section != "" {
-			return nil, true, Errorf("區塊「%s」沒有頁籤「%s」", section, key)
+			return nil, true, Errorf("Section \"%s\" has no tab \"%s\"", section, key)
 		}
-		return nil, true, Errorf("找不到頁籤「%s」", key)
+		return nil, true, Errorf("Tab \"%s\" not found", key)
 	case 1:
 		return hits[0], false, nil
 	}
@@ -757,7 +762,7 @@ func findTab(l []model.CabinetSection, section, key string) (*model.CabinetTab, 
 	for i, t := range hits {
 		paths[i] = t.Path
 	}
-	return nil, false, Errorf("「%s」對到多個頁籤(%s),用頁籤網址指定", key, strings.Join(paths, "、"))
+	return nil, false, Errorf("\"%s\" matches several tabs (%s); specify the tab by its path", key, strings.Join(paths, ", "))
 }
 
 // sectionOfTab 頁籤所在的區塊
@@ -781,10 +786,10 @@ func checkTabNames(l []model.CabinetSection, sec *model.CabinetSection, self, la
 				continue
 			}
 			if code != nil && t.Code != nil && *t.Code == *code {
-				return Errorf("頁籤代號「%s」已經用在「%s › %s」", *code, s.Label, t.Title())
+				return Errorf("Tab code \"%s\" is already used by \"%s › %s\"", *code, s.Label, t.Title())
 			}
 			if s.ID == sec.ID && t.Label == label {
-				return Errorf("「%s」已經有頁籤「%s」", sec.Label, label)
+				return Errorf("\"%s\" already has a tab \"%s\"", sec.Label, label)
 			}
 		}
 	}
@@ -802,7 +807,7 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 		}
 		o, ok := objects(v)
 		if !ok {
-			return nil, Errorf("%s 要是物件陣列", key)
+			return nil, Errorf("%s must be an array of objects", key)
 		}
 		return o, nil
 	}
@@ -820,10 +825,10 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 	}
 	removes, hasRemove := Args{Raw: raw}.Strings("remove")
 	if _, ok := raw["remove"]; ok && !hasRemove {
-		return nil, nil, Errorf("remove 要是字串陣列")
+		return nil, nil, Errorf("remove must be an array of strings")
 	}
 	if len(addSecs) == 0 && len(addTabs) == 0 && len(updates) == 0 && len(removes) == 0 {
-		return nil, nil, ToolError{Message: "要給 add_sections、add_tabs、update 或 remove"}
+		return nil, nil, ToolError{Message: "Give at least one of add_sections, add_tabs, update or remove"}
 	}
 	added := []any{}
 	optStr := func(a Args, k string) *string {
@@ -845,10 +850,10 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 		a := Args{Raw: x}
 		label := strings.TrimSpace(a.Str("label"))
 		if label == "" {
-			return nil, nil, ToolError{Message: "add_sections 每個都要有 label"}
+			return nil, nil, ToolError{Message: "Every add_sections entry needs a label"}
 		}
 		if model.Layout(l).Section(label) != nil {
-			return nil, nil, Errorf("已經有區塊「%s」", label)
+			return nil, nil, Errorf("Section \"%s\" already exists", label)
 		}
 		id := strings.TrimSpace(a.Str("id"))
 		if id == "" {
@@ -858,7 +863,7 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 			}
 			id = fmt.Sprintf("s%d", n)
 		} else if model.Layout(l).Section(id) != nil {
-			return nil, nil, Errorf("區塊 id 重複:%s", id)
+			return nil, nil, Errorf("Duplicate section id: %s", id)
 		}
 		l = append(l, model.CabinetSection{ID: id, Label: label, Tabs: []model.CabinetTab{}})
 		added = append(added, map[string]any{"section": id, "label": label})
@@ -868,11 +873,11 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 		a := Args{Raw: x}
 		secKey, label := strings.TrimSpace(a.Str("section")), strings.TrimSpace(a.Str("label"))
 		if secKey == "" || label == "" {
-			return nil, nil, ToolError{Message: "add_tabs 每個都要有 section 與 label"}
+			return nil, nil, ToolError{Message: "Every add_tabs entry needs section and label"}
 		}
 		sec := model.Layout(l).Section(secKey)
 		if sec == nil {
-			return nil, nil, Errorf("找不到區塊「%s」", secKey)
+			return nil, nil, Errorf("Section \"%s\" not found", secKey)
 		}
 		code := nilIfEmpty(optStr(a, "code"))
 		if err := checkTabNames(l, sec, "", label, code); err != nil {
@@ -890,7 +895,7 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 				path = "/" + path
 			}
 			if usedTab(path) {
-				return nil, nil, Errorf("頁籤 id 重複:%s", path)
+				return nil, nil, Errorf("Duplicate tab id: %s", path)
 			}
 		}
 		t := model.CabinetTab{Path: path, Label: label, Code: code, Group: nilIfEmpty(optStr(a, "group"))}
@@ -902,7 +907,7 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 		a := Args{Raw: x}
 		label := optStr(a, "label")
 		if label != nil && *label == "" {
-			return nil, nil, ToolError{Message: "update 的 label 不能是空的"}
+			return nil, nil, ToolError{Message: "The label in update cannot be empty"}
 		}
 		if tk := strings.TrimSpace(a.Str("tab")); tk != "" {
 			t, _, err := findTab(l, strings.TrimSpace(a.Str("section")), tk)
@@ -927,15 +932,15 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 		}
 		sk := strings.TrimSpace(a.Str("section"))
 		if sk == "" {
-			return nil, nil, ToolError{Message: "update 每個都要有 section 或 tab"}
+			return nil, nil, ToolError{Message: "Every update entry needs section or tab"}
 		}
 		sec := model.Layout(l).Section(sk)
 		if sec == nil {
-			return nil, nil, Errorf("找不到區塊「%s」", sk)
+			return nil, nil, Errorf("Section \"%s\" not found", sk)
 		}
 		if label != nil {
 			if o := model.Layout(l).Section(*label); o != nil && o.ID != sec.ID {
-				return nil, nil, Errorf("已經有區塊「%s」", *label)
+				return nil, nil, Errorf("Section \"%s\" already exists", *label)
 			}
 			sec.Label = *label
 		}
@@ -951,7 +956,7 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 					if t != nil {
 						where = t.Path
 					}
-					return nil, nil, Errorf("「%s」同時是區塊和頁籤(%s)的名稱:區塊用 id「%s」,頁籤用網址指定", k, where, sec.ID)
+					return nil, nil, Errorf("\"%s\" is both a section name and a tab name (%s): refer to the section by id \"%s\" and to the tab by its path", k, where, sec.ID)
 				}
 			}
 			id := sec.ID
@@ -967,7 +972,7 @@ func applyLayoutOps(l []model.CabinetSection, raw map[string]any) ([]model.Cabin
 		t, none, err := findTab(l, "", k)
 		if err != nil {
 			if none {
-				return nil, nil, Errorf("找不到要移除的區塊或頁籤「%s」", k)
+				return nil, nil, Errorf("Section or tab to remove \"%s\" not found", k)
 			}
 			return nil, nil, err
 		}
@@ -996,7 +1001,7 @@ func docEditArgs(c *Call) (service.DocEdit, bool, error) {
 		for i, x := range raw {
 			m, ok := x.(map[string]any)
 			if !ok {
-				return ed, false, Errorf("edits 第 %d 個要是 {old, new}", i+1)
+				return ed, false, Errorf("edits entry %d must be {old, new}", i+1)
 			}
 			o, _ := m["old"].(string)
 			n, _ := m["new"].(string)
@@ -1009,7 +1014,7 @@ func docEditArgs(c *Call) (service.DocEdit, bool, error) {
 	}
 	for _, k := range []string{"body", "append_body", "title", "section", "tab", "tags"} {
 		if _, has := c.Args.Raw[k]; has {
-			return ed, false, Errorf("局部修改(edits、replace_part、append_to_part)不能和 %s 一起用;分兩次存", k)
+			return ed, false, Errorf("Partial edits (edits, replace_part, append_to_part) cannot be combined with %s; save in two steps", k)
 		}
 	}
 	return ed, true, nil

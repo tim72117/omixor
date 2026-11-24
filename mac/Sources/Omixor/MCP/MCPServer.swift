@@ -160,7 +160,7 @@ final class MCPServer: @unchecked Sendable {
         }
         // 本機 MCP token:沒帶或不對一律 401(不分方法,不透露任何內容)
         guard authorize(req.headers["authorization"]) else {
-            return HTTPResponse(status: 401, body: Data("Unauthorized: send Authorization: Bearer <omixor MCP token>(到 omixor App 的 設定 › 整合 › MCP 伺服器 複製)".utf8),
+            return HTTPResponse(status: 401, body: Data("Unauthorized: send Authorization: Bearer <omixor MCP token> (copy it from omixor Settings > Integrations > MCP server)".utf8),
                                 contentType: "text/plain; charset=utf-8", extra: ["WWW-Authenticate": "Bearer realm=\"omixor-mcp\""])
         }
         switch req.method {

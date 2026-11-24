@@ -109,7 +109,7 @@ func (a Args) Strings(k string) ([]string, bool) {
 func (a Args) Require(k string) (string, error) {
 	s, ok := a.String(k)
 	if !ok || s == "" {
-		return "", ToolError{Message: "缺少參數 " + k}
+		return "", ToolError{Message: "Missing parameter " + k}
 	}
 	return s, nil
 }
@@ -117,7 +117,7 @@ func (a Args) Require(k string) (string, error) {
 func (a Args) RequireInt(k string) (int, error) {
 	n, ok := a.Int(k)
 	if !ok {
-		return 0, ToolError{Message: "缺少或無效的整數參數 " + k}
+		return 0, ToolError{Message: "Missing or invalid integer parameter " + k}
 	}
 	return n, nil
 }

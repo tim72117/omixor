@@ -31,7 +31,7 @@ func init() {
 	Register("voice_submit", func(c *Call) (any, error) {
 		voice := core.VoiceOf(c.App)
 		if voice == nil {
-			return nil, ToolError{Message: "旁白功能還沒啟動"}
+			return nil, ToolError{Message: "The narration feature is not started"}
 		}
 		all, _ := rawBool(c.Args.Raw, "all")
 		scripts, _ := c.Args.Strings("scripts")
@@ -61,9 +61,9 @@ func init() {
 				ahead++
 			}
 		}
-		note := "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 voice_jobs 查進度"
+		note := "Submitted now. When done, a human previews and publishes it in omixor under CI/CD > Narration Publish; use voice_jobs to check progress"
 		if ahead > 0 {
-			note = fmt.Sprintf("前面還有 %d 批,輪到時自動送出", ahead)
+			note = fmt.Sprintf("%d batch(es) ahead; it is submitted automatically when its turn comes", ahead)
 		}
 		return map[string]any{"job": voiceJSON(job, false), "note": note}, nil
 	})
@@ -82,7 +82,7 @@ func init() {
 					return voiceJSON(j, true), nil
 				}
 			}
-			return nil, ToolError{Message: "找不到旁白批次 " + id}
+			return nil, ToolError{Message: "Narration batch " + id + " not found"}
 		}
 		list := []any{}
 		for i, j := range jobs {

@@ -107,7 +107,7 @@ func findChannelArg(e AgentEnv, raw, as string) (string, error) {
 			return c.ID, nil
 		}
 	}
-	return "", Errorf("找不到頻道 %s(或你不是成員);用 channels 看有哪些頻道", raw)
+	return "", Errorf("Channel %s not found (or you are not a member); use channels to see which channels exist", raw)
 }
 
 // channelMentions agent_context 的 mentions:提到這個角色的未讀訊息(最多 20 則)與它所在頻道的未讀數;取不到回 nil
@@ -128,7 +128,7 @@ func channelMentions(e AgentEnv, agentID string) map[string]any {
 		chs = append(chs, map[string]any{"id": c.ID, "name": c.Name, "unread": c.Unread})
 	}
 	return map[string]any{"messages": msgs, "channels": chs,
-		"hint": "提到你的訊息只是通知,不是任務;要回覆用 channel_post,讀完整對話用 channel_messages(讀了算已讀)"}
+		"hint": "A message that mentions you is only a notification, not a task; reply with channel_post, and read the full conversation with channel_messages (reading marks it as read)"}
 }
 
 // RegisterChannelTools 登記訊息頻道工具。執行環境(Call.Ctx)要實作 AgentEnv
@@ -153,7 +153,7 @@ func RegisterChannelTools(s *Server) {
 	s.Register("channel_create", func(c *Call) (any, error) {
 		e := agentEnv(c)
 		if e.Role() != nil {
-			return nil, Errorf("角色身分不能建立頻道")
+			return nil, Errorf("An agent identity cannot create channels")
 		}
 		name, err := c.Args.Require("name")
 		if err != nil {
@@ -227,7 +227,7 @@ func RegisterChannelTools(s *Server) {
 		}
 		text, ok := c.Args.RawString("text")
 		if !ok || strings.TrimSpace(text) == "" {
-			return nil, Errorf("訊息不能空白")
+			return nil, Errorf("The message cannot be empty")
 		}
 		as, err := channelAs(e, c)
 		if err != nil {

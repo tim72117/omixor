@@ -53,8 +53,8 @@ func TestIssueItemTools(t *testing.T) {
 	if b["key"] != k+".2" || b["dependsOn"] != k+".1" || b["assignee"] != "agent:cto" {
 		t.Fatal(b)
 	}
-	fails(t, admin, "", "issue_item_claim", map[string]any{"id": k + ".2"}, "領取失敗:"+k+".2 的前置 "+k+".1 還沒完成(待領取)")
-	fails(t, admin, "", "issue_item_claim", map[string]any{"id": "ISS-1"}, "id 要是子項編號,例如 ISS-37.2(Issue key 加序號)")
+	fails(t, admin, "", "issue_item_claim", map[string]any{"id": k + ".2"}, "Claim failed: "+k+".2 的前置 "+k+".1 還沒完成(待領取)")
+	fails(t, admin, "", "issue_item_claim", map[string]any{"id": "ISS-1"}, "id must be an item number such as ISS-37.2 (issue key plus sequence number)")
 
 	// 領取與回報
 	c := ok(t, admin, "", "issue_item_claim", map[string]any{"id": k + ".1", "note": "session A"})
@@ -75,8 +75,8 @@ func TestIssueItemTools(t *testing.T) {
 	if g := ok(t, admin, "", "issue_items", map[string]any{"id": k + ".1"}); g["key"] != k+".1" {
 		t.Fatal(g)
 	}
-	fails(t, admin, "", "issue_items", map[string]any{"id": k + ".9"}, "找不到 "+k+".9")
-	fails(t, admin, "", "issue_items", map[string]any{}, "缺少參數 issue")
+	fails(t, admin, "", "issue_items", map[string]any{"id": k + ".9"}, k+".9 not found")
+	fails(t, admin, "", "issue_items", map[string]any{}, "Missing parameter issue")
 
 	// 負責人是角色:領取回傳憑證,角色端點用它回報
 	cl := ok(t, admin, "", "issue_item_claim", map[string]any{"id": k + ".2"})
@@ -136,9 +136,9 @@ func TestIssueItemTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok(t, bossEp, "", "issue_item_add", map[string]any{"issue": sec.Key, "title": "機密子項"})
-	fails(t, admin, "", "issue_items", map[string]any{"issue": sec.Key}, "找不到 "+sec.Key)
-	fails(t, admin, "", "issue_items", map[string]any{"id": sec.Key + ".1"}, "找不到 "+sec.Key+".1")
-	fails(t, admin, "", "issue_item_add", map[string]any{"issue": sec.Key, "title": "偷加"}, "找不到 "+sec.Key)
+	fails(t, admin, "", "issue_items", map[string]any{"issue": sec.Key}, sec.Key+" not found")
+	fails(t, admin, "", "issue_items", map[string]any{"id": sec.Key + ".1"}, sec.Key+".1 not found")
+	fails(t, admin, "", "issue_item_add", map[string]any{"issue": sec.Key, "title": "偷加"}, sec.Key+" not found")
 }
 
 func mustJSON(v any) []byte {

@@ -124,7 +124,7 @@ func TestCommitTools(t *testing.T) {
 func TestCommitToolErrorsAreEnglish(t *testing.T) {
 	admin, _, k := commitEnv(t)
 	good := []any{map[string]any{"sha": sha40('a'), "subject": "x"}}
-	fails(t, admin, "", "commits_report", map[string]any{"commits": good}, "缺少參數 repo")
+	fails(t, admin, "", "commits_report", map[string]any{"commits": good}, "Missing parameter repo")
 	for name, args := range map[string]map[string]any{
 		"bad repo":       {"repo": "a b", "commits": good},
 		"empty commits":  {"repo": "a/b", "commits": []any{}},

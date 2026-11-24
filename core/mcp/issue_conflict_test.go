@@ -13,7 +13,7 @@ import (
 	"omixor-core/service"
 )
 
-// issue_update 帶舊 version → 409:工具結果的 text 含 currentVersion(agent 只看得到 text),structuredContent 有 data 與 status
+// issue_update 帶舊 version → 409:structuredContent 是 {error:{code,message,status,data:{currentVersion,current}}},text 的 data 只有 currentVersion 與 truncated
 func TestIssueUpdateVersionConflictCarriesData(t *testing.T) {
 	_, svc, amy := issueToolsEnv(t)
 	h := mcp.AdminEndpoint(mcp.AdminEndpointConfig{Resolve: func(*http.Request) (backend.Backend, string, error) {
@@ -40,12 +40,24 @@ func TestIssueUpdateVersionConflictCarriesData(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil || !resp.Result.IsError {
 		t.Fatalf("要是 isError:%s", w.Body.String())
 	}
-	text := resp.Result.Content[0].Text
-	if !strings.HasPrefix(text, "Issue 沒有改成:") || !strings.Contains(text, `"currentVersion"`) {
-		t.Errorf("text 要含前綴與 currentVersion:%.300s", text)
+	var sc struct {
+		Error struct {
+			Code, Message string
+			Status        int
+			Data          map[string]any
+		}
 	}
-	sc := resp.Result.StructuredContent
-	if sc["status"] != float64(409) || sc["currentVersion"] == nil {
-		t.Errorf("structuredContent 要有 status 與 currentVersion:%v", sc)
+	if err := json.Unmarshal([]byte(resp.Result.Content[0].Text), &sc); err != nil {
+		t.Fatalf("text 要是 JSON:%v", err)
+	}
+	if !strings.HasPrefix(sc.Error.Message, "The issue was not changed: ") || sc.Error.Code != "conflict" || sc.Error.Status != 409 || sc.Error.Data["currentVersion"] == nil {
+		t.Errorf("text 要含 message、code、status 與 data.currentVersion:%.300s", resp.Result.Content[0].Text)
+	}
+	if sc.Error.Data["current"] != nil || sc.Error.Data["truncated"] != true {
+		t.Errorf("text 不該重複整份 Issue(current),要帶 truncated:%.300s", resp.Result.Content[0].Text)
+	}
+	e, _ := resp.Result.StructuredContent["error"].(map[string]any)
+	if d, _ := e["data"].(map[string]any); e == nil || e["status"] != float64(409) || d["current"] == nil || d["truncated"] != nil {
+		t.Errorf("structuredContent 要有 error.status 與完整的 data.current:%v", resp.Result.StructuredContent)
 	}
 }

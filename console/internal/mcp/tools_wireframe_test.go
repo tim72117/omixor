@@ -27,7 +27,7 @@ func TestWireframeToolAndAction(t *testing.T) {
 		t.Fatal(r, err)
 	}
 	r, _ = core.Action(a, "wireframe_svg", map[string]any{"spec": "{"})
-	if m := r.(map[string]any); !strings.Contains(m["error"].(string), "不是有效的 JSON") {
+	if m := r.(map[string]any); !strings.Contains(m["error"].(string), "not valid JSON") {
 		t.Fatal(r)
 	}
 }

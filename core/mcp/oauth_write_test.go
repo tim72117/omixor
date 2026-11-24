@@ -223,7 +223,7 @@ func TestOAuthWriteMembershipAndServerAdmin(t *testing.T) {
 	boss := u.oauthPrincipal(model.User{ID: "u1", Email: "boss@x", Role: "member"}, false)
 	h := u.writeUnified(boss)
 	for _, org := range []string{"other", "nope"} {
-		if r := callRes(t, h, "issue_create", map[string]any{"org": org, "title": "闖入"}); !r.isErr || !strings.Contains(r.all(), "你沒有組織 "+org+" 的權限") {
+		if r := callRes(t, h, "issue_create", map[string]any{"org": org, "title": "闖入"}); !r.isErr || !strings.Contains(r.all(), "You do not have access to organization "+org) {
 			t.Fatalf("%s:%v", org, r.all())
 		}
 	}

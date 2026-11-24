@@ -31,3 +31,14 @@ All text that the MCP server shows to an LLM (tool descriptions, parameter descr
 Style rules: imperative or "Returns ..." sentences; keep every limit, default and format; refer to issues by key (`ISS-<n>`), never by internal id, when showing them.
 
 Vocabulary scope by batch (ISS-56): batch 1 = tool and parameter descriptions and server `instructions`; later batches = error and refusal messages, then result hints and messages. Human-facing `Title` fields stay Chinese.
+
+## Tool result shape
+
+Every `tools/call` result (success and failure) is assembled in one place, `core/mcp/result.go` (`OKResult`, `ErrResult`, `FailureResult`), and has the same form:
+
+- `structuredContent` is always a JSON **object**; `content[0].text` is the same object serialized as compact JSON (the MCP back-compat recommendation). Parse either one; they are equal, with one exception for failures (below).
+- Success (`isError: false`): the tool's own object is returned as is. A tool that returns a non-object is wrapped as `{"result": <value>}` in both places; an acknowledgement-only tool returns `{}`. The `_meta` keys (`omixor/org`, `omixor/server`, ttl hints) stay in the result's `_meta`.
+- Failure (`isError: true`): `{"error": {"code": "<stable machine code>", "message": "<English>", "status": <http-like int>, "data": {...}}}`. `data` is only present when the error carries extra fields (for example `currentVersion` and `current` of a 409 version conflict, `taskCounts` of an agent that still has tasks). Large `error.data` fields (the key `current`, or any value whose compact JSON exceeds 300 bytes) appear only in `structuredContent`; the text's `error.data` then carries only the small fields plus `"truncated": true`, so the model does not see a whole Issue twice. Read `structuredContent` when you need the full data. If `data` cannot be serialized it is dropped and only `code`, `message` and `status` are returned. `code` is the service's own code when it has one (for example `issueNotFound`, `agentHasTasks`, `mcp_admin_required`), otherwise derived from `status`: 400/422 `invalid_argument`, 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `payload_too_large`, 429 `rate_limited`, 500 `internal`, any other 4xx `request_failed`. Internal errors (database, timeouts) are masked to a generic message with status 500; a plain validation error without a status is 400.
+- Lists are always inside a named field of the object (for example `{"issues": [...], "total": n}`), never a bare array.
+
+`core/mcp/contract_test.go` checks this shape for every core tool of the admin endpoint, driven by `model.CoreTools`.

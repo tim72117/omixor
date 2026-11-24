@@ -21,7 +21,7 @@ const (
 // Error 描述格式錯誤(不是 JSON、缺 root、太深、太多節點…)
 type Error struct{ Msg string }
 
-func (e *Error) Error() string { return "線框圖描述錯誤:" + e.Msg }
+func (e *Error) Error() string { return "Wireframe description error: " + e.Msg }
 
 // HTTPError 描述有誤是給使用者看的訊息(httperr.Public);沒有指定狀態碼
 func (e *Error) HTTPError() (int, map[string]any) { return 0, nil }
@@ -74,7 +74,7 @@ func decode(in any) (map[string]any, error) {
 	var data []byte
 	switch v := in.(type) {
 	case nil:
-		return nil, errf("沒有描述(要給 {\"device\": …, \"root\": {…}})")
+		return nil, errf("no description (provide {\"device\": …, \"root\": {…}})")
 	case string:
 		data = []byte(stripFence(v))
 	case []byte:
@@ -84,23 +84,23 @@ func decode(in any) (map[string]any, error) {
 	default:
 		b, err := json.Marshal(v)
 		if err != nil {
-			return nil, errf("描述無法轉成 JSON:%v", err)
+			return nil, errf("the description cannot be converted to JSON: %v", err)
 		}
 		data = b
 	}
 	if len(data) > MaxBytes {
-		return nil, errf("描述太大(%d bytes,最多 %d)", len(data), MaxBytes)
+		return nil, errf("the description is too large (%d bytes, max %d)", len(data), MaxBytes)
 	}
 	if strings.TrimSpace(string(data)) == "" {
-		return nil, errf("描述是空的")
+		return nil, errf("the description is empty")
 	}
 	var raw any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, errf("不是有效的 JSON(%v)", err)
+		return nil, errf("not valid JSON (%v)", err)
 	}
 	m, ok := raw.(map[string]any)
 	if !ok {
-		return nil, errf("描述要是 JSON 物件:{\"device\": \"mobile\", \"root\": {\"type\": \"col\", \"children\": […]}}")
+		return nil, errf("the description must be a JSON object: {\"device\": \"mobile\", \"root\": {\"type\": \"col\", \"children\": […]}}")
 	}
 	return m, nil
 }
@@ -137,24 +137,24 @@ func parse(in any) (*spec, error) {
 		case "mobile", "phone", "iphone", "android":
 			s.w, s.h = 390, 844
 		default:
-			return nil, errf("device 只能是 desktop、tablet、mobile 或 {\"w\": 寬, \"h\": 高},不認得 %q", d)
+			return nil, errf("device must be desktop, tablet, mobile or {\"w\": width, \"h\": height}; unknown value %q", d)
 		}
 	case map[string]any:
 		w, okW := numOf(firstOf(d, "w", "width"))
 		h, okH := numOf(firstOf(d, "h", "height"))
 		if !okW || !okH {
-			return nil, errf("自訂 device 要有數字 w 與 h,例如 {\"w\": 1024, \"h\": 768}")
+			return nil, errf("a custom device needs numeric w and h, e.g. {\"w\": 1024, \"h\": 768}")
 		}
 		if w < 200 || w > 4000 || h < 200 || h > 4000 {
-			return nil, errf("自訂 device 的 w、h 要介於 200~4000(收到 %v×%v)", w, h)
+			return nil, errf("w and h of a custom device must be between 200 and 4000 (got %v×%v)", w, h)
 		}
 		s.w, s.h = math.Round(w), math.Round(h)
 	default:
-		return nil, errf("device 只能是字串(desktop、tablet、mobile)或 {\"w\": 寬, \"h\": 高}")
+		return nil, errf("device must be a string (desktop, tablet, mobile) or {\"w\": width, \"h\": height}")
 	}
 	rootRaw, ok := m["root"]
 	if !ok || rootRaw == nil {
-		return nil, errf("缺少 root(畫面的根節點,例如 {\"type\": \"col\", \"children\": […]})")
+		return nil, errf("missing root (the root node of the screen, e.g. {\"type\": \"col\", \"children\": […]})")
 	}
 	count := 0
 	root, err := s.node(rootRaw, "root", 1, &count)
@@ -188,11 +188,11 @@ func (s *spec) warn(format string, a ...any) {
 
 func (s *spec) node(v any, path string, depth int, count *int) (*node, error) {
 	if depth > MaxDepth {
-		return nil, errf("%s:巢狀超過 %d 層", path, MaxDepth)
+		return nil, errf("%s: nesting is deeper than %d levels", path, MaxDepth)
 	}
 	*count++
 	if *count > MaxNodes {
-		return nil, errf("節點超過 %d 個", MaxNodes)
+		return nil, errf("more than %d nodes", MaxNodes)
 	}
 	var m map[string]any
 	switch x := v.(type) {
@@ -203,7 +203,7 @@ func (s *spec) node(v any, path string, depth int, count *int) (*node, error) {
 	case map[string]any:
 		m = x
 	default:
-		return nil, errf("%s 要是物件 {\"type\": …}(或直接放文字)", path)
+		return nil, errf("%s must be an object {\"type\": …} (or plain text)", path)
 	}
 	n := &node{p: m, path: path}
 	raw, _ := m["type"].(string)
@@ -224,20 +224,20 @@ func (s *spec) node(v any, path string, depth int, count *int) (*node, error) {
 	kidsRaw, hasKids := m["children"]
 	switch {
 	case t == "" && hasKids:
-		s.warn("%s 沒有 type,當成 col 畫", path)
+		s.warn("%s has no type; drawn as col", path)
 		t = "col"
 	case t == "":
-		s.warn("%s 沒有 type,畫成虛線框", path)
+		s.warn("%s has no type; drawn as a dashed box", path)
 		t = "?"
 	case !known[t]:
-		s.warn("不認得的元件 %q(%s),畫成虛線框", raw, path)
+		s.warn("unknown component %q (%s); drawn as a dashed box", raw, path)
 		n.name = strings.TrimSpace(raw)
 	}
 	n.typ = t
 	if hasKids && kidsRaw != nil {
 		l, ok := kidsRaw.([]any)
 		if !ok {
-			return nil, errf("%s.children 要是陣列", path)
+			return nil, errf("%s.children must be an array", path)
 		}
 		for i, k := range l {
 			c, err := s.node(k, fmt.Sprintf("%s.children[%d]", path, i), depth+1, count)

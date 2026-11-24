@@ -44,8 +44,16 @@ func extCall(t *testing.T, a *core.App, name string, args map[string]any) (any, 
 		t.Fatalf("回應格式不對:%v", err)
 	}
 	text := resp.Result.Content[0].Text
-	if resp.Result.IsError {
-		return text, true
+	if resp.Result.IsError { // 失敗本體是 {"error":{"code","message","status"}}:回 error.message
+		var e struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(text), &e); err != nil || e.Error.Message == "" {
+			t.Fatalf("失敗結果不是 {error:{message}}:%s", text)
+		}
+		return e.Error.Message, true
 	}
 	var out any
 	if err := json.Unmarshal([]byte(text), &out); err != nil {

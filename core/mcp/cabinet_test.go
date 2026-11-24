@@ -41,8 +41,10 @@ func call(t *testing.T, h http.Handler, auth, tool string, args map[string]any) 
 		t.Fatalf("%s:%s", tool, w.Body.String())
 	}
 	text := resp.Result.Content[0].Text
-	if resp.Result.IsError {
-		return nil, text
+	if resp.Result.IsError { // 失敗本體是 {"error": {"message": ...}}:回 message
+		var e struct{ Error struct{ Message string } }
+		_ = json.Unmarshal([]byte(text), &e)
+		return nil, e.Error.Message
 	}
 	var out map[string]any
 	_ = json.Unmarshal([]byte(text), &out)
@@ -134,9 +136,9 @@ func TestCabinetToolsAdminAndRole(t *testing.T) {
 		t.Fatalf("角色只看得到能讀的:%v", l)
 	}
 	fails(t, role, auth, "docs", map[string]any{"id": "DOC-2"}, "寫手沒有權限讀「機密」的文件")
-	fails(t, role, auth, "doc_save", map[string]any{"id": "DOC-1", "title": "改"}, "寫手沒有權限寫入「課程 › L0 AI 工具介紹」;它可以寫的範圍:文件")
-	fails(t, role, auth, "doc_save", map[string]any{"title": "x", "section": "levels"}, "寫手沒有權限寫入「課程」;它可以寫的範圍:文件")
-	fails(t, role, auth, "doc_save", map[string]any{"title": "x", "section": "docs", "agent": "someone"}, "角色端點只能以自己的身分操作,不能指定其他角色")
+	fails(t, role, auth, "doc_save", map[string]any{"id": "DOC-1", "title": "改"}, "寫手 has no permission to write to \"課程 › L0 AI 工具介紹\"; places it can write: 文件")
+	fails(t, role, auth, "doc_save", map[string]any{"title": "x", "section": "levels"}, "寫手 has no permission to write to \"課程\"; places it can write: 文件")
+	fails(t, role, auth, "doc_save", map[string]any{"title": "x", "section": "docs", "agent": "someone"}, "The agent endpoint can only act as its own identity; another agent cannot be specified")
 	w := ok(t, role, auth, "doc_save", map[string]any{"title": "行銷筆記", "tab": "行銷手法", "body": "社群"})
 	if w["author"] != "寫手" || w["tab"] != "/docs/m" {
 		t.Fatal(w)

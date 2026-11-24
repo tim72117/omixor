@@ -37,13 +37,27 @@ func extCall(t *testing.T, a *core.App, name string, args map[string]any) (any, 
 	}
 	text := resp.Result.Content[0].Text
 	if resp.Result.IsError {
-		return text, true
+		return toolErrorMessage(t, text), true
 	}
 	var out any
 	if err := json.Unmarshal([]byte(text), &out); err != nil {
 		t.Fatalf("結果不是 JSON:%s", text)
 	}
 	return out, false
+}
+
+// toolErrorMessage 失敗結果的本體是 {"error":{"code","message","status"}}:取出 error.message
+func toolErrorMessage(t *testing.T, text string) string {
+	t.Helper()
+	var e struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(text), &e); err != nil || e.Error.Message == "" {
+		t.Fatalf("失敗結果不是 {error:{message}}:%s", text)
+	}
+	return e.Error.Message
 }
 
 func extOK(t *testing.T, a *core.App, name string, args map[string]any) map[string]any {

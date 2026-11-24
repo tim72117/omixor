@@ -73,9 +73,9 @@ final class IssueRepoDiagramTests: XCTestCase {
         XCTAssertTrue(blocks.contains(.code(lang: "wireframe", text: "{\"root\":{}}")))
 
         // server 的回應 → 渲染結果
-        let ok = DiagramRender.from(toolResult: ["content": [["type": "text", "text": #"{"svg":"<svg/>","width":10,"height":20,"warnings":["w"]}"#]], "isError": false])
+        let ok = DiagramRender.from(toolResult: MCPResult.ok(["svg": "<svg/>", "width": 10, "height": 20, "warnings": ["w"]]))
         XCTAssertEqual(ok, DiagramRender(svg: "<svg/>", width: 10, height: 20, warnings: ["w"]))
-        let bad = DiagramRender.from(toolResult: ["content": [["type": "text", "text": "描述有錯"]], "isError": true])
+        let bad = DiagramRender.from(toolResult: MCPResult.error(message: "描述有錯", status: 400))
         XCTAssertEqual(bad.error, "描述有錯")
         XCTAssertNil(DiagramRender.image("<html><script>alert(1)</script></html>"), "不是 SVG 就不當圖片")
     }

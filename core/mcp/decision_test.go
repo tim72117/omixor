@@ -95,7 +95,7 @@ func TestDecisionTools(t *testing.T) {
 	if l := ok(t, admin, "", "issue_decisions", map[string]any{"mine": true}); l["total"] != 3.0 {
 		t.Fatal(l)
 	}
-	fails(t, admin, "", "issue_decisions", map[string]any{"id": "DEC-99"}, "找不到 DEC-99")
+	fails(t, admin, "", "issue_decisions", map[string]any{"id": "DEC-99"}, "DEC-99 not found")
 
 	// 處理
 	failsWith(t, admin, "", "issue_decision_answer", map[string]any{"id": "DEC-1", "answer": "zzz"}, "answer 必須是選項 id")
@@ -138,14 +138,14 @@ func TestDecisionTools(t *testing.T) {
 	if sd["sourceIssue"] != sec.Key {
 		t.Fatal(sd)
 	}
-	fails(t, admin, "", "issue_decisions", map[string]any{"id": sd["id"].(string)}, "找不到 "+sd["id"].(string))
+	fails(t, admin, "", "issue_decisions", map[string]any{"id": sd["id"].(string)}, sd["id"].(string)+" not found")
 	if l := ok(t, admin, "", "issue_decisions", map[string]any{"status": "all"}); l["total"] != 3.0 {
 		t.Fatal("列表不含受限專案的決定", l)
 	}
 	if l := ok(t, bossEp, "", "issue_decisions", map[string]any{"status": "all"}); l["total"] != 4.0 {
 		t.Fatal("管理員看得到", l)
 	}
-	failsWith(t, admin, "", "issue_decision_answer", map[string]any{"id": sd["id"].(string), "answer": "o1"}, "找不到 "+sd["id"].(string))
+	failsWith(t, admin, "", "issue_decision_answer", map[string]any{"id": sd["id"].(string), "answer": "o1"}, sd["id"].(string)+" not found")
 	failsWith(t, admin, "", "issue_decision_add", map[string]any{"title": "x", "source_issue": sec.Key, "options": []any{"a", "b"}}, "找不到來源 Issue")
 	if l := ok(t, role, auth, "issue_decisions", map[string]any{"status": "all"}); l["total"] != 3.0 {
 		t.Fatal("非專案成員的角色端點也看不到", l)

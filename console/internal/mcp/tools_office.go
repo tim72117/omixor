@@ -27,7 +27,7 @@ func init() {
 		if _, ok := c.Args.Raw["wait"]; ok {
 			n, ok := c.Args.Int("wait")
 			if !ok || n < 0 || n > 120 {
-				return nil, ToolError{Message: "wait 要是 0–120 的秒數"}
+				return nil, ToolError{Message: "wait must be a number of seconds from 0 to 120"}
 			}
 			wait = n
 		}
@@ -59,7 +59,7 @@ func init() {
 		if id := c.Args.Str("command"); id != "" {
 			cmd := hub.Command(id)
 			if cmd == nil {
-				return nil, Errorf("找不到命令 %s(只保留最近 200 個)", id)
+				return nil, Errorf("Command %s not found (only the latest 200 are kept)", id)
 			}
 			return cmd, nil
 		}
@@ -68,7 +68,7 @@ func init() {
 			limit = 20
 		}
 		if limit < 1 || limit > 200 {
-			return nil, ToolError{Message: "limit 要是 1–200"}
+			return nil, ToolError{Message: "limit must be 1-200"}
 		}
 		st := hub.State(limit)
 		if places, err := hub.Places(); err == nil {
@@ -83,5 +83,5 @@ func officeToolError(err error) error {
 	if errors.As(err, &ve) {
 		return ToolError{Message: ve.Msg}
 	}
-	return ToolError{Message: "虛擬辦公室:" + httperr.Report("mcp 虛擬辦公室", err).Msg} // 找不到資料夾等的路徑換成通用訊息、原文進 log
+	return ToolError{Message: "Virtual office: " + httperr.Report("mcp 虛擬辦公室", err).Msg} // 找不到資料夾等的路徑換成通用訊息、原文進 log
 }

@@ -59,7 +59,10 @@ func voiceCallTool(t *testing.T, a *core.App, name string, args map[string]any) 
 	if err := json.Unmarshal(raw, &resp); err != nil || len(resp.Result.Content) == 0 {
 		t.Fatalf("回應格式不對:%s", raw)
 	}
-	return resp.Result.Content[0].Text, resp.Result.IsError
+	if resp.Result.IsError {
+		return toolErrorMessage(t, resp.Result.Content[0].Text), true
+	}
+	return resp.Result.Content[0].Text, false
 }
 
 func voiceCallOK(t *testing.T, a *core.App, name string, args map[string]any) map[string]any {
@@ -87,7 +90,7 @@ func TestMCPVoiceTools(t *testing.T) {
 
 	sub := voiceCallOK(t, a, "voice_submit", map[string]any{"scripts": []any{"launch/1.1.json"}})
 	id := sub["job"].(map[string]any)["id"].(string)
-	if sub["note"] != "馬上送出。完成後由人在 omixor › CI/CD › 旁白發佈 試聽並發佈;可用 voice_jobs 查進度" {
+	if sub["note"] != "Submitted now. When done, a human previews and publishes it in omixor under CI/CD > Narration Publish; use voice_jobs to check progress" {
 		t.Fatal(sub["note"])
 	}
 	one := voiceCallOK(t, a, "voice_jobs", map[string]any{"id": strings.ToLower(id)})
@@ -109,7 +112,7 @@ func TestMCPVoiceTools(t *testing.T) {
 	}
 	// 排第二批
 	sub2 := voiceCallOK(t, a, "voice_submit", map[string]any{"scripts": "launch/1.1", "limit": 2})
-	if sub2["note"] != "前面還有 1 批,輪到時自動送出" {
+	if sub2["note"] != "1 batch(es) ahead; it is submitted automatically when its turn comes" {
 		t.Fatal(sub2["note"])
 	}
 	if sub2["job"].(map[string]any)["title"] != nil || sub2["job"].(map[string]any)["limit"] != float64(2) {
@@ -132,7 +135,7 @@ func TestMCPVoiceErrors(t *testing.T) {
 		{"voice_submit", map[string]any{"scripts": []any{"launch/nope"}}, "找不到腳本 src/content/live/launch/nope.json"},
 		{"voice_submit", map[string]any{"scripts": []any{"launch/1.1.voice.json"}, "dry_run": true}, "launch/1.1.voice.json 是產生出來的清單,請給腳本本身"},
 		{"voice_submit", map[string]any{"all": "true"}, "至少要指定一份腳本,或選「全部腳本」"}, // 字串 "true" 不算(同 Swift 的 as? Bool)
-		{"voice_jobs", map[string]any{"id": "VJ-9"}, "找不到旁白批次 VJ-9"},
+		{"voice_jobs", map[string]any{"id": "VJ-9"}, "Narration batch VJ-9 not found"},
 	} {
 		text, isErr := voiceCallTool(t, a, tc.name, tc.args)
 		if !isErr || text != tc.msg {

@@ -75,7 +75,7 @@ func TestChainTools(t *testing.T) {
 	if d["agentId"] != "designer" || d["createdBy"] != "研發長" || d["instructions"] != "【設計】\n\n簡潔" || len(d["links"].([]any)) != 2 {
 		t.Fatal(d)
 	}
-	fails(t, role, auth, "agent_task_delegate", map[string]any{"to": "pm", "title": "x", "agent": "designer"}, "角色端點只能以自己的身分操作,不能指定其他角色")
+	fails(t, role, auth, "agent_task_delegate", map[string]any{"to": "pm", "title": "x", "agent": "designer"}, "The agent endpoint can only act as its own identity; another agent cannot be specified")
 
 	// 執行者端點
 	worker := mcp.WorkerEndpoint(mcp.WorkerEndpointConfig{Resolve: func(*http.Request) (backend.Backend, string, error) {

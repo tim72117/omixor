@@ -34,9 +34,10 @@ func TestAgentTaskCreateIssueParam(t *testing.T) {
 		t.Fatalf("沒帶 issue 不連:%v", r)
 	}
 
-	_, e := call(t, admin, "", "agent_task_create", map[string]any{"assign_to": "cto", "title": "x", "issue": "ISS-99"})
-	if !strings.HasPrefix(e, "Not found: issue ISS-99") || !strings.Contains(e, "issueNotFound") {
-		t.Fatalf("要回英文錯誤與機器碼:%q", e)
+	res := callRaw(t, admin, "agent_task_create", map[string]any{"assign_to": "cto", "title": "x", "issue": "ISS-99"})
+	e, _ := res["structuredContent"].(map[string]any)["error"].(map[string]any)
+	if msg, _ := e["message"].(string); !strings.HasPrefix(msg, "Not found: issue ISS-99") || e["code"] != "issueNotFound" || e["status"] != float64(404) {
+		t.Fatalf("要回英文錯誤與機器碼:%v", e)
 	}
 	if l := ok(t, admin, "", "agent_tasks", map[string]any{"status": "all"}); l["total"].(float64) != 3 {
 		t.Fatalf("失敗時不能建立任務:%v", l["total"])

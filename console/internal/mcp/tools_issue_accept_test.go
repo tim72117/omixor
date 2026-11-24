@@ -42,5 +42,5 @@ func TestIssueAcceptTool(t *testing.T) {
 	if i["assigneeActor"] != nil || column() != model.BoardTodo {
 		t.Fatalf("放回後要退回待處理:%v", i)
 	}
-	iaErr(t, a, "issue_accept", map[string]any{"id": "ISS-9"}, "找不到 Issue ISS-9")
+	iaErr(t, a, "issue_accept", map[string]any{"id": "ISS-9"}, "Issue ISS-9 not found")
 }

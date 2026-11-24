@@ -66,7 +66,7 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 	if spec == nil {
 		id := c.Args.Str("doc")
 		if id == "" {
-			return nil, Errorf("要給 spec(%s描述),或給 doc(文件 id)讀文件裡的 ```%s 區塊", k.noun, k.lang)
+			return nil, Errorf("Give spec (the %s description), or give doc (document id) to read the ```%s block in the document", k.noun, k.lang)
 		}
 		body, err := readBody(id)
 		if err != nil {
@@ -74,7 +74,7 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 		}
 		blocks := k.blocks(body)
 		if len(blocks) == 0 {
-			return nil, Errorf("文件 %s 裡沒有 ```%s 區塊", id, k.lang)
+			return nil, Errorf("Document %s has no ```%s block", id, k.lang)
 		}
 		spec = blocks[0]
 	}
@@ -93,7 +93,7 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 	}
 	sm, ok := rawSave.(map[string]any)
 	if !ok {
-		return nil, Errorf("save 要是物件 {section 或 tab, title} 或 {id}")
+		return nil, Errorf("save must be an object {section or tab, title} or {id}")
 	}
 	sv := Args{Raw: sm}
 	src, err := k.source(spec)
@@ -112,7 +112,7 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 	if id := sv.Str("id"); id != "" {
 		body, version, err := readDoc(id)
 		if err != nil {
-			return nil, Errorf("%s畫好了,但讀不到要更新的文件:%v", k.noun, err)
+			return nil, Errorf("The %s was rendered, but the document to update could not be read: %v", k.noun, err)
 		}
 		args["id"] = id
 		// 不整份覆寫:只把第一個這種圖的區塊換掉(字串取代,帶讀到的版本;期間別人改了文件其他地方,
@@ -120,7 +120,7 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 		// first 回的是內文裡逐字的那一段(保留原文的 \r\n),edits 才套得上
 		if old, lang, ok := k.first(body); ok {
 			if strings.Count(body, old) != 1 {
-				return nil, Errorf("%s畫好了,但文件 %s 裡有兩段一模一樣的 ```%s 區塊,不知道要換哪一段;請先手動刪掉多的那段", k.noun, id, lang)
+				return nil, Errorf("The %s was rendered, but document %s contains two identical ```%s blocks and it is unclear which one to replace; delete the extra one manually first", k.noun, id, lang)
 			}
 			open, _, _ := strings.Cut(old, "\n")
 			blk := k.fenceLike(strings.TrimSuffix(open, "\r"), src)
@@ -150,16 +150,16 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 			}
 		}
 		if n, lang := k.others(body); n > 0 {
-			warns = append(warns, fmt.Sprintf("文件 %s 裡另有 %d 個 ```%s 區塊,這次沒有更動;不要了請自己刪掉", id, n, lang))
+			warns = append(warns, fmt.Sprintf("Document %s has %d other ```%s block(s) that were left unchanged; delete them yourself if they are no longer needed", id, n, lang))
 			out["warnings"] = warns
 		}
 	} else {
 		title := sv.Str("title")
 		if title == "" {
-			return nil, Errorf("save.title 必填(新增文件時)")
+			return nil, Errorf("save.title is required (when creating a document)")
 		}
 		if sv.Opt("section") == nil && sv.Opt("tab") == nil {
-			return nil, Errorf("save 要給 section(區塊)或 tab(頁籤),或給 id 更新既有文件")
+			return nil, Errorf("save needs section or tab, or id to update an existing document")
 		}
 		body := k.fence(src) + "\n"
 		if note, _ := sv.RawString("note"); strings.TrimSpace(note) != "" {
@@ -174,11 +174,11 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 	}
 	d, err := s.RunNested(c, "doc_save", args)
 	if err != nil {
-		return nil, Errorf("%s畫好了,但存到文件櫃失敗:%v", k.noun, err)
+		return nil, Errorf("The %s was rendered, but saving it to the cabinet failed: %v", k.noun, err)
 	}
 	if meta != nil {
 		if d, err = s.RunNested(c, "doc_save", meta); err != nil {
-			return nil, Errorf("%s已存進文件 %s,但改標題/標籤失敗:%v", k.noun, args["id"], err)
+			return nil, Errorf("The %s was saved into document %s, but changing the title/tags failed: %v", k.noun, args["id"], err)
 		}
 	}
 	out["doc"] = d

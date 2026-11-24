@@ -41,8 +41,8 @@ func TestChannelTools(t *testing.T) {
 	if c["id"] != "CH-1" || len(c["members"].([]any)) != 2 || c["members"].([]any)[1].(map[string]any)["name"] != "研發長" {
 		t.Fatal(c)
 	}
-	fails(t, member, "", "channel_post", map[string]any{"channel": "首頁改版", "text": "  "}, "訊息不能空白")
-	failsWith(t, member, "", "channel_post", map[string]any{"channel": "沒有這個", "text": "x"}, "找不到頻道 沒有這個")
+	fails(t, member, "", "channel_post", map[string]any{"channel": "首頁改版", "text": "  "}, "The message cannot be empty")
+	failsWith(t, member, "", "channel_post", map[string]any{"channel": "沒有這個", "text": "x"}, "Channel 沒有這個 not found")
 	p := ok(t, member, "", "channel_post", map[string]any{"channel": "首頁改版", "text": "@研發長 請排優先度,@產品經理 不是成員"})
 	if p["author"] != "user:amy@x" || p["authorName"] != "amy@x" || len(p["mentions"].([]any)) != 1 {
 		t.Fatal(p)
@@ -86,7 +86,7 @@ func TestChannelTools(t *testing.T) {
 	if reply["author"] != "agent:cto" || reply["authorName"] != "研發長" {
 		t.Fatal(reply)
 	}
-	fails(t, role, auth, "channel_post", map[string]any{"channel": "CH-1", "text": "x", "agent": "pm"}, "角色端點只能以自己的身分操作,不能指定其他角色")
+	fails(t, role, auth, "channel_post", map[string]any{"channel": "CH-1", "text": "x", "agent": "pm"}, "The agent endpoint can only act as its own identity; another agent cannot be specified")
 	if mcp.AgentToolAllow["channel_create"] || !mcp.AdminToolAllow["channel_create"] {
 		t.Fatal("角色端點沒有 channel_create,管理端點有")
 	}

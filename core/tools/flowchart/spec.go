@@ -21,7 +21,7 @@ const (
 // Error 描述格式錯誤(不是 JSON、Mermaid 語法錯、id 重複、邊指向不存在的節點…)
 type Error struct{ Msg string }
 
-func (e *Error) Error() string { return "流程圖描述錯誤:" + e.Msg }
+func (e *Error) Error() string { return "Flowchart description error: " + e.Msg }
 
 // HTTPError 描述有誤是給使用者看的訊息(httperr.Public);沒有指定狀態碼
 func (e *Error) HTTPError() (int, map[string]any) { return 0, nil }
@@ -91,7 +91,7 @@ var dirAlias = map[string]string{"": "TB", "TB": "TB", "TD": "TB", "DOWN": "TB",
 func Parse(in any) (*Graph, error) {
 	switch v := in.(type) {
 	case nil:
-		return nil, errf("沒有描述(給 JSON {\"nodes\": […], \"edges\": […]} 或 Mermaid 的 flowchart 文字)")
+		return nil, errf("no description (provide JSON {\"nodes\": […], \"edges\": […]} or Mermaid flowchart text)")
 	case string:
 		return parseText(v)
 	case []byte:
@@ -101,7 +101,7 @@ func Parse(in any) (*Graph, error) {
 	default:
 		b, err := json.Marshal(v)
 		if err != nil {
-			return nil, errf("描述無法轉成 JSON:%v", err)
+			return nil, errf("the description cannot be converted to JSON: %v", err)
 		}
 		return parseText(string(b))
 	}
@@ -115,14 +115,14 @@ func IsMermaid(s string) bool {
 
 func parseText(s string) (*Graph, error) {
 	if len(s) > MaxBytes {
-		return nil, errf("描述太大(%d bytes,最多 %d)", len(s), MaxBytes)
+		return nil, errf("the description is too large (%d bytes, max %d)", len(s), MaxBytes)
 	}
 	if !utf8.ValidString(s) {
 		s = strings.ToValidUTF8(s, "")
 	}
 	t := stripFence(s)
 	if t == "" {
-		return nil, errf("描述是空的")
+		return nil, errf("the description is empty")
 	}
 	var g *Graph
 	var err error
@@ -162,11 +162,11 @@ func stripFence(s string) string {
 func parseJSON(t string) (*Graph, error) {
 	var raw any
 	if err := json.Unmarshal([]byte(t), &raw); err != nil {
-		return nil, errf("不是有效的 JSON(%v)", err)
+		return nil, errf("not valid JSON (%v)", err)
 	}
 	m, ok := raw.(map[string]any)
 	if !ok {
-		return nil, errf("描述要是 JSON 物件:{\"nodes\": [{\"id\": \"a\", \"label\": \"開始\"}], \"edges\": [{\"from\": \"a\", \"to\": \"b\"}]}")
+		return nil, errf("the description must be a JSON object: {\"nodes\": [{\"id\": \"a\", \"label\": \"Start\"}], \"edges\": [{\"from\": \"a\", \"to\": \"b\"}]}")
 	}
 	g := &Graph{Title: scalar(m["title"]), Direction: scalar(firstOf(m, "direction", "dir", "rankdir"))}
 	arr := func(k string) ([]any, error) {
@@ -176,7 +176,7 @@ func parseJSON(t string) (*Graph, error) {
 		}
 		a, ok := v.([]any)
 		if !ok {
-			return nil, errf("%s 要是陣列", k)
+			return nil, errf("%s must be an array", k)
 		}
 		return a, nil
 	}
@@ -193,16 +193,16 @@ func parseJSON(t string) (*Graph, error) {
 		return nil, err
 	}
 	if len(nodes) == 0 {
-		return nil, errf("沒有節點(nodes 是空的)")
+		return nil, errf("no nodes (nodes is empty)")
 	}
 	if len(nodes) > MaxNodes {
-		return nil, errf("節點太多(%d 個,最多 %d)", len(nodes), MaxNodes)
+		return nil, errf("too many nodes (%d, max %d)", len(nodes), MaxNodes)
 	}
 	if len(edges) > MaxEdges {
-		return nil, errf("邊太多(%d 條,最多 %d)", len(edges), MaxEdges)
+		return nil, errf("too many edges (%d, max %d)", len(edges), MaxEdges)
 	}
 	if len(groups) > MaxGroups {
-		return nil, errf("群組太多(%d 個,最多 %d)", len(groups), MaxGroups)
+		return nil, errf("too many groups (%d, max %d)", len(groups), MaxGroups)
 	}
 	seen := map[string]bool{}
 	for i, v := range nodes {
@@ -214,13 +214,13 @@ func parseJSON(t string) (*Graph, error) {
 			n = Node{ID: strings.TrimSpace(scalar(x["id"])), Label: scalar(firstOf(x, "label", "text", "title", "name")),
 				Shape: scalar(firstOf(x, "shape", "type", "kind")), Group: strings.TrimSpace(scalar(firstOf(x, "group", "parent", "subgraph"))), Style: scalar(x["style"])}
 		default:
-			return nil, errf("nodes[%d] 要是物件 {\"id\", \"label\", \"shape\"?}", i)
+			return nil, errf("nodes[%d] must be an object {\"id\", \"label\", \"shape\"?}", i)
 		}
 		if n.ID == "" {
-			return nil, errf("nodes[%d] 沒有 id", i)
+			return nil, errf("nodes[%d] has no id", i)
 		}
 		if seen[n.ID] {
-			return nil, errf("節點 id 重複:「%s」(nodes[%d])", n.ID, i)
+			return nil, errf("duplicate node id: \"%s\" (nodes[%d])", n.ID, i)
 		}
 		seen[n.ID] = true
 		g.Nodes = append(g.Nodes, &n)
@@ -228,16 +228,16 @@ func parseJSON(t string) (*Graph, error) {
 	for i, v := range edges {
 		x, ok := v.(map[string]any)
 		if !ok {
-			return nil, errf("edges[%d] 要是物件 {\"from\", \"to\", \"label\"?}", i)
+			return nil, errf("edges[%d] must be an object {\"from\", \"to\", \"label\"?}", i)
 		}
 		e := Edge{From: strings.TrimSpace(scalar(firstOf(x, "from", "source", "src"))), To: strings.TrimSpace(scalar(firstOf(x, "to", "target", "dst"))),
 			Label: scalar(firstOf(x, "label", "text")), Style: scalar(x["style"]), Arrow: scalar(x["arrow"])}
 		if e.From == "" || e.To == "" {
-			return nil, errf("edges[%d] 要有 from 與 to", i)
+			return nil, errf("edges[%d] needs from and to", i)
 		}
 		for _, end := range [][2]string{{"from", e.From}, {"to", e.To}} {
 			if !seen[end[1]] {
-				return nil, errf("edges[%d] 的 %s「%s」不是已知的節點 id", i, end[0], end[1])
+				return nil, errf("%s \"%s\" of edges[%d] is not a known node id", end[0], end[1], i)
 			}
 		}
 		g.Edges = append(g.Edges, &e)
@@ -251,13 +251,13 @@ func parseJSON(t string) (*Graph, error) {
 		case map[string]any:
 			gr = Group{ID: strings.TrimSpace(scalar(x["id"])), Label: scalar(firstOf(x, "label", "title", "name")), Parent: strings.TrimSpace(scalar(firstOf(x, "parent", "group")))}
 		default:
-			return nil, errf("groups[%d] 要是物件 {\"id\", \"label\"}", i)
+			return nil, errf("groups[%d] must be an object {\"id\", \"label\"}", i)
 		}
 		if gr.ID == "" {
-			return nil, errf("groups[%d] 沒有 id", i)
+			return nil, errf("groups[%d] has no id", i)
 		}
 		if gseen[gr.ID] {
-			return nil, errf("群組 id 重複:「%s」(groups[%d])", gr.ID, i)
+			return nil, errf("duplicate group id: \"%s\" (groups[%d])", gr.ID, i)
 		}
 		gseen[gr.ID] = true
 		g.Groups = append(g.Groups, &gr)
@@ -290,18 +290,18 @@ func scalar(v any) string {
 
 func (g *Graph) validate() error {
 	if len(g.Nodes) == 0 {
-		return errf("沒有節點")
+		return errf("no nodes")
 	}
 	if len(g.Nodes) > MaxNodes {
-		return errf("節點太多(%d 個,最多 %d)", len(g.Nodes), MaxNodes)
+		return errf("too many nodes (%d, max %d)", len(g.Nodes), MaxNodes)
 	}
 	if len(g.Edges) > MaxEdges {
-		return errf("邊太多(%d 條,最多 %d)", len(g.Edges), MaxEdges)
+		return errf("too many edges (%d, max %d)", len(g.Edges), MaxEdges)
 	}
 	g.Title = limit(strings.TrimSpace(g.Title))
 	d, ok := dirAlias[strings.ToUpper(strings.TrimSpace(g.Direction))]
 	if !ok {
-		g.warn("不認得的方向「%s」,改用 TB(由上而下)", g.Direction)
+		g.warn("unknown direction \"%s\"; using TB (top to bottom)", g.Direction)
 		d = "TB"
 	}
 	g.Direction = d
@@ -323,7 +323,7 @@ func (g *Graph) validate() error {
 		}
 		s, ok := shapeAlias[strings.ToLower(strings.TrimSpace(n.Shape))]
 		if !ok {
-			g.warn("節點「%s」的形狀「%s」不認得,畫成矩形", n.ID, n.Shape)
+			g.warn("unknown shape \"%s\" for node \"%s\"; drawn as a rectangle", n.Shape, n.ID)
 			s = "process"
 		}
 		n.Shape = s
@@ -335,12 +335,12 @@ func (g *Graph) validate() error {
 		case "muted", "dim", "disabled", "secondary":
 			n.Style = "muted"
 		default:
-			g.warn("節點「%s」的樣式「%s」不認得(只有 highlight、muted)", n.ID, n.Style)
+			g.warn("unknown style \"%s\" for node \"%s\" (only highlight, muted)", n.Style, n.ID)
 			n.Style = ""
 		}
 		if n.Group != "" && groups[n.Group] == nil { // 沒宣告的群組自動建立
 			if len(g.Groups) >= MaxGroups {
-				return errf("群組太多(最多 %d)", MaxGroups)
+				return errf("too many groups (max %d)", MaxGroups)
 			}
 			gr := &Group{ID: n.Group, Label: n.Group}
 			g.Groups = append(g.Groups, gr)
@@ -348,18 +348,18 @@ func (g *Graph) validate() error {
 		}
 	}
 	if len(g.Groups) > MaxGroups {
-		return errf("群組太多(%d 個,最多 %d)", len(g.Groups), MaxGroups)
+		return errf("too many groups (%d, max %d)", len(g.Groups), MaxGroups)
 	}
 	for _, gr := range g.Groups {
 		if gr.Parent != "" && groups[gr.Parent] == nil {
-			g.warn("群組「%s」的 parent「%s」不存在,當成最外層", gr.ID, gr.Parent)
+			g.warn("parent \"%s\" of group \"%s\" does not exist; treated as top level", gr.Parent, gr.ID)
 			gr.Parent = ""
 		}
 		// 巢狀不能繞圈
 		seen := map[string]bool{gr.ID: true}
 		for p := gr.Parent; p != ""; p = groups[p].Parent {
 			if seen[p] {
-				g.warn("群組「%s」的 parent 繞成一圈,當成最外層", gr.ID)
+				g.warn("the parent chain of group \"%s\" is circular; treated as top level", gr.ID)
 				gr.Parent = ""
 				break
 			}
@@ -368,10 +368,10 @@ func (g *Graph) validate() error {
 	}
 	for i, e := range g.Edges {
 		if !ids[e.From] {
-			return errf("第 %d 條邊的 from「%s」不是已知的節點 id", i+1, e.From)
+			return errf("from \"%s\" of edge %d is not a known node id", e.From, i+1)
 		}
 		if !ids[e.To] {
-			return errf("第 %d 條邊的 to「%s」不是已知的節點 id", i+1, e.To)
+			return errf("to \"%s\" of edge %d is not a known node id", e.To, i+1)
 		}
 		e.Label = limit(strings.TrimSpace(e.Label))
 		switch st := strings.ToLower(strings.TrimSpace(e.Style)); st {
@@ -384,7 +384,7 @@ func (g *Graph) validate() error {
 		case "invisible", "hidden", "none":
 			e.Style = "invisible"
 		default:
-			g.warn("第 %d 條邊的樣式「%s」不認得(只有 solid、dashed、thick)", i+1, e.Style)
+			g.warn("unknown style \"%s\" for edge %d (only solid, dashed, thick)", e.Style, i+1)
 			e.Style = ""
 		}
 		switch a := strings.ToLower(strings.TrimSpace(e.Arrow)); a {
@@ -395,7 +395,7 @@ func (g *Graph) validate() error {
 		case "both", "two-way", "bidirectional":
 			e.Arrow = "both"
 		default:
-			g.warn("第 %d 條邊的 arrow「%s」不認得(只有 end、none、both)", i+1, e.Arrow)
+			g.warn("unknown arrow \"%s\" for edge %d (only end, none, both)", e.Arrow, i+1)
 			e.Arrow = ""
 		}
 	}
