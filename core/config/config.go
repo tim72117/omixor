@@ -448,6 +448,58 @@ var rules = []rule{
 		}
 		return nil
 	}},
+	{Web, webOAuthRule},
+}
+
+// webOAuthRule 設了 OMIXOR_OAUTH_ADDR(console 的 OAuth 連接埠)時的相依:要有對外網址(issuer、resource、evoleap 回呼都由它推導)、
+// 網址必須是 https(本機位址除外,開發用)且只有網址、evoleap 登入不能關(console 沒有配對碼)、不能是遠端模式(授權與使用者在那台 server)。
+// 需要 PostgreSQL 與否是執行期才知道的事,由 console 啟動時檢查
+func webOAuthRule(c *Config) error {
+	if !c.IsSet(OAuthAddr) {
+		return nil
+	}
+	const pre = "設了 OMIXOR_OAUTH_ADDR,"
+	if !c.IsSet(PublicURL) {
+		return fmt.Errorf(pre + "也要設 OMIXOR_PUBLIC_URL(對外的 https 網址,例如 https://console.example.com)")
+	}
+	u, err := url.Parse(c.Str(PublicURL))
+	if err != nil || u.Hostname() == "" {
+		return nil // 網址本身的格式問題由 OMIXOR_PUBLIC_URL 的型別檢查回報
+	}
+	if p := strings.Trim(u.Path, "/"); p != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf(pre + "OMIXOR_PUBLIC_URL 只能是網址(不含路徑、查詢或片段)")
+	}
+	if u.Scheme != "https" && !IsLoopbackHost(u.Hostname()) {
+		return fmt.Errorf(pre + "OMIXOR_PUBLIC_URL 必須是 https(只有 localhost、127.0.0.1、[::1] 可以用 http,開發用)")
+	}
+	if !c.Bool(OAuthEvoleapLogin) {
+		return fmt.Errorf(pre + "OMIXOR_OAUTH_EVOLEAP_LOGIN 不能是 false(console 的同意畫面只有 evoleap 登入)")
+	}
+	if c.IsSet(ServerURL) {
+		return fmt.Errorf(pre + "但 OMIXOR_SERVER 設了(遠端模式):OAuth 要連本機 PostgreSQL 的 console,遠端模式請改在那台 omixor server 設 OMIXOR_PUBLIC_URL")
+	}
+	return nil
+}
+
+// IsLoopbackHost host(不含連接埠)是不是本機名稱:localhost、127.0.0.1、::1
+func IsLoopbackHost(host string) bool {
+	switch strings.ToLower(strings.Trim(host, "[]")) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
+}
+
+// ProxyHops 信任的代理層數(service.SetTrustedProxyHops 用):明確設了 OMIXOR_TRUSTED_PROXY_HOPS 就用;
+// 沒設時,跑在 Cloud Run(有 K_SERVICE)是 1,否則 0(不信任 X-Forwarded-For)
+func (c *Config) ProxyHops() int {
+	if c.IsSet(TrustedProxyHops) {
+		return c.Int(TrustedProxyHops)
+	}
+	if c.Str(KService) != "" {
+		return 1
+	}
+	return 0
 }
 
 // Validate 檢查 prog 用到的設定:型別、範圍、必填、互斥/相依。問題一次列完(*Error);錯誤訊息不含機密值

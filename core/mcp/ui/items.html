@@ -25,7 +25,7 @@ html,body{margin:0;background:transparent;color:var(--fg);font:var(--fs)/1.45 va
 // ---- 共用:MCP Apps 的 View 端(postMessage 上的 JSON-RPC)。不依賴任何外部程式庫。共用區塊只負責收結果與握手,不呼叫工具;需要呼叫工具的畫面(decisions)自己用 request() 發工具呼叫請求 ----
 var root = document.getElementById("root");
 var pending = {}, nextId = 1, onResult = function () {};
-var toolArgs = null, hostCaps = {}; // toolArgs:觸發這個畫面的工具呼叫的參數(ui/notifications/tool-input);hostCaps:宿主在 ui/initialize 回報的能力
+var toolArgs = null, hostCaps = {}, hostInfo = null; // toolArgs:觸發這個畫面的工具呼叫的參數(ui/notifications/tool-input);hostCaps、hostInfo:宿主在 ui/initialize 回報的能力與名稱版本
 function post(m) { m.jsonrpc = "2.0"; window.parent.postMessage(m, "*"); }
 function request(method, params) {
   return new Promise(function (resolve, reject) {
@@ -93,7 +93,7 @@ function start(name, handler) {
   };
   if (typeof ResizeObserver === "function") new ResizeObserver(reportSize).observe(document.documentElement);
   request("ui/initialize", { appInfo: { name: name, version: "0.1.0" }, appCapabilities: {}, protocolVersion: "2026-01-26" })
-    .then(function (res) { applyCtx(res && res.hostContext); hostCaps = (res && res.hostCapabilities) || {}; notify("ui/notifications/initialized", {}); reportSize(); })
+    .then(function (res) { applyCtx(res && res.hostContext); hostCaps = (res && res.hostCapabilities) || {}; hostInfo = (res && res.hostInfo) || null; notify("ui/notifications/initialized", {}); reportSize(); })
     .catch(function () { root.textContent = "（無法連上宿主）"; });
 }
 /* COMMON-JS-END */

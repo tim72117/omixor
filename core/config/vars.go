@@ -46,8 +46,9 @@ var (
 // ---- 伺服器 ----
 
 var (
-	PublicURL = add(&Var{Name: "OMIXOR_PUBLIC_URL", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server),
-		Doc: "對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent。local 啟動時自己填上"})
+	PublicURL = add(&Var{Name: "OMIXOR_PUBLIC_URL", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server, Web),
+		Doc: "對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent,也是 OAuth 的 issuer 與 resource 的來源。local 啟動時自己填上。" +
+			"web:設了 OMIXOR_OAUTH_ADDR 才用,必填,必須是 https(本機位址 localhost、127.0.0.1、[::1] 除外),只放網址、不放路徑"})
 	SiteDir = add(&Var{Name: "OMIXOR_SITE_DIR", Kind: Path, Group: GroupServer, Programs: progs(Server),
 		Doc: "形象網站檔案所在的資料夾(Docker 映像裡是 /site);沒設或不存在就不提供網站"})
 	TokenDays = add(&Var{Name: "OMIXOR_TOKEN_DAYS", Kind: Int, Default: "90", Range: &[2]int{0, 36500}, Group: GroupServer, Programs: progs(Server),
@@ -57,19 +58,20 @@ var (
 	AgentCredHours = add(&Var{Name: "OMIXOR_AGENT_CRED_HOURS", Kind: Float, Group: GroupServer, Programs: progs(Server),
 		DefaultDoc: "服務內建的預設",
 		Doc:        "領取任務時發給角色的憑證有效小時數(要大於 0,否則用預設)"})
-	TrustedProxyHops = add(&Var{Name: "OMIXOR_TRUSTED_PROXY_HOPS", Kind: Int, Range: &[2]int{0, 16}, Group: GroupServer, Programs: progs(Server),
-		DefaultDoc: "有 K_SERVICE(Cloud Run)是 1,否則 0",
-		Doc: "信任的代理層數,決定怎麼取請求來源 IP(頻率限制、稽核用)。0 = 不看 X-Forwarded-For,用連線位址;N = 取 X-Forwarded-For 由右數第 N 個" +
+	TrustedProxyHops = add(&Var{Name: "OMIXOR_TRUSTED_PROXY_HOPS", Kind: Int, Range: &[2]int{0, 16}, Group: GroupServer, Programs: progs(Server, Web),
+		DefaultDoc: "server:有 K_SERVICE(Cloud Run)是 1,否則 0;web:0",
+		Doc: "信任的代理層數,決定怎麼取請求來源 IP(頻率限制、稽核用;web 只有 OAuth 連接埠用到)。0 = 不看 X-Forwarded-For,用連線位址;N = 取 X-Forwarded-For 由右數第 N 個" +
 			"(最右邊是離伺服器最近的代理加的;項目不足或不是合法 IP 就退回連線位址)。Cloud Run 直接對外是 1;前面再加 HTTPS 負載平衡器要設 2。" +
 			"設太大會讓呼叫者能自己填來源、繞過每 IP 限制;設太小會讓代理的位址被當成來源、全部人共用一個額度"})
 	KService = add(&Var{Name: "K_SERVICE", Kind: String, Group: GroupServer, Programs: progs(Server),
 		Doc: "Cloud Run 自動帶入的服務名稱(不是 omixor 專用名稱);有值就表示跑在 Cloud Run,OMIXOR_TRUSTED_PROXY_HOPS 預設 1"})
 	Port = add(&Var{Name: "PORT", Kind: Int, Default: "8080", Range: portRange, Group: GroupServer, Programs: progs(Server),
 		Doc: "Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴)"})
-	EvoleapURL = add(&Var{Name: "EVOLEAP_URL", Kind: URL, Default: "https://evoleap.io", Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server),
-		Doc: "evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)"})
-	OAuthEvoleapLogin = add(&Var{Name: "OMIXOR_OAUTH_EVOLEAP_LOGIN", Kind: Bool, Default: "true", Group: GroupServer, Programs: progs(Server),
-		Doc: "OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。設 false 關掉,同意畫面只剩配對碼"})
+	EvoleapURL = add(&Var{Name: "EVOLEAP_URL", Kind: URL, Default: "https://evoleap.io", Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server, Web),
+		Doc: "evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)。web:只有 OAuth 連接埠(OMIXOR_OAUTH_ADDR)的 evoleap 登入用;遠端模式登入用的是 OMIXOR_EVOLEAP"})
+	OAuthEvoleapLogin = add(&Var{Name: "OMIXOR_OAUTH_EVOLEAP_LOGIN", Kind: Bool, Default: "true", Group: GroupServer, Programs: progs(Server, Web),
+		Doc: "OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。server:設 false 關掉,同意畫面只剩配對碼;" +
+			"web:同意畫面只有 evoleap 登入(console 不提供配對碼),所以設了 OMIXOR_OAUTH_ADDR 就不能設 false"})
 )
 
 // ---- LDAP(omixor-server;完整的檢查在 core/ldapauth,設了 OMIXOR_LDAP_URL 才啟用) ----
@@ -169,6 +171,11 @@ var (
 		Doc: "MCP 聽的位址(Docker 裡設 0.0.0.0,連接埠只發布到主機的 127.0.0.1)"})
 	MCPToken = add(&Var{Name: "OMIXOR_CONSOLE_MCP_TOKEN", Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web, MCP),
 		Doc: "console 的 MCP 連接埠要求的 Bearer 權杖(至少 32 字元,不能含空白或換行;結尾換行會先去掉);有設但無效時 console 與 omixor-mcp 拒絕啟動;沒設時 console 自己產生並保存(omixor-mcp 也先讀這個,再讀 console 資料夾裡的 mcp_token)"})
+	OAuthAddr = add(&Var{Name: "OMIXOR_OAUTH_ADDR", Kind: String, Group: GroupWeb, Programs: progs(Web),
+		DefaultDoc: "不啟用",
+		Doc: "OAuth 專用連接埠的監聽位址(例如 127.0.0.1:8771);設了才啟用,讓 claude.ai 等遠端 MCP 用戶端用 evoleap 登入、OAuth 連到這台 console。" +
+			"只服務 /oauth/*、/.well-known/*、/mcp(統一入口,工具只有核心的 OAuth 白名單),反向代理或 Tailscale Funnel 只轉發這個連接埠。" +
+			"需要 PostgreSQL(OMIXOR_DATABASE_URL)、非遠端模式、OMIXOR_PUBLIC_URL(https),evoleap 要登記回呼網址 <OMIXOR_PUBLIC_URL>/oauth/evoleap/callback"})
 	WebPort = add(&Var{Name: "OMIXOR_WEB_PORT", Legacy: []string{"OPS_WEB_PORT"}, Kind: Int, Default: "5191", Range: portRange, Group: GroupWeb, Programs: progs(Web),
 		Doc: "畫面與 API 的連接埠(沒設 OMIXOR_WEB_ADDR 時聽 127.0.0.1:<連接埠>)"})
 	WebAddr = add(&Var{Name: "OMIXOR_WEB_ADDR", Legacy: []string{"OPS_WEB_ADDR"}, Kind: String, DefaultDoc: "127.0.0.1:<OMIXOR_WEB_PORT>", Group: GroupWeb, Programs: progs(Web),

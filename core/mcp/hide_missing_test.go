@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -34,5 +35,26 @@ func TestHideMissingTools(t *testing.T) {
 	}
 	if json.Unmarshal(out, &r) != nil || !r.Result.IsError || !strings.Contains(r.Result.Content[0].Text, "built without") {
 		t.Fatalf("%s", out)
+	}
+}
+
+// Hooks.Tool 回傳的收尾在「這一次」工具呼叫處理完後呼叫(含工具失敗);回 nil 不呼叫
+func TestToolHookDone(t *testing.T) {
+	s, err := NewServer([]byte(`[{"name":"ok","inputSchema":{"type":"object"}},{"name":"bad","inputSchema":{"type":"object"}}]`), []byte(`{"serverInfo":{"name":"x"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Register("ok", func(c *Call) (any, error) { return "ok", nil })
+	s.Register("bad", func(c *Call) (any, error) { return nil, errors.New("boom") })
+	var order []string
+	h := Hooks{Tool: func(name string) func() {
+		order = append(order, "tool:"+name)
+		return func() { order = append(order, "done:"+name) }
+	}}
+	for _, n := range []string{"ok", "bad"} {
+		s.Handle([]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"`+n+`"}}`), h)
+	}
+	if got := strings.Join(order, ","); got != "tool:ok,done:ok,tool:bad,done:bad" {
+		t.Fatal(got)
 	}
 }

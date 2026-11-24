@@ -71,8 +71,8 @@ func AgentService() *service.Service {
 	return nil
 }
 
-// RoleCallFinished 角色端點(/mcp/agent)處理完一個請求:核心可能多了 Issue、留言、任務狀態、文件,
-// 重讀 Issue 清單、角色資料與文件櫃並通知畫面。不要拿著 Mu
+// RoleCallFinished 角色端點(/mcp/agent)或 OAuth 連接埠(/mcp)處理完一個會寫入的請求:核心可能多了 Issue、留言、任務狀態、文件,
+// 重讀「目前組織」的 Issue 清單、角色資料與文件櫃並通知畫面(畫面只快取目前組織;寫到別的組織的,切換過去時才讀,所以不需要重讀)。不要拿著 Mu
 func (a *App) RoleCallFinished() {
 	a.Mu.Lock()
 	a.RefreshIssuesIfStale(0)

@@ -93,6 +93,33 @@ console 的 MCP 連接埠(預設 `127.0.0.1:3765`)**一律要驗證**:`/mcp`、`
 - 目前是**一把共享權杖**:持有者都是同一個身分(本機管理員),寫入的署名仍是 `MCP 用戶端`。每人各一把、署名成本機使用者隨 ISS-36。
 - conformance:`conformance/run_go.sh` 啟動的 Go 版有自己的權杖(存在它的資料夾),`compare.py` 加 `--go-data-dir <資料夾>` 或設 `OMIXOR_CONSOLE_MCP_TOKEN` 帶上。
 
+## 遠端 MCP 用戶端(claude.ai 自訂 connector,OAuth)
+
+console 的 MCP 連接埠(3765)只給同一台電腦、用 `omxm_` 權杖;要讓 claude.ai 這類**遠端** MCP 用戶端連進來,另外開一個 OAuth 專用連接埠,登入用和 omixor-server 一樣的 evoleap(不用 LDAP 或本機密碼)。**預設不啟用**,既有的 MCP 連接埠、畫面連接埠、Claude Code 與 omixor-mcp 完全不受影響。
+
+- **條件**:console 連 PostgreSQL(`OMIXOR_DATABASE_URL` + `OMIXOR_SECRET_KEY`)、不是遠端模式(沒設 `OMIXOR_SERVER`);`OMIXOR_PUBLIC_URL` 是對外的 https 網址(只放網址,不含路徑;`localhost`、`127.0.0.1`、`[::1]` 可用 http,開發用);`OMIXOR_OAUTH_EVOLEAP_LOGIN` 不能是 false。條件不合 console 直接拒絕啟動並說明原因。
+- **環境變數**:`OMIXOR_OAUTH_ADDR`(例如 `127.0.0.1:8771`;設了才啟用)、`OMIXOR_PUBLIC_URL`、`OMIXOR_TRUSTED_PROXY_HOPS`(前面有幾層代理;Tailscale Funnel 是 1)、`EVOLEAP_URL`、`OMIXOR_EVOLEAP_CONSOLE`(多半不用設)。
+- **evoleap 那邊**要登記回呼網址:`<OMIXOR_PUBLIC_URL>/oauth/evoleap/callback`。
+- **誰能登入**:evoleap 帳號要對得上 console 資料庫裡已經有的使用者(管理員先用 email 把人加進組織);對不上就拒絕,不會自動建帳號。
+- **只服務**:`/oauth/*`、`/.well-known/*`、`/mcp`(統一入口,每次呼叫帶 `org`)。沒有 `/mcp/org/{org}`、`/mcp/agent`、`/mcp/worker`,`omxm_` 權杖在這個連接埠無效。
+- **工具**:只有核心的 OAuth 白名單:預設唯讀;同意畫面選「讀寫」才多開協作寫入(建 Issue、留言、文件、頻道訊息…),不是伺服器管理員;寫入署名是登入的那位使用者。console 自己的工具(gcp、github、fb_、voice_、server、範例資料)**不會**出現。
+- **畫面快取**:OAuth 寫入後,console 重讀目前組織的 Issue、角色、文件櫃;寫到別的組織的,切換過去時才讀。
+
+用 Tailscale Funnel 在本機試(`<機器>.<tailnet>.ts.net` 換成自己的):
+
+```sh
+# 1. 只把 OAuth 連接埠發布到公網(8771;不要轉發 3765 或 5191)
+tailscale funnel --bg 8771
+# 2. 啟動 console(要有 PostgreSQL;Funnel 前面有 1 層代理)
+OMIXOR_DATABASE_URL=postgres://… OMIXOR_SECRET_KEY=$(openssl rand -base64 32) \
+OMIXOR_OAUTH_ADDR=127.0.0.1:8771 OMIXOR_PUBLIC_URL=https://<機器>.<tailnet>.ts.net OMIXOR_TRUSTED_PROXY_HOPS=1 \
+./bin/omixor-web
+# 3. evoleap 登記回呼 https://<機器>.<tailnet>.ts.net/oauth/evoleap/callback
+# 4. claude.ai → 自訂 connector,網址填 https://<機器>.<tailnet>.ts.net/mcp
+```
+
+(`OMIXOR_SECRET_KEY` 要固定保存,每次換新會解不開已存的資料。)
+
 ## 任務執行者(Claude Code 自動領任務)
 
 派發出去的任務(手動派、Issue 指派給角色、例行任務)可以由開著的 Claude Code 工作階段自動領取、執行、回報。

@@ -51,6 +51,25 @@ func (s *Service) LoginWithLDAP(username, password, device, ip string) (*LoginRe
 		return nil, fail(502, "LDAP 驗證失敗,請聯絡管理員")
 	}
 	s.ldapCleared(username)
+	u, err := s.ResolveDirectoryUser(DirectoryIdentity{ID: id.ID, Email: id.Email, Name: id.Name}, s.isLDAPAdmin(id.ID))
+	if err != nil {
+		return nil, err
+	}
+	return s.issueToken(u, device, s.mt(), "ldap")
+}
+
+// DirectoryIdentity 目錄(LDAP / AD,或宿主自己的帳號目錄)已經驗證過的身分:ID 是穩定的小寫帳號,Email、Name 可以是空的
+type DirectoryIdentity struct{ ID, Email, Name string }
+
+// ResolveDirectoryUser 把目錄驗證過的身分對上 omixor 使用者(LoginWithLDAP 與宿主自己的目錄登入共用;密碼驗證、失敗計數、發 token 不在這裡):
+//   - 對應鍵是 LDAPIDPrefix+ID(存在 EvoleapID 欄位);第一次出現的人自動建立成一般使用者,isAdmin(來源目錄的管理員名單)為真則是伺服器管理員
+//   - email 取目錄的 mail;沒有(或不合法)就用「帳號@LDAPEmailDomain」;兩個都沒有就不能建立
+//   - 同 email 已被另一個身分用 → 403;管理員預先用 email 加入但還沒對上身分的人,要 LDAPTrustMail 才會接手
+//   - 停用的帳號 403;isAdmin 為真但目前不是管理員 → 升級(從名單拿掉不會自動降級)
+//
+// 回傳已存好的使用者(LastLoginAt 已更新)
+func (s *Service) ResolveDirectoryUser(id DirectoryIdentity, isAdmin bool) (*model.User, error) {
+	now := s.mt()
 	key := LDAPIDPrefix + id.ID
 	email := strings.ToLower(strings.TrimSpace(id.Email))
 	if validUserEmail(email) != nil { // 沒有 @ 或是保留的本機身分:當作沒有 mail(退回帳號@網域,仍沒有就不能建立)
@@ -59,8 +78,6 @@ func (s *Service) LoginWithLDAP(username, password, device, ip string) (*LoginRe
 	if email == "" && s.LDAPEmailDomain != "" {
 		email = id.ID + "@" + strings.TrimPrefix(strings.ToLower(s.LDAPEmailDomain), "@")
 	}
-	now := s.mt()
-
 	u, err := s.Store.UserByEvoleapID(key)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
@@ -88,7 +105,6 @@ func (s *Service) LoginWithLDAP(username, password, device, ip string) (*LoginRe
 			return nil, err
 		}
 	}
-	isAdmin := s.isLDAPAdmin(id.ID)
 	if u == nil {
 		role := "member"
 		if isAdmin {
@@ -112,7 +128,7 @@ func (s *Service) LoginWithLDAP(username, password, device, ip string) (*LoginRe
 	if err := s.saveUser(u); err != nil {
 		return nil, err
 	}
-	return s.issueToken(u, device, now, "ldap")
+	return u, nil
 }
 
 func (s *Service) isLDAPAdmin(id string) bool {

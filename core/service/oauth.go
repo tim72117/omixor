@@ -228,7 +228,7 @@ func (s *Service) RegisterOAuthClient(in OAuthClientInput, ip string) (*model.OA
 		}
 	}
 	cl := model.OAuthClient{ID: RandID("oc_", 16), Name: cleanClientName(name), RedirectURIs: uris, GrantTypes: grants, CreatedAt: s.now().Truncate(time.Second)}
-	if err := s.Store.CreateOAuthClient(cl, OAuthMaxClients); err != nil {
+	if err := s.oauthStore().CreateOAuthClient(cl, OAuthMaxClients); err != nil {
 		if errors.Is(err, store.ErrOAuthFull) {
 			return nil, oerr(429, "temporarily_unavailable", "已註冊的用戶端太多,請稍後再試")
 		}
@@ -324,7 +324,7 @@ func scopeLevel(scope string) int {
 // CheckOAuthAuthorize 驗證授權請求;client_id 或 redirect_uri 不可信的錯誤帶 NoRedirect
 func (s *Service) CheckOAuthAuthorize(r OAuthAuthRequest) (*OAuthAuthChecked, error) {
 	bad := func(code, desc string) error { return oerr(400, code, desc) }
-	cl, err := s.Store.OAuthClientByID(r.ClientID)
+	cl, err := s.oauthStore().OAuthClientByID(r.ClientID)
 	if err != nil {
 		if r.ClientID == "" || errors.Is(err, store.ErrNotFound) {
 			return nil, &OAuthError{Status: 400, Code: "invalid_request", Desc: "未知的 client_id", NoRedirect: true}
@@ -369,7 +369,7 @@ func (s *Service) purgeOAuth() {
 	}
 	s.oauth.mu.Unlock()
 	if due {
-		_, _ = s.Store.PurgeOAuthTokens(now.Add(-24 * time.Hour))
+		_, _ = s.oauthStore().PurgeOAuthTokens(now.Add(-24 * time.Hour))
 	}
 }
 
@@ -382,7 +382,7 @@ func (s *Service) NewOAuthCSRF(c *OAuthAuthChecked, challenge, ip string) (strin
 	s.purgeOAuth()
 	raw := RandID("", 24)
 	now := s.now()
-	err := s.Store.PutOAuthToken(model.OAuthToken{ID: RandID("oa_", 9), Kind: model.OAuthKindCSRF, Hash: oauthHash(model.OAuthKindCSRF, raw),
+	err := s.oauthStore().PutOAuthToken(model.OAuthToken{ID: RandID("oa_", 9), Kind: model.OAuthKindCSRF, Hash: oauthHash(model.OAuthKindCSRF, raw),
 		ClientID: c.Client.ID, Scope: csrfScope(c), Resource: c.Resource, RedirectURI: c.RedirectURI, CodeChallenge: challenge,
 		CreatedAt: now, ExpiresAt: now.Add(OAuthCSRFTTL)})
 	return raw, err
@@ -404,11 +404,11 @@ func (s *Service) VerifyOAuthCSRF(raw string, c *OAuthAuthChecked, challenge str
 	if raw == "" {
 		return false
 	}
-	t, err := s.Store.OAuthTokenByHash(model.OAuthKindCSRF, oauthHash(model.OAuthKindCSRF, raw))
+	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindCSRF, oauthHash(model.OAuthKindCSRF, raw))
 	if err != nil || t.ClientID != c.Client.ID || t.Resource != c.Resource || t.RedirectURI != c.RedirectURI || t.CodeChallenge != challenge || t.Scope != csrfScope(c) {
 		return false
 	}
-	return s.Store.ExchangeOAuthToken(t.ID, s.now(), nil) == nil
+	return s.oauthStore().ExchangeOAuthToken(t.ID, s.now(), nil) == nil
 }
 
 // ErrOAuthPairInvalid 配對碼不對(無效、過期、用過、格式不對、帳號停用以外的一切,同一句話,不洩漏碼存不存在)
@@ -446,42 +446,49 @@ func (s *Service) ApproveOAuthScope(c *OAuthAuthChecked, challenge, pairCode, ip
 // 管理員(OAuthGrantAdmin)的條件:客戶端有要求 mcp:admin 且是帳號層級授權(否則 400 invalid_scope,配對碼不消耗);
 // 證明身分之後,使用者要是至少一個組織的管理員(目前的成員資格),否則 403 access_denied(ErrOAuthNotOrgAdmin 的訊息)
 func (s *Service) ApproveOAuthGrant(c *OAuthAuthChecked, challenge, pairCode, ip, grant string) (string, error) {
-	return s.approveOAuth(c, challenge, grant, func() (*model.User, map[string]any, error) {
-		if locked, left := s.oauthLocked(); locked {
-			return nil, nil, oauthLockedErr(left)
-		}
-		pt, u, err := s.redeemPair(pairCode, ip)
-		if err != nil {
-			if Code(err) == 429 {
-				return nil, nil, oerrR(429, "temporarily_unavailable", "嘗試太頻繁,請一分鐘後再試", "locked")
-			}
-			if Code(err) == 401 {
-				s.oauthFailed()
-				return nil, nil, ErrOAuthPairInvalid
-			}
-			if err == errPairDisabled && u != nil { // 配對碼沒被消耗
-				s.Audit(&model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: true}, "oauth.denied", c.Org, map[string]any{"reason": "disabled", "client": c.Client.ID})
-				return nil, nil, oerrR(403, "access_denied", "這個帳號已停用", "disabled")
-			}
-			return nil, nil, err
-		}
-		return u, map[string]any{"pair": pt.ID, "via": "pair"}, nil
-	})
+	if err := CheckOAuthGrant(c, grant); err != nil { // 偽造的表單在消耗配對碼之前就擋
+		return "", err
+	}
+	u, extra, err := s.ProveOAuthPair(c, pairCode, ip)
+	if err != nil {
+		return "", err
+	}
+	return s.ApproveOAuthIdentity(c, challenge, grant, u, extra)
 }
 
-// approveOAuth 簽發授權碼的共同部分(配對碼與 evoleap 登入兩條路共用):prove 負責「證明這個人是誰」(回使用者與要寫進稽核的額外欄位,
-// 例如 pair / via),其餘 — 讀寫授權的檢查、帳號層級 vs 組織成員資格、授權碼 60 秒用一次、FamilyID、稽核 oauth.authorize — 兩條路完全相同。
-// grantWrite 但客戶端沒要求 mcp:write 是偽造的表單:400 invalid_scope,在 prove 之前就擋(配對碼不消耗、不會呼叫 evoleap)
-func (s *Service) approveOAuth(c *OAuthAuthChecked, challenge string, grant string, prove func() (*model.User, map[string]any, error)) (string, error) {
-	if err := checkGrantRequested(c, grant); err != nil {
+// ProveOAuthPair 用配對碼證明身分(OAuth 同意畫面的備援):全域鎖定與頻率限制、輸錯累計、帳號停用的稽核都在這裡;
+// 成功回使用者與要寫進稽核的額外欄位(pair、via)。配對碼成功才消耗(帳號停用不消耗)。呼叫前要先過 CheckOAuthGrant
+func (s *Service) ProveOAuthPair(c *OAuthAuthChecked, pairCode, ip string) (*model.User, map[string]any, error) {
+	if locked, left := s.oauthLocked(); locked {
+		return nil, nil, oauthLockedErr(left)
+	}
+	pt, u, err := s.redeemPair(pairCode, ip)
+	if err != nil {
+		if Code(err) == 429 {
+			return nil, nil, oerrR(429, "temporarily_unavailable", "嘗試太頻繁,請一分鐘後再試", "locked")
+		}
+		if Code(err) == 401 {
+			s.oauthFailed()
+			return nil, nil, ErrOAuthPairInvalid
+		}
+		if err == errPairDisabled && u != nil { // 配對碼沒被消耗
+			s.Audit(&model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: true}, "oauth.denied", c.Org, map[string]any{"reason": "disabled", "client": c.Client.ID})
+			return nil, nil, oerrR(403, "access_denied", "這個帳號已停用", "disabled")
+		}
+		return nil, nil, err
+	}
+	return u, map[string]any{"pair": pt.ID, "via": "pair"}, nil
+}
+
+// ApproveOAuthIdentity 簽發授權碼的共同部分(配對碼、evoleap 登入與宿主自己的登入方式共用):身分(u)已經由呼叫者證明,extra 是要寫進稽核的額外欄位
+// (例如 pair / via)。這裡負責讀寫授權的檢查、帳號層級 vs 組織成員資格、授權碼 60 秒用一次、FamilyID、稽核 oauth.authorize,各條路完全相同。
+// grantWrite 但客戶端沒要求 mcp:write 是偽造的表單:400 invalid_scope;會消耗憑證的證明(配對碼)呼叫者要先用 CheckOAuthGrant 擋,免得白白消耗
+func (s *Service) ApproveOAuthIdentity(c *OAuthAuthChecked, challenge, grant string, u *model.User, extra map[string]any) (string, error) {
+	if err := CheckOAuthGrant(c, grant); err != nil {
 		return "", err
 	}
 	scope := scopeOfGrant(grant)
 	grantWrite := grant == OAuthGrantWrite || grant == OAuthGrantAdmin
-	u, extra, err := prove()
-	if err != nil {
-		return "", err
-	}
 	// 唯讀授權:伺服器管理員照舊(本來就只能讀);讀寫授權:p.ServerAdmin() 對 OAuth 寫入身分是 false,組織層級要真的是成員
 	p := &model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: !grantWrite, OAuthAdmin: grant == OAuthGrantAdmin}
 	if grant == OAuthGrantAdmin {
@@ -513,7 +520,7 @@ func (s *Service) approveOAuth(c *OAuthAuthChecked, challenge string, grant stri
 	}
 	raw := RandID(oauthPrefixCode, 32)
 	now := s.now()
-	err = s.Store.PutOAuthToken(model.OAuthToken{ID: RandID("oa_", 9), Kind: model.OAuthKindCode, Hash: oauthHash(model.OAuthKindCode, raw),
+	err := s.oauthStore().PutOAuthToken(model.OAuthToken{ID: RandID("oa_", 9), Kind: model.OAuthKindCode, Hash: oauthHash(model.OAuthKindCode, raw),
 		ClientID: c.Client.ID, UserID: u.ID, Org: c.Org, Scope: scope, Resource: c.Resource, RedirectURI: c.RedirectURI, CodeChallenge: challenge,
 		FamilyID: RandID("of_", 12), CreatedAt: now, ExpiresAt: now.Add(OAuthCodeTTL)})
 	if err != nil {
@@ -533,8 +540,8 @@ func (s *Service) approveOAuth(c *OAuthAuthChecked, challenge string, grant stri
 // ErrOAuthNotOrgAdmin 要求組織管理員授權、但使用者不是任何組織的管理員(同意畫面據此停用管理員選項)
 var ErrOAuthNotOrgAdmin = oerrR(403, "access_denied", "你不是任何組織的管理員,不能授予「組織管理員」權限,請改選唯讀或讀寫", "not_org_admin")
 
-// checkGrantRequested 授權等級不能超出客戶端要求的:讀寫要有要求 mcp:write(或 mcp:admin),管理員要有要求 mcp:admin 且是帳號層級;偽造的表單 = 400 invalid_scope
-func checkGrantRequested(c *OAuthAuthChecked, grant string) error {
+// CheckOAuthGrant 授權等級不能超出客戶端要求的:讀寫要有要求 mcp:write(或 mcp:admin),管理員要有要求 mcp:admin 且是帳號層級;偽造的表單 = 400 invalid_scope
+func CheckOAuthGrant(c *OAuthAuthChecked, grant string) error {
 	switch grant {
 	case OAuthGrantAdmin:
 		if !c.AdminRequested {
@@ -665,7 +672,7 @@ func (s *Service) OAuthTokenObserved(r OAuthTokenRequest, ip string) (*OAuthToke
 }
 
 func (s *Service) oauthToken(r OAuthTokenRequest, obs *OAuthTokenObs) (*OAuthTokenResponse, error) {
-	cl, err := s.Store.OAuthClientByID(r.ClientID)
+	cl, err := s.oauthStore().OAuthClientByID(r.ClientID)
 	if err != nil {
 		if r.ClientID == "" || errors.Is(err, store.ErrNotFound) {
 			return nil, oerr(401, "invalid_client", "未知的 client_id")
@@ -689,7 +696,7 @@ func (s *Service) oauthCodeGrant(cl *model.OAuthClient, r OAuthTokenRequest) (*O
 	if r.Code == "" {
 		return nil, oerr(400, "invalid_request", "缺少 code")
 	}
-	t, err := s.Store.OAuthTokenByHash(model.OAuthKindCode, oauthHash(model.OAuthKindCode, r.Code))
+	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindCode, oauthHash(model.OAuthKindCode, r.Code))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, oerr(400, "invalid_grant", "code 無效或已過期")
@@ -698,12 +705,12 @@ func (s *Service) oauthCodeGrant(cl *model.OAuthClient, r OAuthTokenRequest) (*O
 	}
 	now := s.now()
 	if t.UsedAt != nil { // 重用:撤銷這個 code 換出來的 token
-		_ = s.Store.RevokeOAuthFamily(t.FamilyID, now)
+		_ = s.oauthStore().RevokeOAuthFamily(t.FamilyID, now)
 		return nil, oerr(400, "invalid_grant", "code 已經用過")
 	}
 	// 不論後面驗證成敗,code 都只能用一次(驗證失敗也作廢,擋住猜 verifier)
 	burn := func(e *OAuthError) (*OAuthTokenResponse, error) {
-		_ = s.Store.ExchangeOAuthToken(t.ID, now, nil)
+		_ = s.oauthStore().ExchangeOAuthToken(t.ID, now, nil)
 		return nil, e
 	}
 	if t.RevokedAt != nil || !now.Before(t.ExpiresAt) {
@@ -729,9 +736,9 @@ func (s *Service) oauthCodeGrant(cl *model.OAuthClient, r OAuthTokenRequest) (*O
 		return burn(oerr(400, "invalid_grant", "帳號無法使用"))
 	}
 	access, refresh, resp := s.oauthIssue(*t, t.Scope, now) // 授權碼的 scope 就是使用者同意的,換 token 時不能改
-	if err := s.Store.ExchangeOAuthToken(t.ID, now, []model.OAuthToken{access, refresh}); err != nil {
+	if err := s.oauthStore().ExchangeOAuthToken(t.ID, now, []model.OAuthToken{access, refresh}); err != nil {
 		if errors.Is(err, store.ErrStale) { // 同時有另一個請求先換走了
-			_ = s.Store.RevokeOAuthFamily(t.FamilyID, now)
+			_ = s.oauthStore().RevokeOAuthFamily(t.FamilyID, now)
 			return nil, oerr(400, "invalid_grant", "code 已經用過")
 		}
 		return nil, err
@@ -743,7 +750,7 @@ func (s *Service) oauthRefreshGrant(cl *model.OAuthClient, r OAuthTokenRequest, 
 	if r.RefreshToken == "" {
 		return nil, oerr(400, "invalid_request", "缺少 refresh_token")
 	}
-	t, err := s.Store.OAuthTokenByHash(model.OAuthKindRefresh, oauthHash(model.OAuthKindRefresh, r.RefreshToken))
+	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindRefresh, oauthHash(model.OAuthKindRefresh, r.RefreshToken))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, oerr(400, "invalid_grant", "refresh_token 無效")
@@ -755,7 +762,7 @@ func (s *Service) oauthRefreshGrant(cl *model.OAuthClient, r OAuthTokenRequest, 
 		return nil, oerr(400, "invalid_grant", "refresh_token 不是發給這個用戶端的")
 	}
 	if t.UsedAt != nil { // 已輪替掉的再被拿來用:可能被偷了,整個家族撤銷
-		_ = s.Store.RevokeOAuthFamily(t.FamilyID, now)
+		_ = s.oauthStore().RevokeOAuthFamily(t.FamilyID, now)
 		obs.Result = "reuse_detected"
 		s.Audit(&model.Principal{User: model.User{ID: t.UserID}, Via: model.ViaOAuth}, "oauth.refresh_reuse", t.Org, map[string]any{"client": cl.ID})
 		return nil, oerr(400, "invalid_grant", "refresh_token 已經用過,這組授權已全部撤銷,請重新連線")
@@ -779,10 +786,10 @@ func (s *Service) oauthRefreshGrant(cl *model.OAuthClient, r OAuthTokenRequest, 
 		obs.AccessRemainingS = int(left / time.Second)
 	}
 	access, refresh, resp := s.oauthIssue(*t, newScope, now)
-	if err := s.Store.ExchangeOAuthToken(t.ID, now, []model.OAuthToken{access, refresh}); err != nil {
+	if err := s.oauthStore().ExchangeOAuthToken(t.ID, now, []model.OAuthToken{access, refresh}); err != nil {
 		if errors.Is(err, store.ErrStale) { // 並行的另一個請求先輪替了:算重用
 			obs.Result = "reuse_detected"
-			_ = s.Store.RevokeOAuthFamily(t.FamilyID, now)
+			_ = s.oauthStore().RevokeOAuthFamily(t.FamilyID, now)
 			return nil, oerr(400, "invalid_grant", "refresh_token 已經用過,這組授權已全部撤銷,請重新連線")
 		}
 		return nil, err
@@ -807,7 +814,7 @@ func (s *Service) AuthenticateOAuth(raw, resource string) (*model.Principal, err
 	if !strings.HasPrefix(raw, oauthPrefixAccess) || resource == "" {
 		return nil, ErrOAuthInvalidToken
 	}
-	t, err := s.Store.OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
+	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, ErrOAuthInvalidToken
@@ -842,7 +849,7 @@ func (s *Service) OAuthAccessState(raw, resource string) string {
 	if !strings.HasPrefix(raw, oauthPrefixAccess) {
 		return "invalid"
 	}
-	t, err := s.Store.OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
+	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
 	if err != nil {
 		return "invalid"
 	}
@@ -885,7 +892,7 @@ func (s *Service) OAuthAccessWrite(raw string) bool {
 	if !strings.HasPrefix(raw, oauthPrefixAccess) {
 		return false
 	}
-	t, err := s.Store.OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
+	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
 	return err == nil && hasScope(t.Scope, model.OAuthScopeWrite)
 }
 
@@ -895,6 +902,6 @@ func (s *Service) OAuthAccessAdmin(raw string) bool {
 	if !strings.HasPrefix(raw, oauthPrefixAccess) {
 		return false
 	}
-	t, err := s.Store.OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
+	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
 	return err == nil && hasScope(t.Scope, model.OAuthScopeAdmin)
 }

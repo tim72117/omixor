@@ -71,8 +71,19 @@ func auditErrText(err error) string {
 	return err.Error()
 }
 
+// oauthStore OAuth 資料用的存放:有指定 OAuth 就用它,否則用 Store
+func (s *Service) oauthStore() store.OAuthStore {
+	if s.OAuth != nil {
+		return s.OAuth
+	}
+	return s.Store
+}
+
 type Service struct {
-	Store   store.Store
+	Store store.Store
+	// OAuth OAuth 授權資料的存放(client、授權碼、token、CSRF、登入交易);nil = 用 Store(雲端的預設)。
+	// 宿主要把 OAuth 資料放在別處時才設(見 oauthStore)
+	OAuth   store.OAuthStore
 	Evoleap string // evoleap 網址(證明身分用)
 	// EvoleapConsole evoleap 核准頁網址(OAuth 同意畫面的 evoleap 登入導向 <EvoleapConsole>/login/cli?id=…;空 = 用 Evoleap)
 	EvoleapConsole string

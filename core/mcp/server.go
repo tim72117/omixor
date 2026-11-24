@@ -59,8 +59,9 @@ type Hooks struct {
 	Begin func() (end func())
 	// Client initialize 帶了 clientInfo.name 時呼叫
 	Client func(name string)
-	// Tool tools/call 驗證過工具名稱、執行前呼叫
-	Tool func(name string)
+	// Tool tools/call 驗證過工具名稱、執行前呼叫;回傳的函式(可為 nil)在這一次呼叫處理完後呼叫(含工具失敗)。
+	// 每次呼叫各有自己的收尾,宿主不必用跨請求共用的旗標記「這個請求寫過」(並行請求會互相洗掉)
+	Tool func(name string) (done func())
 	// Done tools/call 處理完後呼叫(含被 Guard 拒絕的):err 是工具或 Guard 的錯誤,成功為 nil(稽核用,不能改結果)
 	Done func(name string, err error)
 	// Allow 不是 nil 時只開放它回傳 true 的工具:tools/list 只列這些,
@@ -432,7 +433,9 @@ func (s *Server) dispatch(obj any, h Hooks) map[string]any {
 			}
 		}
 		if h.Tool != nil {
-			h.Tool(name)
+			if done := h.Tool(name); done != nil {
+				defer done()
+			}
 		}
 		out, err := s.run(name, args, callCtx, &h)
 		if h.Done != nil {

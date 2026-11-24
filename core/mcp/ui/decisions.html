@@ -37,7 +37,7 @@ html,body{margin:0;background:transparent;color:var(--fg);font:var(--fs)/1.45 va
 // ---- 共用:MCP Apps 的 View 端(postMessage 上的 JSON-RPC)。不依賴任何外部程式庫。共用區塊只負責收結果與握手,不呼叫工具;需要呼叫工具的畫面(decisions)自己用 request() 發工具呼叫請求 ----
 var root = document.getElementById("root");
 var pending = {}, nextId = 1, onResult = function () {};
-var toolArgs = null, hostCaps = {}; // toolArgs:觸發這個畫面的工具呼叫的參數(ui/notifications/tool-input);hostCaps:宿主在 ui/initialize 回報的能力
+var toolArgs = null, hostCaps = {}, hostInfo = null; // toolArgs:觸發這個畫面的工具呼叫的參數(ui/notifications/tool-input);hostCaps、hostInfo:宿主在 ui/initialize 回報的能力與名稱版本
 function post(m) { m.jsonrpc = "2.0"; window.parent.postMessage(m, "*"); }
 function request(method, params) {
   return new Promise(function (resolve, reject) {
@@ -105,7 +105,7 @@ function start(name, handler) {
   };
   if (typeof ResizeObserver === "function") new ResizeObserver(reportSize).observe(document.documentElement);
   request("ui/initialize", { appInfo: { name: name, version: "0.1.0" }, appCapabilities: {}, protocolVersion: "2026-01-26" })
-    .then(function (res) { applyCtx(res && res.hostContext); hostCaps = (res && res.hostCapabilities) || {}; notify("ui/notifications/initialized", {}); reportSize(); })
+    .then(function (res) { applyCtx(res && res.hostContext); hostCaps = (res && res.hostCapabilities) || {}; hostInfo = (res && res.hostInfo) || null; notify("ui/notifications/initialized", {}); reportSize(); })
     .catch(function () { root.textContent = "（無法連上宿主）"; });
 }
 /* COMMON-JS-END */
@@ -113,7 +113,8 @@ function start(name, handler) {
 // 這個畫面只會呼叫下面兩個工具;權限一律由 server 判斷(唯讀授權會被擋,見 isReadOnlyError),畫面不自行放寬。
 var TOOL_LIST = "issue_decisions", TOOL_ANSWER = "issue_decision_answer";
 var READONLY_MSG = "This connection is read-only; grant read-write to answer";
-var ui = { data: null, refreshing: false, busy: false, readOnly: false, error: "", confirm: null };
+var NO_TOOLS_MSG = "此宿主不允許從畫面呼叫工具,請改在對話中處理";
+var ui = { data: null, refreshing: false, busy: false, readOnly: false, noToolCalls: false, error: "", confirm: null };
 var STATUS = { open: "待處理", decided: "已處理", withdrawn: "已撤回" };
 var KINDS = [["decision", "待決定"], ["help", "需要協助"]];
 var CLIP = 140;
@@ -168,11 +169,20 @@ function answerText(d) {
   if (str(d.evidence)) parts.push("證據:" + d.evidence);
   return parts.join(" — ");
 }
-// 宿主是否允許 View 發起工具呼叫(MCP Apps:hostCapabilities.serverTools);沒有就維持唯讀顯示。所有按鈕都只看這一處
-function canCallTools() { return !!hostCaps.serverTools; }
+// 宿主是否允許 View 發起工具呼叫。我們無法得知各宿主實際宣告什麼(有的宿主沒宣告 serverTools 卻允許),
+// 所以預設允許,只有宿主明講 serverTools:false、或實際呼叫被宿主拒絕(ui.noToolCalls)才退回唯讀。所有按鈕都只看這一處
+function canCallTools() { return hostCaps.serverTools !== false && !ui.noToolCalls; }
 function canAnswer(d) { return canCallTools() && d.kind === "decision" && d.status === "open"; }
+// 宿主層級的「不支援」:JSON-RPC 錯誤碼(方法不存在、請求無效)或訊息;工具自己的 isError 結果不算(那是 server 的錯,照常顯示)
+var UNSUPPORTED_CODES = [-32601, -32600, -32602];
+var UNSUPPORTED_RE = /not (supported|allowed)|unsupported|denied|forbidden|method not found/i;
+function isHostRefusal(e) {
+  return !!e && !e.isError && (UNSUPPORTED_CODES.indexOf(e.code) >= 0 || UNSUPPORTED_RE.test(e.message || ""));
+}
 function callTool(name, args) {
-  return request("tools/call", { name: name, arguments: args }).then(function (r) { if (r && r.isError) throw r; return r; });
+  return request("tools/call", { name: name, arguments: args })
+    .then(function (r) { if (r && r.isError) throw r; return r; })
+    .catch(function (e) { if (isHostRefusal(e)) ui.noToolCalls = true; throw e; });
 }
 // 失敗可能是宿主的 JSON-RPC 錯誤({message})或工具的 isError 結果({structuredContent.error})
 function failText(e) { return e && e.isError ? errText(e) : (e && e.message) || "發生錯誤"; }
@@ -188,7 +198,8 @@ function answerArgs(id, answer, note) {
 }
 function refresh() {
   ui.refreshing = true; ui.error = ""; draw();
-  callTool(TOOL_LIST, toolArgs).then(function (r) { ui.data = dataOf(r); ui.confirm = null; ui.readOnly = false; })
+  callTool(TOOL_LIST, toolArgs || {}) // 沒收到 tool-input 時參數未知,照樣試;失敗會顯示 server 的錯誤說明
+    .then(function (r) { ui.data = dataOf(r); ui.confirm = null; ui.readOnly = false; })
     .catch(function (e) { ui.error = failText(e); })
     .then(function () { ui.refreshing = false; draw(); });
 }
@@ -299,7 +310,7 @@ function decisionList(d) {
 function headBar(text) {
   var bar = el("div", "bar");
   bar.appendChild(el("div", "head", text));
-  if (canCallTools() && toolArgs) { // 重新整理要用原本的參數(org、篩選)重打 issue_decisions
+  if (canCallTools()) { // 重新整理要用原本的參數(org、篩選)重打 issue_decisions
     var b = el("button", "act", ui.refreshing ? "更新中…" : "重新整理");
     b.type = "button";
     b.disabled = ui.refreshing || ui.busy;
@@ -309,25 +320,36 @@ function headBar(text) {
   return bar;
 }
 function statusLines() {
+  if (!canCallTools()) { root.appendChild(el("div", "warn", NO_TOOLS_MSG)); return; } // 宿主拒絕時,那次失敗的錯誤文字不必再顯示
   if (ui.readOnly) root.appendChild(el("div", "warn", READONLY_MSG));
   if (ui.error) root.appendChild(el("div", "warn err", ui.error));
 }
+// 診斷用的一行:宿主實際回報了什麼(宿主能力不可預知,出問題時從這行就看得出來)
+function hostLine() {
+  var name = hostInfo && str(hostInfo.name), ver = hostInfo && str(hostInfo.version);
+  var tools = hostCaps.serverTools === undefined ? "unknown" : hostCaps.serverTools ? "yes" : "no";
+  return el("div", "warn", "host: " + (name ? name + (ver ? " " + ver : "") : "unknown") + " · tools: " + tools + " · args: " + (toolArgs !== null ? "yes" : "no"));
+}
 function draw() {
   root.innerHTML = "";
+  drawBody();
+  root.appendChild(hostLine());
+  reportSize();
+}
+function drawBody() {
   var d = ui.data, list = decisionList(d);
   if (!list) { root.textContent = "（沒有資料）"; return; }
   var pend = list.filter(function (x) { return x.status === "open"; }).length;
   var total = typeof d.total === "number" ? d.total : list.length;
   root.appendChild(headBar("待處理 " + pend + " 筆" + (total !== list.length ? "(共 " + total + " 筆,顯示 " + list.length + ")" : "")));
   statusLines();
-  if (!list.length) { root.appendChild(el("div", "warn", "目前沒有待處理的項目")); reportSize(); return; }
+  if (!list.length) { root.appendChild(el("div", "warn", "目前沒有待處理的項目")); return; }
   KINDS.concat([["", "其他"]]).forEach(function (k) {
     var rows = list.filter(function (x) { var kk = x.kind === "decision" || x.kind === "help" ? x.kind : ""; return kk === k[0]; });
     if (!rows.length) return;
     root.appendChild(el("div", "sec", k[1] + "(" + rows.length + ")"));
     rows.forEach(function (x) { root.appendChild(row(x)); });
   });
-  reportSize();
 }
 start("omixor-decisions", function (d) { ui.data = d; ui.error = ""; ui.confirm = null; ui.readOnly = false; draw(); });
 })();

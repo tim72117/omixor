@@ -3,7 +3,6 @@ package mcp
 import (
 	"net/http"
 	"sync"
-	"sync/atomic"
 
 	coremcp "omixor-core/mcp"
 	"omixor-core/service"
@@ -12,7 +11,7 @@ import (
 
 // 角色端點 /mcp/agent:核心的 mcp.AgentEndpoint(驗證、白名單、署名、401/429 規則都在核心;
 // 文件櫃工具與 agent_context 的文件櫃欄位也在核心,依憑證角色的 docAccess),這裡只掛上:
-//   - 每個請求的統計(MCP 狀態),與處理完後重讀 Issue、角色資料、文件櫃(核心可能多了 Issue、留言、任務狀態、文件)
+//   - 每個請求的統計(MCP 狀態),與處理完後重讀 Issue、角色資料、文件櫃(核心可能多了 Issue、留言、任務狀態、文件;見 activity)
 //
 // 憑證在核心的資料庫(本機模式:本機 PostgreSQL)。遠端模式的角色憑證由雲端發、連雲端的 /mcp/agent,這裡一律 401。
 
@@ -28,29 +27,12 @@ func roleEndpoint(h *Handler, svc *service.Service) http.Handler {
 	if e := roleEndpoints[svc]; e != nil {
 		return e
 	}
+	act := &activity{a: h.App}
 	a := h.App
-	var toolRan atomic.Bool
 	e := coremcp.AgentEndpoint(coremcp.AgentEndpointConfig{
-		Svc: svc,
-		Begin: func() func() {
-			a.Mu.Lock()
-			a.MCP.Requests++
-			now := core.Now()
-			a.MCP.LastRequestAt = &now
-			a.Mu.Unlock()
-			return func() {
-				if toolRan.Swap(false) {
-					a.RoleCallFinished()
-				}
-				a.Changed("mcp")
-			}
-		},
-		Tool: func(name string) {
-			toolRan.Store(true)
-			a.Mu.Lock()
-			a.MCP.LastTool = name
-			a.Mu.Unlock()
-		},
+		Svc:   svc,
+		Begin: act.Begin,
+		Tool:  act.Tool,
 		// 憑證綁定的任務就是自動執行正在跑的那筆時,記進它的執行日誌
 		Done: func(role coremcp.Role, tool string, err error) {
 			a.RoleCallDone(role.Org, role.TaskID, tool, err)

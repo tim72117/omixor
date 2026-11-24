@@ -51,7 +51,6 @@ import (
 	"omixor-core/backend"
 	"omixor-core/config"
 	"omixor-core/mcp"
-	"omixor-core/model"
 	"omixor-core/oauth"
 	"omixor-core/service"
 	"omixor-core/store"
@@ -86,70 +85,8 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 		oa = oauth.New(svc, public)
 		oa.Mount(mux)
 	}
-	adminMCP := mcp.AdminEndpoint(mcp.AdminEndpointConfig{
-		AgentEndpoint: agentURL,
-		Resolve: func(r *http.Request) (backend.Backend, string, error) {
-			tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			org := r.PathValue("org")
-			var p *model.Principal
-			var err error
-			if oa != nil && strings.HasPrefix(tok, model.OAuthTokenPrefix) {
-				// OAuth access token:只收綁定「這個組織的 MCP 網址」的;身分是唯讀(AdminEndpoint 只開放唯讀工具)
-				p, err = svc.AuthenticateOAuth(tok, oa.MCPURL(org))
-			} else {
-				p, err = svc.Authenticate(tok) // omx_ 使用者 token;omo_ 在這裡一律 403(沒有 OAuth 設定時)
-			}
-			if err != nil {
-				return nil, "", err
-			}
-			return &backend.Local{Svc: svc, P: p}, org, nil
-		},
-		ResourceMetadata: func(r *http.Request) string {
-			if oa == nil || !model.ValidOrgID(r.PathValue("org")) {
-				return ""
-			}
-			return oa.ResourceMetadataURL(r.PathValue("org"))
-		},
-	})
-	if oa != nil {
-		mux.Handle("/mcp/org/{org}", oa.ObserveMCP(adminMCP)) // 觀測 log:只記沒帶 token 或帶 OAuth token 的請求(見 core/oauth/log.go)
-	} else {
-		mux.Handle("/mcp/org/{org}", adminMCP)
-	}
-	// 統一入口:單一連線,組織由每次呼叫的 org 參數指定(不做預設組織)。認證:omx_ 使用者 token(權限同該使用者),
-	// 或 OAuth access token(omo_,帳號層級、唯讀:綁定 resource=<public>/mcp,只開放唯讀工具;組織仍由每次呼叫即時驗證成員資格)。
-	// 沒設對外網址(oa == nil)時沒有 OAuth:omo_ 回 403 說明
-	unifiedRM := ""
-	if oa != nil {
-		unifiedRM = oa.UnifiedResourceMetadataURL()
-	}
-	var unified http.Handler = mcp.UnifiedEndpoint(mcp.UnifiedEndpointConfig{
-		AgentEndpoint:    agentURL,
-		PublicURL:        public,
-		Cloud:            cfg.Str(config.KService) != "",
-		ResourceMetadata: unifiedRM,
-		Resolve: func(r *http.Request) (backend.Backend, error) {
-			tok, _ := mcp.BearerToken(r)
-			var p *model.Principal
-			var err error
-			if strings.HasPrefix(tok, model.OAuthTokenPrefix) {
-				if oa == nil {
-					return nil, &service.Error{Code: 403, Msg: "OAuth is not enabled on this server (OMIXOR_PUBLIC_URL is not set); use an omx_ user token."}
-				}
-				p, err = svc.AuthenticateOAuth(tok, oa.UnifiedURL()) // 只收綁定「統一入口網址」的;組織 token(/mcp/org/{org})不能用在這裡
-			} else {
-				p, err = svc.Authenticate(tok)
-			}
-			if err != nil {
-				return nil, err
-			}
-			return &backend.Local{Svc: svc, P: p}, nil
-		},
-	})
-	if oa != nil {
-		unified = oa.ObserveMCP(unified) // 觀測 log:同 /mcp/org/{org}
-	}
-	mux.Handle("/mcp", unified)
+	// 人類端點 /mcp/org/{org} 與統一入口 /mcp(認證、OAuth 資源綁定、觀測 log 都在 core/oauth 的 MCPMount,和本機 console 共用)
+	(&oauth.MCPMount{Svc: svc, Public: public, OAuth: oa, Cloud: cfg.Str(config.KService) != "", AgentEndpoint: agentURL}).Mount(mux)
 	// 執行者端點:給領取任務的 LLM 用,只有 dispatch_ 四個工具;認證同管理端點
 	mux.Handle("/mcp/worker/{org}", mcp.WorkerEndpoint(mcp.WorkerEndpointConfig{
 		AgentEndpoint: agentURL,
@@ -183,13 +120,11 @@ func Run() {
 	if err != nil {
 		log.Fatalf("PostgreSQL:%v", cfg.Redact(err.Error()))
 	}
-	svc := &service.Service{Store: st, Evoleap: cfg.Str(config.EvoleapURL), EvoleapConsole: cfg.Str(config.EvoleapConsole),
-		OAuthEvoleapOff: !cfg.Bool(config.OAuthEvoleapLogin),
-		Bootstrap:       cfg.Str(config.AdminBootstrapEmail), TTL: time.Duration(cfg.Int(config.TokenDays)) * 24 * time.Hour}
+	svc := &service.Service{Store: st, Bootstrap: cfg.Str(config.AdminBootstrapEmail), TTL: time.Duration(cfg.Int(config.TokenDays)) * 24 * time.Hour}
+	oauth.ConfigureService(svc, cfg) // evoleap 與信任的代理層數,console 的 OAuth 連接埠共用同一份
 	if h := cfg.Float(config.AgentCredHours); h > 0 {
 		svc.AgentCredTTL = time.Duration(h * float64(time.Hour))
 	}
-	service.SetTrustedProxyHops(trustedProxyHops(cfg))
 	if err := configureLDAP(svc, cfg.Getenv); err != nil {
 		log.Fatalf("LDAP 設定:%v", cfg.Redact(err.Error()))
 	}
@@ -205,15 +140,4 @@ func Run() {
 	log.Printf("omixor server 在 %s", addr)
 	hs := &http.Server{Addr: addr, Handler: HandlerWith(svc, cfg), ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(hs.ListenAndServe())
-}
-
-// trustedProxyHops 信任的代理層數:明確設了就用;沒設時,跑在 Cloud Run(有 K_SERVICE)是 1,否則 0(不信任 X-Forwarded-For)
-func trustedProxyHops(cfg *config.Config) int {
-	if cfg.IsSet(config.TrustedProxyHops) {
-		return cfg.Int(config.TrustedProxyHops)
-	}
-	if cfg.Str(config.KService) != "" {
-		return 1
-	}
-	return 0
 }

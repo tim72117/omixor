@@ -20,7 +20,7 @@ import (
 //     (HTTP 層放進 HttpOnly cookie)
 //  2. 使用者在 evoleap 登入核准後,evoleap 把瀏覽器導回回呼網址(帶 id 與 code):CompleteOAuthEvoleap 先查交易、核對 cookie 的綁定密鑰、
 //     把交易標成用過(單一用途,成功失敗都一樣),再向 evoleap 換 token、對上 omixor 使用者(resolveEvoleapUser,規則同 LoginWithEvoleap,
-//     但不發 omixor 的登入 token)、立刻撤銷 evoleap token,最後和配對碼共用 approveOAuth 簽發授權碼
+//     但不發 omixor 的登入 token)、立刻撤銷 evoleap token,最後和配對碼共用 ApproveOAuthIdentity 簽發授權碼
 //
 // 登入交易存在 omixor_oauth_tokens(不動結構,Kind 見 model.OAuthKindEvoleapLogin):
 //
@@ -103,7 +103,7 @@ func (s *Service) startOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callb
 	if !s.OAuthEvoleapEnabled() {
 		return "", "", oerr(400, "invalid_request", "這個伺服器沒有啟用 evoleap 登入,請改用配對碼")
 	}
-	if err := checkGrantRequested(c, grant); err != nil {
+	if err := CheckOAuthGrant(c, grant); err != nil {
 		return "", "", err
 	}
 	s.purgeOAuth()
@@ -115,7 +115,7 @@ func (s *Service) startOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callb
 	binding = RandID("", 24)
 	now := s.now()
 	fam := oauthBindHash(binding) + "." + state
-	err = s.Store.PutOAuthToken(model.OAuthToken{ID: RandID("oa_", 9), Kind: model.OAuthKindEvoleapLogin, Hash: oauthEvoleapHash(id),
+	err = s.oauthStore().PutOAuthToken(model.OAuthToken{ID: RandID("oa_", 9), Kind: model.OAuthKindEvoleapLogin, Hash: oauthEvoleapHash(id),
 		ClientID: c.Client.ID, Org: c.Org, Scope: scope, Resource: c.Resource, RedirectURI: c.RedirectURI, CodeChallenge: challenge,
 		FamilyID: fam, CreatedAt: now, ExpiresAt: now.Add(OAuthEvoleapTTL)})
 	if err != nil {
@@ -136,7 +136,7 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 	if !s.OAuthEvoleapEnabled() || evoID == "" || evoCode == "" || len(evoID) > 200 || len(evoCode) > 2000 || binding == "" {
 		return nil, ErrOAuthEvoleapInvalid
 	}
-	t, err := s.Store.OAuthTokenByHash(model.OAuthKindEvoleapLogin, oauthEvoleapHash(evoID))
+	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindEvoleapLogin, oauthEvoleapHash(evoID))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, ErrOAuthEvoleapInvalid
@@ -154,7 +154,7 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 		return nil, ErrOAuthEvoleapInvalid
 	}
 	// 先標成用過:條件式(沒用過、沒過期),並行的第二個請求拿到 ErrStale
-	if err := s.Store.ExchangeOAuthToken(t.ID, now, nil); err != nil {
+	if err := s.oauthStore().ExchangeOAuthToken(t.ID, now, nil); err != nil {
 		if errors.Is(err, store.ErrStale) {
 			return nil, ErrOAuthEvoleapInvalid
 		}
@@ -178,19 +178,7 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 		return res, oerrR(403, "access_denied", "evoleap 登入沒有完成,請回到 Claude 重新開始連線", "evoleap_exchange")
 	}
 	defer evoleap.Logout(s.Evoleap, evoTok) // 成功失敗都撤銷:這個 token 只用來問「你是誰」
-	code, err := s.approveOAuth(chk, t.CodeChallenge, grant, func() (*model.User, map[string]any, error) {
-		u, _, err := s.resolveEvoleapUser(evoTok)
-		switch {
-		case err == nil:
-			return u, map[string]any{"via": "evoleap"}, nil
-		case err == errEvoleapDisabled && u != nil:
-			s.Audit(&model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: true}, "oauth.denied", chk.Org, map[string]any{"reason": "disabled", "client": chk.Client.ID, "via": "evoleap"})
-			return nil, nil, oerrR(403, "access_denied", "這個帳號已停用", "disabled")
-		case Code(err) == 403:
-			return nil, nil, oerrR(403, "access_denied", "這個 evoleap 帳號沒有 omixor 的權限,請 omixor 管理員加入", "no_account")
-		}
-		return nil, nil, oerrR(502, "temporarily_unavailable", "evoleap 驗證身分失敗,請稍後再試", "evoleap_me")
-	})
+	code, err := s.approveEvoleapLogin(chk, t.CodeChallenge, grant, evoTok)
 	if err != nil {
 		var oe *OAuthError
 		if !errors.As(err, &oe) {
@@ -200,4 +188,23 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 	}
 	res.Code = code
 	return res, nil
+}
+
+// approveEvoleapLogin 用 evoleap token 問出「你是誰」、對上 omixor 使用者,簽發授權碼。
+// 讀寫授權的檢查要在證明身分之前(偽造的表單不該白白多呼叫 evoleap)
+func (s *Service) approveEvoleapLogin(chk *OAuthAuthChecked, challenge, grant, evoTok string) (string, error) {
+	if err := CheckOAuthGrant(chk, grant); err != nil {
+		return "", err
+	}
+	u, _, err := s.resolveEvoleapUser(evoTok)
+	switch {
+	case err == nil:
+		return s.ApproveOAuthIdentity(chk, challenge, grant, u, map[string]any{"via": "evoleap"})
+	case err == errEvoleapDisabled && u != nil:
+		s.Audit(&model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: true}, "oauth.denied", chk.Org, map[string]any{"reason": "disabled", "client": chk.Client.ID, "via": "evoleap"})
+		return "", oerrR(403, "access_denied", "這個帳號已停用", "disabled")
+	case Code(err) == 403:
+		return "", oerrR(403, "access_denied", "這個 evoleap 帳號沒有 omixor 的權限,請 omixor 管理員加入", "no_account")
+	}
+	return "", oerrR(502, "temporarily_unavailable", "evoleap 驗證身分失敗,請稍後再試", "evoleap_me")
 }

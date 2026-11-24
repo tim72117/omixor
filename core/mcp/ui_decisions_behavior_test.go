@@ -34,6 +34,7 @@ const result = (d) => ({ structuredContent: d });
 const listData = () => result({ decisions: [open], total: 1 });
 function reply(m) {
   if (m.method === "ui/initialize") return send({ id: m.id, result: { hostCapabilities: hostCaps } });
+  if (m.method === "tools/call" && process.env.REFUSE) return send({ id: m.id, error: { code: -32601, message: "Method not found" } });
   if (m.method === "tools/call") send({ id: m.id, result: m.params.name === "issue_decision_answer" ? nextAnswer() : listData() });
 }
 const tick = () => new Promise((r) => setImmediate(() => setImmediate(r)));
@@ -53,8 +54,12 @@ function answerWith(reply) {
   await tick();
   send({ method: "ui/notifications/tool-input", params: { arguments: { org: "o" } } });
   send({ method: "ui/notifications/tool-result", params: listData() });
-  const out = { initialButtons: buttons().length };
-  if (hostCaps.serverTools) {
+  const out = { initialButtons: buttons().length, initialText: texts() };
+  if (process.env.REFUSE) {
+    buttons("重新整理")[0].listeners.click();
+    await tick();
+    out.refused = { buttons: buttons().length, text: texts() };
+  } else if (hostCaps.serverTools !== false) {
     answerWith(() => result({ ...open, status: "decided", answer: "other" }));
     await tick();
     out.afterAnswer = { buttons: answerButtons().length, text: texts() };
@@ -85,10 +90,14 @@ func decisionsScript(t *testing.T) string {
 	return ""
 }
 
-func runDecisionsView(t *testing.T, caps string) map[string]json.RawMessage {
+// refuse:假宿主對每個 tools/call 回 JSON-RPC「Method not found」
+func runDecisionsView(t *testing.T, caps string, refuse bool) map[string]json.RawMessage {
 	t.Helper()
 	cmd := exec.Command("node", "-e", decisionsHarness)
 	cmd.Env = append(cmd.Environ(), "HOST_CAPS="+caps, "VIEW_JS="+decisionsScript(t))
+	if refuse {
+		cmd.Env = append(cmd.Env, "REFUSE=1")
+	}
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("node failed: %v\n%s", err, b)
@@ -121,13 +130,13 @@ func TestDecisionsViewBehavior(t *testing.T) {
 			Buttons int
 			Text    string
 		}
-		decodeField(t, runDecisionsView(t, `{"serverTools":{}}`), "afterAnswer", &a)
+		decodeField(t, runDecisionsView(t, `{"serverTools":{}}`, false), "afterAnswer", &a)
 		if a.Buttons != 0 || !strings.Contains(a.Text, "已處理") {
 			t.Errorf("after answer = %+v, want no answer buttons and decided", a)
 		}
 	})
 	t.Run("read-only error then refresh re-enables", func(t *testing.T) {
-		out := runDecisionsView(t, `{"serverTools":{}}`)
+		out := runDecisionsView(t, `{"serverTools":{}}`, false)
 		var ro, ar viewState
 		decodeField(t, out, "readOnly", &ro)
 		decodeField(t, out, "afterRefresh", &ar)
@@ -138,10 +147,31 @@ func TestDecisionsViewBehavior(t *testing.T) {
 			t.Errorf("after refresh = %+v, want enabled and no warning", ar)
 		}
 	})
-	t.Run("no serverTools renders no buttons", func(t *testing.T) {
-		out := runDecisionsView(t, `{}`)
-		if string(out["initialButtons"]) != "0" {
-			t.Errorf("buttons = %s, want 0", out["initialButtons"])
+	// 宿主不一定宣告 serverTools,所以沒宣告時照樣顯示按鈕,直到宿主真的拒絕
+	t.Run("no serverTools still renders buttons and a diagnostic line", func(t *testing.T) {
+		out := runDecisionsView(t, `{}`, false)
+		var text string
+		decodeField(t, out, "initialText", &text)
+		if string(out["initialButtons"]) == "0" || !strings.Contains(text, "tools: unknown") || !strings.Contains(text, "args: yes") {
+			t.Errorf("buttons = %s, text = %q, want buttons and diagnostic line", out["initialButtons"], text)
+		}
+	})
+	t.Run("host refusing tools/call hides buttons and shows message", func(t *testing.T) {
+		var r struct {
+			Buttons int
+			Text    string
+		}
+		decodeField(t, runDecisionsView(t, `{}`, true), "refused", &r)
+		if r.Buttons != 0 || !strings.Contains(r.Text, "此宿主不允許從畫面呼叫工具") {
+			t.Errorf("after refusal = %+v, want no buttons and refusal message", r)
+		}
+	})
+	t.Run("serverTools false hides buttons from the start", func(t *testing.T) {
+		out := runDecisionsView(t, `{"serverTools":false}`, false)
+		var text string
+		decodeField(t, out, "initialText", &text)
+		if string(out["initialButtons"]) != "0" || !strings.Contains(text, "此宿主不允許從畫面呼叫工具") || !strings.Contains(text, "tools: no") {
+			t.Errorf("buttons = %s, text = %q", out["initialButtons"], text)
 		}
 	})
 }

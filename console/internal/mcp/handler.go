@@ -203,10 +203,11 @@ func (h *Handler) Handle(data []byte) []byte {
 			a.MCP.LastClient = name
 			a.Mu.Unlock()
 		},
-		Tool: func(name string) {
+		Tool: func(name string) func() {
 			a.Mu.Lock()
 			a.MCP.LastTool = name
 			a.Mu.Unlock()
+			return nil
 		},
 	}))
 }

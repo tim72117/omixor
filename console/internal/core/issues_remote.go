@@ -57,6 +57,9 @@ var (
 	localCoreVal *backend.Local
 	localCoreKey any // 建立核心時的資料庫連線池,換了就重建
 
+	// localServiceInit 建本機核心的 service 之後要套的設定(OAuth 連接埠的 evoleap 登入等,見 ConfigureLocalService);nil = 不套
+	localServiceInit func(*service.Service)
+
 	// newTestCore 沒有資料庫時改用的核心(測試用;UseTestStores 設定)。nil = 沒有資料庫就不能用
 	newTestCore func() *backend.Local
 )
@@ -144,6 +147,9 @@ func localCore() *backend.Local {
 				return nil
 			}
 			svc := &service.Service{Store: st}
+			if localServiceInit != nil {
+				localServiceInit(svc)
+			}
 			if err := svc.EnsureOrgsForIssues(); err != nil {
 				log.Printf("補建組織失敗:%v", err)
 			}
@@ -155,6 +161,14 @@ func localCore() *backend.Local {
 		return newTestCore()
 	}
 	return nil
+}
+
+// ConfigureLocalService 登記本機核心的 service 建好之後要套的設定(例如 oauth.ConfigureService)。
+// 要在第一次用核心(core.New、App.Start)之前呼叫:service 建立後就不再改它的欄位(請求處理中的 goroutine 會讀)
+func ConfigureLocalService(init func(*service.Service)) {
+	localCoreMu.Lock()
+	defer localCoreMu.Unlock()
+	localServiceInit = init
 }
 
 // ensureLocalOrg 組織還沒建就補建(omixor-web 的組織是自己管的;同 backend.Local 的 EnsureOrg)

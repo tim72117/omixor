@@ -44,6 +44,10 @@ type UnifiedEndpointConfig struct {
 	// Tools 額外的工具(一律視為需要 org)
 	Tools        []Tool
 	Instructions string
+	// Begin 同 Hooks.Begin:每個帶 id 的請求開始時呼叫,回傳的函式在處理完後呼叫(宿主統計、處理完重新整理畫面用);nil = 不呼叫
+	Begin func() (end func())
+	// Tool 同 Hooks.Tool:每次工具執行前呼叫(哪個工具),回傳的函式在該次處理完後呼叫;nil = 不呼叫
+	Tool func(name string) (done func())
 }
 
 var unifiedInstructions = "This is omixor's unified MCP entry point: one connection can operate on all organizations under your account, and there is no default organization. " +
@@ -200,6 +204,8 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 		srvID := serverIdentity(cfg.PublicURL, cfg.Cloud, r)
 		diag := newConnDiag("unified", bk, srvID, r)
 		hooks := WithApps(Hooks{
+			Begin: cfg.Begin,
+			Tool:  cfg.Tool,
 			// 預設的上下文沒有組織(空字串):就算漏了 CallCtx,工具也會因組織 id 不合法而失敗,不會落到某個組織
 			Ctx: &Session{B: bk, Endpoint: cfg.AgentEndpoint, Diag: diag},
 			Allow: func(name string) bool {

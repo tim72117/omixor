@@ -1,16 +1,14 @@
-package server
+package config
 
 import (
 	"testing"
-
-	"omixor-core/config"
 )
 
-func hopsCfg(env map[string]string) *config.Config {
-	return config.LoadFrom(func(k string) string { return env[k] })
+func hopsCfg(env map[string]string) *Config {
+	return LoadFrom(func(k string) string { return env[k] })
 }
 
-func TestTrustedProxyHops(t *testing.T) {
+func TestProxyHops(t *testing.T) {
 	cases := []struct {
 		name string
 		env  map[string]string
@@ -23,7 +21,7 @@ func TestTrustedProxyHops(t *testing.T) {
 		{"明確設 0 即使有 K_SERVICE", map[string]string{"OMIXOR_TRUSTED_PROXY_HOPS": "0", "K_SERVICE": "omixor"}, 0},
 	}
 	for _, c := range cases {
-		if got := trustedProxyHops(hopsCfg(c.env)); got != c.want {
+		if got := hopsCfg(c.env).ProxyHops(); got != c.want {
 			t.Errorf("%s:%d,要 %d", c.name, got, c.want)
 		}
 	}
