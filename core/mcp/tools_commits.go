@@ -1,12 +1,12 @@
 package mcp
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"omixor-core/backend"
+	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -79,27 +79,25 @@ func CommitToolDefs() []any {
 	}
 }
 
-// commitErr 後端錯誤 → 給 LLM 看的英文工具錯誤(常見的狀態碼換成英文;其餘照 terr)
+// commitErr 後端錯誤 → 給 LLM 看的英文工具錯誤(常見的狀態碼換成英文;其餘照 terr)。
+// 分辨情況只看狀態碼與服務回的機器碼(Data["code"])與資料,不讀錯誤原文
 func commitErr(err error, issue string) error {
+	in := httperr.Classify(err)
+	code, _ := in.Data["code"].(string)
 	switch backend.Code(err) {
 	case 403:
 		return ToolError{Message: "Not allowed: commits are available to organization members with an omx_ user token (agent credentials cannot read or write them).", Status: 403}
 	case 400:
-		msg := err.Error()
-		switch {
-		case strings.Contains(msg, "對到多個平台"):
-			list := ""
-			if m := reRepoHosts.FindStringSubmatch(msg); m != nil {
-				list = strings.ReplaceAll(m[1], "、", ", ")
-			}
-			return ToolError{Message: "Ambiguous repo: the path matches several stored repositories (" + list + "). Repeat the call with the github: or gitlab: prefix.", Status: 400}
-		case strings.Contains(msg, "未回報的 commit 參照太多"):
+		switch code {
+		case service.CommitRepoAmbiguousCode:
+			return ToolError{Message: "Ambiguous repo: the path matches several stored repositories (" + strings.Join(dataStrings(in.Data["candidates"]), ", ") + "). Repeat the call with the github: or gitlab: prefix.", Status: 400}
+		case service.CommitBareRefLimitCode:
 			return ToolError{Message: "Too many unreported commit references on this issue (limit " + strconv.Itoa(model.CommitMaxBareRefsPerIssue) + "); report the commits first with commits_report, then link.", Status: 400}
-		case strings.Contains(msg, "連結已達上限"):
+		case service.CommitLinkLimitCode:
 			return ToolError{Message: "This issue already has the maximum number of commit links (" + strconv.Itoa(model.CommitMaxLinksPerIssue) + "); unlink some with issue_commit_unlink first.", Status: 400}
 		}
 	case 429:
-		return ToolError{Message: "Rate limited: " + commitRetryHint(err) + " The limits are per user per hour (commits_report: 600 commits and 120 calls; issue_commit_link / issue_commit_unlink: 300 calls combined). Wait and retry later with fewer calls, sending larger batches (up to 100 commits) instead of many small calls.", Status: 429}
+		return ToolError{Message: "Rate limited: " + commitRetryHint(in.Data) + " The limits are per user per hour (commits_report: 600 commits and 120 calls; issue_commit_link / issue_commit_unlink: 300 calls combined). Wait and retry later with fewer calls, sending larger batches (up to 100 commits) instead of many small calls.", Status: 429}
 	case 404:
 		if issue != "" {
 			return ToolError{Message: "Not found: issue " + issue + " (or that link does not exist)", Status: 404}
@@ -108,18 +106,33 @@ func commitErr(err error, issue string) error {
 	return terr(err)
 }
 
-// commitRetryHint 從服務的 429 訊息取出「幾分鐘後再試」(訊息是中文,數字之外不外露);取不到就用一般說法
-func commitRetryHint(err error) string {
-	m := reRetryMinutes.FindStringSubmatch(err.Error())
-	if m == nil {
-		return "retry later."
+// dataStrings Data 裡的字串清單(直接來自服務是 []string,經 HTTP 回來是 []any)
+func dataStrings(v any) []string {
+	switch x := v.(type) {
+	case []string:
+		return x
+	case []any:
+		out := make([]string, 0, len(x))
+		for _, e := range x {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
 	}
-	return "retry in about " + m[1] + " minute(s)."
+	return nil
 }
 
-var reRepoHosts = regexp.MustCompile(`對到多個平台:(.*);請加上`)
-
-var reRetryMinutes = regexp.MustCompile(`請 (\d+) 分鐘後再試`)
+// commitRetryHint 從服務的 429 資料(retryMinutes)取出「幾分鐘後再試」;取不到就用一般說法
+func commitRetryHint(data map[string]any) string {
+	switch n := data["retryMinutes"].(type) {
+	case int:
+		return "retry in about " + strconv.Itoa(n) + " minute(s)."
+	case float64:
+		return "retry in about " + strconv.Itoa(int(n)) + " minute(s)."
+	}
+	return "retry later."
+}
 
 func parseRFC3339(k string, v any, idx int) (*model.Time, error) {
 	if v == nil {

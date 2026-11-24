@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"sort"
@@ -306,6 +307,23 @@ func githubURL(repo, sha string) string {
 	return "https://github.com/" + path + "/commit/" + sha
 }
 
+// commits 錯誤的機器碼(Error.Data["code"]):MCP 等用它分辨情況、自己組訊息,不去比對中文訊息文字
+const (
+	CommitRepoAmbiguousCode = "commitRepoAmbiguous" // Data.candidates:對到的 repo key 清單
+	CommitBareRefLimitCode  = "commitBareRefLimit"  // Data.limit
+	CommitLinkLimitCode     = "commitLinkLimit"     // Data.limit
+	CommitRateLimitedCode   = "commitRateLimited"   // Data.retryMinutes
+)
+
+// commitFail 帶機器碼與資料的服務錯誤(HTTP 的狀態碼與中文訊息不變,回應多帶 code 與資料欄位)
+func commitFail(status int, code string, data map[string]any, format string, a ...any) error {
+	d := map[string]any{"code": code}
+	for k, v := range data {
+		d[k] = v
+	}
+	return &Error{Code: status, Msg: fmt.Sprintf(format, a...), Data: d}
+}
+
 // commitRate 扣這個使用者這一小時的配額;超過回 429 並說明多久後可以再試
 func (s *Service) commitRate(p *model.Principal, reqs ...quotaReq) error {
 	for i := range reqs {
@@ -315,7 +333,8 @@ func (s *Service) commitRate(p *model.Principal, reqs ...quotaReq) error {
 	if ok {
 		return nil
 	}
-	return fail(429, "commits 的使用次數太多(每小時上限),請 %d 分鐘後再試", int((wait+time.Minute-1)/time.Minute))
+	mins := int((wait + time.Minute - 1) / time.Minute)
+	return commitFail(429, CommitRateLimitedCode, map[string]any{"retryMinutes": mins}, "commits 的使用次數太多(每小時上限),請 %d 分鐘後再試", mins)
 }
 
 // resolveCommitRepo 查詢與手動連結用:repo 有平台前綴就是精確的;沒前綴時,先看有沒有沒前綴的 key,
@@ -338,7 +357,7 @@ func (s *Service) resolveCommitRepo(org, in string) (string, error) {
 	if len(found) == 1 {
 		return found[0], nil
 	}
-	return "", fail(400, "repo %s 在這個組織對到多個平台:%s;請加上 github: 或 gitlab: 前綴", key, strings.Join(found, "、"))
+	return "", commitFail(400, CommitRepoAmbiguousCode, map[string]any{"candidates": append([]string(nil), found...)}, "repo %s 在這個組織對到多個平台:%s;請加上 github: 或 gitlab: 前綴", key, strings.Join(found, "、"))
 }
 
 // ReportCommits 回報一批 commits(一個 repo、一個組織)。規則見檔頭
@@ -564,10 +583,10 @@ func commitRef(repoIn, shaIn string) (repo, sha string, err error) {
 // 一張 Issue 的連結上限(裸參照另有較小的上限)
 func commitLinkCapErr(st store.IssueCommitStats, bare bool) error {
 	if st.Total >= model.CommitMaxLinksPerIssue {
-		return fail(400, "這張 Issue 的 commit 連結已達上限(%d 條);請先移除不需要的連結", model.CommitMaxLinksPerIssue)
+		return commitFail(400, CommitLinkLimitCode, map[string]any{"limit": model.CommitMaxLinksPerIssue}, "這張 Issue 的 commit 連結已達上限(%d 條);請先移除不需要的連結", model.CommitMaxLinksPerIssue)
 	}
 	if bare && st.Bare >= model.CommitMaxBareRefsPerIssue {
-		return fail(400, "這張 Issue 上未回報的 commit 參照太多(上限 %d 條);請先用 commits_report 回報這些 commit", model.CommitMaxBareRefsPerIssue)
+		return commitFail(400, CommitBareRefLimitCode, map[string]any{"limit": model.CommitMaxBareRefsPerIssue}, "這張 Issue 上未回報的 commit 參照太多(上限 %d 條);請先用 commits_report 回報這些 commit", model.CommitMaxBareRefsPerIssue)
 	}
 	return nil
 }

@@ -21,7 +21,13 @@ func ci(c byte, msg string) service.CommitInput {
 
 func report(t *testing.T, e *rEnv, p *model.Principal, org string, list ...service.CommitInput) *service.CommitReportResult {
 	t.Helper()
-	res, err := e.svc.ReportCommits(p, org, service.CommitReport{Repo: "acme/app", Source: "cli", Commits: list})
+	return reportRepo(t, e, "acme/app", p, org, list...)
+}
+
+// reportRepo 指定 repo key 的回報(repo 保留平台前綴:github:acme/app 與 acme/app 是不同的 repo)
+func reportRepo(t *testing.T, e *rEnv, repo string, p *model.Principal, org string, list ...service.CommitInput) *service.CommitReportResult {
+	t.Helper()
+	res, err := e.svc.ReportCommits(p, org, service.CommitReport{Repo: repo, Source: "cli", Commits: list})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +332,7 @@ func TestManualLinkUnlinkAndBareReference(t *testing.T) {
 		t.Fatalf("%+v", q)
 	}
 	// 之後真的回報:補齊內容(不算新建)、連結維持手動
-	res := report(t, e, e.boss, "o1", service.CommitInput{SHA: sha40('f'), Subject: "real subject, mentions ISS-1"})
+	res := reportRepo(t, e, "github:acme/app", e.boss, "o1", service.CommitInput{SHA: sha40('f'), Subject: "real subject, mentions ISS-1"})
 	if res.Created != 0 || len(res.Linked) != 0 {
 		t.Fatalf("%+v", res)
 	}
