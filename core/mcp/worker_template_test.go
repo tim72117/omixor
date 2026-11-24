@@ -42,13 +42,13 @@ func TestWorkerFiles(t *testing.T) {
 		t.Fatalf("omixor MCP:%+v", ox)
 	}
 	md := files["CLAUDE.md"]
-	for _, want := range []string{"不用問我", "agent_task_claim", "一定要帶 agent 和 id", "子代理", "agent_task_report", "角色 `dev`", mcp.WorkerStartCommand()} {
+	for _, want := range []string{"without asking me", "agent_task_claim", "always pass agent and id", "sub-agent", "agent_task_report", "agent `dev`", mcp.WorkerStartCommand()} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("CLAUDE.md 要有 %q:\n%s", want, md)
 		}
 	}
 	noSub, _ := mcp.WorkerFiles(mcp.WorkerOptions{ChannelCommand: "x", MCPURL: "http://h/mcp"})
-	if strings.Contains(noSub["CLAUDE.md"], "Agent 工具") || strings.Contains(noSub[".mcp.json"], "headers") {
+	if strings.Contains(noSub["CLAUDE.md"], "Agent tool") || strings.Contains(noSub[".mcp.json"], "headers") {
 		t.Fatal("不用子代理、沒有 token 時不該出現")
 	}
 	if _, has := noSub[".claude/settings.json"]; has || strings.Contains(noSub["CLAUDE.md"], "repos/") {
@@ -122,7 +122,7 @@ func TestWorkerRepos(t *testing.T) {
 		}
 	}
 	md := files["CLAUDE.md"]
-	for _, want := range []string{"repos/omixor", "git clone --depth 1 https://github.com/tim72117/omixor.git repos/omixor", "不要 clone 清單以外的網址", "回報 blocked"} {
+	for _, want := range []string{"repos/omixor", "git clone --depth 1 https://github.com/tim72117/omixor.git repos/omixor", "Do not clone URLs outside the list", "report blocked"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("CLAUDE.md 要有 %q:\n%s", want, md)
 		}

@@ -15,30 +15,30 @@ import (
 func ChannelToolDefs() []any {
 	return []any{
 		coreDef("channels",
-			"列出我看得到的訊息頻道:id、名稱、主題、綁的 Issue、成員(node 與顯示名稱)、未讀數與最後一則訊息的時間。頻道把人與虛擬角色拉進同一個對話;@ 角色只通知、不排任務。給 issue 只找綁該 Issue 的頻道。", true,
+			"Lists the message channels I can see: id, name, topic, bound issue, members (node and display name), unread count and the time of the last message. A channel puts people and agents into one conversation; mentioning an agent with @ only notifies it and does not queue a task. With issue, finds only the channel bound to that issue.", true,
 			obj(map[string]any{
-				"issue": pStr("只找綁這個 Issue 的頻道,例如 ISS-3"),
+				"issue": pStr("Find only the channel bound to this issue, e.g. ISS-3"),
 			})),
 		coreDef("channel_create",
-			"建立訊息頻道(角色身分不能建)。建立者自動是成員;members 可以給 agent:<角色 id 或名稱>、user:<email>、純 email、純角色 id 或名稱。給 issue 會綁該 Issue:同一個 Issue 只能有一個頻道,已有而且看得到時直接回傳那個(created = false)。", false,
+			"Creates a message channel (agent identities cannot create one). The creator is a member automatically; members may be agent:<agent id or name>, user:<email>, a bare email, or a bare agent id or name. With issue the channel is bound to that issue: an issue can have only one channel, and if one already exists and is visible it is returned directly (created = false).", false,
 			obj(map[string]any{
-				"name":    pStr("頻道名稱(最多 80 字)"),
-				"topic":   pStr("主題(最多 500 字)"),
-				"issue":   pStr("綁的 Issue id(選填)"),
-				"members": pStrs("成員,例如 [\"agent:marketing\", \"pm@example.com\"]"),
+				"name":    pStr("Channel name (up to 80 characters)"),
+				"topic":   pStr("Topic (up to 500 characters)"),
+				"issue":   pStr("Id of the issue to bind (optional)"),
+				"members": pStrs("Members, e.g. [\"agent:marketing\", \"pm@example.com\"]"),
 			}, "name")),
 		coreDef("channel_messages",
-			"讀頻道訊息(依時間由舊到新)。給 since(訊息 id M-n 或時間)回傳之後最早的 limit 筆;沒給回傳最新的 limit 筆。hasMore 表示還有更多。讀了算已讀(標到回傳的最後一則)。要是頻道成員。", true,
+			"Reads channel messages (oldest to newest). With since (a message id M-n or a time), returns the earliest limit messages after it; without it, returns the latest limit messages. hasMore indicates there are more. Reading marks as read (up to the last returned message). You must be a channel member.", true,
 			obj(map[string]any{
-				"channel": pStr("頻道 id(CH-n)或名稱"),
-				"since":   pStr("訊息 id(M-n)或 ISO 8601 時間"),
-				"limit":   pInt("最多幾筆,預設 50、最多 200"),
+				"channel": pStr("Channel id (CH-n) or name"),
+				"since":   pStr("Message id (M-n) or an ISO 8601 time"),
+				"limit":   pInt("Maximum number of results, default 50, at most 200"),
 			}, "channel")),
 		coreDef("channel_post",
-			"在頻道發一則訊息(Markdown,最多 8000 字;要是頻道成員)。用 @角色名稱、@角色 id 或 @email 提到頻道成員:只通知對方(角色下次執行時在 agent_context 的 mentions 看得到),不會排任務。署名是呼叫者(角色端點是憑證的角色)。", false,
+			"Posts a message to a channel (Markdown, up to 8000 characters; you must be a channel member). Mention channel members with @agent-name, @agent-id or @email: this only notifies them (an agent sees it in mentions of agent_context on its next run) and does not queue a task. The signature is the caller (on the agent endpoint, the credential's agent).", false,
 			obj(map[string]any{
-				"channel": pStr("頻道 id(CH-n)或名稱"),
-				"text":    pStr("訊息內容(Markdown)"),
+				"channel": pStr("Channel id (CH-n) or name"),
+				"text":    pStr("Message content (Markdown)"),
 			}, "channel", "text")),
 	}
 }

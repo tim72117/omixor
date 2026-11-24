@@ -46,17 +46,17 @@ type UnifiedEndpointConfig struct {
 	Instructions string
 }
 
-var unifiedInstructions = "這是 omixor 的 MCP 統一入口:一個連線可以操作你帳號下所有組織,沒有預設組織。" +
-	"除了 orgs 之外,每一次工具呼叫都必須帶 org 參數(組織 id),讀取與寫入都一樣;先用 orgs 看你能用的組織。" +
+var unifiedInstructions = "This is omixor's unified MCP entry point: one connection can operate on all organizations under your account, and there is no default organization. " +
+	"Except for orgs, every tool call must carry the org parameter (the organization id), for reads and writes alike; use orgs first to see the organizations you can use. " +
 	"The result carries the organization actually used in its _meta field, under the key omixor/org. " +
 	"Every result also carries _meta[\"omixor/server\"] ({name, origin, version, env}) identifying which server answered. " +
 	"When connected with an OAuth grant, the connection is account-level and each call is checked against your current organization membership. " +
 	"By default an OAuth grant is read-only (scope mcp:read): only read tools are available. If you explicitly granted read-write (scope mcp:write), a limited set of collaboration write tools is also available " +
-	"(issue_create, issue_update, issue_accept, issue_decision_add, issue_decision_answer, issue_decision_to_issue, issue_item_add, issue_item_update, issue_item_report, issue_item_promote, doc_save, channel_create, channel_post, agent_task_create, agent_task_report), " +
+	"(issue_create, report_problem, issue_update, issue_accept, issue_decision_add, issue_decision_answer, issue_decision_to_issue, issue_item_add, issue_item_update, issue_item_report, issue_item_promote, doc_save, channel_create, channel_post, agent_task_create, agent_task_report), " +
 	"with your own organization permissions and never server-administrator powers. Everything else (claiming tasks or credentials, managing agents, the org chain, projects, the cabinet layout, incidents) requires an omx_ user token. " +
 	"issue_create, issue_update and issue_accept return a compact receipt by default (key, id, status, version, updatedAt, changed, comment_id when a comment was added); pass return=\"full\" to get the whole issue with body and comments. " +
 	"issues(id) returns only the 5 most recent comments by default (use comments_limit / comments_before to page)." +
-	strings.Replace(adminInstructions, "操作目前組織的", "操作 org 參數指定組織的", 1)
+	" " + strings.Replace(adminInstructions, "of the current organization", "of the organization named by the org parameter", 1)
 
 // orgDenied 缺 org、org 不合法、不存在、不是成員都用同一句(不洩漏組織存不存在),並列出呼叫者可用的組織
 func orgDenied(why string, avail []model.Org) error {
@@ -119,7 +119,7 @@ func WithOrgParam(defs []any) []any {
 		}
 		cp := maps.Clone(m)
 		if name == "orgs" {
-			cp["description"] = "列出你能用的組織(id、名稱)。統一入口沒有目前組織:其他工具每次都要帶 org(組織 id)。"
+			cp["description"] = "Lists the organizations you can use (id, name). The unified entry point has no current organization: every other tool must carry org (the organization id) on each call."
 			out = append(out, cp)
 			continue
 		}
@@ -128,7 +128,7 @@ func WithOrgParam(defs []any) []any {
 			continue
 		}
 		if desc, ok := m["description"].(string); ok {
-			cp["description"] = desc + "(統一入口:必須帶 org 指定組織,見 orgs。)"
+			cp["description"] = desc + " (Unified entry point: org is required to select the organization, see orgs.)"
 		}
 		sch, _ := m["inputSchema"].(map[string]any)
 		s2 := maps.Clone(sch)
@@ -139,7 +139,7 @@ func WithOrgParam(defs []any) []any {
 		if props == nil {
 			props = map[string]any{}
 		}
-		props["org"] = pStr("組織 id(必填;用 orgs 查你能用的組織)")
+		props["org"] = pStr("Organization id (required; use orgs to see the organizations you can use)")
 		s2["properties"] = props
 		req := []string{}
 		switch r := s2["required"].(type) {
@@ -196,16 +196,17 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 		// ListOrgs is looked up at most once per HTTP request (this bk) and dropped with it; never shared across requests or users.
 		oc := &orgCache{b: bk}
 		srvID := serverIdentity(cfg.PublicURL, cfg.Cloud, r)
+		diag := newConnDiag("unified", bk, srvID, r)
 		hooks := Hooks{
 			// 預設的上下文沒有組織(空字串):就算漏了 CallCtx,工具也會因組織 id 不合法而失敗,不會落到某個組織
-			Ctx: &Session{B: bk, Endpoint: cfg.AgentEndpoint},
+			Ctx: &Session{B: bk, Endpoint: cfg.AgentEndpoint, Diag: diag},
 			Allow: func(name string) bool {
 				return allow[name] && !HumanHiddenTools[name]
 			},
 			Defs: func(defs []any) []any { return WithOrgParam(WithUIMeta(WithoutIdentityAgent(defs))) },
 			// 每次呼叫各自的上下文:組織取自 args["org"],驗證成員資格後建立專屬的 Session(不共用、不改寫)
 			CallCtx: func(name string, args map[string]any) (any, map[string]any, error) {
-				sess := &Session{B: bk, Endpoint: cfg.AgentEndpoint}
+				sess := &Session{B: bk, Endpoint: cfg.AgentEndpoint, Diag: diag}
 				if OrgFreeTools[name] && !extra[name] {
 					delete(args, "org")
 					return sess, nil, nil

@@ -45,7 +45,7 @@ func TestOAuthToolClassificationComplete(t *testing.T) {
 // 白名單固定在這裡:要加進 OAuth 寫入必須同時改這份清單;絕不能包含會簽發角色憑證、管理角色與組織結構、伺服器管理的工具
 func TestOAuthWriteToolsPinned(t *testing.T) {
 	want := []string{"agent_task_create", "agent_task_report", "channel_create", "channel_post", "doc_save", "issue_accept", "issue_create",
-		"issue_decision_add", "issue_decision_answer", "issue_decision_to_issue", "issue_item_add", "issue_item_promote", "issue_item_report", "issue_item_update", "issue_update"}
+		"issue_decision_add", "issue_decision_answer", "issue_decision_to_issue", "issue_item_add", "issue_item_promote", "issue_item_report", "issue_item_update", "issue_update", "report_problem"}
 	var got []string
 	for n := range OAuthWriteTools {
 		got = append(got, n)

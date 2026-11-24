@@ -10,16 +10,16 @@ import (
 // 文件內文的格式:一段 ```flowchart 程式碼區塊放原始描述(JSON 或 Mermaid 原文,渲染時自動判斷),畫面顯示時再畫成圖。
 // 文件裡 flowchart 語法的 ```mermaid 區塊也算流程圖區塊(doc 重畫、save 更新都會用到)。
 
-const flowchartDesc = "畫流程圖:給節點與連線,自動分層排版(有環時回頭的線從側邊繞)、正交折線、箭頭與標籤,回傳 SVG。可以順便存到文件櫃(save):文件內文是一段 ```flowchart 區塊放原始描述,文件櫃顯示時畫成圖。" +
-	"spec 兩種格式擇一:" +
-	"(1) Mermaid flowchart 文字(建議):第一行 flowchart TD|LR|BT|RL(或 graph);節點 A[處理]、A([開始/結束])、A{判斷}、A[(資料庫)]、A[/輸入輸出/]、A[[子流程]]、A(圓角)、A((圓))、A{{準備}};" +
-	"連線 -->、---(無箭頭)、-.->(虛線)、==>(粗線)、<-->(雙向)、-->|標籤|、-- 標籤 -->;可串接 A --> B --> C、A & B --> C;subgraph id [標題] … end 畫群組框;%% 註解;A:::highlight 或 class A highlight 強調。" +
-	"未宣告的節點自動建立。classDef、style、click、linkStyle 會忽略並列在 warnings。" +
+const flowchartDesc = "Draws a flowchart: give nodes and edges and it lays them out in layers automatically (back edges of a cycle are routed around the side), with orthogonal polylines, arrows and labels, and returns SVG. It can also save to the cabinet (save): the document body is a ```flowchart block holding the original description, and the cabinet renders it as a diagram. " +
+	"spec takes one of two formats: " +
+	"(1) Mermaid flowchart text (recommended): the first line is flowchart TD|LR|BT|RL (or graph); nodes A[process], A([start/end]), A{decision}, A[(database)], A[/input-output/], A[[subprocess]], A(rounded), A((circle)), A{{prepare}}; " +
+	"edges -->, --- (no arrow), -.-> (dashed), ==> (thick), <--> (bidirectional), -->|label|, -- label -->; edges can be chained: A --> B --> C, A & B --> C; subgraph id [title] ... end draws a group box; %% comment; A:::highlight or class A highlight emphasizes a node. " +
+	"Undeclared nodes are created automatically. classDef, style, click and linkStyle are ignored and listed in warnings. " +
 	"(2) JSON:{title?, direction: TB|LR|BT|RL, nodes: [{id, label, shape?: process|decision|start|end|io|subprocess|database|note|round|circle|hexagon, group?, style?: highlight|muted}], " +
 	"edges: [{from, to, label?, style?: solid|dashed|thick, arrow?: end|none|both}], groups?: [{id, label, parent?}]}。" +
-	"上限:節點 300、邊 600、描述 256KB。" +
-	"範例:flowchart TD\\n  A([開始]) --> B[/輸入帳密/] --> C{驗證通過?}\\n  C -->|是| D([進入首頁])\\n  C -->|否| E[失敗次數+1] --> B。" +
-	"不給 spec 而給 doc 時,讀那份文件的第一個 ```flowchart(或 flowchart 語法的 ```mermaid)區塊重畫。存文件時依呼叫者(角色端點是憑證的角色)的文件權限。"
+	"Limits: 300 nodes, 600 edges, 256KB description. " +
+	"Example: flowchart TD\\n  A([Start]) --> B[/Enter credentials/] --> C{Verified?}\\n  C -->|Yes| D([Go to home page])\\n  C -->|No| E[Failure count +1] --> B. " +
+	"When doc is given without spec, the first ```flowchart block (or ```mermaid block in flowchart syntax) of that document is read and redrawn. When saving a document, the caller's document permissions apply (on the agent endpoint, the credential's agent)."
 
 // FlowchartToolDefs 流程圖工具的規格
 func FlowchartToolDefs() []any { return []any{flowchartDef()} }
@@ -27,11 +27,11 @@ func FlowchartToolDefs() []any { return []any{flowchartDef()} }
 func flowchartDef() map[string]any {
 	return coreDef("flowchart_render", flowchartDesc, false, obj(map[string]any{
 		"spec": map[string]any{
-			"description": "流程圖描述:Mermaid flowchart 文字,或 JSON(物件或字串 {direction, nodes, edges, groups?});外面包了 ```flowchart / ```mermaid 區塊也可以",
+			"description": "Flowchart description: Mermaid flowchart text, or JSON (an object or a string {direction, nodes, edges, groups?}); it may also be wrapped in a ```flowchart / ```mermaid block",
 			"anyOf":       []any{map[string]any{"type": "object"}, map[string]any{"type": "string"}},
 		},
-		"doc":   pStr("文件 id:不給 spec 時讀這份文件裡第一個 ```flowchart(或 flowchart 語法的 ```mermaid)區塊重畫"),
-		"svg":   pBool("回傳 SVG 原始碼,預設 true;只想存文件時可設 false 省上下文"),
+		"doc":   pStr("Document id: when spec is not given, the first ```flowchart block (or ```mermaid block in flowchart syntax) of this document is read and redrawn"),
+		"svg":   pBool("Return the SVG source, default true; set false to save context when you only want to save the document"),
 		"save":  diagramSaveParam(flowchart.Lang),
 	}))
 }

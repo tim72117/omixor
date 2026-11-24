@@ -35,6 +35,7 @@ var CoreTools = []CoreTool{
 
 	{Name: "issues", Title: "查 Issue", Group: "Issue", Admin: true, Agent: true, ReadOnly: true},
 	{Name: "issue_create", Title: "建立 Issue", Group: "Issue", Admin: true, Agent: true},
+	{Name: "report_problem", Title: "回報系統問題", Group: "Issue", Admin: true},
 	{Name: "issue_update", Title: "更新 Issue", Group: "Issue", Admin: true, Agent: true},
 	{Name: "issue_accept", Title: "接受或放回 Issue", Group: "Issue", Admin: true, Agent: true},
 
@@ -116,7 +117,7 @@ func CoreToolSet(keep func(CoreTool) bool) map[string]bool {
 // 實際可用 = ReadOnly ∪ OAuthWriteTools,而且 service 層照既有授權表檢查(成員角色、受限專案),OAuth 不繞過任何一項,也不是伺服器管理員(Principal.ServerAdmin)。
 // 新增 Admin 工具時必須分類:ReadOnly、這裡、或 OAuthForbiddenTools(model 的測試會檢查)
 var OAuthWriteTools = map[string]bool{
-	"issue_create": true, "issue_update": true, "issue_accept": true,
+	"issue_create": true, "issue_update": true, "issue_accept": true, "report_problem": true,
 	"issue_decision_add": true, "issue_decision_answer": true, "issue_decision_to_issue": true,
 	"issue_item_add": true, "issue_item_update": true, "issue_item_report": true, "issue_item_promote": true,
 	"doc_save":       true,

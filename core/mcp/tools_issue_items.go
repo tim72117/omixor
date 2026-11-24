@@ -18,71 +18,71 @@ import (
 
 // ItemToolDefs 子項工具的規格(接在 CoreToolDefs 後面)
 func ItemToolDefs() []any {
-	itemID := "子項編號(例如 ISS-37.2,Issue key 加序號)"
+	itemID := "Item number (e.g. ISS-37.2, the issue key plus a sequence number)"
 	return []any{
 		coreDef("issue_item_add",
-			"在 Issue 底下新增一個子項(待辦清單的一條)。門檻:只有「跨階段、跨子代理、或需要人決定」的工作才開子項,太細的不要開。"+
-				"子代理做到一半發現下一步(或需要拆給別的子代理的工作)就用這個提出,不要只寫在對話裡。回傳子項(含編號 <Issue key>.<序號>)。"+
-				"depends_on 指同一張 Issue 的前置子項(編號、序號或 id;未完成前置的子項不能領取、也不能完成,依賴不能成環);files 是會動到的檔案(讓別人避開衝突);acceptance 是驗收標準。"+
-				"assignee 是負責人(人的 email 或 handle、角色 agent:<handle>);負責人是角色時,領取會自動替它排任務並發憑證。角色端點新增時 assignee 只能留空或是自己。", false,
+			"Adds an item (one entry of the to-do list) under an issue. Threshold: open an item only for work that \"spans phases, spans sub-agents, or needs a human decision\"; do not open overly small ones. "+
+				"When a sub-agent finds the next step (or work to hand to another sub-agent) midway, raise it with this instead of only writing it in the conversation. Returns the item (with number <issue key>.<sequence>). "+
+				"depends_on refers to prerequisite items of the same issue (number, sequence or id; an item whose prerequisites are unfinished cannot be claimed or completed, and dependencies must not form a cycle); files are the files it will touch (so others can avoid conflicts); acceptance is the acceptance criteria. "+
+				"assignee is the owner (a person's email or handle, or an agent as agent:<handle>); when the owner is an agent, claiming automatically queues a task for it and issues a credential. On the agent endpoint, assignee can only be empty or yourself when adding.", false,
 			obj(map[string]any{
-				"issue":      pStr("所屬 Issue(例如 ISS-37)"),
-				"title":      pStr("一句話說明這個子項要做什麼"),
-				"files":      pStrs("會動到的檔案或模組"),
-				"acceptance": pStr("驗收標準(完成的條件)"),
-				"assignee":   pStr("負責人:人(email、@handle)或角色(agent:<handle>);空 = 沒指派"),
-				"depends_on": pStr("前置子項(同一張 Issue 的編號、序號或 id)"),
+				"issue":      pStr("The issue it belongs to (e.g. ISS-37)"),
+				"title":      pStr("One sentence saying what this item is to do"),
+				"files":      pStrs("Files or modules it will touch"),
+				"acceptance": pStr("Acceptance criteria (the conditions for being done)"),
+				"assignee":   pStr("Owner: a person (email, @handle) or an agent (agent:<handle>); empty = unassigned"),
+				"depends_on": pStr("Prerequisite item (number, sequence or id of the same issue)"),
 			}, "issue", "title")),
 		coreDef("issue_items",
-			"查 Issue 的子項(待辦清單)。給 id(例如 ISS-37.2)回單一筆;給 issue 列那張 Issue 的子項,預設只回未完成(todo / doing / blocked),include_done=true 連完成與取消的一起,"+
-				"status 指定單一狀態。每筆有狀態、負責人、領取者、前置、files、驗收標準、卡住原因與等待對象、完成證據。", true,
+			"Queries an issue's items (to-do list). With id (e.g. ISS-37.2) returns a single one; with issue lists that issue's items, by default only unfinished ones (todo / doing / blocked); include_done=true also includes done and canceled ones, "+
+				"and status selects a single status. Each entry has status, owner, claimer, prerequisites, files, acceptance criteria, block reason and what it waits for, and completion evidence.", true,
 			obj(map[string]any{
-				"id":           pStr(itemID + ";給了就只回這一筆"),
-				"issue":        pStr("Issue 編號(列表用;給 id 時可省略)"),
-				"include_done": pBool("連 done、canceled 一起列(預設只列未完成)"),
-				"status":       pEnum("只列這個狀態", model.ItemStatuses...),
+				"id":           pStr(itemID + "; when given, only this one is returned"),
+				"issue":        pStr("Issue number (for listing; may be omitted when id is given)"),
+				"include_done": pBool("Also list done and canceled ones (by default only unfinished ones are listed)"),
+				"status":       pEnum("List only this status", model.ItemStatuses...),
 			})),
 		coreDef("issue_item_update",
-			"修改子項的標題、files、驗收標準、負責人、前置(只有人;角色端點不可)。assignee、depends_on 給空字串是清掉。cancel=true 是取消這個子項(放棄這項工作,不要用刪除表示;綁定的角色任務一併取消)。完成或取消的子項不能再改。", false,
+			"Modifies an item's title, files, acceptance criteria, owner and prerequisites (humans only; not allowed on the agent endpoint). assignee and depends_on set to an empty string are cleared. cancel=true cancels the item (abandons the work; do not use deletion to express this; the bound agent task is canceled too). A done or canceled item can no longer be changed.", false,
 			obj(map[string]any{
 				"id":         pStr(itemID),
-				"title":      pStr("新標題"),
-				"files":      pStrs("會動到的檔案(整份取代)"),
-				"acceptance": pStr("驗收標準"),
-				"assignee":   pStr("負責人(空字串 = 清掉)"),
-				"depends_on": pStr("前置子項(空字串 = 清掉)"),
-				"cancel":     pBool("true = 取消這個子項"),
+				"title":      pStr("New title"),
+				"files":      pStrs("Files it will touch (replaces the whole list)"),
+				"acceptance": pStr("Acceptance criteria"),
+				"assignee":   pStr("Owner (empty string = clear)"),
+				"depends_on": pStr("Prerequisite item (empty string = clear)"),
+				"cancel":     pBool("true = cancel this item"),
 			}, "id")),
 		coreDef("issue_item_claim",
-			"領取子項(開始做):狀態變 doing、你成為領取者、租約到期前別人不能再領;前置未完成回 409。負責人是人或沒指派時只做輕量領取;"+
-				"負責人是角色時會自動建立並領取一筆綁定的角色任務,回傳一次性憑證(credential;連角色端點以該角色身分工作,做完在角色端點用 issue_item_report 回報)。"+
-				"卡住(blocked)的子項要先解除(issue_item_report status=todo)。只有人;角色端點不可。", false,
+			"Claims an item (start working): status becomes doing, you become the claimer, and nobody else can claim it before the lease expires; returns 409 if prerequisites are unfinished. When the owner is a person or nobody, only a lightweight claim is made; "+
+				"when the owner is an agent, a bound agent task is created and claimed automatically, and a one-time credential is returned (credential; connect to the agent endpoint to work as that agent, and report with issue_item_report on the agent endpoint when done). "+
+				"A blocked item must be unblocked first (issue_item_report status=todo). Humans only; not allowed on the agent endpoint.", false,
 			obj(map[string]any{
 				"id":   pStr(itemID),
-				"note": pStr("領取備註(例如是哪個 session、子代理;記在稽核)"),
+				"note": pStr("Claim note (e.g. which session or sub-agent; recorded in the audit log)"),
 			}, "id")),
 		coreDef("issue_item_report",
-			"回報子項:status=done(完成;可附 evidence 證據——JSON 物件如 {commit, tests, unverified:[…]} 或一段文字——與 note 備註)、"+
-				"blocked(卡住;一定要 block_reason;需要人決定時 wait_for_kind=user_decision 並在 wait_for 寫是什麼決定(例如 DEC-n 或問題),不要猜答案;"+
-				"wait_for_kind=item 時 wait_for 是同 Issue 的另一個子項;external 是外部條件)、doing(續約;沒領取時等於領取)、todo(放回待領取,或解除卡住;角色端點不可)。"+
-				"人:沒被別人持有有效租約,或是領取者本人、組織管理員才能回報;角色端點:只能回報自己綁定任務的子項(用 issue_item_claim 領取時回傳的憑證)。完成需要前置已完成。", false,
+			"Reports on an item: status=done (finished; may attach evidence, either a JSON object like {commit, tests, unverified:[...]} or a piece of text, and a note), "+
+				"blocked (stuck; block_reason is required; when a human decision is needed, use wait_for_kind=user_decision and say in wait_for what the decision is (e.g. DEC-n or a question), and do not guess the answer; "+
+				"with wait_for_kind=item, wait_for is another item of the same issue; external is an external condition), doing (renew the lease; equals claiming when not claimed), todo (return to unclaimed, or unblock; not allowed on the agent endpoint). "+
+				"Humans: you can report only if nobody else holds a valid lease, or you are the claimer or an organization admin; agent endpoint: only the items of the task bound to that agent (use the credential returned when claiming with issue_item_claim). Completing requires the prerequisites to be done.", false,
 			obj(map[string]any{
 				"id":            pStr(itemID),
-				"status":        pEnum("todo、doing、blocked 或 done", model.ItemTodo, model.ItemDoing, model.ItemBlocked, model.ItemDone),
-				"evidence":      map[string]any{"description": "完成證據:JSON 物件({commit, tests, unverified[]…})或一段文字"},
-				"note":          pStr("備註(完成時併進證據,並在 Issue 留一則系統留言)"),
-				"block_reason":  pStr("卡住的原因(blocked 必填)"),
-				"wait_for_kind": pEnum("在等什麼", model.ItemWaitKinds...),
-				"wait_for":      pStr("等待對象:user_decision = 問題或 DEC-n、item = 同 Issue 的子項、external = 說明"),
+				"status":        pEnum("todo, doing, blocked or done", model.ItemTodo, model.ItemDoing, model.ItemBlocked, model.ItemDone),
+				"evidence":      map[string]any{"description": "Completion evidence: a JSON object ({commit, tests, unverified[]...}) or a piece of text"},
+				"note":          pStr("Note (merged into the evidence on completion, and a system comment is left on the issue)"),
+				"block_reason":  pStr("Why it is stuck (required for blocked)"),
+				"wait_for_kind": pEnum("What it is waiting for", model.ItemWaitKinds...),
+				"wait_for":      pStr("What it waits for: user_decision = a question or DEC-n, item = an item of the same issue, external = a description"),
 			}, "id", "status")),
 		coreDef("issue_item_promote",
-			"把子項提升為獨立的 Issue(子項太大、或值得獨立追蹤時):建立新 Issue(標題 = 子項標題,內文帶驗收標準與檔案,source 記子項編號),"+
-				"原子項標為取消並記下新 Issue,兩張 Issue 各留一則系統留言記關聯。只有人;角色端點不可。", false,
+			"Promotes an item to an independent issue (when the item is too big or worth tracking on its own): creates a new issue (title = item title, body carries the acceptance criteria and files, source records the item number), "+
+				"marks the original item as canceled and records the new issue, and leaves a system comment on each of the two issues recording the link. Humans only; not allowed on the agent endpoint.", false,
 			obj(map[string]any{
 				"id":       pStr(itemID),
-				"priority": pEnum("新 Issue 的優先度(預設同來源 Issue)", IssuePriorities...),
-				"labels":   pStrs("新 Issue 的標籤"),
-				"project":  pStr("新 Issue 放進的專案 id(空字串 = 組織層級;沒給 = 同來源 Issue)"),
+				"priority": pEnum("Priority of the new issue (default: same as the source issue)", IssuePriorities...),
+				"labels":   pStrs("Labels of the new issue"),
+				"project":  pStr("Project id to put the new issue in (empty string = organization level; omitted = same as the source issue)"),
 			}, "id")),
 	}
 }

@@ -75,6 +75,8 @@ type Session struct {
 	Endpoint string
 	// Identity 角色端點才有
 	Identity *Role
+	// Diag report_problem 附帶的連線診斷(端點、認證方式、伺服器識別、User-Agent);nil = 沒有。只放非機密事實,見 ConnDiag
+	Diag *ConnDiag
 
 	names map[string]string
 }

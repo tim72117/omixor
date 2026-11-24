@@ -90,15 +90,15 @@ type AgentEndpointConfig struct {
 	Tool  func(name string)
 }
 
-const agentInstructions = "這是 omixor 的角色端點:你正以虛擬角色的身分工作,身分由憑證決定。" +
-	"先用 agent_context 取得角色設定與任務,照任務說明完成,過程與結果用 agent_task_report 回報(做完 done、卡住 blocked,回報後憑證立刻失效)。" +
-	"組織鏈上有下游角色時,可以用 agent_task_delegate 把工作委派出去(可以派給誰見 agent_context 的 chain.downstream),對方做完會自動回報給你。" +
-	"可以讀 Issue(issues)、建立 Issue(issue_create)、對 Issue 留言與改狀態(issue_update);要負責一張 Issue 的分析與拆解用 issue_accept 接受(release=true 放回);" +
-	"文件櫃(cabinet、docs、doc_save)只能讀寫角色 docAccess 範圍內的位置;文件櫃分專案時用 projects 看有哪些專案,工具帶 project(專案 id)操作那個專案,不帶是未分專案。" +
-	"訊息頻道:agent_context 的 mentions 是提到你的未讀訊息(只是通知,不是任務,自己決定要不要回);channels 看你所在的頻道,channel_messages 讀(讀了算已讀),channel_post 回覆。署名一律是你的角色。" +
-	"子項(待辦清單):遇到跨階段、要拆給別的子代理、或需要人決定的工作,用 issue_item_add 在 Issue 底下開子項(太細的不要開);issue_items 看清單(預設只回未完成)。" +
-	"你的任務如果是子項(任務說明會寫子項編號,例如 ISS-37.2),做完用 issue_item_report status=done(附 evidence 證據:commit、測試結果、沒驗證到的項目);" +
-	"卡住、或需要人決定就 issue_item_report status=blocked 並寫 block_reason,需要人決定時 wait_for_kind=user_decision,不要猜答案。"
+const agentInstructions = "This is omixor's agent endpoint: you are working as an agent, and your identity is determined by the credential. " +
+	"First use agent_context to get the agent instructions and tasks, complete them following the task description, and report progress and the result with agent_task_report (done when finished, blocked when stuck; the credential is revoked immediately after you report). " +
+	"When the organization chain has downstream agents, you can delegate work to them with agent_task_delegate (see chain.downstream of agent_context for who you can delegate to), and they report back to you automatically when done. " +
+	"You can read issues (issues), create issues (issue_create), and comment on or change the status of issues (issue_update); to own the analysis and breakdown of an issue, accept it with issue_accept (release=true releases it). " +
+	"The cabinet (cabinet, docs, doc_save) can be read and written only at locations within the agent's docAccess; when the cabinet is split into projects, use projects to see which projects exist, and pass project (the project id) to the tools to operate on that project; without it they operate on the no-project cabinet. " +
+	"Message channels: mentions in agent_context are unread messages that mention you (only notifications, not tasks; you decide whether to reply); channels lists the channels you are in, channel_messages reads them (reading marks as read), and channel_post replies. The signature is always your agent. " +
+	"Items (to-do list): for work that spans phases, should be split among other sub-agents, or needs a human decision, use issue_item_add to open an item under the issue (do not open overly small ones); issue_items shows the list (only unfinished ones by default). " +
+	"If your task is an item (the task description states the item number, e.g. ISS-37.2), when finished use issue_item_report status=done (with evidence: commit, test results, anything not verified); " +
+	"if stuck or a human decision is needed, use issue_item_report status=blocked and write block_reason; when a human decision is needed, set wait_for_kind=user_decision and do not guess the answer."
 
 // AgentEndpoint 角色端點的 http.Handler(掛在 /mcp/agent):
 //
@@ -151,7 +151,7 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 		// 依角色目前的設定決定列哪些核心工具(沒有文件權限就不列文件櫃工具…);額外掛上來的工具一律列
 		avail := cfg.Svc.AgentToolSet(role.Org, role.AgentID)
 		sess := &Session{
-			B: &backend.Local{Svc: cfg.Svc, P: p}, OrgID: role.Org, Identity: role,
+			B: &backend.Local{Svc: cfg.Svc, P: p}, OrgID: role.Org, Identity: role, Diag: newConnDiag("agent", nil, nil, r),
 			OrgNameFn: func() string {
 				if o, err := cfg.Svc.Store.GetOrg(role.Org); err == nil {
 					return o.Name
@@ -233,15 +233,15 @@ type AdminEndpointConfig struct {
 	ResourceMetadata func(r *http.Request) string
 }
 
-const adminInstructions = "這是 omixor 的 MCP 端點,操作目前組織的 Issue、虛擬角色與任務,權限同你登入的 omixor 帳號。" +
-	"虛擬角色:agents 看角色,agent_task_claim 領任務(回傳一組綁定該任務的角色憑證,用它連角色端點以該角色身分工作)," +
-	"agent_task_report 回報。issue_create / issue_update 的 assignee 指派 Issue 給角色,會自動替它排任務。issue_accept 接受 Issue(你成為負責人、Issue 進行中;release=true 放回),之後再用子項拆解。" +
-	"文件櫃:cabinet 看結構、docs 查文件、doc_save 新增或修改(署名是你;不能指定角色身分,要以角色身分工作請 agent_task_claim 領任務拿憑證、連角色端點 /mcp/agent)。" +
-	"專案:文件櫃與 Issue 可以分專案(頻道、角色等仍屬於組織;專案裡的 Issue 編號是 <專案代號>-<n>,組織層級的是 ISS-<n>,顯示時用 key);projects 列專案、project_save 新增或修改專案,cabinet、docs、doc_save、cabinet_layout_save 帶 project(專案 id)操作那個專案,不帶是未分專案;doc_save 修改時給 project 就是把文件搬到那個專案。" +
-	"訊息頻道:channels 列我的頻道(含未讀數)、channel_create 建立、channel_messages 讀(讀了算已讀)、channel_post 發訊息;@ 角色只通知、不排任務。" +
-	"子項(待辦清單,編號是 <Issue key>.<序號>,例如 ISS-37.2):大構想要分階段、分給不同子代理時,用 issue_item_add 在 Issue 底下開子項(跨階段、跨子代理或要人決定的才開)," +
-	"issue_items 看清單、issue_item_claim 領取(負責人是角色時自動排任務並發憑證)、issue_item_report 回報(done 附 evidence;需要人決定就 status=blocked、wait_for_kind=user_decision,不要猜答案)、" +
-	"issue_item_update 改或取消、issue_item_promote 提升為獨立 Issue。"
+const adminInstructions = "This is omixor's MCP endpoint, operating the issues, agents and tasks of the current organization, with the same permissions as your signed-in omixor account. " +
+	"Agents: agents shows agents, agent_task_claim claims a task (returning an agent credential bound to that task; use it to connect to the agent endpoint and work as that agent), " +
+	"and agent_task_report reports. The assignee of issue_create / issue_update assigns an issue to an agent and automatically queues a task for it. issue_accept accepts an issue (you become the owner and the issue is in progress; release=true releases it), after which you break it down with items. " +
+	"Cabinet: cabinet shows the structure, docs queries documents, doc_save creates or modifies them (signed by you; an agent identity cannot be specified; to work as an agent, claim a task with agent_task_claim to get a credential and connect to the agent endpoint /mcp/agent). " +
+	"Projects: the cabinet and issues can be split into projects (channels, agents and so on still belong to the organization; an issue number inside a project is <project key>-<n>, at organization level it is ISS-<n>; always display the key); projects lists projects, project_save creates or modifies a project, and cabinet, docs, doc_save and cabinet_layout_save take project (the project id) to operate on that project, while without it they operate on the no-project cabinet; when doc_save modifies a document, giving project moves the document to that project. " +
+	"Message channels: channels lists my channels (with unread counts), channel_create creates one, channel_messages reads (reading marks as read), and channel_post posts a message; mentioning an agent with @ only notifies it and does not queue a task. " +
+	"Items (to-do list; the number is <issue key>.<sequence>, e.g. ISS-37.2): when a big idea needs phases or must be split among different sub-agents, use issue_item_add to open items under the issue (only for work that spans phases, spans sub-agents or needs a human decision), " +
+	"issue_items shows the list, issue_item_claim claims (when the owner is an agent, a task is queued and a credential issued automatically), issue_item_report reports (done with evidence; when a human decision is needed use status=blocked and wait_for_kind=user_decision, and do not guess the answer), " +
+	"issue_item_update modifies or cancels, and issue_item_promote promotes an item to an independent issue."
 
 // AdminEndpoint 管理用 MCP 的 http.Handler(雲端掛在 /mcp/org/{org},用 omixor token 認證)
 func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
@@ -280,7 +280,7 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 			unauthorizedWith(w, "omixor", rm, strings.HasPrefix(tok, model.OAuthTokenPrefix))
 			return
 		}
-		sess := &Session{B: bk, OrgID: org, Endpoint: cfg.AgentEndpoint}
+		sess := &Session{B: bk, OrgID: org, Endpoint: cfg.AgentEndpoint, Diag: newConnDiag("admin", bk, nil, r)}
 		// OAuth 授權:唯讀(mcp:read)只開放登記為 ReadOnly 的核心工具、其他一律「此連線是唯讀授權」(restrictReadOnly);讀寫(mcp:write)再多開 OAuthWriteTools(restrictOAuthWrite);額外掛上來的工具都不開放
 		hooks := Hooks{Ctx: sess,
 			// 人類端點不列 HumanHiddenTools(agent_task_delegate)

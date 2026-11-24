@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 
 	"omixor-core/backend"
@@ -83,4 +84,39 @@ func TestIssueAcceptTool(t *testing.T) {
 	failsWith(t, admin, "", "issue_accept", map[string]any{"id": k}, "沒有成功:")
 	failsWith(t, admin, "", "issue_accept", map[string]any{"id": k, "release": true}, "沒有成功:")
 	ok(t, role, auth, "issue_accept", map[string]any{"id": k, "release": true})
+}
+
+// issue_accept 的預設回執:changed 反映真正改到的欄位,assignee / accepted 說明接受狀態;重複接受、重複放回 changed 為空
+func TestIssueAcceptAckReceipt(t *testing.T) {
+	h, _, _ := ackHandler(t)
+	iss := ok(t, h, "", "issue_create", map[string]any{"title": "回執"})
+	id := iss["id"]
+	changedOf := func(m map[string]any) []string {
+		l, _ := m["changed"].([]any)
+		out := []string{}
+		for _, v := range l {
+			out = append(out, v.(string))
+		}
+		return out
+	}
+	a1 := ok(t, h, "", "issue_accept", map[string]any{"id": id})
+	if !slices.Contains(changedOf(a1), "assignee") || a1["accepted"] != true || a1["assignee"] == "" || a1["assignee"] == nil || a1["status"] != "open" {
+		t.Fatalf("first accept %v", a1)
+	}
+	a2 := ok(t, h, "", "issue_accept", map[string]any{"id": id})
+	if len(changedOf(a2)) != 0 || a2["accepted"] != true || a2["assignee"] != a1["assignee"] {
+		t.Fatalf("repeat accept %v", a2)
+	}
+	r1 := ok(t, h, "", "issue_accept", map[string]any{"id": id, "release": true})
+	if !slices.Contains(changedOf(r1), "assignee") || r1["accepted"] != false || r1["assignee"] != "" {
+		t.Fatalf("release %v", r1)
+	}
+	r2 := ok(t, h, "", "issue_accept", map[string]any{"id": id, "release": true})
+	if len(changedOf(r2)) != 0 || r2["accepted"] != false {
+		t.Fatalf("repeat release %v", r2)
+	}
+	full := ok(t, h, "", "issue_accept", map[string]any{"id": id, "return": "full"})
+	if full["accepted"] != nil || full["changed"] != nil || full["comments"] == nil || full["message"] == nil {
+		t.Fatalf("full shape %v", full)
+	}
 }

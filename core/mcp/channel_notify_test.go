@@ -95,7 +95,7 @@ func TestChannelNotifiesQueuedTasks(t *testing.T) {
 		t.Fatalf("要宣告 claude/channel:%v", res)
 	}
 	ins := res["instructions"].(string)
-	for _, want := range []string{"agent_task_claim", "id=<task_id>", "https://omixor.io", "org 屬性"} {
+	for _, want := range []string{"agent_task_claim", "id=<task_id>", "https://omixor.io", "org attribute"} {
 		if !strings.Contains(ins, want) {
 			t.Fatalf("instructions 要有 %q:%s", want, ins)
 		}

@@ -85,8 +85,46 @@ func issueAck(i model.Issue, changed []string, commentID string) map[string]any 
 	return out
 }
 
+// issueOwnerName 負責人的顯示名稱:人類接受者看 AssigneeActor,角色看 assignee 字串(角色 handle 換成顯示名稱);沒有負責人回空字串
+func issueOwnerName(e Env, i model.Issue) string {
+	if i.AssigneeActor != nil && i.AssigneeActor.Name != "" {
+		return i.AssigneeActor.Name
+	}
+	if a := strings.TrimSpace(i.Assignee); a != "" {
+		return e.AuthorName(a)
+	}
+	if i.AssigneeActor != nil {
+		return i.AssigneeActor.Handle
+	}
+	return ""
+}
+
+// acceptChanged issue_accept 回執的 changed:比較接受前後,負責人不同才有 assignee、status 真的變了才有 status;before 未知時保守地依接受後狀態回報
+func acceptChanged(before, after *model.Issue) []string {
+	changed := []string{}
+	if before == nil {
+		if model.IssueAssigned(*after) {
+			changed = append(changed, "assignee")
+		}
+		return changed
+	}
+	sameOwner := strings.TrimSpace(before.Assignee) == strings.TrimSpace(after.Assignee)
+	if sameOwner {
+		b, a := before.AssigneeActor, after.AssigneeActor
+		sameOwner = (b == nil) == (a == nil) && (b == nil || b.ID == a.ID)
+	}
+	if !sameOwner {
+		changed = append(changed, "assignee")
+	}
+	if before.Status != after.Status {
+		changed = append(changed, "status")
+	}
+	return changed
+}
+
 // RegisterIssueTools 登記 Issue 工具:issue_create、issue_update、issues
 func RegisterIssueTools(s *Server) {
+	registerReportProblem(s) // report_problem(見 tools_report.go)
 	s.Register("issue_create", func(c *Call) (any, error) {
 		e := env(c)
 		e.Lock()
@@ -263,6 +301,14 @@ func RegisterIssueTools(s *Server) {
 		if v, ok := c.Args.Bool("release"); ok {
 			release = v
 		}
+		// 先讀一次接受前的狀態,回執的 changed 才能反映真正改到的欄位(讀不到非 NotFound 的錯誤就當未知)
+		before, err := e.Backend().GetIssue(e.Org(), id)
+		if err != nil {
+			if backend.NotFound(err) {
+				return nil, Errorf("找不到 Issue %s", id)
+			}
+			before = nil
+		}
 		var (
 			i   *model.Issue
 			msg string
@@ -284,7 +330,9 @@ func RegisterIssueTools(s *Server) {
 			return nil, terr(err)
 		}
 		if !full {
-			out := issueAck(*i, []string{"assignee", "status"}, "")
+			out := issueAck(*i, acceptChanged(before, i), "")
+			out["assignee"] = issueOwnerName(e, *i)
+			out["accepted"] = model.IssueAssigned(*i)
 			out["message"] = msg
 			return out, nil
 		}

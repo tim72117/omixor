@@ -41,8 +41,8 @@ var uiToolResource = map[string]string{
 func UIResources() []Resource {
 	meta := func() map[string]any { return map[string]any{"ui": map[string]any{"prefersBorder": true}} }
 	return []Resource{
-		{URI: UIFlowchartURI, Name: "flowchart", Title: "流程圖畫面", Description: "flowchart_render 的流程圖(SVG)", MimeType: UIMimeType, Text: uiFlowchartHTML, Meta: meta()},
-		{URI: UIItemsURI, Name: "items", Title: "子項清單畫面", Description: "issue_items 的子項清單", MimeType: UIMimeType, Text: uiItemsHTML, Meta: meta()},
+		{URI: UIFlowchartURI, Name: "flowchart", Title: "流程圖畫面", Description: "Flowchart (SVG) from flowchart_render", MimeType: UIMimeType, Text: uiFlowchartHTML, Meta: meta()},
+		{URI: UIItemsURI, Name: "items", Title: "子項清單畫面", Description: "Item list from issue_items", MimeType: UIMimeType, Text: uiItemsHTML, Meta: meta()},
 	}
 }
 

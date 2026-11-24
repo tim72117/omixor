@@ -4,7 +4,7 @@ import "strings"
 
 // identityDescReplacer 外部規格(console 的 spec/tools.json,Swift 匯出、不手改)裡提到「帶 agent」的句子
 var identityDescReplacer = strings.NewReplacer(
-	"以角色身分工作時帶 agent,草稿會署名該角色。", "草稿署名呼叫者;不能指定角色身分。",
+	"以角色身分工作時帶 agent,草稿會署名該角色。", "The draft is signed by the caller; an agent identity cannot be specified.",
 )
 
 // 「身分假冒」型的 agent 參數:讓呼叫者以某角色的身分署名、或依該角色的 docAccess 讀寫。

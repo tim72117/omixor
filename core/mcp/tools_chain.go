@@ -15,23 +15,23 @@ func ChainToolDefs() []any {
 	prio := []string{"urgent", "high", "normal", "low"}
 	return []any{
 		coreDef("chain",
-			"列出組織鏈(資訊流動方向):每條邊 from → to 表示 from 可以派工作給 to(label 例如 目標、任務;空白 = 任務),to 做完回報給 from。節點是 agent:<角色 id> 或 user:<email>;fromName、toName 是顯示名稱。", true,
+			"Lists the organization chain (direction of information flow): each edge from → to means from can assign work to to (label e.g. goal, task; empty = task), and to reports back to from when done. Nodes are agent:<agent id> or user:<email>; fromName and toName are display names.", true,
 			obj(map[string]any{})),
 		coreDef("chain_save",
-			"修改組織鏈(組織管理員)。edges 取代全部邊;或用 add 加上(同 from、to 的會被取代)、remove 拿掉(依 from、to)。每條邊 {from, to, label}:節點寫 agent:<角色 id> 或 user:<email>,label 例如 目標、任務(空白 = 任務)。不能指向自己、不能重複、不能有循環,節點要存在(角色存在、人是組織成員)。", false,
+			"Modifies the organization chain (organization admin). edges replaces all edges; or use add to add (an edge with the same from and to is replaced) and remove to delete (matched by from and to). Each edge is {from, to, label}: write nodes as agent:<agent id> or user:<email>, label e.g. goal, task (empty = task). An edge cannot point to itself, be duplicated or form a cycle, and its nodes must exist (the agent exists, the person is an organization member).", false,
 			obj(map[string]any{
-				"edges":  pObjs("取代全部邊:[{from, to, label}]"),
-				"add":    pObjs("加上的邊:[{from, to, label}]"),
-				"remove": pObjs("拿掉的邊:[{from, to}]"),
+				"edges":  pObjs("Replaces all edges: [{from, to, label}]"),
+				"add":    pObjs("Edges to add: [{from, to, label}]"),
+				"remove": pObjs("Edges to remove: [{from, to}]"),
 			})),
 		coreDef("agent_task_delegate",
-			"(只有角色端點:委派者由憑證決定)以角色身分把工作委派給組織鏈上的下游角色(鏈上要有 agent:<自己> → agent:<to>)。任務署名你的角色,links 帶上委派它的那筆任務與其 links,label(目標、任務…)寫在任務說明開頭;對方做完會自動回報給你(替你排一筆「檢視回報」任務)。可以派給誰見 agent_context 的 chain.downstream。", false,
+			"(Agent endpoint only: the delegator is determined by the credential) Delegates work, as an agent, to a downstream agent on the organization chain (the chain must contain agent:<yourself> → agent:<to>). The task is signed by your agent, links include the task being delegated from and its links, and a label (goal, task...) is written at the start of the task description; when the other side finishes, it reports back to you automatically (a \"review report\" task is queued for you). See chain.downstream of agent_context for who you can delegate to.", false,
 			obj(map[string]any{
-				"to":           pStr("接任務的角色 id 或名稱(要是鏈上的下游)"),
-				"title":        pStr("標題"),
-				"instructions": pStr("任務說明(Markdown)"),
-				"priority":     pEnum("優先度,預設 normal", prio...),
-				"task":         pStr("委派它的來源任務 id(選填;不給就用你的角色進行中的任務)"),
+				"to":           pStr("Id or name of the agent that takes the task (must be downstream on the chain)"),
+				"title":        pStr("Title"),
+				"instructions": pStr("Task description (Markdown)"),
+				"priority":     pEnum("Priority, default normal", prio...),
+				"task":         pStr("Id of the source task being delegated from (optional; omitted = your agent's in-progress task)"),
 			}, "to", "title")),
 	}
 }

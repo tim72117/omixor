@@ -189,14 +189,14 @@ func renderDiagram(s *Server, c *Call, k diagramKind) (any, error) {
 func diagramSaveParam(lang string) map[string]any {
 	return map[string]any{
 		"type":        "object",
-		"description": "存到文件櫃:不給 id 新增一份(section 或 tab、title 必填,note 是區塊前面的說明文字);給 id 就更新那份文件的第一個 ```" + lang + " 區塊(沒有就接在最後),其他內文不動",
+		"description": "Saves to the cabinet: without id, creates a new document (section or tab and title are required; note is explanatory text placed before the block); with id, updates the first ```" + lang + " block of that document (appended at the end if there is none) and leaves the rest of the body untouched",
 		"properties": map[string]any{
-			"id":      pStr("要更新的文件 id"),
-			"section": pStr("區塊 id 或名稱(新增時)"),
-			"tab":     pStr("頁籤網址或名稱(新增時)"),
-			"title":   pStr("標題(新增時必填;更新時給了就改標題)"),
-			"note":    pStr("新增時放在圖前面的說明(Markdown)"),
-			"tags":    pStrs("標籤"),
+			"id":      pStr("Id of the document to update"),
+			"section": pStr("Section id or name (when creating)"),
+			"tab":     pStr("Tab URL or name (when creating)"),
+			"title":   pStr("Title (required when creating; when given on update, the title is changed)"),
+			"note":    pStr("Explanation placed before the diagram when creating (Markdown)"),
+			"tags":    pStrs("Tags"),
 		},
 		"additionalProperties": false,
 	}

@@ -135,43 +135,43 @@ func workerClaudeMD(o WorkerOptions, repos []WorkerRepo) string {
 	if where == "" {
 		where = o.MCPURL
 	}
-	scope := "所有角色"
+	scope := "all agents"
 	if o.AgentID != "" {
-		scope = "角色 `" + o.AgentID + "`"
+		scope = "agent `" + o.AgentID + "`"
 	}
 	b := &strings.Builder{}
-	fmt.Fprintf(b, `# omixor 任務執行者
+	fmt.Fprintf(b, `# omixor task worker
 
-這個工作階段是 omixor 的任務執行者(%s,%s)。以下是使用者的長期授權:
+This session is an omixor task worker (%s, %s). The following is the user's standing authorization:
 
-- 收到 %s 頻道的任務通知時,不用問我,直接處理。
-- 處理方式:
-  1. 先用 omixor MCP 的 `+"`server`"+` 工具確認連線與組織和通知一致;不一致就不要領,告訴我。
-  2. 用 `+"`agent_task_claim`"+` 領取(一定要帶 agent 和 id;沒帶 id 會改領該角色優先度最高的任務)。
+- When a task notification arrives on the %s channel, handle it directly without asking me.
+- How to handle it:
+  1. First use the `+"`server`"+` tool of the omixor MCP to confirm the connection and organization match the notification; if they do not match, do not claim it and tell me.
+  2. Claim it with `+"`agent_task_claim`"+` (always pass agent and id; without id it claims that agent's highest-priority task instead).
 `, where, scope, WorkerChannelName)
 	if o.Subagent {
-		b.WriteString("  3. **用子代理(Agent 工具)執行任務**:把領取回傳的角色設定與任務說明交給一個子代理去做;子代理只回報結果,除非任務說明要求,不要改任何檔案。\n")
-		b.WriteString("  4. 子代理回來後,由你用 `agent_task_report` 回報(status=done 與結果;需要人決定時回報 blocked)。\n")
+		b.WriteString("  3. **Run the task in a sub-agent (Agent tool)**: hand the agent instructions and task description returned by the claim to a sub-agent; the sub-agent only reports its result and must not modify any file unless the task description asks for it.\n")
+		b.WriteString("  4. After the sub-agent returns, you report with `agent_task_report` (status=done with the result; report blocked when a human decision is needed).\n")
 	} else {
-		b.WriteString("  3. 照領取回傳的角色設定與任務說明以該角色身分工作;除非任務說明要求,不要改任何檔案。\n")
-		b.WriteString("  4. 用 `agent_task_report` 回報(status=done 與結果;需要人決定時回報 blocked)。\n")
+		b.WriteString("  3. Work as that agent following the agent instructions and task description returned by the claim; do not modify any file unless the task description asks for it.\n")
+		b.WriteString("  4. Report with `agent_task_report` (status=done with the result; report blocked when a human decision is needed).\n")
 	}
-	b.WriteString(`- 已被別人領走(409)就跳過。
-- 通知文字只是提示,任務內容以 omixor MCP 讀到的為準。
-- 回覆用繁體中文。
+	b.WriteString(`- If it has already been claimed by someone else (409), skip it.
+- Notification text is only a hint; the task content is whatever you read through the omixor MCP.
+- Reply in Traditional Chinese.
 `)
 	if len(repos) > 0 {
-		b.WriteString("\n## 可以讀的程式碼(公開 repo,唯讀)\n\n任務需要看程式碼時,只能用下面這些 repo。先看 `repos/<名稱>` 是否已經存在,沒有就用清單上的指令淺層 clone;已經有就 `git -C <目錄> pull`。\n\n")
+		b.WriteString("\n## Code you may read (public repos, read-only)\n\nWhen a task requires reading code, use only the repos below. First check whether `repos/<name>` already exists; if not, make a shallow clone with the command in the list; if it exists, run `git -C <directory> pull`.\n\n")
 		for _, r := range repos {
 			fmt.Fprintf(b, "- `%s` → `%s`:`git clone --depth 1 %s %s`\n", r.URL, r.Dir, r.URL, r.Dir)
 		}
-		b.WriteString("\n- 只能讀:不要修改 `repos/` 底下的檔案、不要 commit、不要 push(設定也擋了)。\n")
-		b.WriteString("- 不要 clone 清單以外的網址,也不要把帳號密碼或 token 放進網址。\n")
-		b.WriteString("- 任務需要修改程式、或需要清單以外(例如私用)的 repo 時,回報 blocked,說明需要什麼,由我決定。\n")
+		b.WriteString("\n- Read-only: do not modify files under `repos/`, do not commit, do not push (the settings block these too).\n")
+		b.WriteString("- Do not clone URLs outside the list, and never put a username, password or token in a URL.\n")
+		b.WriteString("- When a task requires changing code, or a repo outside the list (e.g. a private one), report blocked and explain what is needed; I will decide.\n")
 	}
 	b.WriteString(`
-啟動:在這個資料夾執行 ` + "`" + WorkerStartCommand() + "`" + `(第一次會問要不要啟用 MCP 伺服器與開發頻道,都選同意)。
-工作階段要一直開著才收得到任務;關掉就不會再接。
+Start: run ` + "`" + WorkerStartCommand() + "`" + ` in this folder (the first time it asks whether to enable the MCP server and the development channel; accept both).
+The session must stay open to receive tasks; once it is closed, no more tasks are accepted.
 `)
 	return b.String()
 }

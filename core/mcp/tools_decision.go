@@ -19,44 +19,44 @@ import (
 func DecisionToolDefs() []any {
 	return []any{
 		coreDef("issue_decision_add",
-			"提出一筆「需要人」的事。兩種用途(kind):\n"+
-				"- decision(預設):需要人從幾個選項裡選一個。要給 options(至少 2 個,每個 {label, description?, recommended?, id?},有建議就把 recommended 設 true);人也可以選「其他」附說明。\n"+
-				"- help:需要人做某件事或提供資訊(例如 Cloud SQL 備份、在 Mac 上編譯、提供憑證、做一次實機驗證),沒有選項;不能帶 options。人處理後會回報完成(可附證據)或不處理(附原因)。\n"+
-				"子代理遇到需要人做的事就建 help、需要人選擇就建 decision,不要把待決定寫在 Issue 描述或留言裡。source_issue 填來源 Issue(例如 ISS-37),blocks 填被它擋住的 Issue 或說明。回傳 DEC-n。", false,
+			"Raises something that needs a human (kind has two uses):\n"+
+				"- decision (default): a human must pick one of several options. Give options (at least 2, each {label, description?, recommended?, id?}; set recommended to true on the one you suggest); the human may also pick \"other\" with an explanation.\n"+
+				"- help: a human must do something or provide information (e.g. a Cloud SQL backup, building on a Mac, providing a credential, one real-device verification); it has no options and must not carry options. The human reports it done (evidence optional) or declines it (with a reason).\n"+
+				"When a sub-agent hits something only a human can do, create a help; when a choice is needed, create a decision; do not write pending decisions into issue descriptions or comments. Put the source issue in source_issue (e.g. ISS-37) and the issues it blocks, or a description, in blocks. Returns DEC-n.", false,
 			obj(map[string]any{
-				"kind":         pEnum("decision(要人選擇,預設)或 help(要人做事)", model.DecisionKinds...),
-				"title":        pStr("一句話的問題或請求"),
-				"body":         pStr("背景說明(Markdown)"),
-				"options":      pObjs("decision 的選項:[{label, description?, recommended?, id?}],至少 2 個;help 不要給"),
-				"source_issue": pStr("來源 Issue(例如 ISS-37;選填)"),
-				"blocks":       pStrs("被它擋住的 Issue key 或說明"),
+				"kind":         pEnum("decision (a human picks, default) or help (a human does something)", model.DecisionKinds...),
+				"title":        pStr("The question or request in one sentence"),
+				"body":         pStr("Background (Markdown)"),
+				"options":      pObjs("Options for a decision: [{label, description?, recommended?, id?}], at least 2; do not give them for help"),
+				"source_issue": pStr("Source issue (e.g. ISS-37; optional)"),
+				"blocks":       pStrs("Keys of the issues it blocks, or a description"),
 			}, "title")),
 		coreDef("issue_decisions",
-			"查待決定(decision)與需要協助(help)。預設列出開放中的(status=open,「待處理」),兩種都含;給 id 回單一筆。可依 kind、來源 Issue(issue)、狀態篩選;mine=true 是「待我處理」(開放中、我可以處理的)。", true,
+			"Queries pending decisions (decision) and help requests (help). By default lists the open ones (status=open, \"pending\"), both kinds; with id returns a single one. Filter by kind, source issue (issue) and status; mine=true means \"waiting for me\" (open and I can handle them).", true,
 			obj(map[string]any{
-				"id":     pStr("DEC-n(給了就只回這一筆)"),
-				"status": pEnum("狀態:open(預設)、decided(已決定 / 已處理)、withdrawn(已撤回)或 all", "open", "decided", "withdrawn", "all"),
-				"kind":   pEnum("只列這一種", model.DecisionKinds...),
-				"issue":  pStr("只列來源是這張 Issue 的(例如 ISS-37)"),
-				"mine":   pBool("待我處理:開放中、兩種都含(角色憑證沒有「我」,回空)"),
-				"limit":  pInt("最多幾筆,預設 50、最多 200"),
+				"id":     pStr("DEC-n (when given, only this one is returned)"),
+				"status": pEnum("Status: open (default), decided (decided / handled), withdrawn, or all", "open", "decided", "withdrawn", "all"),
+				"kind":   pEnum("List only this kind", model.DecisionKinds...),
+				"issue":  pStr("List only those whose source is this issue (e.g. ISS-37)"),
+				"mine":   pBool("Waiting for me: open ones, both kinds (an agent credential has no \"me\"; returns empty)"),
+				"limit":  pInt("Maximum number of results, default 50, at most 200"),
 			})),
 		coreDef("issue_decision_answer",
-			"處理一筆待決定或需要協助(只有人;角色憑證不可)。decision:answer 是選項 id,或 other 並附 note;help:answer 是 done(可附 note 與 evidence 證據字串)或 declined(要附 note 原因)。已處理的不能再改,要改請組織管理員或原處理人重新開啟(reopen:HTTP API)。結論會自動寫成來源 Issue 的留言(署名是你)。", false,
+			"Handles a pending decision or help request (humans only; agent credentials are rejected). decision: answer is an option id, or other with a note; help: answer is done (optionally with a note and an evidence string) or declined (a note with the reason is required). A handled item cannot be changed; to change it, an organization admin or the original handler must reopen it (reopen: HTTP API). The conclusion is written automatically as a comment on the source issue (signed by you).", false,
 			obj(map[string]any{
 				"id":       pStr("DEC-n"),
-				"answer":   pStr("decision:選項 id 或 other;help:done 或 declined"),
-				"note":     pStr("說明(選 other、declined 時必填)"),
-				"evidence": pStr("help 完成的證據(連結、輸出、版本號;選填)"),
+				"answer":   pStr("decision: an option id or other; help: done or declined"),
+				"note":     pStr("Explanation (required when choosing other or declined)"),
+				"evidence": pStr("Evidence that the help was completed (link, output, version number; optional)"),
 			}, "id", "answer")),
 		coreDef("issue_decision_to_issue",
-			"由一筆待決定 / 需要協助開出一張問題 Issue(標題 = 問題,內文含背景與選項,source 記 DEC-n),並把它的來源 Issue 指向新 Issue。已經有來源 Issue 的不能再開(只有人;角色憑證不可)。", false,
+			"Opens a problem issue from a pending decision / help request (title = the question, body contains the background and options, source records DEC-n), and points the item's source issue to the new issue. Not allowed when it already has a source issue (humans only; agent credentials are rejected).", false,
 			obj(map[string]any{
 				"id":       pStr("DEC-n"),
-				"priority": pEnum("優先度,預設 normal", IssuePriorities...),
-				"labels":   pStrs("標籤,預設 [待決定] 或 [需要協助]"),
-				"project":  pStr("新 Issue 放進的專案 id(例如 PRJ-1;空字串 = 組織層級;沒給依 repo 的連結規則,同 issue_create)"),
-				"repo":     pStr("新 Issue 的 repo(例如 owner/name;選填;沒指定專案時用來決定預設專案)"),
+				"priority": pEnum("Priority, default normal", IssuePriorities...),
+				"labels":   pStrs("Labels, default [待決定] (decision) or [需要協助] (help); these two are the literal label values"),
+				"project":  pStr("Project id to put the new issue in (e.g. PRJ-1; empty string = organization level; omitted = follows the repo link rule, same as issue_create)"),
+				"repo":     pStr("Repo of the new issue (e.g. owner/name; optional; used to pick the default project when no project is given)"),
 			}, "id")),
 	}
 }

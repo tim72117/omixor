@@ -151,7 +151,7 @@ func TestUnifiedListAddsRequiredOrg(t *testing.T) {
 	}
 	// initialize 的說明要求每次帶 org
 	w = rpcPost(u.unified, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}, "")
-	if !strings.Contains(w.Body.String(), "每一次工具呼叫都必須帶 org") {
+	if !strings.Contains(w.Body.String(), "every tool call must carry the org parameter") {
 		t.Fatal(w.Body.String())
 	}
 }

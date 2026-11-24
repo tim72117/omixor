@@ -10,16 +10,16 @@ import (
 //
 // 文件內文的格式:一段 ```wireframe 程式碼區塊放 JSON 描述(可再編輯的資料來源),畫面顯示時再渲染成圖。
 
-const wireframeDesc = "用元件與版面描述(JSON)畫出 UI/UX 畫面的線框圖,回傳 SVG。可以順便存到文件櫃(save):文件內文是一段 ```wireframe 程式碼區塊放 JSON 描述,文件櫃顯示時畫成圖,之後改 JSON 就能改圖。" +
-	"描述:{title?, device: desktop|tablet|mobile|{w,h}, root: <node>};node 是 {type, children?, 屬性…},children 裡可以直接放字串(= text)。" +
-	"版面:col(直排)、row(橫排)、stack(疊放,子節點可設 place: top-left|center|bottom-right…)、grid(columns 欄,子節點 span)、card(有框,title)、section(title)。" +
-	"版面屬性:gap、padding(數字或 [上下,左右])、width/height(數字、\"fill\" 平分剩餘、\"50%\")、align(start|center|end|stretch)、justify(start|center|end|between)、border、fill。" +
-	"元件:header/navbar(title、items、logo、back、menu、avatar)、footer、sidebar(title、items、active)、heading(text、level 1~3)、text(text、size、muted、bold;沒給 text 畫佔位線)、link、" +
-	"button(text、variant primary|secondary|ghost、size sm|md|lg)、input(label、placeholder、value、kind: password)、textarea、select、checkbox / radio(label、checked)、toggle(label、on)、" +
-	"image(打叉框,label、ratio)、avatar(size、label)、icon、list(items 或 count;avatar、chevron)、table(columns、rows 列數或 [[…]])、tabs(items、active)、chart(kind bar|line|pie、title)、badge、divider、spacer(size;沒給就撐開)、modal(疊層:title、width、children)。" +
-	"不認得的 type 畫成虛線框並列在 warnings。內容超出裝置高度時畫布自動加高。" +
-	"範例:{\"device\":\"mobile\",\"root\":{\"type\":\"col\",\"children\":[{\"type\":\"header\",\"title\":\"登入\"},{\"type\":\"col\",\"padding\":24,\"gap\":16,\"children\":[{\"type\":\"input\",\"label\":\"Email\"},{\"type\":\"input\",\"label\":\"密碼\",\"kind\":\"password\"},{\"type\":\"button\",\"text\":\"登入\",\"width\":\"fill\"}]}]}}。" +
-	"不給 spec 而給 doc 時,讀那份文件的第一個 ```wireframe 區塊重畫。存文件時依呼叫者(角色端點是憑證的角色)的文件權限。"
+const wireframeDesc = "Draws a wireframe of a UI/UX screen from a component and layout description (JSON) and returns SVG. It can also save to the cabinet (save): the document body is a ```wireframe code block holding the JSON description, and the cabinet renders it as a diagram; edit the JSON later to change the diagram. " +
+	"Description: {title?, device: desktop|tablet|mobile|{w,h}, root: <node>}; a node is {type, children?, attributes...}, and children may hold plain strings directly (= text). " +
+	"Layouts: col (vertical), row (horizontal), stack (overlay; a child may set place: top-left|center|bottom-right...), grid (columns, children use span), card (bordered, title), section (title). " +
+	"Layout attributes: gap, padding (a number or [vertical,horizontal]), width/height (a number, \"fill\" to share the remaining space, \"50%\"), align (start|center|end|stretch), justify (start|center|end|between), border, fill. " +
+	"Components: header/navbar (title, items, logo, back, menu, avatar), footer, sidebar (title, items, active), heading (text, level 1~3), text (text, size, muted, bold; without text a placeholder line is drawn), link, " +
+	"button (text, variant primary|secondary|ghost, size sm|md|lg), input (label, placeholder, value, kind: password), textarea, select, checkbox / radio (label, checked), toggle (label, on), " +
+	"image (a box with a cross, label, ratio), avatar (size, label), icon, list (items or count; avatar, chevron), table (columns, rows as a row count or [[...]]), tabs (items, active), chart (kind bar|line|pie, title), badge, divider, spacer (size; without it, it expands to fill), modal (overlay: title, width, children). " +
+	"An unrecognized type is drawn as a dashed box and listed in warnings. When content exceeds the device height, the canvas grows automatically. " +
+	"Example: {\"device\":\"mobile\",\"root\":{\"type\":\"col\",\"children\":[{\"type\":\"header\",\"title\":\"Log in\"},{\"type\":\"col\",\"padding\":24,\"gap\":16,\"children\":[{\"type\":\"input\",\"label\":\"Email\"},{\"type\":\"input\",\"label\":\"Password\",\"kind\":\"password\"},{\"type\":\"button\",\"text\":\"Log in\",\"width\":\"fill\"}]}]}}. " +
+	"When doc is given without spec, the first ```wireframe block of that document is read and redrawn. When saving a document, the caller's document permissions apply (on the agent endpoint, the credential's agent)."
 
 // WireframeToolDefs 線框圖工具的規格
 func WireframeToolDefs() []any { return []any{wireframeDef()} }
@@ -27,21 +27,21 @@ func WireframeToolDefs() []any { return []any{wireframeDef()} }
 func wireframeDef() map[string]any {
 	return coreDef("wireframe_render", wireframeDesc, false, obj(map[string]any{
 		"spec": map[string]any{
-			"description": "線框圖描述:物件,或 JSON 字串({title?, device, root})",
+			"description": "Wireframe description: an object, or a JSON string ({title?, device, root})",
 			"anyOf":       []any{map[string]any{"type": "object"}, map[string]any{"type": "string"}},
 		},
-		"doc":   pStr("文件 id:不給 spec 時讀這份文件裡第一個 ```wireframe 區塊重畫"),
-		"svg":   pBool("回傳 SVG 原始碼,預設 true;只想存文件時可設 false 省上下文"),
+		"doc":   pStr("Document id: when spec is not given, the first ```wireframe block of this document is read and redrawn"),
+		"svg":   pBool("Return the SVG source, default true; set false to save context when you only want to save the document"),
 		"save": map[string]any{
 			"type":        "object",
-			"description": "存到文件櫃:不給 id 新增一份(section 或 tab、title 必填,note 是區塊前面的說明文字);給 id 就更新那份文件的第一個 ```wireframe 區塊(沒有就接在最後),其他內文不動",
+			"description": "Saves to the cabinet: without id, creates a new document (section or tab and title are required; note is explanatory text placed before the block); with id, updates the first ```wireframe block of that document (appended at the end if there is none) and leaves the rest of the body untouched",
 			"properties": map[string]any{
-				"id":      pStr("要更新的文件 id"),
-				"section": pStr("區塊 id 或名稱(新增時)"),
-				"tab":     pStr("頁籤網址或名稱(新增時)"),
-				"title":   pStr("標題(新增時必填;更新時給了就改標題)"),
-				"note":    pStr("新增時放在圖前面的說明(Markdown)"),
-				"tags":    pStrs("標籤"),
+				"id":      pStr("Id of the document to update"),
+				"section": pStr("Section id or name (when creating)"),
+				"tab":     pStr("Tab URL or name (when creating)"),
+				"title":   pStr("Title (required when creating; when given on update, the title is changed)"),
+				"note":    pStr("Explanation placed before the diagram when creating (Markdown)"),
+				"tags":    pStrs("Tags"),
 			},
 			"additionalProperties": false,
 		},
