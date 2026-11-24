@@ -5,10 +5,19 @@ import XCTest
 final class FakeServerMCP: URLProtocol {
     nonisolated(unsafe) static var calls: [(path: String, method: String, params: [String: Any], auth: String?)] = []
     nonisolated(unsafe) static var down = false
+    /// false = 舊版 server:沒有 MCP Apps(tools/list 沒有 _meta.ui、resources/list 回 -32601)
+    nonisolated(unsafe) static var apps = true
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
+
+    static func fail(_ p: FakeServerMCP, id: Int, code: Int, _ message: String) {
+        let resp = HTTPURLResponse(url: p.request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        p.client?.urlProtocol(p, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        p.client?.urlProtocol(p, didLoad: try! JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "error": ["code": code, "message": message]]))
+        p.client?.urlProtocolDidFinishLoading(p)
+    }
 
     override func startLoading() {
         if Self.down {
@@ -32,7 +41,19 @@ final class FakeServerMCP: URLProtocol {
             result = ["tools": [
                 ["name": "issues", "description": "server 的 issues", "inputSchema": ["type": "object"]],
                 ["name": "orgs", "description": "server 的 orgs", "inputSchema": ["type": "object"]],
-            ]]
+            ] + (Self.apps ? [["name": "flowchart_render", "description": "server 的流程圖", "inputSchema": ["type": "object"],
+                               "_meta": ["ui": ["resourceUri": "ui://omixor/flowchart"], "ui/resourceUri": "ui://omixor/flowchart"]]] : [])]
+        case "resources/list" where Self.apps:
+            result = ["resources": [["uri": "ui://omixor/flowchart", "name": "flowchart", "mimeType": "text/html;profile=mcp-app"]]]
+        case "resources/read" where Self.apps && params["uri"] as? String == "ui://omixor/flowchart":
+            result = ["contents": [["uri": "ui://omixor/flowchart", "mimeType": "text/html;profile=mcp-app", "text": "<html>flow</html>",
+                                    "_meta": ["ui": ["prefersBorder": true]]]]]
+        case "resources/read" where Self.apps:
+            Self.fail(self, id: 1, code: -32002, "找不到資源")
+            return
+        case "resources/list", "resources/read":
+            Self.fail(self, id: 1, code: -32601, "不支援的方法")
+            return
         case "tools/call":
             let text = String(data: try! JSONSerialization.data(withJSONObject: ["from": "server", "name": params["name"] ?? "",
                                                                                  "arguments": params["arguments"] ?? [:]]), encoding: .utf8)!
@@ -61,6 +82,7 @@ final class MCPProxyTests: XCTestCase {
         IssueServerConfig.testOverride = IssueServerConfig(url: URL(string: "http://127.0.0.1:5998")!, token: "tok-9")
         FakeServerMCP.calls = []
         FakeServerMCP.down = false
+        FakeServerMCP.apps = true
     }
 
     override func tearDown() async throws {
@@ -149,5 +171,98 @@ final class MCPProxyTests: XCTestCase {
         let names = Set(try XCTUnwrap(listed["tools"] as? [[String: Any]]).compactMap { $0["name"] as? String })
         XCTAssertTrue(names.isSuperset(of: ["orgs", "server", "agent_task_delegate", "overview"]))
         XCTAssertFalse(names.contains("agents"), "server 沒有、App 也沒有實作的核心工具不列")
+    }
+
+    // MARK: - MCP Apps(resources 轉送)
+
+    private func rpcRaw(_ mcp: MCPHandler, _ method: String, _ params: [String: Any] = [:]) async throws -> [String: Any] {
+        let msg: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": method, "params": params]
+        let raw = await mcp.handle(try JSONSerialization.data(withJSONObject: msg))
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: try XCTUnwrap(raw)) as? [String: Any])
+    }
+
+    func testToolsListKeepsUIMeta() async throws {
+        let mcp = MCPHandler(app: AppState())
+        let tl = try await rpc(mcp, "tools/list")
+        let tools = try XCTUnwrap(tl["tools"] as? [[String: Any]])
+        let meta = try XCTUnwrap(tools.first { $0["name"] as? String == "flowchart_render" }?["_meta"] as? [String: Any])
+        XCTAssertEqual((meta["ui"] as? [String: Any])?["resourceUri"] as? String, "ui://omixor/flowchart")
+        XCTAssertEqual(meta["ui/resourceUri"] as? String, "ui://omixor/flowchart")
+    }
+
+    func testResourcesForwardedToServer() async throws {
+        let mcp = MCPHandler(app: AppState())
+        let init1 = try await rpc(mcp, "initialize", ["protocolVersion": "2025-06-18"])
+        let caps = try XCTUnwrap(init1["capabilities"] as? [String: Any])
+        XCTAssertNotNil(caps["tools"])
+        XCTAssertEqual((caps["resources"] as? [String: Any])?["subscribe"] as? Bool, false)
+
+        let list = try await rpc(mcp, "resources/list")
+        XCTAssertEqual((list["resources"] as? [[String: Any]])?.first?["uri"] as? String, "ui://omixor/flowchart")
+
+        let read = try await rpc(mcp, "resources/read", ["uri": "ui://omixor/flowchart"])
+        let c = try XCTUnwrap((read["contents"] as? [[String: Any]])?.first)
+        XCTAssertEqual(c["mimeType"] as? String, "text/html;profile=mcp-app")
+        XCTAssertEqual(c["text"] as? String, "<html>flow</html>")
+        XCTAssertEqual(((c["_meta"] as? [String: Any])?["ui"] as? [String: Any])?["prefersBorder"] as? Bool, true)
+        let sent = try XCTUnwrap(FakeServerMCP.calls.last { $0.method == "resources/read" })
+        XCTAssertEqual(sent.params["uri"] as? String, "ui://omixor/flowchart")
+        XCTAssertEqual(sent.path, "/mcp/org/default")
+        XCTAssertEqual(FakeServerMCP.calls.filter { $0.method == "resources/list" }.count, 1, "resources/list 有快取")
+
+        // server 沒有這個 uri:JSON-RPC 錯誤(不是例外)
+        let missing = try await rpcRaw(mcp, "resources/read", ["uri": "ui://omixor/nope"])
+        XCTAssertEqual((missing["error"] as? [String: Any])?["code"] as? Int, -32002)
+        let noUri = try await rpcRaw(mcp, "resources/read")
+        XCTAssertEqual((noUri["error"] as? [String: Any])?["code"] as? Int, -32602)
+    }
+
+    func testResourcesWhenServerDown() async throws {
+        FakeServerMCP.down = true
+        let mcp = MCPHandler(app: AppState())
+        let list = try await rpc(mcp, "resources/list")
+        XCTAssertEqual((list["resources"] as? [Any])?.count, 0)
+        let read = try await rpcRaw(mcp, "resources/read", ["uri": "ui://omixor/flowchart"])
+        XCTAssertNil(read["result"])
+        let err = try XCTUnwrap(read["error"] as? [String: Any])
+        XCTAssertEqual(err["code"] as? Int, -32002)
+        XCTAssertTrue((err["message"] as? String ?? "").contains("ui://omixor/flowchart"))
+        let ini = try await rpc(mcp, "initialize")
+        let caps = try XCTUnwrap(ini["capabilities"] as? [String: Any])
+        XCTAssertNil(caps["resources"], "連不上 server 時不宣告 resources")
+    }
+
+    /// 舊版 server(沒有 MCP Apps):tools/list 沒有 _meta.ui、resources/list 不支援 → initialize 不宣告 resources、list 回空、read 回錯誤
+    func testOldServerWithoutApps() async throws {
+        FakeServerMCP.apps = false
+        let mcp = MCPHandler(app: AppState())
+        let ini = try await rpc(mcp, "initialize")
+        let caps = try XCTUnwrap(ini["capabilities"] as? [String: Any])
+        XCTAssertNil(caps["resources"])
+        XCTAssertNotNil(caps["tools"])
+        let tl = try await rpc(mcp, "tools/list")
+        let tools = try XCTUnwrap(tl["tools"] as? [[String: Any]])
+        XCTAssertFalse(tools.contains { $0["_meta"] != nil }, "server 沒有畫面,tools/list 不該宣稱有")
+        let l = try await rpc(mcp, "resources/list")
+        XCTAssertEqual((l["resources"] as? [Any])?.count, 0)
+        let rd = try await rpcRaw(mcp, "resources/read", ["uri": "ui://omixor/flowchart"])
+        XCTAssertNotNil(rd["error"])
+    }
+
+    /// core/model/tools.go(登記表 CoreTools,同 repo)中 Admin: true 的工具,扣掉 keepLocal(orgs)= MCPHandler.coreTools。
+    /// 預期清單直接從登記表讀(沒有匯出的核心工具規格檔:console/spec/tools.json 刻意濾掉核心工具),不再手寫;
+    /// 解析方式同 console/spec/dump_spec.py(逐行抓 Name: "…")
+    func testCoreToolsCoverRegistry() throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../core/model/tools.go").standardized
+        guard let src = try? String(contentsOf: file, encoding: .utf8) else { throw XCTSkip("沒有 core/model/tools.go(單獨拿到 app 時略過)") }
+        let re = try NSRegularExpression(pattern: #"Name:\s*"(\w+)""#)
+        var registry = Set<String>()
+        for line in src.split(separator: "\n") where line.contains("Admin: true") {
+            let l = String(line)
+            if let m = re.firstMatch(in: l, range: NSRange(l.startIndex..., in: l)), let r = Range(m.range(at: 1), in: l) { registry.insert(String(l[r])) }
+        }
+        XCTAssertGreaterThan(registry.count, 20, "解析不到登記表的 Admin 工具,檔案格式變了?")
+        let admin = registry.subtracting(MCPHandler.keepLocal)
+        XCTAssertEqual(MCPHandler.coreTools, admin, "差:\(MCPHandler.coreTools.symmetricDifference(admin).sorted())")
     }
 }

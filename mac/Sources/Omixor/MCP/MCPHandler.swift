@@ -49,9 +49,12 @@ final class MCPHandler {
             if let info = params["clientInfo"] as? [String: Any], let name = info["name"] as? String {
                 app.mcp.lastClient = name
             }
+            // resources 能力只在 core server 有畫面資源(MCP Apps 的 ui://)時才宣告;initialize 最多等 2 秒(見 declaresResources)
+            var caps: [String: Any] = ["tools": ["listChanged": false]]
+            if await declaresResources() { caps["resources"] = ["listChanged": false, "subscribe": false] }
             return result(id: id, [
                 "protocolVersion": version,
-                "capabilities": ["tools": ["listChanged": false]],
+                "capabilities": caps,
                 "serverInfo": ["name": Self.serverName, "title": "omixor", "version": Self.serverVersion],
                 "instructions": Self.instructions,
             ])
@@ -120,7 +123,13 @@ final class MCPHandler {
                 return result(id: id, ["content": [["type": "text", "text": "\(error)"]], "isError": true])
             }
         case "resources/list":
-            return result(id: id, ["resources": []])
+            // 轉給 core server(MCP Apps 的 ui:// 畫面);連不上或 server 沒有 resources(舊版)時回空清單
+            return result(id: id, ["resources": await serverResources() ?? []])
+        case "resources/read":
+            guard let uri = params["uri"] as? String, !uri.isEmpty else {
+                return errorResponse(id: id, code: -32602, message: "缺少資源 uri")
+            }
+            return await readOnServer(id: id, uri: uri)
         case "prompts/list":
             return result(id: id, ["prompts": []])
         default:
@@ -148,7 +157,13 @@ final class MCPHandler {
                                           // 事件(存在 core;core/mcp/tools_incident.go)
                                           "incident_declare", "incident_update",
                                           // 繪圖工具(core/tools/wireframe、flowchart 的渲染器)
-                                          "wireframe_render", "flowchart_render"]
+                                          "wireframe_render", "flowchart_render",
+                                          // 待決定、子項、任務轉移、事件查詢(core/model/tools.go 的 CoreTools,Admin 的;orgs 是 keepLocal)
+                                          "issue_decisions", "issue_decision_add", "issue_decision_answer", "issue_decision_to_issue",
+                                          "issue_items", "issue_item_add", "issue_item_update", "issue_item_claim",
+                                          "issue_item_report", "issue_item_promote", "agent_task_transfer", "incidents",
+                                          // Issue 接受與放回(issue_update 旁的 Admin 工具)、資料庫結構檢核(core/model/tools.go 的 CoreTools)
+                                          "issue_accept", "schema_check"]
     // MARK: - 範例資料工具與功能開關
 
     /// 集合 → 所屬的範例功能(core/model/features.go 的 key)。沒列的(people、incidents、activity、integrations)不擋:
@@ -240,6 +255,64 @@ final class MCPHandler {
             serverToolError = error.localizedDescription
             serverToolCache = (key, .now, nil)
             return nil
+        }
+    }
+
+    /// server 資源清單(resources/list)的快取:TTL 同工具清單,讀不到(連不上、舊版 server 沒有 resources)時短快取
+    private var serverResourceCache: (key: String, at: Date, list: [[String: Any]]?)?
+    /// initialize 最多等 server 幾秒才決定要不要宣告 resources
+    static var initializeResourceWait: TimeInterval = 2
+
+    /// core server 的資源清單(ui:// 畫面);讀不到或是空的回 nil
+    func serverResources() async -> [[String: Any]]? {
+        let r = app.startIssues().remote
+        let org = app.currentOrgId
+        let key = r.config.url.absoluteString + "|" + org
+        if let c = serverResourceCache, c.key == key, Date().timeIntervalSince(c.at) < (c.list == nil ? 15 : Self.serverToolTTL) {
+            return c.list
+        }
+        do {
+            let res = try await r.run { try $0.mcp(org: org, method: "resources/list") }
+            let list = (res["resources"] as? [[String: Any]]).flatMap { $0.isEmpty ? nil : $0 }
+            serverResourceCache = (key, .now, list)
+            return list
+        } catch {
+            NSLog("MCP:讀不到 omixor server 的資源清單:%@", error.localizedDescription)
+            serverResourceCache = (key, .now, nil)
+            return nil
+        }
+    }
+
+    private final class Once { var done = false }
+
+    /// initialize 要不要宣告 resources:server 的 resources/list 非空才宣告(舊版 server 沒有這個方法或回空,就不宣告)。
+    /// 有快取就直接用;沒有就現查,但最多等 initializeResourceWait 秒——逾時視為沒有(不拖慢 initialize),
+    /// 背景的查詢繼續跑並寫進快取,用戶端之後重新 initialize 就會看到
+    private func declaresResources() async -> Bool {
+        let wait = Self.initializeResourceWait
+        return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            let once = Once()
+            Task { @MainActor in
+                let has = await self.serverResources() != nil
+                if !once.done { once.done = true; c.resume(returning: has) }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                if !once.done { once.done = true; c.resume(returning: false) }
+            }
+        }
+    }
+
+    /// resources/read 轉給 server,uri 原樣帶過去,回傳 server 的結果;失敗回「找不到資源」(-32002)
+    private func readOnServer(id: Any, uri: String) async -> [String: Any] {
+        let r = app.startIssues().remote
+        let org = app.currentOrgId
+        do {
+            let res = try await r.run { try $0.mcp(org: org, method: "resources/read", params: ["uri": uri]) }
+            nonisolated(unsafe) let out = res
+            return result(id: id, out)
+        } catch {
+            return errorResponse(id: id, code: -32002, message: "找不到資源:\(uri)(\(error.localizedDescription))")
         }
     }
 
