@@ -26,7 +26,7 @@ import (
 //
 //	token_hash   oauth:evoleap:<evoleap id> 的雜湊(用 evoleap id 查)
 //	client_id / resource / redirect_uri / code_challenge / org   綁定的授權請求
-//	scope        使用者選的授權範圍(mcp:read 或 mcp:read mcp:write)
+//	scope        使用者選的授權範圍(mcp:read、mcp:read mcp:write 或 mcp:read mcp:write mcp:admin)
 //	family_id    <瀏覽器綁定密鑰的雜湊(64 個 hex)>.<授權請求的 state>
 const (
 	OAuthEvoleapTTL     = 10 * time.Minute
@@ -47,9 +47,16 @@ func (s *Service) OAuthEvoleapEnabled() bool {
 // oauthEvoleapLabel 登記在 evoleap 的名稱,讓在 evoleap 核准的人看得到自己在核准什麼:
 // "omixor OAuth: <整理過的客戶端名稱> (read-only)"(或 "(read-write)");客戶端名稱沿用同意畫面的清理規則(去控制字元、壓縮空白),總長不超過 80 字
 func oauthEvoleapLabel(clientName string, grantWrite bool) string {
+	return oauthEvoleapGrantLabel(clientName, grantOfBool(grantWrite))
+}
+
+func oauthEvoleapGrantLabel(clientName, grant string) string {
 	suffix := " (read-only)"
-	if grantWrite {
+	switch grant {
+	case OAuthGrantWrite:
 		suffix = " (read-write)"
+	case OAuthGrantAdmin:
+		suffix = " (org-admin)"
 	}
 	prefix := oauthEvoleapName + ": "
 	name := []rune(cleanClientName(clientName))
@@ -84,25 +91,27 @@ func oauthBindHash(binding string) string {
 // StartOAuthEvoleap 開始 evoleap 登入:回傳瀏覽器要導去的 evoleap 核准頁網址與瀏覽器綁定密鑰(要放進 HttpOnly cookie)。
 // 呼叫前 HTTP 層必須已重驗授權請求與 CSRF。讀寫的規則同配對碼:grantWrite 但客戶端沒要求 mcp:write = 400 invalid_scope,在呼叫 evoleap 之前就擋
 func (s *Service) StartOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callbackURL string, grantWrite bool) (loginURL, binding string, err error) {
-	return s.startOAuthEvoleap(c, challenge, state, callbackURL, grantWrite)
+	return s.startOAuthEvoleap(c, challenge, state, callbackURL, grantOfBool(grantWrite))
 }
 
-func (s *Service) startOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callbackURL string, grantWrite bool) (loginURL, binding string, err error) {
+// StartOAuthEvoleapGrant 同 StartOAuthEvoleap,授權等級用 OAuthGrantRead / Write / Admin;管理員的「使用者要是組織管理員」在 evoleap 登入完成、身分確認後才檢查(CompleteOAuthEvoleap)
+func (s *Service) StartOAuthEvoleapGrant(c *OAuthAuthChecked, challenge, state, callbackURL, grant string) (loginURL, binding string, err error) {
+	return s.startOAuthEvoleap(c, challenge, state, callbackURL, grant)
+}
+
+func (s *Service) startOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callbackURL, grant string) (loginURL, binding string, err error) {
 	if !s.OAuthEvoleapEnabled() {
 		return "", "", oerr(400, "invalid_request", "這個伺服器沒有啟用 evoleap 登入,請改用配對碼")
 	}
-	if grantWrite && !c.WriteRequested {
-		return "", "", oerr(400, "invalid_scope", "這個授權請求沒有要求 mcp:write,不能授予讀寫")
+	if err := checkGrantRequested(c, grant); err != nil {
+		return "", "", err
 	}
 	s.purgeOAuth()
-	id, err := evoleap.Start(s.Evoleap, callbackURL, oauthEvoleapLabel(c.Client.Name, grantWrite))
+	id, err := evoleap.Start(s.Evoleap, callbackURL, oauthEvoleapGrantLabel(c.Client.Name, grant))
 	if err != nil {
 		return "", "", oerrR(502, "temporarily_unavailable", "暫時無法連到 evoleap,請稍後再試,或改用配對碼", "evoleap_unavailable")
 	}
-	scope := model.OAuthScopeRead
-	if grantWrite {
-		scope = model.OAuthScopeRead + " " + model.OAuthScopeWrite
-	}
+	scope := scopeOfGrant(grant)
 	binding = RandID("", 24)
 	now := s.now()
 	fam := oauthBindHash(binding) + "." + state
@@ -152,7 +161,7 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 		return nil, err
 	}
 	// 交易核對過:轉址是當初驗證過的。再驗一次整個授權請求(用戶端、redirect_uri 還在不在註冊清單、resource、PKCE 格式、scope)
-	grantWrite := hasScope(t.Scope, model.OAuthScopeWrite)
+	grant := []string{OAuthGrantRead, OAuthGrantWrite, OAuthGrantAdmin}[scopeLevel(t.Scope)]
 	chk, err := s.CheckOAuthAuthorize(OAuthAuthRequest{ClientID: t.ClientID, RedirectURI: t.RedirectURI, ResponseType: "code",
 		CodeChallenge: t.CodeChallenge, CodeChallengeMethod: "S256", State: state, Scope: t.Scope, Resources: []string{t.Resource},
 		Org: t.Org, Account: t.Org == ""})
@@ -169,7 +178,7 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 		return res, oerrR(403, "access_denied", "evoleap 登入沒有完成,請回到 Claude 重新開始連線", "evoleap_exchange")
 	}
 	defer evoleap.Logout(s.Evoleap, evoTok) // 成功失敗都撤銷:這個 token 只用來問「你是誰」
-	code, err := s.approveOAuth(chk, t.CodeChallenge, grantWrite, func() (*model.User, map[string]any, error) {
+	code, err := s.approveOAuth(chk, t.CodeChallenge, grant, func() (*model.User, map[string]any, error) {
 		u, _, err := s.resolveEvoleapUser(evoTok)
 		switch {
 		case err == nil:

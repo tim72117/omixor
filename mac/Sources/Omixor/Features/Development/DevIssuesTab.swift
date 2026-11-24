@@ -134,6 +134,7 @@ private struct IssueRow: View {
                     AuthorIcon(author: issue.createdBy, size: 14).help(app.issueStore?.authorName(issue.createdBy) ?? "")
                 }
                 if issue.priority <= .high { Pill(text: issue.priority.label, color: issue.priority.color) }
+                IssueHelpPill(issue: issue)
                 if let r = issue.repoTag {
                     Text(r).font(.caption.monospaced()).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle).frame(maxWidth: 140, alignment: .leading)
@@ -218,6 +219,7 @@ private struct IssueDetail: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 Divider()
+                IssueHelpSection(issue: issue)
                 if editing { editor } else { bodyView }
                 if !issue.comments.isEmpty || !editing { comments }
             }
@@ -269,6 +271,7 @@ private struct IssueDetail: View {
                     Pill(text: "倉庫:" + r, color: .teal, icon: "chevron.left.forwardslash.chevron.right").help(r)
                 }
                 ForEach(issue.labels, id: \.self) { Pill(text: $0, icon: "tag") }
+                IssueHelpPill(issue: issue)
                 if let e = store.remoteError { Text(e).font(.caption).foregroundStyle(.orange).lineLimit(2) }
                 if let e = channelError { Text(e).font(.caption).foregroundStyle(.red).lineLimit(2) }
             }

@@ -24,6 +24,7 @@ import { IssueEditForm, NewIssue } from "./IssueForm";
 import { IssueTrash } from "./IssueTrash";
 import { IssueItems } from "./IssueItems";
 import { IssueDecisionSummary } from "./IssueDecisionSummary";
+import { IssueHelp, IssueHelpPill } from "./IssueHelp";
 import { IssueAcceptButton, IssueAcceptedPill } from "./IssueAccept";
 import { itemsCountText } from "./itemModel";
 import { resolveIssueRef, updateIssue, useIsOrgAdmin, useProjects } from "./issueApi";
@@ -73,7 +74,7 @@ export function DevIssuesTab() {
     return { value: st, text, label: <>{text}{n > 0 && <span className={"muted num " + s.optCount}>{n}</span>}</> };
   };
   useEffect(() => {
-    if (res && !dev.selectedIssue && list[0]) dev.setSelectedIssue(list[0].id);
+    if (res && !dev.selectedIssue && list[0]) dev.setSelectedIssue(list[0].id, "replace");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [res !== undefined]);
   const sel = findIssue(issues, dev.selectedIssue);
@@ -84,8 +85,8 @@ export function DevIssuesTab() {
     if (!ref || !issuesReady || sel || resolved.current.has(ref)) return;
     resolved.current.add(ref);
     resolveIssueRef(ref)
-      .then((r) => dev.setSelectedIssue(r.deleted ? undefined : r.id))
-      .catch(() => dev.setSelectedIssue(undefined));
+      .then((r) => dev.setSelectedIssue(r.deleted ? undefined : r.id, "replace"))
+      .catch(() => dev.setSelectedIssue(undefined, "replace"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dev.selectedIssue, issuesReady, sel?.id]);
   return (
@@ -170,6 +171,7 @@ function IssueRow({ issue, showRepo, on, onClick }: { issue: Issue; showRepo: bo
         <span className="caption mono muted" title={issue.project ? "專案 " + issue.project : undefined}>{issueKey(issue)}</span>
         {isAIAuthor(issue.createdBy) && <span title={name(issue.createdBy)}><AuthorIcon author={issue.createdBy} size={14} /></span>}
         {showPriorityPill(issue.priority) && <Pill text={p.label} color={p.color} />}
+        <IssueHelpPill issueId={issue.id} />
         <MetaFit items={fit} />
         {itemsCountText(issue) && <span className={"caption muted row " + s.gap3} title={`子項:${issue.itemsOpen ?? 0} 未完成 / 共 ${issue.itemsTotal}`}><SIcon name="checklist" size={11} />{itemsCountText(issue)}</span>}
         {nComments > 0 && <span className={"caption muted row " + s.gap3} title={`${nComments} 則留言`}><SIcon name="bubble.left" size={11} />{nComments}</span>}
@@ -216,7 +218,7 @@ function IssueDetail({ issue }: { issue: Issue }) {
             ...kit.agents.filter((x) => x.active !== false || x.id === issue.assignee).map((x) => ({ label: x.name, checked: x.id === issue.assignee, onClick: () => upd({ assignee: x.id }) })),
             "sep",
             { label: "編輯…", onClick: () => setEditing(true) },
-            { label: "移到垃圾桶…", danger: true, onClick: () => ask({ title: `把 ${issueKey(issue)} 移到垃圾桶?`, message: "移到垃圾桶後不會出現在列表與看板;組織管理員可以從垃圾桶還原。", buttons: [{ label: "移到垃圾桶", danger: true, onClick: async () => { const r = await run(() => action("issue_delete", { id: issue.id }), "已移到垃圾桶"); if (r !== undefined) dev.setSelectedIssue(undefined); } }] }) },
+            { label: "移到垃圾桶…", danger: true, onClick: () => ask({ title: `把 ${issueKey(issue)} 移到垃圾桶?`, message: "移到垃圾桶後不會出現在列表與看板;組織管理員可以從垃圾桶還原。", buttons: [{ label: "移到垃圾桶", danger: true, onClick: async () => { const r = await run(() => action("issue_delete", { id: issue.id }), "已移到垃圾桶"); if (r !== undefined) dev.setSelectedIssue(undefined, "replace"); } }] }) },
           ]} />
           <button className="btn" title="這個 Issue 的對話頻道(已有就跳過去,沒有就建立)" onClick={async () => {
             // 已有綁這個 Issue 的頻道:核心直接回傳那個;沒有就建立(名稱用 Issue 標題,成員含自己與指派的角色)
@@ -247,6 +249,7 @@ function IssueDetail({ issue }: { issue: Issue }) {
       {editing ? (
         <IssueEditForm issue={issue} onClose={() => setEditing(false)} />
       ) : issue.body ? <MarkdownText source={issue.body} /> : <div className="muted">沒有內文</div>}
+      {!editing && <IssueHelp issueId={issue.id} />}
       {!editing && <IssueDecisionSummary issueKey={issueKey(issue)} />}
       {!editing && <IssueItems issueKey={issueKey(issue)} quietError={(issue.itemsTotal ?? 0) === 0} />}
       {(issue.comments?.length > 0 || !editing) && (
@@ -259,7 +262,7 @@ function IssueDetail({ issue }: { issue: Issue }) {
             </div>
           ))}
           <div className={s.composer + " gap8"}>
-            <MdTextarea className={s.commentBox} placeholder="寫留言…" value={comment} onChange={setComment} />
+            <MdTextarea minRows={1} maxRows={8} placeholder="寫留言…" value={comment} onChange={setComment} />
             <button className="btn" disabled={!comment.trim()} onClick={async () => { const r = await upd({ comment: comment.trim() }); if (r !== undefined) setComment(""); }}>送出</button>
           </div>
         </div>

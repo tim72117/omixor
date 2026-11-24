@@ -1,5 +1,6 @@
-// AI 自動化:人監督 AI 自動完成維運步驟。分頁:待核准/虛擬角色/派發/組織鏈/自動化流程/執行紀錄/成效(Swift 的 AutomationView)
+// AI 自動化:人監督 AI 自動完成維運步驟。分頁:待核准/虛擬角色/派發/需要處理/執行日誌/組織鏈/自動化流程/執行紀錄/成效(Swift 的 AutomationView)
 import { useEffect, useMemo, useState } from "react";
+import { useRouteChoice, useRouteParam } from "../../lib/nav";
 import { useView } from "../../api";
 import { AIBadge } from "../../components/Badge";
 import { ErrorText } from "../../components/ErrorText";
@@ -12,17 +13,21 @@ import type { SectionProps } from "../index";
 import { AutoAgents } from "./AutoAgents";
 import { AutoChain } from "./AutoChain";
 import { AutoDispatch } from "./AutoDispatch";
+import { AutoHelp } from "./AutoHelp";
 import { AutoFlows, FlowDetailSheet } from "./AutoFlows";
+import { AutoLog } from "./AutoLog";
 import { AutoInbox } from "./AutoInbox";
 import { AutoInsights } from "./AutoInsights";
 import { AutoRuns } from "./AutoRuns";
 import css from "./automation.module.css";
 import { AutoCtx, pendingOf, type AutoData } from "./autoShared";
+import { needsHelpTasks, taskNeedsHelp } from "./needsHelpModel";
 import { useFeatureTabs } from "../../features";
 
-type Tab = "inbox" | "agents" | "dispatch" | "chain" | "flows" | "runs" | "insights";
+type Tab = "inbox" | "agents" | "dispatch" | "help" | "log" | "chain" | "flows" | "runs" | "insights";
+const TAB_IDS = ["inbox", "agents", "dispatch", "help", "log", "chain", "flows", "runs", "insights"] as const satisfies readonly Tab[];
 const TABS: { id: Tab; label: string }[] = [
-  { id: "inbox", label: "待核准" }, { id: "agents", label: "虛擬角色" }, { id: "dispatch", label: "派發" }, { id: "chain", label: "組織鏈" }, { id: "flows", label: "自動化流程" }, { id: "runs", label: "執行紀錄" }, { id: "insights", label: "成效" },
+  { id: "inbox", label: "待核准" }, { id: "agents", label: "虛擬角色" }, { id: "dispatch", label: "派發" }, { id: "help", label: "需要處理" }, { id: "log", label: "執行日誌" }, { id: "chain", label: "組織鏈" }, { id: "flows", label: "自動化流程" }, { id: "runs", label: "執行紀錄" }, { id: "insights", label: "成效" },
 ];
 
 export default function AutomationView({ focusId, clearFocus }: SectionProps) {
@@ -37,13 +42,19 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
     // 讀取失敗也算「有結果」:否則某個 view 一直失敗時頁面永遠停在載入中(錯誤顯示在分頁上方)
     agentsError: agentsErr, loaded: autos !== undefined && (runs !== undefined || !!runsErr) && (approvals !== undefined || !!approvalsErr),
   }), [autos, runs, approvals, agents, agentsErr, runsErr, approvalsErr]);
-  const [rawTab, setRawTab] = useState<Tab>("inbox");
-  const tabs = useFeatureTabs(TABS.map((x) => x.id), rawTab, setRawTab, (x) => `automation.${x}`);
+  // 分頁與選中的角色存在網址(#/automation?tab=dispatch&agent=…):重新整理、上一頁都會還原;切分頁用 replace
+  const [rawTab, setRawTab] = useRouteChoice<Tab>("tab", TAB_IDS, "inbox");
+  const tabs = useFeatureTabs(TAB_IDS, rawTab, setRawTab, (x) => `automation.${x === "help" || x === "log" ? "dispatch" : x}`); // 需要處理、執行日誌沒有自己的功能開關,跟派發
   const tab = tabs.shown, setTab = tabs.select;
   const [focusApproval, setFocusApproval] = useState<string>();
   const [detail, setDetail] = useState<string>();
   const [selectedRun, setSelectedRun] = useState<string>();
-  const [selectedAgent, setSelectedAgent] = useState<string>();
+  const [selectedAgent, setSelectedAgent] = useRouteParam("agent");
+  // 需要處理頁籤要標示的任務(?task=…)
+  const [focusTask, setFocusTask] = useRouteParam("task");
+  const openHelp = (id: string) => { setFocusTask(id); setTab("help"); };
+  // 執行日誌頁籤:?run=<runId> 展開那一筆;篩選(?logRole、?outcome)由頁籤自己管
+  const openTaskPage = (t: { agentId: string }) => { setSelectedAgent(t.agentId); setTab("agents"); };
   // 修改後核准時,記住人改過的指令(模型的 action 是唯讀)
   const [edited, setEdited] = useState<Record<string, string>>({});
 
@@ -53,6 +64,7 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
     const ag = data.agents;
     if (ag?.agents.some((a) => a.id === id)) { setSelectedAgent(id); setTab("agents"); return true; }
     const task = ag?.tasks.find((x) => x.id.toLowerCase() === id.toLowerCase());
+    if (task && taskNeedsHelp(task)) { openHelp(task.id); return true; }
     if (task) { setSelectedAgent(task.agentId); setTab("agents"); return true; }
     if (data.approvals.some((a) => a.id === id)) { setFocusApproval(id); setTab("inbox"); return true; }
     if (data.automations.some((a) => a.id === id)) { setTab("flows"); setDetail(id); return true; }
@@ -68,9 +80,9 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
   const pending = pendingOf(data);
   const active = data.automations.filter((a) => a.enabled).length;
   const running = data.runs.filter((r) => r.status === "running").length;
-  const blocked = data.agents?.tasks.filter((x) => x.status === "blocked").length ?? 0;
+  const blocked = needsHelpTasks(data.agents?.tasks ?? []).length;
   const tabTitle = (t: (typeof TABS)[number]) =>
-    (t.id === "agents" || t.id === "dispatch") && blocked > 0 ? `${t.label}(${blocked})` : t.id === "inbox" && pending.length ? `${t.label}(${pending.length})` : t.label;
+    t.id === "help" && blocked > 0 ? `${t.label}(${blocked})` : t.id === "inbox" && pending.length ? `${t.label}(${pending.length})` : t.label;
 
   return (
     <AutoCtx.Provider value={data}>
@@ -91,7 +103,9 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
           {approvalsErr && <ErrorText>讀不到核准請求:{approvalsErr}</ErrorText>}
           {tab === "inbox" ? <AutoInbox focusId={focusApproval} clearFocus={() => setFocusApproval(undefined)} edited={edited} setEdited={setEdited} openAutomation={setDetail} openRun={(id) => { setSelectedRun(id); setTab("runs"); }} />
             : tab === "agents" ? <AutoAgents selection={selectedAgent} setSelection={setSelectedAgent} />
-            : tab === "dispatch" ? <AutoDispatch openTask={(t) => { setSelectedAgent(t.agentId); setTab("agents"); }} />
+            : tab === "dispatch" ? <AutoDispatch openTask={openTaskPage} openHelp={openHelp} openLog={() => setTab("log")} />
+            : tab === "help" ? <AutoHelp focusId={focusTask} openTask={openTaskPage} />
+            : tab === "log" ? <AutoLog openTask={(id) => { const t = data.agents?.tasks.find((x) => x.id === id); if (t) openTaskPage(t); }} />
             : tab === "chain" ? <AutoChain />
             : tab === "flows" ? <AutoFlows openDetail={setDetail} />
             : tab === "runs" ? <AutoRuns selection={selectedRun} setSelection={setSelectedRun} openApproval={(id) => { setFocusApproval(id); setTab("inbox"); }} openAutomation={setDetail} />

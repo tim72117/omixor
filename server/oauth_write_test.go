@@ -61,7 +61,7 @@ func TestOAuthWriteMetadataScopes(t *testing.T) {
 	o := newOAHTTP(t)
 	for _, path := range []string{"/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource/mcp/org/o", "/.well-known/oauth-authorization-server/oauth"} {
 		b := o.do("GET", path, "").Body.String()
-		if !strings.Contains(b, `"mcp:read"`) || !strings.Contains(b, `"mcp:write"`) {
+		if !strings.Contains(b, `"mcp:read"`) || !strings.Contains(b, `"mcp:write"`) || !strings.Contains(b, `"mcp:admin"`) {
 			t.Fatal(path, b)
 		}
 	}
@@ -109,7 +109,7 @@ func TestOAuthWriteGrantFlowAccount(t *testing.T) {
 	}
 	// 白名單外:英文訊息;沒有效果
 	w = o.mcpPost("/mcp", access, callBody("agent_upsert", `{"org":"o","id":"evil","name":"x"}`))
-	if !strings.Contains(w.Body.String(), `"isError":true`) || !strings.Contains(w.Body.String(), "This tool is not available over OAuth") {
+	if !strings.Contains(w.Body.String(), `"isError":true`) || !strings.Contains(w.Body.String(), "oauth_admin_scope_required") {
 		t.Fatal(w.Body.String())
 	}
 	if strings.Contains(o.mcpPost("/mcp", access, callBody("agents", `{"org":"o"}`)).Body.String(), "evil") {

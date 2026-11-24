@@ -59,7 +59,7 @@ export function AccountBox() {
       </button>
       {canLogout && (
         <button className={css.logout} disabled={out.busy || busy} onClick={() => void doLogout()} title="登出並回到選擇連接對象或登入頁">
-          <Icon name="power" size={13} /> 登出
+          <Icon name="rectangle.portrait.and.arrow.right" size={13} /> 登出
         </button>
       )}
       {open && (

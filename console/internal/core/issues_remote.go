@@ -512,7 +512,7 @@ func (a *App) issueRemoteLoad(s *issueState) {
 	s.gen++
 }
 
-// RefreshIssuesIfStale 交給核心時:超過 maxAge 沒讀就重讀(拿著 Mu 呼叫;存檔案時不做事)
+// RefreshIssuesIfStale 交給核心時:超過 maxAge 沒讀就重讀(拿著 Mu 呼叫)
 func (a *App) RefreshIssuesIfStale(maxAge time.Duration) {
 	s := a.issueSt()
 	if time.Since(s.fetched) >= maxAge {

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// AI 自動化:人監督 AI 自動完成維運步驟。
-/// 分頁:待核准(收件匣)/虛擬角色/派發/組織鏈/粉絲專頁/自動化流程/執行紀錄/成效。
+/// 分頁:待核准(收件匣)/虛擬角色/派發/需要處理/執行日誌/組織鏈/自動執行/粉絲專頁/自動化流程/執行紀錄/成效。
 struct AutomationView: View {
     @EnvironmentObject var app: AppState
     @State private var tab: AutoTab = .inbox
@@ -10,6 +10,8 @@ struct AutomationView: View {
     @State private var selectedRun: String?
     @State private var selectedAgent: String?
     @State private var selectedTask: String?
+    /// 「需要處理」分頁要標示的任務
+    @State private var focusHelpTask: String?
     /// 修改後核准時,記住人改過的指令(模型的 action 是唯讀)
     @State private var editedActions: [String: String] = [:]
 
@@ -69,8 +71,8 @@ struct AutomationView: View {
     }
 
     private func tabTitle(_ t: AutoTab) -> String {
-        if t == .agents || t == .dispatch {
-            let blocked = app.agentTasks.filter { $0.status == .blocked }.count
+        if t == .help {
+            let blocked = NeedsHelpModel.tasks(app.agentTasks).count
             if blocked > 0 { return "\(t.label)(\(blocked))" }
         }
         if t == .inbox, !app.pendingApprovals.isEmpty { return "\(t.label)(\(app.pendingApprovals.count))" }
@@ -86,11 +88,16 @@ struct AutomationView: View {
         case .agents:
             AutoAgentsView(selection: $selectedAgent)
         case .dispatch:
-            AutoDispatchView(selected: $selectedTask)
+            AutoDispatchView(runner: app.agentRunner, selected: $selectedTask,
+                             openHelp: openHelp, openLog: { tab = .log })
+        case .help:
+            AutoHelpView(focusId: focusHelpTask, openTask: { openTask($0.id) })
+        case .log:
+            AutoLogView(runner: app.agentRunner, openTask: openTask)
         case .chain:
             AutoChainView()
         case .runner:
-            AutoRunnerView(runner: app.agentRunner)
+            AutoRunnerView(runner: app.agentRunner, openLog: { tab = .log }, openTask: openTask)
         case .facebook:
             AutoFacebookView()
         case .flows:
@@ -110,6 +117,12 @@ struct AutomationView: View {
         if open(id) { app.focusId = nil }
     }
 
+    /// 到派發列表展開這個任務
+    private func openTask(_ id: String) { selectedTask = id; tab = .dispatch }
+
+    /// 到「需要處理」分頁並標示這個任務
+    private func openHelp(_ id: String) { focusHelpTask = id; tab = .help }
+
     @discardableResult
     private func open(_ id: String) -> Bool {
         if id == "agents" { tab = .agents; return true }
@@ -119,7 +132,8 @@ struct AutomationView: View {
         if id == "facebook" || app.fbSettings.drafts.contains(where: { $0.id == id }) { tab = .facebook; return true }
         if let a = app.agents.first(where: { $0.id == id }) { selectedAgent = a.id; tab = .agents; return true }
         if let t = app.agentTasks.first(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) {
-            selectedTask = t.id; tab = .dispatch; return true
+            if t.needsHelp { openHelp(t.id) } else { openTask(t.id) }
+            return true
         }
         if app.approvals.contains(where: { $0.id == id }) {
             focusApproval = id

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { action, tool, useActionQuery, useRun, useView } from "../../api";
 import { AgentAvatar, AuthorIcon } from "../../components/Avatar";
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
@@ -242,7 +243,7 @@ function DocDetail({ doc, layout, projects, version, onDeleted, onMoved }: { doc
       </div>
       <ErrorText>{error}</ErrorText>
       <div className="divider" />
-      {editing ? <textarea className={"textarea " + css.body} value={body} onChange={(e) => setBody(e.target.value)} />
+      {editing ? <AutoTextarea monospace minRows={12} maxRows={30} value={body} onChange={setBody} />
         : html ? <DocFrame html={html} />
         : doc.body ? (
           <>
@@ -329,7 +330,7 @@ function NewDocSheet({ project, projects, section, tab, onClose, onCreated }: { 
     <Modal open onClose={onClose} width={600}>
       <ModalTitle>新增文件到「{project ? `${projectLabel(project, projects)} › ` : ""}{section.label}{tab ? ` › ${tabTitle(tab)}` : ""}」</ModalTitle>
       <input className="input" autoFocus placeholder="標題" value={title} onChange={(e) => setTitle(e.target.value)} />
-      <textarea className={"textarea " + css.newBody} value={body} onChange={(e) => setBody(e.target.value)} />
+      <AutoTextarea monospace minRows={9} maxRows={20} value={body} onChange={setBody} />
       <ErrorText>{error}</ErrorText>
       <div className="row gap8">
         <span className="caption muted grow">純文字,支援 Markdown</span>

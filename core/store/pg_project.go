@@ -104,7 +104,7 @@ func (p *PG) UpdateProject(org string, x model.Project) error {
 	}
 	if cur != x.Key {
 		var n int
-		if err := tx.QueryRow(c, `select count(*) from ops_issues where org = $1 and project = $2`, org, x.ID).Scan(&n); err != nil {
+		if err := tx.QueryRow(c, `select count(*) from omixor_issues where org = $1 and project = $2`, org, x.ID).Scan(&n); err != nil {
 			return err
 		}
 		if n > 0 {

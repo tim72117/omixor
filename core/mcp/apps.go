@@ -87,6 +87,20 @@ var OAuthWriteTools = model.OAuthWriteTools
 // OAuthNotAvailableMessage 有 mcp:write 的 OAuth 連線呼叫了白名單外的工具時的訊息(給 LLM 看,英文)
 const OAuthNotAvailableMessage = "This tool is not available over OAuth. Use an omx_ user token for it."
 
+// OAuthAdminTools OAuth 組織管理員授權(mcp:admin)再多開放的組織結構工具(見 model.OAuthAdminTools):可用 = ReadOnlyTools ∪ OAuthWriteTools ∪ OAuthAdminTools,
+// 而且每次呼叫都要即時是該組織的管理員(統一入口的 CallCtx 檢查;service 層的授權表照舊)
+var OAuthAdminTools = model.OAuthAdminTools
+
+// 組織管理員工具被擋的訊息與機器碼(Data["code"];給 LLM 看,英文)
+const (
+	// OAuthAdminRequiredMessage 讀寫授權(沒有 mcp:admin)呼叫了組織管理員工具
+	OAuthAdminRequiredMessage = "This tool requires the organization-admin grant (scope mcp:admin), but this OAuth connection was granted read-write only. Reconnect and choose the organization-admin option (you must be an admin of the organization), or use an omx_ user token."
+	// OAuthCodeAdminScopeRequired 上面那種情況的 Data["code"]
+	OAuthCodeAdminScopeRequired = "oauth_admin_scope_required"
+	// OAuthCodeOrgAdminRequired 有 mcp:admin 授權,但呼叫者目前不是該組織的管理員(例如之後被降級或移出組織)
+	OAuthCodeOrgAdminRequired = "org_admin_required"
+)
+
 // isReadOnlyBackend 這個連線是唯讀授權(OAuth 的 mcp:read)嗎(Backend 實作 ReadOnly() bool,例如 backend.Local)
 func isReadOnlyBackend(bk any) bool {
 	b, ok := bk.(interface{ ReadOnly() bool })
@@ -99,15 +113,40 @@ func isOAuthWriteBackend(bk any) bool {
 	return ok && b.OAuthWrite()
 }
 
+// isOAuthAdminBackend 這個連線是有 mcp:admin 的 OAuth 授權嗎(Backend 實作 OAuthAdmin() bool,例如 backend.Local;隱含 OAuthWrite)
+func isOAuthAdminBackend(bk any) bool {
+	b, ok := bk.(interface{ OAuthAdmin() bool })
+	return ok && b.OAuthAdmin()
+}
+
 // restrictOAuth 依連線的 OAuth scope 套上限制(AdminEndpoint 與 UnifiedEndpoint 共用,兩邊行為一致);不是 OAuth 連線(omx_)原樣回傳:
 //   - 唯讀(mcp:read):restrictReadOnly
 //   - 讀寫(mcp:write):restrictOAuthWrite
-func restrictOAuth(h Hooks, bk any) Hooks {
+//   - 組織管理員(mcp:admin):只有統一入口(unified)才多開 OAuthAdminTools(restrictOAuthAdmin);組織端點(/mcp/org/{org})把它當讀寫
+func restrictOAuth(h Hooks, bk any, unified bool) Hooks {
 	switch {
 	case isReadOnlyBackend(bk):
 		return restrictReadOnly(h)
+	case isOAuthAdminBackend(bk) && unified:
+		return restrictOAuthAdmin(h)
 	case isOAuthWriteBackend(bk):
-		return restrictOAuthWrite(h)
+		h = restrictOAuthWrite(h)
+		if !unified { // 組織端點沒有 mcp:admin 這個選項:管理員工具對它就是「OAuth 不開放」,不提示重新授權
+			h.Deny = func(string) string { return OAuthNotAvailableMessage }
+			h.DenyCode = nil
+		}
+		return h
+	}
+	return h
+}
+
+// restrictOAuthAdmin 組織管理員授權(mcp:admin)的限制:開放 ReadOnlyTools ∪ OAuthWriteTools ∪ OAuthAdminTools(額外掛上來的工具也不開放);其他工具回 OAuthNotAvailableMessage。
+// 「呼叫者是該呼叫 org 的管理員」的即時檢查在統一入口的 CallCtx(orgAdminCheck),這裡只決定哪些工具看得到、呼叫得到
+func restrictOAuthAdmin(h Hooks) Hooks {
+	orig := h.Allow
+	h = restrictOAuthWrite(h)
+	h.Allow = func(name string) bool {
+		return (ReadOnlyTools[name] || OAuthWriteTools[name] || OAuthAdminTools[name]) && (orig == nil || orig(name))
 	}
 	return h
 }
@@ -146,6 +185,17 @@ func restrictOAuthWrite(h Hooks) Hooks {
 		}
 		return readOnlyGuard(name, args)
 	}
-	h.Deny = func(string) string { return OAuthNotAvailableMessage }
+	h.Deny = func(name string) string {
+		if OAuthAdminTools[name] {
+			return OAuthAdminRequiredMessage
+		}
+		return OAuthNotAvailableMessage
+	}
+	h.DenyCode = func(name string) string {
+		if OAuthAdminTools[name] {
+			return OAuthCodeAdminScopeRequired
+		}
+		return ""
+	}
 	return h
 }

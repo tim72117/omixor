@@ -163,6 +163,8 @@ var (
 		DefaultDoc: "不載入範本", Doc: "範本資料:1/on/true/yes/auto = 自動找 templates/;0/off/false/no = 不載入;其他值 = 範本資料夾路徑"})
 	MCPPort = add(&Var{Name: "OMIXOR_MCP_PORT", Legacy: []string{"OPS_MCP_PORT"}, Kind: Int, Default: "3765", Range: portRange, Group: GroupWeb, Programs: progs(Web, MCP),
 		Doc: "MCP 連接埠(和 macOS App 相同;兩個同時開時給其中一個換埠);omixor-mcp 用它組出轉接位址"})
+	MCPListTTLSeconds = add(&Var{Name: "OMIXOR_MCP_LIST_TTL_SECONDS", Kind: Int, Default: "300", Range: &[2]int{0, 86400}, Group: GroupShared, Programs: progs(Server, Local, Web),
+		Doc: "MCP 2026-07-28 請求的快取提示:server/discover、tools/list、resources/list、resources/read 結果的 ttlMs 取自這個秒數(0 = 一律視為過期);舊版協定的回應不帶快取提示"})
 	MCPAddr = add(&Var{Name: "OMIXOR_MCP_ADDR", Legacy: []string{"OPS_MCP_ADDR"}, Kind: String, Default: "127.0.0.1", Group: GroupWeb, Programs: progs(Web),
 		Doc: "MCP 聽的位址(Docker 裡設 0.0.0.0,連接埠只發布到主機的 127.0.0.1)"})
 	MCPToken = add(&Var{Name: "OMIXOR_CONSOLE_MCP_TOKEN", Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web, MCP),

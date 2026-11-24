@@ -298,6 +298,8 @@ type Principal struct {
 	// ReadOnly 唯讀授權(OAuth 的 mcp:read):MCP 端點只開放登記為 ReadOnly 的工具(model.CoreTool.ReadOnly),REST 一律拒絕。
 	// Via 是 ViaOAuth 且 ReadOnly 為 false = 有 mcp:write(受限寫入):MCP 端點只開放 ReadOnly ∪ OAuthWriteTools,而且不是伺服器管理員(見 ServerAdmin)
 	ReadOnly bool
+	// OAuthAdmin OAuth 授權帶 mcp:admin(只在 Via 是 ViaOAuth 且 ReadOnly 為 false 時有意義,見 OAuthAdminGrant)
+	OAuthAdmin bool
 }
 
 // Principal.Via 的值:身分是怎麼來的
@@ -312,6 +314,10 @@ const (
 
 // OAuthWrite 這是有 mcp:write 的 OAuth 身分(受限寫入;不是伺服器管理員,只能用 OAuthWriteTools)
 func (p Principal) OAuthWrite() bool { return p.Via == ViaOAuth && !p.ReadOnly }
+
+// OAuthAdminGrant 這是有 mcp:admin 的 OAuth 身分(隱含 OAuthWrite;多開 OAuthAdminTools,每次呼叫仍要即時是該組織的管理員)。
+// 同樣不是伺服器管理員(ServerAdmin 對 OAuthWrite 一律 false)
+func (p Principal) OAuthAdminGrant() bool { return p.OAuthWrite() && p.OAuthAdmin }
 
 // ServerAdmin 伺服器管理員。OAuth 的寫入身分(OAuthWrite)一律不是:就算登入的使用者是伺服器管理員,OAuth 連線以一般成員的權限運作
 // (沒有跨組織的萬能權限、不能代別人署名、不能取代留言、不能做伺服器管理操作)。唯讀的 OAuth 身分不受影響(本來就只能讀)

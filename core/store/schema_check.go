@@ -8,9 +8,44 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"omixor-core/model"
 )
+
+// extraTables 宿主程式(例如 console 的本機模式)在同一個資料庫另外建的 omixor_ 表;不是遺留表
+var extraTables = struct {
+	sync.RWMutex
+	names map[string]bool
+}{names: map[string]bool{}}
+
+// RegisterExtraTables 給在同一個資料庫另外建 omixor_ 表的宿主程式用:登記後 schema_check 不把這些表當遺留表。
+// 只影響遺留表的判斷(golden 裡有的表照常比對);可重複呼叫、可並行;沒登記的陌生表照樣會被報告。
+func RegisterExtraTables(names ...string) {
+	extraTables.Lock()
+	defer extraTables.Unlock()
+	for _, n := range names {
+		extraTables.names[n] = true
+	}
+}
+
+// withoutExtraTables 去掉已登記、且 golden 沒有的表(它們不歸核心管,不參與比對)
+func withoutExtraTables(golden, actual []manifestTable) []manifestTable {
+	gold := map[string]bool{}
+	for _, g := range golden {
+		gold[g.Name] = true
+	}
+	extraTables.RLock()
+	defer extraTables.RUnlock()
+	out := make([]manifestTable, 0, len(actual))
+	for _, a := range actual {
+		if extraTables.names[a.Name] && !gold[a.Name] {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
 
 // SchemaChecker 是可選介面:有資料庫的 store(PG)才有;檔案模式沒有。service 用型別斷言。
 type SchemaChecker interface {
@@ -151,7 +186,7 @@ func (p *PG) CheckSchema() (*model.SchemaReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	rep := compareSchema(golden, actual)
+	rep := compareSchema(golden, withoutExtraTables(golden, actual))
 	c, cancel := ctx()
 	defer cancel()
 	v, _, err := currentSchemaVersion(c, p.pool)

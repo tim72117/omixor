@@ -222,16 +222,9 @@ export function useCanGo(): (section: SectionId | string) => boolean {
   return useFeatures().visible;
 }
 
-const sectionName = (s: string) => current?.features.find((f) => f.key === s)?.name ?? s;
+export const sectionName = (s: string) => current?.features.find((f) => f.key === s)?.name ?? s;
 
-/** 跳到別頁:關掉的頁面不跳,改在畫面上方提示(後端的 navigate 也會擋,這裡先擋可以不閃一下總覽) */
-export function guardedNavigate(section: SectionId | string, focusId?: string | null) {
-  if (!featuresNow().visible(section)) {
-    showFeatureNotice(`「${sectionName(section)}」在系統設定裡關閉了`);
-    return Promise.resolve(undefined);
-  }
-  return action("navigate", { section, focusId: focusId ?? "" });
-}
+// 換頁(guardedNavigate)在 lib/nav.ts:它要寫瀏覽器歷史,並用這裡的 featuresNow / showFeatureNotice 擋關掉的頁面
 
 /**
  * 頁面裡的分頁依開關:keyOf 回傳分頁的功能 key(undefined = 核心沒登記,永遠顯示)。

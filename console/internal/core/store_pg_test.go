@@ -6,12 +6,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"omixor-core/store"
 	"omixor-core/storetest"
 )
 
@@ -19,7 +22,7 @@ import (
 
 var testKey = base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
 
-// consoleSchema 在範本資料庫補上 console 自己的表(ops_documents、ops_secrets…,見 OpenDB),回收還原才不會因結構不同而被丟掉
+// consoleSchema 在範本資料庫補上 console 自己的表(omixor_documents、omixor_secrets…,見 ensurePGSchema),回收還原才不會因結構不同而被丟掉
 func consoleSchema(url string) error {
 	ctx, cancel := pgCtx()
 	defer cancel()
@@ -28,12 +31,7 @@ func consoleSchema(url string) error {
 		return err
 	}
 	defer c.Close(ctx)
-	for _, sc := range append([]string{pgSchema}, pgExtraSchema...) {
-		if _, err := c.Exec(ctx, sc); err != nil {
-			return err
-		}
-	}
-	return nil
+	return ensurePGSchema(ctx, c)
 }
 
 func withDB(t *testing.T) string {
@@ -71,21 +69,21 @@ func TestPGDocuments(t *testing.T) {
 	if _, err := ReadData(filepath.Join(DataRoot(), "nope.json")); !IsNotExist(err) {
 		t.Fatal(err)
 	}
-	// 改名與整個資料夾搬移
+	// 改名
 	if err := RenameData(p, p+".unreadable-1"); err != nil || Exists(p) || !Exists(p+".unreadable-1") {
 		t.Fatal("改名失敗")
 	}
+	// 整個資料夾刪除:前綴要以 / 分界,orgs/xy 不能被當成 orgs/x 刪掉
 	_ = WriteJSON(filepath.Join(DataRoot(), "orgs", "x", "agents.json"), map[string]any{})
 	_ = WriteJSON(filepath.Join(DataRoot(), "orgs", "xy", "agents.json"), map[string]any{})
-	if err := MoveDataDir(filepath.Join(DataRoot(), "orgs", "x"), filepath.Join(DataRoot(), "deleted-orgs", "x-1")); err != nil {
+	if err := RemoveDataDir(filepath.Join(DataRoot(), "orgs", "x")); err != nil {
 		t.Fatal(err)
 	}
-	if DataDirExists(filepath.Join(DataRoot(), "orgs", "x")) || !DataDirExists(filepath.Join(DataRoot(), "deleted-orgs", "x-1")) {
-		t.Fatal("搬資料夾失敗")
+	if DataDirExists(filepath.Join(DataRoot(), "orgs", "x")) {
+		t.Fatal("刪資料夾失敗")
 	}
-	// 前綴要以 / 分界:orgs/xy 不能被當成 orgs/x 搬走
 	if !DataDirExists(filepath.Join(DataRoot(), "orgs", "xy")) {
-		t.Fatal("orgs/xy 被誤搬")
+		t.Fatal("orgs/xy 被誤刪")
 	}
 	// 不是 JSON 的不收
 	if err := WriteData(filepath.Join(DataRoot(), "bad.json"), []byte("{")); err == nil {
@@ -106,12 +104,12 @@ func TestPGSecretsEncrypted(t *testing.T) {
 	c, _ := pgx.Connect(ctx, url)
 	defer c.Close(ctx)
 	var ct []byte
-	_ = c.QueryRow(ctx, "select ciphertext from ops_secrets where account = 'github:token'").Scan(&ct)
+	_ = c.QueryRow(ctx, "select ciphertext from omixor_secrets where account = 'github:token'").Scan(&ct)
 	if strings.Contains(string(ct), "ghs_secret") || len(ct) == 0 {
 		t.Fatal("密文裡有明文")
 	}
 	// 密文搬到別的帳號底下解不開(帳號是 AAD)
-	_, _ = c.Exec(ctx, "insert into ops_secrets (account, nonce, ciphertext) select 'evil:token', nonce, ciphertext from ops_secrets where account = 'github:token'")
+	_, _ = c.Exec(ctx, "insert into omixor_secrets (account, nonce, ciphertext) select 'evil:token', nonce, ciphertext from omixor_secrets where account = 'github:token'")
 	if _, ok := Vault.Get("evil:token"); ok {
 		t.Fatal("搬過去的密文不該解得開")
 	}
@@ -238,7 +236,7 @@ func TestPGOrgsAndImport(t *testing.T) {
 	c.Start()
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
-	// Issue 匯入到 issues 表(不放 ops_documents)
+	// Issue 匯入到 issues 表(不放 omixor_documents)
 	if issues := c.Issues(); len(issues) != 1 || issues[0].Key != "ISS-9" || issues[0].Priority != "high" {
 		t.Fatalf("匯入的 Issue 讀不到:%v", issues)
 	}
@@ -252,7 +250,7 @@ func TestPGTimerStopsOnCloseDB(t *testing.T) {
 	withDB(t)
 	a := New()
 	// New 會把種子寫進去;先刪掉 sprint 那一列,才分得出「是計時器寫的」
-	if _, err := pgExec(context.Background(), `delete from ops_state where name = 'sprint'`); err != nil {
+	if _, err := pgExec(context.Background(), `delete from omixor_state where name = 'sprint'`); err != nil {
 		t.Fatal(err)
 	}
 	startPGTimer(a, 5*time.Millisecond) // 很短的間隔,讓計時器在關閉前後都有機會跑
@@ -262,7 +260,7 @@ func TestPGTimerStopsOnCloseDB(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		var n int
-		_ = pgQueryRow(context.Background(), `select count(*) from ops_state where name = 'sprint'`).Scan(&n)
+		_ = pgQueryRow(context.Background(), `select count(*) from omixor_state where name = 'sprint'`).Scan(&n)
 		if n == 1 {
 			break // 關閉前計時器確實寫過一次資料
 		}
@@ -325,4 +323,125 @@ func TestPGBackgroundWritesSafeAcrossCloseDB(t *testing.T) {
 	if err := pgQueryRow(context.Background(), "select 1").Scan(new(int)); !errors.Is(err, errPGClosed) {
 		t.Fatalf("%v", err)
 	}
+}
+
+// 舊版(ops_ 前綴)的資料庫:啟動時表、索引、序號、主鍵改成 omixor_ 前綴,資料保留;再啟動一次是 no-op;新舊同時存在報錯、不覆蓋
+func TestOpenDBRenamesLegacyOpsTables(t *testing.T) {
+	url := storetest.URLWith(t, "console", consoleSchema) // 範本已經是新名字;先倒著改回舊名,模擬舊版建出來的資料庫
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(ctx)
+	exec := func(sql string) {
+		t.Helper()
+		if _, err := c.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s:%v", sql, err)
+		}
+	}
+	for _, r := range pgLegacyRenames { // 表在前、索引與序號在後,倒著改時索引要先改(主鍵索引依附在表上,表改名不影響它)
+		if r.kind != "table" {
+			exec("alter " + r.kind + " " + r.new + " rename to " + r.old)
+		}
+	}
+	for _, r := range pgLegacyRenames {
+		if r.kind == "table" {
+			exec("alter table " + r.new + " rename to " + r.old)
+		}
+	}
+	exec(`insert into ops_documents (path, data) values ('legacy.json', '{"a":1}')`)
+	exec(`insert into ops_activity (id, at, item) values ('act1', now(), '{}')`)
+
+	open := func() error {
+		sep := "?"
+		if strings.Contains(url, "?") {
+			sep = "&"
+		}
+		if err := OpenDB(url+sep+"pool_max_conns=4", testKey); err != nil {
+			return err
+		}
+		CloseDB()
+		Vault = NewMemoryVault()
+		return nil
+	}
+	if err := open(); err != nil {
+		t.Fatal(err)
+	}
+	count := func(sql string) (n int) {
+		t.Helper()
+		if err := c.QueryRow(ctx, sql).Scan(&n); err != nil {
+			t.Fatalf("%s:%v", sql, err)
+		}
+		return n
+	}
+	if n := count(`select count(*) from pg_class where relnamespace = current_schema()::regnamespace and relname like 'ops\_%'`); n != 0 {
+		t.Errorf("改名後不該有 ops_ 開頭的表、索引、序號:%d", n)
+	}
+	if n := count(`select count(*) from pg_constraint where connamespace = current_schema()::regnamespace and conname like 'ops\_%'`); n != 0 {
+		t.Errorf("改名後不該有 ops_ 開頭的約束:%d", n)
+	}
+	if count(`select count(*) from omixor_documents where path = 'legacy.json'`) != 1 || count(`select count(*) from omixor_activity where id = 'act1'`) != 1 {
+		t.Error("資料要保留")
+	}
+	exec(`insert into omixor_activity (id, at, item) values ('act2', now(), '{}')`) // bigserial 序號改名後仍可用
+	// 冪等:再啟動一次
+	if err := open(); err != nil {
+		t.Fatalf("再啟動一次不該失敗:%v", err)
+	}
+	exec(`create table ops_files (path text)`) // 改名後又跑過舊版程式建出空的舊表:不覆蓋、報清楚的錯
+	if err := open(); err == nil || !strings.Contains(err.Error(), "both exist") {
+		t.Fatalf("新舊同時存在要報錯:%v", err)
+	}
+	exec(`drop table ops_files`)
+}
+
+// console 的表登記給核心 schema_check 後不算遺留表:全新資料庫 ok,登記的名單等於實際建出的 console 表
+func TestEnsurePGSchemaRegistersConsoleTables(t *testing.T) {
+	url := withDB(t)
+	ctx := context.Background()
+	c, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(ctx)
+	if err := ensurePGSchema(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	p, err := store.AttachMigratedPG(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	rep, err := p.CheckSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.OK || len(rep.OrphanTables) != 0 {
+		t.Fatalf("本機資料庫應 ok 且沒有遺留表:%+v", rep)
+	}
+	// 實際建出的表 = 不在核心 golden 裡的 omixor_ 表;用「拿掉登記後的遺留表」反推太繞,直接查資料庫,與核心的表(omixor_ 開頭且屬 golden)分開
+	rows, err := c.Query(ctx, `select table_name from information_schema.tables where table_schema = current_schema() and table_type = 'BASE TABLE' and table_name = any($1) order by 1`, pgTableNames(pgSchema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, n)
+	}
+	want := []string{"omixor_activity", "omixor_documents", "omixor_files", "omixor_secrets", "omixor_sessions", "omixor_state"}
+	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(sortedCopy(pgTableNames(pgSchema)), want) {
+		t.Errorf("console 表與登記名單不一致:db=%v 名單=%v", got, pgTableNames(pgSchema))
+	}
+}
+
+func sortedCopy(s []string) []string {
+	out := append([]string(nil), s...)
+	sort.Strings(out)
+	return out
 }

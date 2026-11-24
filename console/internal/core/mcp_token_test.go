@@ -212,7 +212,7 @@ func TestMCPTokenInDatabaseVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	if b, ok := Vault.Get(mcpTokenAccount); !ok || string(b) != tok {
-		t.Fatal("要存在 Vault(ops_secrets,加密)")
+		t.Fatal("要存在 Vault(omixor_secrets,加密)")
 	}
 	if got, _ := mcptoken.ReadFile(dir); got != tok {
 		t.Fatal("要鏡射一份檔案")

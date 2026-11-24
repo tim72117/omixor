@@ -53,7 +53,10 @@ var unifiedInstructions = "This is omixor's unified MCP entry point: one connect
 	"When connected with an OAuth grant, the connection is account-level and each call is checked against your current organization membership. " +
 	"By default an OAuth grant is read-only (scope mcp:read): only read tools are available. If you explicitly granted read-write (scope mcp:write), a limited set of collaboration write tools is also available " +
 	"(issue_create, report_problem, issue_update, issue_accept, issue_decision_add, issue_decision_answer, issue_decision_to_issue, issue_item_add, issue_item_update, issue_item_report, issue_item_promote, doc_save, channel_create, channel_post, agent_task_report), " +
-	"with your own organization permissions and never server-administrator powers. Everything else (claiming tasks or credentials, managing agents, the org chain, projects, the cabinet layout, incidents) requires an omx_ user token. " +
+	"with your own organization permissions and never server-administrator powers. " +
+	"If you explicitly granted the organization-admin option (scope mcp:admin, which includes read-write; only organization admins can grant it), the organization-structure tools are also available " +
+	"(agent_upsert, chain_save, project_save, cabinet_layout_save, incident_declare, incident_update); each call is checked against your current role in the organization named by org, so it fails unless you are an admin of that organization right now. " +
+	"Still unavailable over OAuth under every grant: claiming tasks or credentials, scheduling or transferring agent tasks, commit writes and a few other tools; those require an omx_ user token. " +
 	"issue_create, issue_update and issue_accept return a compact receipt by default (key, id, status, version, updatedAt, changed, comment_id when a comment was added); pass return=\"full\" to get the whole issue with body and comments. " +
 	"issues(id) returns only the 5 most recent comments by default (use comments_limit / comments_before to page)." +
 	" " + strings.Replace(adminInstructions, "of the current organization", "of the organization named by the org parameter", 1)
@@ -219,6 +222,12 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 				if err != nil {
 					return nil, nil, err
 				}
+				// mcp:admin 授權的組織管理員工具:每次呼叫即時確認呼叫者目前是這個 org 的管理員(不是授權當下;被降級或移出組織後立刻失效)
+				if OAuthAdminTools[name] && !extra[name] && isOAuthAdminBackend(bk) {
+					if err := orgAdminCheck(avail, org); err != nil {
+						return nil, nil, err
+					}
+				}
 				delete(args, "org") // 工具看到的參數和舊端點一樣
 				sess.OrgID = org
 				sess.OrgNameFn = func() string { return oc.name(org) }
@@ -227,7 +236,7 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 			Guard:     RejectIdentityAgent,
 			Resources: uiResources}
 		// OAuth(唯讀):和 AdminEndpoint 同一套限制;組織仍由每次呼叫的 org 參數與即時成員資格決定(CallCtx),token 本身不帶組織
-		hooks = restrictOAuth(hooks, bk)
+		hooks = restrictOAuth(hooks, bk, true)
 		// 每個結果的 _meta 都帶 omixor/server(含 orgs、schema_check 這類沒有 org 的工具);omixor/org 的行為不變
 		callCtx := hooks.CallCtx
 		hooks.CallCtx = func(name string, args map[string]any) (any, map[string]any, error) {
@@ -242,6 +251,18 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 		}
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})
+}
+
+// orgAdminCheck 組織管理員授權(mcp:admin)的每次呼叫檢查:avail 是這個請求即時查到的「呼叫者能用的組織」(帶 MyRole,OAuth 身分不是伺服器管理員,所以是真正的成員角色);
+// 呼叫的 org 的角色不是 admin = 403,機器碼 org_admin_required(service 層的授權表之後仍照舊檢查,這裡是明確的第一道)
+func orgAdminCheck(avail []model.Org, org string) error {
+	for _, o := range avail {
+		if o.ID == org && o.MyRole == "admin" {
+			return nil
+		}
+	}
+	return ToolError{Status: 403, Data: map[string]any{"code": OAuthCodeOrgAdminRequired},
+		Message: "This tool requires you to be an administrator of organization " + org + ", and you are not one right now (an OAuth admin grant is checked against your current role on every call)."}
 }
 
 // orgCache caches Backend.ListOrgs for the lifetime of one HTTP request (batch calls share it).

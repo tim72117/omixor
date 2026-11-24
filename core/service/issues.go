@@ -77,8 +77,13 @@ func (s *Service) conflictErr(cur *model.Issue, version int64) error {
 	return errIssueConflict(cur, version)
 }
 
+// IssueNotFoundCode Issue 找不到的機器碼(Error.Data["code"]):不存在、在垃圾桶裡、或呼叫者看不到(受限專案)都是它,不洩漏存在與否
+const IssueNotFoundCode = "issueNotFound"
+
 // issueNotFound Issue 不存在(含在垃圾桶裡的)
-func issueNotFound(id string) error { return fail(404, "找不到 Issue %s", id) }
+func issueNotFound(id string) error {
+	return &Error{Code: 404, Msg: fmt.Sprintf("找不到 Issue %s", id), Data: map[string]any{"code": IssueNotFoundCode}}
+}
 
 // resolveIssueID Issue 編號(內部 id、目前或舊的 key,不分大小寫)→ 內部 id;找不到 404。
 // 所有收 Issue 編號的入口先呼叫它(鎖、比對都用內部 id)

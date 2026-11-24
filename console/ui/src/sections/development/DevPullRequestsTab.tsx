@@ -1,5 +1,6 @@
 // 開發 › Pull Requests(Swift 的 DevPullRequestsTab.swift)。
 // 核准/要求修改/合併/關閉在 Swift 版只改本機的範例資料;這裡呼叫畫面動作 pull_request_set / pull_request_join_review。
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { useState } from "react";
 import { action } from "../../api";
 import { ActorLabel, AvatarStack } from "../../components/Avatar";
@@ -194,7 +195,7 @@ function PRDetail({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof usePR
       </div>
       {isActivePR(pr) ? (
         <div className="col gap8">
-          {canReview(pr) && <textarea className={"textarea " + css.note} placeholder="審查留言(選填)" value={comment} onChange={(e) => setComment(e.target.value)} />}
+          {canReview(pr) && <AutoTextarea ariaLabel="審查留言" minRows={1} placeholder="審查留言(選填)" value={comment} onChange={setComment} />}
           <div className="row gap8">
             {canReview(pr) && (
               <>

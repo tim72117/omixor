@@ -231,6 +231,7 @@ var authzProbes = map[string]func(e *authzEnv, p *model.Principal) error{
 	},
 	"agent.task.cancel":  func(e *authzEnv, p *model.Principal) error { return ign(e.svc.CancelTask(p, "o1", e.other)) },
 	"agent.task.requeue": func(e *authzEnv, p *model.Principal) error { return ign(e.svc.RequeueTask(p, "o1", e.other)) },
+	"agent.task.reply":   func(e *authzEnv, p *model.Principal) error { return ign(e.svc.ReplyTask(p, "o1", e.other, "答覆")) },
 	"agent.task.delegate": func(e *authzEnv, p *model.Principal) error {
 		return ign(e.svc.DelegateTask(p, "o1", service.DelegateInput{To: "pm", Title: "委派"}))
 	},

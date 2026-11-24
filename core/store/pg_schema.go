@@ -8,11 +8,11 @@
 
 package store
 
-// PostgreSQL 的存放處。Issue 的表(ops_issues、ops_issue_comments)和 omixor-web 原本的一樣,正式資料直接接得上。
+// PostgreSQL 的存放處。Issue 的表(omixor_issues、omixor_issue_comments)原名 ops_issues、ops_issue_comments(步驟 3 改名,schema_rename_issues.go)。
 //
 //	omixor_users / omixor_tokens / omixor_audit   使用者、token(只存雜湊)、操作紀錄
 //	omixor_orgs / omixor_org_members              組織與成員(角色 admin、member)
-//	ops_issues / ops_issue_comments               Issue 與留言(主鍵 (org, id),id 是 UUIDv7;pos 大的在前;key 是顯示編號 ISS-<n> / <專案代號>-<n>,
+//	omixor_issues / omixor_issue_comments               Issue 與留言(主鍵 (org, id),id 是 UUIDv7;pos 大的在前;key 是顯示編號 ISS-<n> / <專案代號>-<n>,
 //	                                              (org, upper(key)) 唯一;number 是 key 在所屬範圍(project,'' = 組織層級)內的號碼;project_ref 產生欄位外鍵指向專案(restrict);
 //	                                              version 樂觀鎖版本號;deleted_at 不是 NULL = 在垃圾桶(軟刪除);見 pg_issue.go)
 //	omixor_issue_keys                             Issue 目前與過去用過的 key(主鍵 (org, key),key 一律存大寫;issue_id 外鍵 cascade)
@@ -21,8 +21,8 @@ package store
 //	omixor_agents                                 虛擬角色(主鍵 (org, id);docAccess、routines 在 omixor_agent_doc_access、omixor_agent_routines;舊 jsonb 欄位與 split_at 已不再寫,下一版 drop;見 pg_doc_agent_children.go)
 //	omixor_agent_tasks                            角色任務(主鍵 (org, id) = T-<n>;備註、連結在子表 omixor_agent_task_notes / _links,見 pg_incident_task_children.go;舊的 links、notes jsonb 欄位不再寫)
 //	omixor_agent_credentials                      任務綁定的角色憑證(只存 SHA-256 雜湊與到期時間;token_hash 是主鍵)
-//	ops_issues.assignee                           指派給的角色 id(空字串 = 未指派)
-//	ops_issues.repo                               Issue 所屬的程式碼倉庫(owner/name 或 group/sub/project,可帶 github:/gitlab:;空字串 = 未標記)
+//	omixor_issues.assignee                           指派給的角色 id(空字串 = 未指派)
+//	omixor_issues.repo                               Issue 所屬的程式碼倉庫(owner/name 或 group/sub/project,可帶 github:/gitlab:;空字串 = 未標記)
 //	omixor_cabinet_layouts                        文件櫃結構的「存過」標記與版本號(主鍵 (org, project);project 空字串 = 未分專案;version 是樂觀鎖的版本號,每存一次 +1;
 //	                                              layout(jsonb)與 split_at 是舊格式遺留,已不再寫,下一版 drop;見 pg_cabinet.go)
 //	omixor_cabinet_sections                       文件櫃的區塊(主鍵 (org, project, id);pos 是順序;文件的 section 欄位以字串指向 id,不加外鍵)
@@ -37,7 +37,7 @@ package store
 //	omixor_project_members                        專案成員(主鍵 (org, project, actor_id);role 是 admin 或 member;(org, project) 外鍵指向專案 cascade,actor_id 外鍵指向 omixor_actors cascade(fk_project_members_actor,
 //	                                              見 fkSpecs)。受限專案(omixor_projects.restricted)只有成員與管理員看得到;方法在 pg_project_members.go)
 //	omixor_decisions                              待決定(decision)/ 需要協助(help)(主鍵 (org, id) = DEC-<n>;created_by、decided_by 是 actor id(fk_decisions_created_by / _decided_by,見 fkSpecs);
-//	                                              (org, source_issue) 外鍵指向 ops_issues 的內部 id,Issue 永久刪除時清成 NULL;方法在 pg_decision.go)
+//	                                              (org, source_issue) 外鍵指向 omixor_issues 的內部 id,Issue 永久刪除時清成 NULL;方法在 pg_decision.go)
 //	omixor_oauth_clients、omixor_oauth_tokens     OAuth(Claude 自訂 connector 唯讀連 MCP):動態註冊的用戶端;授權碼、access、refresh、同意畫面的 CSRF token(只存雜湊;和 omixor_tokens 完全分開,方法在 pg_oauth.go,規則在 service/oauth.go)
 //	omixor_issue_items                            Issue 子項(主鍵 (org, id) = uuidv7;(org, issue_id, seq) 唯一,seq 由 omixor_seq 的 item:<issueID> scope 發;
 //	                                               assignee、claimed_by、created_by 是 actor id(fk_issue_items_*,見 fkSpecs);depends_on 自參照、issue_id cascade、promoted_issue_id set null 在建表時就有;
@@ -565,7 +565,7 @@ create table omixor_users (
   constraint omixor_users_pkey primary key (id),
   constraint omixor_users_role_check check ((role = ANY (ARRAY['admin'::text, 'member'::text])))
 );
-create table ops_issue_comments (
+create table omixor_issue_comments (
   org text not null,
   issue_id text not null,
   pos integer not null,
@@ -573,9 +573,9 @@ create table ops_issue_comments (
   author text not null,
   text text not null,
   at timestamp with time zone not null,
-  constraint ops_issue_comments_pkey primary key (org, issue_id, pos)
+  constraint omixor_issue_comments_pkey primary key (org, issue_id, pos)
 );
-create table ops_issues (
+create table omixor_issues (
   org text not null,
   id text not null,
   number integer not null,
@@ -599,9 +599,9 @@ create table ops_issues (
   deleted_at timestamp with time zone,
   deleted_by text,
   project_ref text generated always as (NULLIF(project, ''::text)) stored,
-  constraint ops_issues_pkey primary key (org, id),
-  constraint ops_issues_priority_check check ((priority = ANY (ARRAY['urgent'::text, 'high'::text, 'normal'::text, 'low'::text]))),
-  constraint ops_issues_status_check check ((status = ANY (ARRAY['open'::text, 'closed'::text])))
+  constraint omixor_issues_pkey primary key (org, id),
+  constraint omixor_issues_priority_check check ((priority = ANY (ARRAY['urgent'::text, 'high'::text, 'normal'::text, 'low'::text]))),
+  constraint omixor_issues_status_check check ((status = ANY (ARRAY['open'::text, 'closed'::text])))
 );
 CREATE unique INDEX omixor_actors_agent_handle ON omixor_actors using btree (org, handle) where ((kind = 'agent'::text) AND (disabled_at IS NULL));
 CREATE unique INDEX omixor_actors_id_org_handle ON omixor_actors using btree (id, org, handle);
@@ -617,8 +617,8 @@ CREATE unique INDEX omixor_docs_org_number ON omixor_docs using btree (org, numb
 CREATE unique INDEX omixor_incidents_org_number ON omixor_incidents using btree (org, number) where (number > 0);
 CREATE unique INDEX omixor_projects_org_key ON omixor_projects using btree (org, upper(key)) where (key <> ''::text);
 CREATE unique INDEX omixor_users_actor_id ON omixor_users using btree (actor_id);
-CREATE unique INDEX ops_issues_org_key ON ops_issues using btree (org, upper(key)) where (key <> ''::text);
-CREATE unique INDEX ops_issues_org_number ON ops_issues using btree (org, project, number) where (number > 0);
+CREATE unique INDEX omixor_issues_org_key ON omixor_issues using btree (org, upper(key)) where (key <> ''::text);
+CREATE unique INDEX omixor_issues_org_number ON omixor_issues using btree (org, project, number) where (number > 0);
 -- 索引(建在外鍵之前:omixor_agents 的複合外鍵要指到 omixor_actors 的唯一索引)
 create index omixor_actor_aliases_actor ON omixor_actor_aliases using btree (actor_id);
 create index omixor_actors_agent_org ON omixor_actors using btree (org) where (kind = 'agent'::text);
@@ -647,7 +647,7 @@ create index omixor_issue_keys_issue ON omixor_issue_keys using btree (org, issu
 create index omixor_oauth_tokens_expires ON omixor_oauth_tokens using btree (expires_at);
 create index omixor_oauth_tokens_family ON omixor_oauth_tokens using btree (family_id) where (family_id <> ''::text);
 create index omixor_project_members_actor ON omixor_project_members using btree (org, actor_id);
-create index ops_issues_org_pos ON ops_issues using btree (org, pos desc);
+create index omixor_issues_org_pos ON omixor_issues using btree (org, pos desc);
 -- 外鍵
 alter table omixor_actor_aliases add constraint omixor_actor_aliases_actor_id_fkey foreign key (actor_id) references omixor_actors(id);
 alter table omixor_actors add constraint omixor_actors_owner_fkey foreign key (owner) references omixor_actors(id) on delete restrict;
@@ -658,16 +658,16 @@ alter table omixor_agent_task_notes add constraint omixor_agent_task_notes_org_t
 alter table omixor_agents add constraint omixor_agents_actor_fk foreign key (actor_id, org, id) references omixor_actors(id, org, handle);
 alter table omixor_channel_members add constraint omixor_channel_members_org_channel_id_fkey foreign key (org, channel_id) references omixor_channels(org, id) on update cascade on delete cascade;
 alter table omixor_channel_mentions add constraint omixor_channel_mentions_org_channel_id_message_id_fkey foreign key (org, channel_id, message_id) references omixor_channel_messages(org, channel_id, id) on update cascade on delete cascade;
-alter table omixor_decisions add constraint omixor_decisions_org_source_issue_fkey foreign key (org, source_issue) references ops_issues(org, id) on update cascade on delete set null (source_issue);
+alter table omixor_decisions add constraint omixor_decisions_org_source_issue_fkey foreign key (org, source_issue) references omixor_issues(org, id) on update cascade on delete set null (source_issue);
 alter table omixor_doc_tags add constraint omixor_doc_tags_org_doc_id_fkey foreign key (org, doc_id) references omixor_docs(org, id) on update cascade on delete cascade;
 alter table omixor_incident_alerts add constraint omixor_incident_alerts_org_incident_id_fkey foreign key (org, incident_id) references omixor_incidents(org, id) on update cascade on delete cascade;
 alter table omixor_incident_events add constraint omixor_incident_events_org_incident_id_fkey foreign key (org, incident_id) references omixor_incidents(org, id) on update cascade on delete cascade;
 alter table omixor_incident_follow_ups add constraint omixor_incident_follow_ups_org_incident_id_fkey foreign key (org, incident_id) references omixor_incidents(org, id) on update cascade on delete cascade;
 alter table omixor_incident_services add constraint omixor_incident_services_org_incident_id_fkey foreign key (org, incident_id) references omixor_incidents(org, id) on update cascade on delete cascade;
 alter table omixor_issue_items add constraint omixor_issue_items_org_depends_on_fkey foreign key (org, depends_on) references omixor_issue_items(org, id) on update cascade on delete set null (depends_on);
-alter table omixor_issue_items add constraint omixor_issue_items_org_issue_id_fkey foreign key (org, issue_id) references ops_issues(org, id) on update cascade on delete cascade;
-alter table omixor_issue_items add constraint omixor_issue_items_org_promoted_issue_id_fkey foreign key (org, promoted_issue_id) references ops_issues(org, id) on update cascade on delete set null (promoted_issue_id);
-alter table omixor_issue_keys add constraint omixor_issue_keys_org_issue_id_fkey foreign key (org, issue_id) references ops_issues(org, id) on update cascade on delete cascade;
+alter table omixor_issue_items add constraint omixor_issue_items_org_issue_id_fkey foreign key (org, issue_id) references omixor_issues(org, id) on update cascade on delete cascade;
+alter table omixor_issue_items add constraint omixor_issue_items_org_promoted_issue_id_fkey foreign key (org, promoted_issue_id) references omixor_issues(org, id) on update cascade on delete set null (promoted_issue_id);
+alter table omixor_issue_keys add constraint omixor_issue_keys_org_issue_id_fkey foreign key (org, issue_id) references omixor_issues(org, id) on update cascade on delete cascade;
 alter table omixor_oauth_tokens add constraint omixor_oauth_tokens_client_id_fkey foreign key (client_id) references omixor_oauth_clients(client_id) on delete cascade;
 alter table omixor_oauth_tokens add constraint omixor_oauth_tokens_user_id_fkey foreign key (user_id) references omixor_users(id) on delete cascade;
 alter table omixor_org_chain_edges add constraint omixor_org_chain_edges_org_fkey foreign key (org) references omixor_org_chains(org) on update cascade on delete cascade;
@@ -677,5 +677,5 @@ alter table omixor_project_members add constraint omixor_project_members_org_pro
 alter table omixor_project_repos add constraint omixor_project_repos_org_project_fkey foreign key (org, project) references omixor_projects(org, id) on delete cascade;
 alter table omixor_users add constraint fk_users_actor foreign key (actor_id, kind) references omixor_actors(id, kind) on delete restrict;
 alter table omixor_tokens add constraint omixor_tokens_user_id_fkey foreign key (user_id) references omixor_users(id);
-alter table ops_issue_comments add constraint ops_issue_comments_org_issue_id_fkey foreign key (org, issue_id) references ops_issues(org, id) on update cascade on delete cascade;
+alter table omixor_issue_comments add constraint omixor_issue_comments_org_issue_id_fkey foreign key (org, issue_id) references omixor_issues(org, id) on update cascade on delete cascade;
 ` + commitsSchemaSQL + schemaVersionDDL

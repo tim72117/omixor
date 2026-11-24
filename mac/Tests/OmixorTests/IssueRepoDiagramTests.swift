@@ -94,7 +94,7 @@ final class IssueRepoDiagramTests: XCTestCase {
         let app = AppState()
         let mcp = MCPHandler(app: app)
 
-        var (obj, text, isError) = try await call(mcp, "issue_create", ["title": "登入頁跑版", "repo": " Tim72117/Evoleap "])
+        var (obj, text, isError) = try await call(mcp, "issue_create", ["title": "登入頁跑版", "repo": " Tim72117/Evoleap ", "return": "full"])
         XCTAssertFalse(isError, text)
         XCTAssertEqual((obj as? [String: Any])?["repo"] as? String, "Tim72117/Evoleap", "去頭尾空白")
         XCTAssertEqual(app.issues.first?.repo, "Tim72117/Evoleap")
@@ -126,7 +126,7 @@ final class IssueRepoDiagramTests: XCTestCase {
         u = try XCTUnwrap(store.update(second.id, by: app.me) { $0.title = "只改標題" })
         XCTAssertEqual(u.repo, "gitlab:group/sub/proj", "沒改倉庫時保留")
 
-        (obj, text, isError) = try await call(mcp, "issue_update", ["id": second.id, "repo": ""])
+        (obj, text, isError) = try await call(mcp, "issue_update", ["id": second.id, "repo": "", "return": "full"])
         XCTAssertFalse(isError, text)
         XCTAssertNil((obj as? [String: Any])?["repo"], "issue_update repo 空字串 = 清除")
     }

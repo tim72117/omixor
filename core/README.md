@@ -57,7 +57,7 @@ Issue 可以標記它屬於哪個程式碼倉庫:`repo` 欄位(`model.Issue.Repo
 - 驗證(`model.CleanRepo`):去頭尾空白;只允許英數與 `-` `_` `.` `/` `:`,最長 200;不合格 400(建立、修改、匯入都檢查)
 - 建立 `{…, repo?}`;修改 `{repo?}`:有給才改,`""` 清除
 - 篩選:`GET /api/orgs/{org}/issues?repo=<repo>`、MCP `issues` 的 `repo` 參數(`service.FilterIssuesByRepo`;不分大小寫,`github:`/`gitlab:` 前綴有一邊沒寫就忽略前綴比較)
-- PostgreSQL:`ops_issues.repo text not null default ''`(舊資料庫啟動時自動補欄位)
+- PostgreSQL:`omixor_issues.repo text not null default ''`(舊資料庫啟動時自動補欄位)
 
 ## 文件櫃
 
@@ -109,6 +109,7 @@ API:
 - `POST /api/orgs/{org}/agent-tasks/delegate`:`{to, title, instructions?, priority?}` 角色委派(角色憑證;伺服器管理員用 token 可帶 `from`、`taskId`)
 - `POST /api/orgs/{org}/agent-tasks/{id}/worker/delegate`:`{code, to, title, instructions?, priority?}` 執行者以任務角色委派
 - `GET /api/orgs/{org}/agent-tasks?reportTo=me|user:<email>|agent:<id>`:依鏈回報給這個節點的任務(角色身分只能查 `agent:<自己>`)
+- `POST /api/orgs/{org}/agent-tasks`(MCP `agent_task_create`):`{agentId, title, instructions?, priority?, issue?, links?}` 派任務;`issue`(key 或內部 id,只能一張)解析成內部 id 放在 `links` 最前面,和 Issue 指派自動排的任務一樣,「需要協助」等依 `links` 找 Issue 的畫面才認得。Issue 不存在、在垃圾桶或呼叫者看不到(受限專案)一律 404、機器碼 `issueNotFound`,不建立任務。委派(`delegate`)的任務會繼承來源任務的 `links`,所以連著 Issue 的任務再委派,下游任務仍連著同一張 Issue
 
 MCP:
 
@@ -161,6 +162,7 @@ API(都在 `/api/orgs/{org}` 底下;角色憑證 `Bearer <agentId>:<secret>` 也
 MCP:
 
 - 管理端點:`channels`(`agent?`、`issue?`;含未讀數)、`channel_create`(`name`、`topic?`、`issue?`、`members?`;回傳多 `created`)、`channel_messages`(`channel`(id 或名稱)、`since?`、`limit?`(預設 50)、`agent?`;讀了算已讀,標到回傳的最後一則)、`channel_post`(`channel`、`text`、`agent?`)。`agent` 的規則同 Issue:伺服器管理員(本機 web)以該角色署名,一般帳號照樣是自己
+- 角色端點 `agent_context.tools`:`available`(`name`、`label`)與 `unavailable`(`name`、`label`、`reason` 穩定代碼、`reason_message` 英文短句);處理規則在角色端點 instructions(英文,只寫一次),沒有 per-call `note`。代碼與中英文說明集中在 `service/agenttools.go` 的 `needReasons`(UI 的繁中 `reason` 同一來源)。
 - 角色端點:`channels`、`channel_messages`、`channel_post`(一律以憑證的角色);`agent_context` 多 `mentions: {messages: [{channelId, channelName, id, author, authorName, text, at}](最多 20 則), channels: [{id, name, unread}], hint}`
 - 執行者端點:沒有頻道工具
 
@@ -197,3 +199,5 @@ MCP:
 ```bash
 go test ./...
 ```
+
+**OAuth 組織管理員(`mcp:admin`)**:在 `mcp:write` 之上,同意畫面(客戶端有要求才出現第三個選項)讓是組織管理員的使用者再多開 `model.OAuthAdminTools`(`agent_upsert`、`chain_save`、`project_save`、`cabinet_layout_save`、`incident_declare`、`incident_update`)。每次呼叫統一入口都即時確認呼叫者是該 `org` 的管理員(否則 `org_admin_required`),讀寫授權呼叫得到 `oauth_admin_scope_required`;角色憑證、替角色排任務、commit 寫入等仍禁止,且永遠不是伺服器管理員。詳見 `docs/authorization.md`。

@@ -186,6 +186,7 @@ func (h *Handler) ObserveMCP(next http.Handler) http.Handler {
 		}
 		d["token_state"] = h.Svc.OAuthAccessState(tok, resource)
 		d["_write"] = h.Svc.OAuthAccessWrite(tok)
+		d["_admin"] = h.Svc.OAuthAccessAdmin(tok)
 		if r.Method == http.MethodPost && r.Body != nil {
 			b, _ := io.ReadAll(io.LimitReader(r.Body, mcp.MaxBody+1))
 			r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(b), r.Body)) // 還給後面的 handler,行為不變
@@ -202,13 +203,15 @@ func (h *Handler) ObserveMCP(next http.Handler) http.Handler {
 		delete(d, "_calls")
 		write, _ := d["_write"].(bool)
 		delete(d, "_write")
+		admin, _ := d["_admin"].(bool)
+		delete(d, "_admin")
 		if d["token_state"] != "valid" {
 			return
 		}
 		for _, name := range calls {
 			switch {
-			case write: // mcp:write:唯讀工具與 OAuthWriteTools 之外、或回了「不開放」訊息 = 被擋
-				if !(mcp.ReadOnlyTools[name] || mcp.OAuthWriteTools[name]) || strings.Contains(rec.head.String(), mcp.OAuthNotAvailableMessage) {
+			case write: // mcp:write(mcp:admin 再加 OAuthAdminTools):唯讀工具與 OAuthWriteTools 之外、或回了「不開放」訊息 = 被擋
+				if !(mcp.ReadOnlyTools[name] || mcp.OAuthWriteTools[name] || (admin && mcp.OAuthAdminTools[name])) || strings.Contains(rec.head.String(), mcp.OAuthNotAvailableMessage) {
 					d["token_state"] = "tool_denied"
 					return
 				}

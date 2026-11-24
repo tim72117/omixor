@@ -313,9 +313,7 @@ struct DevPRDetail: View {
         if DevMetrics.isActive(pr) {
             VStack(alignment: .leading, spacing: 8) {
                 if DevPRActions.canReview(pr) {
-                    TextField("審查留言(選填)", text: $comment, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...4)
+                    AutoGrowTextField(placeholder: "審查留言(選填)", text: $comment)
                 }
                 HStack(spacing: 8) {
                     if DevPRActions.canReview(pr) {

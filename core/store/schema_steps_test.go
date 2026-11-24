@@ -139,11 +139,13 @@ func TestRunStepsDatabaseNewerThanProgram(t *testing.T) {
 	}
 }
 
-// 沒有版本記錄的舊資料庫(有表、沒有版本表):啟動時補版本表並蓋 baseline,再套用步驟
+// 沒有版本記錄的舊資料庫(baseline 結構、沒有版本表):啟動時補版本表並蓋 baseline,再套用所有步驟
 func TestStampBaselineOnLegacyDatabase(t *testing.T) {
-	pool, _ := stepDB(t)
 	c := context.Background()
-	_, err := pool.Exec(c, `drop table omixor_schema_version`)
+	pool, err := pgxpool.New(c, testPGBlank(t))
+	chk(t, err)
+	t.Cleanup(pool.Close)
+	_, err = pool.Exec(c, baselineSchemaA+baselineSchemaB+baselineFKSQL)
 	chk(t, err)
 	chk(t, bootstrapSchema(c, pool))
 	if v := maxVersion(t, pool); v != knownSchemaVersion(schemaSteps) {
@@ -180,7 +182,9 @@ func TestRetryLock(t *testing.T) {
 }
 
 // stepRuleWhitelist 破例名單:步驟版本 → 原因。要允許 drop、rename、改型別的步驟,必須在這裡加一筆並寫原因(且確認舊版程式仍相容)
-var stepRuleWhitelist = map[int]string{}
+var stepRuleWhitelist = map[int]string{
+	3: "Issue 表改名(ops_issues → omixor_issues);上一版程式會壞,部署必須停掉舊實例再啟動(docs/design-schema-rename.md)",
+}
 
 // (e) 步驟清單的守門:版本嚴格遞增且連續、從 2 開始、名稱與 SQL 非空、禁止 drop / rename / alter column ... type
 func TestSchemaStepsRules(t *testing.T) {

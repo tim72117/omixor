@@ -257,10 +257,9 @@ private struct ChannelDetail: View {
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField("在「\(channel.name)」發訊息(Enter 送出、Shift+Enter 換行、@ 提到成員)", text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
-                        .lineLimit(1...8)
+                        .lineLimit(InputRows.short)
                         .focused($composerFocused)
-                        .padding(8)
-                        .background(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
+                        .inputBox(active: composerFocused)
                         .onKeyPress(.return, phases: .down) { press in
                             // 注音等輸入法選字中(還有組字中的文字):Enter 是確認選字,交給輸入法,不送出也不換行
                             if Self.isComposing { return .ignored }

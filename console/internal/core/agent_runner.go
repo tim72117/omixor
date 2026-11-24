@@ -1,11 +1,14 @@
 package core
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -69,17 +72,24 @@ type RunnerRecord struct {
 	StartedAt       Time    `json:"startedAt"`
 	TaskID          string  `json:"taskId"`
 	Title           string  `json:"title"`
+	// 執行日誌的摘要(完整日誌用 agent_runner_log 取,見 agent_runlog.go)
+	EntryCount  int    `json:"entryCount"`
+	ReportedBy  string `json:"reportedBy"` // role、runner 或空(不知道)
+	RunID       string `json:"runId"`
+	ServerCalls int    `json:"serverCalls"`
+	ToolCalls   int    `json:"toolCalls"`
 }
 
 const (
-	agentRunnerFileName   = "agent-runner.json"
-	runnerHistoryMax      = 20
-	runnerDefaultTimeout  = 30
-	runnerMaxTimeout      = 8 * 60 // 不超過核心的租約總長(MaxLeaseTotal)
-	runnerResultMaxRunes  = 4000
-	runnerOutputMaxRunes  = 600
-	runnerErrorMaxRunes   = 500
-	runnerClaimRetryAfter = 5 * time.Minute
+	agentRunnerFileName    = "agent-runner.json"
+	runnerHistoryMax       = 20
+	runnerDefaultTimeout   = 30
+	runnerMaxTimeout       = 8 * 60 // 不超過核心的租約總長(MaxLeaseTotal)
+	runnerResultMaxRunes   = 4000
+	runnerOutputMaxRunes   = 600
+	runnerErrorMaxRunes    = 500
+	runnerClaimRetryAfter  = 5 * time.Minute
+	runnerMCPConnectWaitMs = 15000 // 第一輪前最多等 omixor 的 MCP 連線這麼久(毫秒)
 )
 
 // 可替換的部分(測試換成假的;不要真的呼叫 claude)
@@ -88,6 +98,10 @@ var (
 	runClaude = claude.Run
 	// findClaude 找 claude 執行檔;找不到回 ""
 	findClaude = lookClaudeBin
+	// claudeAuthStatus 執行 `claude auth status --json`(只查登入狀態,不呼叫模型、不碰憑證);測試換成假的
+	claudeAuthStatus = func(ctx context.Context, bin string) ([]byte, error) {
+		return exec.CommandContext(ctx, bin, "auth", "status", "--json").Output()
+	}
 	// runnerLogf 執行紀錄的 log(不能帶憑證)
 	runnerLogf = func(format string, args ...any) {
 		fmt.Fprintf(os.Stderr, "角色自動執行:"+format+"\n", args...)
@@ -126,6 +140,116 @@ func lookClaudeBin() string {
 		}
 	}
 	return ""
+}
+
+// ---- claude 登入檢查 ----
+
+type loginState int
+
+const (
+	loginUnknown loginState = iota // 還沒檢查或檢查失敗(逾時、指令不支援):不當成已登入
+	loginIn
+	loginOut
+)
+
+const (
+	loginCacheTTL     = 30 * time.Second
+	loginCheckTimeout = 5 * time.Second
+	loginOutHint      = "找到 claude,但還沒登入:在終端機執行 claude,再輸入 /login"
+	loginOutError     = "claude 尚未登入:在終端機執行 claude,再輸入 /login;登入後會自動繼續,任務先留在待領取"
+	loginUnknownError = "無法確認 claude 是否已登入(`claude auth status` 沒有回應或不支援),任務先留在待領取"
+)
+
+// parseClaudeAuth 解析 `claude auth status --json` 的輸出。
+// 已驗證(claude 2.1.205):未登入時輸出 {"loggedIn":false,...} 且結束碼 0;已登入時假設為 {"loggedIn":true,...}。
+// 也容許純文字輸出(含 "Not logged in" 視為未登入)。逾時、指令失敗、看不懂的輸出都回 loginUnknown。
+func parseClaudeAuth(out []byte, runErr error) loginState {
+	var j struct {
+		LoggedIn *bool `json:"loggedIn"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(out), &j) == nil && j.LoggedIn != nil {
+		if *j.LoggedIn {
+			return loginIn
+		}
+		return loginOut
+	}
+	if strings.Contains(strings.ToLower(string(out)), "not logged in") {
+		return loginOut
+	}
+	return loginUnknown
+}
+
+// setLogin 記下登入狀態;狀態變了回 true。登入後清掉先前「尚未登入」的 lastError
+func (s *runnerState) setLogin(bin string, ls loginState) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := s.loginBin != bin || s.login != ls
+	s.loginBin, s.login, s.loginAt = bin, ls, time.Now()
+	if ls == loginIn && (s.lastError == loginOutError || s.lastError == loginUnknownError) {
+		s.lastError = ""
+		changed = true
+	}
+	return changed
+}
+
+// refreshLogin 同步檢查一次(最多 loginCheckTimeout)並更新快取
+func (a *App) refreshLogin(ctx context.Context, bin string) loginState {
+	cctx, cancel := context.WithTimeout(ctx, loginCheckTimeout)
+	defer cancel()
+	out, err := claudeAuthStatus(cctx, bin)
+	ls := parseClaudeAuth(out, err)
+	if cctx.Err() != nil {
+		ls = loginUnknown
+	}
+	if a.runSt().setLogin(bin, ls) {
+		a.Changed("agent_runner")
+	}
+	return ls
+}
+
+// ensureLoggedIn 給領任務前用:快取還新鮮就直接用,否則同步檢查
+func (a *App) ensureLoggedIn(ctx context.Context, bin string) loginState {
+	st := a.runSt()
+	st.mu.Lock()
+	if st.loginBin == bin && time.Since(st.loginAt) < loginCacheTTL {
+		ls := st.login
+		st.mu.Unlock()
+		return ls
+	}
+	st.mu.Unlock()
+	return a.refreshLogin(ctx, bin)
+}
+
+// loginForView 給畫面用,不阻塞:回快取(可能過期、可能 unknown),需要時在背景更新後通知畫面
+func (a *App) loginForView(bin string) loginState {
+	st := a.runSt()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	ls := loginUnknown
+	if st.loginBin == bin {
+		ls = st.login
+	}
+	if (st.loginBin != bin || time.Since(st.loginAt) >= loginCacheTTL) && !st.loginChecking {
+		st.loginChecking = true
+		go func() {
+			a.refreshLogin(context.Background(), bin)
+			st.mu.Lock()
+			st.loginChecking = false
+			st.mu.Unlock()
+		}()
+	}
+	return ls
+}
+
+// notLoggedInBlock 不能啟動的原因(空白 = 已登入)
+func notLoggedInBlock(ls loginState) string {
+	switch ls {
+	case loginIn:
+		return ""
+	case loginOut:
+		return loginOutError
+	}
+	return loginUnknownError
 }
 
 // ---- 設定檔 ----
@@ -200,12 +324,17 @@ func within(p, dir string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// runnerCfgMu 設定檔是整份讀出、改一個角色、整份寫回;不同角色同時存(快速連按兩個開關)時要序列化,否則後寫的會蓋掉先寫的
+var runnerCfgMu sync.Mutex
+
 // SaveRunnerConfig 存某角色的設定
 func SaveRunnerConfig(org, agentID string, c AgentRunConfig) (AgentRunConfig, error) {
 	c, err := normalizeRunConfig(c)
 	if err != nil {
 		return c, err
 	}
+	runnerCfgMu.Lock()
+	defer runnerCfgMu.Unlock()
 	f, err := LoadRunnerConfig(org)
 	if err != nil {
 		return c, err
@@ -222,10 +351,18 @@ type runnerState struct {
 	current   *RunnerCurrent
 	cancel    context.CancelFunc
 	stopped   bool // 人工停止目前這筆
+	busy      bool // 有一筆正在領取或執行(迴圈挑的、或人工啟動的);同一時間只跑一筆
 	history   []RunnerRecord
+	seeded    map[string]bool // 已從日誌檔補進 history 的組織(重開後執行紀錄不會是空的)
+	rec       *runRecorder    // 進行中那筆的執行日誌
 	lastError string
 	skip      map[string]time.Time // org/任務 → 這個時間前不再試(領取失敗、不是 409 的錯誤)
 	wake      chan struct{}
+	// claude 登入狀態快取(只在 mu 下讀寫)
+	loginBin      string
+	login         loginState
+	loginAt       time.Time
+	loginChecking bool
 }
 
 var runnerStates sync.Map // *App → *runnerState
@@ -318,6 +455,11 @@ func (a *App) runnerTick(ctx context.Context, org string) bool {
 	if !auto {
 		return false
 	}
+	// 一次一筆:人工啟動的那筆還在跑時,迴圈不另外領取(那筆結束後迴圈會被喚醒)
+	if !a.runSt().acquire() {
+		return false
+	}
+	defer a.runSt().release()
 	active := map[string]bool{}
 	for _, g := range a.AgentsOf(org) {
 		active[g.ID] = g.Active
@@ -346,6 +488,17 @@ func (a *App) runnerTick(ctx context.Context, org string) bool {
 		a.Changed("agent_runner")
 		return false
 	}
+	if msg := notLoggedInBlock(a.ensureLoggedIn(ctx, bin)); msg != "" {
+		// 不領取、任務留在待領取;同一則訊息只記一次,不洗版
+		st.mu.Lock()
+		same := st.lastError == msg
+		st.lastError = msg
+		st.mu.Unlock()
+		if !same {
+			a.Changed("agent_runner")
+		}
+		return false
+	}
 	sort.SliceStable(cands, func(i, j int) bool {
 		pi, pj := runnerPriority(cands[i].Priority), runnerPriority(cands[j].Priority)
 		if pi != pj {
@@ -368,6 +521,89 @@ func (a *App) runnerTick(ctx context.Context, org string) bool {
 		}
 	}
 	return false
+}
+
+// acquire 搶「正在執行」的名額;已有一筆在領取或執行就回 false
+func (s *runnerState) acquire() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.busy || s.current != nil {
+		return false
+	}
+	s.busy = true
+	return true
+}
+
+func (s *runnerState) release() {
+	s.mu.Lock()
+	s.busy = false
+	s.mu.Unlock()
+}
+
+// startTask 人工啟動一筆待領取的任務(「自動執行」關著的角色用):用角色存好的設定(沒存過 = 預設設定,
+// 只用 omixor 工具),即使角色的 autoRun 是關的也跑,領取、執行、回報都走 runTask。
+// 先檢查:系統設定的「自動執行」開著、角色啟用、任務還是待領取、找得到 claude。
+// 一次一筆:迴圈或另一筆人工啟動的正在跑時直接回錯誤(不排隊),請使用者等它做完或先停止。
+// 通過檢查就在背景執行並回傳一個執行結束時關閉的 channel;領取失敗(被別人領走等)記在 lastError,不回給呼叫端。
+func (a *App) startTask(ctx context.Context, org, taskID string) (<-chan struct{}, error) {
+	if org == "" {
+		return nil, UserError{"還沒有組織"}
+	}
+	if !a.featureEnabled(org, runnerFeature) {
+		return nil, UserError{"「自動執行」在系統設定裡關閉了,不能啟動任務"}
+	}
+	var task *AgentTask
+	for _, t := range a.TasksOf(org) {
+		if t.ID == taskID {
+			t := t
+			task = &t
+			break
+		}
+	}
+	if task == nil {
+		return nil, UserError{"找不到任務 " + taskID}
+	}
+	if task.Status != "queued" {
+		return nil, UserError{"任務 " + taskID + " 不是待領取,不能啟動"}
+	}
+	if g := a.FindAgentIn(org, task.AgentID); g == nil || !g.Active {
+		return nil, UserError{"角色 " + task.AgentID + " 已停用,不能啟動它的任務"}
+	}
+	bin := findClaude()
+	if bin == "" {
+		return nil, UserError{"找不到 claude(Claude Code CLI):請安裝並用訂閱帳號登入,或設定 OMIXOR_CLAUDE_BIN"}
+	}
+	if msg := notLoggedInBlock(a.ensureLoggedIn(ctx, bin)); msg != "" {
+		return nil, UserError{msg}
+	}
+	cfg, err := LoadRunnerConfig(org)
+	if err != nil {
+		return nil, UserError{"讀不到自動執行設定:" + err.Error()}
+	}
+	c, ok := cfg.Agents[task.AgentID]
+	if !ok {
+		c = AgentRunConfig{TimeoutMinutes: runnerDefaultTimeout}
+	}
+	st := a.runSt()
+	if !st.acquire() {
+		return nil, UserError{"目前已有任務在自動執行,請等它做完(或先停止)再啟動"}
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer st.release()
+		ran, err := a.runTask(ctx, org, *task, c, bin)
+		switch {
+		case err != nil:
+			st.setError(err.Error())
+			a.Changed("agent_runner")
+		case !ran:
+			st.setError(task.ID + " 沒有啟動:已被別人領取")
+			a.Changed("agent_runner")
+		}
+		a.wakeRunner() // 做完後迴圈接著看自動執行的角色
+	}()
+	return done, nil
 }
 
 func runnerPriority(p string) int {
@@ -421,7 +657,11 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 	runnerLogf("開始 %s「%s」(角色 %s)", task.ID, task.Title, g.ID)
 
 	rec := RunnerRecord{AgentID: g.ID, AgentName: g.Name, StartedAt: Time{started.UTC().Truncate(time.Second)}, TaskID: task.ID, Title: task.Title}
-	result, costUSD, runErr := a.execClaude(runCtx, org, g, task, c, bin, cred, func(text string) {
+	runRec := newRunRecorder(org, g, task, started, secret)
+	st.mu.Lock()
+	st.rec = runRec
+	st.mu.Unlock()
+	result, costUSD, runErr := a.execClaude(runCtx, org, g, task, c, bin, cred, runRec.onEvent, func(text string) {
 		st.mu.Lock()
 		if st.current != nil {
 			st.current.LastOutput = tailRunes(scrub(text), runnerOutputMaxRunes)
@@ -433,7 +673,7 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 
 	st.mu.Lock()
 	stopped := st.stopped
-	st.current, st.cancel, st.stopped = nil, nil, false
+	st.current, st.cancel, st.stopped, st.rec = nil, nil, false, nil
 	st.mu.Unlock()
 
 	// 回報:Claude 已經自己回報(不是進行中)就不重複
@@ -443,6 +683,7 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 	case gerr != nil:
 		rec.Error = scrub("讀不到任務狀態:" + gerr.Error())
 	case cur.Status != "inProgress":
+		rec.ReportedBy = ReportedByRole
 		rec.Outcome = cur.Status
 		if cur.Status == "done" || cur.Status == "blocked" {
 			a.logRunnerFinal(g, *cur)
@@ -451,6 +692,7 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 			rec.Error = truncRunes(scrub(runErr.Error()), runnerErrorMaxRunes)
 		}
 	default:
+		rec.ReportedBy = ReportedByRunner
 		var rep service.TaskReport
 		status := "blocked"
 		if stopped {
@@ -463,6 +705,10 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 			}
 			note := "自動執行失敗:" + msg
 			rep, rec.Error = service.TaskReport{Status: &status, Note: &note}, msg
+		} else if why := runRec.noWork(); why != "" {
+			// 角色沒呼叫過任何 omixor 工具:不是「做完沒回報」,不能報 done
+			note := why
+			rep, rec.Error = service.TaskReport{Status: &status, Note: &note}, why
 		} else {
 			status = "done"
 			text := truncRunes(scrub(strings.TrimSpace(result)), runnerResultMaxRunes)
@@ -479,6 +725,7 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 	fin := time.Now()
 	rec.FinishedAt = Time{fin.UTC().Truncate(time.Second)}
 	rec.DurationSeconds = int(fin.Sub(started).Seconds())
+	rec = a.finishRunLog(org, runRec, rec)
 	st.mu.Lock()
 	st.history = append([]RunnerRecord{rec}, st.history...)
 	if len(st.history) > runnerHistoryMax {
@@ -514,6 +761,7 @@ func runnerOptions(g Agent, c AgentRunConfig, bin, mcpConfig, scratch string) cl
 		AllowedTools:       []string{"mcp__omixor"},
 		AppendSystemPrompt: runnerSystemPrompt(g, c),
 		ExtraArgs:          []string{"--mcp-config", mcpConfig},
+		Env:                claude.WaitForMCPEnv(runnerMCPConnectWaitMs),
 	}
 	if c.Workdir != "" {
 		tools := append([]string{}, runnerFileTools...)
@@ -567,7 +815,7 @@ func runnerPrompt(t AgentTask) string {
 }
 
 // execClaude 寫 MCP 設定檔、啟動 Claude、執行中續約;回傳最後的回覆、估計花費與錯誤(錯誤訊息可能要再過濾憑證)
-func (a *App) execClaude(ctx context.Context, org string, g Agent, t AgentTask, c AgentRunConfig, bin string, cred model.AgentGrant, onText func(string)) (string, float64, error) {
+func (a *App) execClaude(ctx context.Context, org string, g Agent, t AgentTask, c AgentRunConfig, bin string, cred model.AgentGrant, onEvent func(claude.Event), onText func(string)) (string, float64, error) {
 	c, err := normalizeRunConfig(c)
 	if err != nil {
 		return "", 0, fmt.Errorf("自動執行設定不正確:%v", err)
@@ -620,7 +868,15 @@ func (a *App) execClaude(ctx context.Context, org string, g Agent, t AgentTask, 
 	}()
 
 	var last string
+	var gateErr error // init 時 omixor 的 MCP 不能用而中止
 	res, err := runClaude(runCtx, runnerPrompt(t), o, func(ev claude.Event) {
+		onEvent(ev) // 執行日誌
+		if in, ok := ev.(*claude.Init); ok && gateErr == nil {
+			if st := omixorMCPStatus(in.MCPServers); mcpGate(st) == mcpAbort {
+				gateErr = errors.New(mcpUnusableMessage(st))
+				cancel()
+			}
+		}
 		if as, ok := ev.(*claude.Assistant); ok {
 			if s := strings.TrimSpace(as.Text()); s != "" {
 				last = s
@@ -638,6 +894,15 @@ func (a *App) execClaude(ctx context.Context, org string, g Agent, t AgentTask, 
 	}
 	if err == nil && res != nil && res.IsError {
 		err = fmt.Errorf("claude 回報錯誤(%s):%s", res.Subtype, res.Text)
+	}
+	// 實際執行的結果也更新登入狀態:成功 = 已登入;失敗訊息有 "Not logged in" = 未登入
+	if err == nil {
+		a.runSt().setLogin(bin, loginIn)
+	} else if strings.Contains(strings.ToLower(err.Error()+" "+text), "not logged in") {
+		a.runSt().setLogin(bin, loginOut)
+	}
+	if gateErr != nil {
+		err = gateErr
 	}
 	if err != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		err = fmt.Errorf("逾時(%d 分鐘)", c.TimeoutMinutes)
@@ -659,129 +924,4 @@ func tailRunes(s string, n int) string {
 	}
 	r := []rune(s)
 	return "…" + string(r[len(r)-n:])
-}
-
-// ---- 視圖與動作 ----
-
-// AgentRunnerView 視圖 agent_runner
-type AgentRunnerView struct {
-	Agents      []RunnerAgentRow `json:"agents"`
-	ClaudeBin   string           `json:"claudeBin"`
-	ClaudeFound bool             `json:"claudeFound"`
-	Current     *RunnerCurrent   `json:"current"`
-	Efforts     []string         `json:"efforts"`
-	Error       string           `json:"error,omitempty"`
-	History     []RunnerRecord   `json:"history"`
-	LastError   string           `json:"lastError,omitempty"`
-	Loop        bool             `json:"loop"`
-	Org         string           `json:"org"`
-	// Disabled 系統設定關掉了「自動執行」:不領新任務(進行中的做完);DisabledReason 給畫面的說明
-	Disabled       bool   `json:"disabled"`
-	DisabledReason string `json:"disabledReason,omitempty"`
-}
-
-// RunnerAgentRow 一個角色與它的設定
-type RunnerAgentRow struct {
-	Active bool           `json:"active"`
-	Config AgentRunConfig `json:"config"`
-	ID     string         `json:"id"`
-	Name   string         `json:"name"`
-}
-
-// runnerView 在 Mu 下執行(只讀本機檔案與快取)
-func (a *App) runnerView() AgentRunnerView {
-	org := a.CurrentOrgID()
-	v := AgentRunnerView{Org: org, Agents: []RunnerAgentRow{}, History: []RunnerRecord{}, Efforts: RunnerEfforts}
-	if !a.featureEnabled(org, runnerFeature) {
-		v.Disabled = true
-		v.DisabledReason = "「自動執行」在系統設定裡關閉了:不會再領新的任務(進行中的會做完),角色的設定都保留,打開後照原本的設定繼續。"
-	}
-	bin := findClaude()
-	v.ClaudeBin, v.ClaudeFound = bin, bin != ""
-	cfg, err := LoadRunnerConfig(org)
-	if err != nil {
-		v.Error = err.Error()
-	}
-	for _, g := range a.Agents() {
-		c, ok := cfg.Agents[g.ID]
-		if !ok || c.TimeoutMinutes <= 0 {
-			c.TimeoutMinutes = runnerDefaultTimeout
-		}
-		v.Agents = append(v.Agents, RunnerAgentRow{Active: g.Active, Config: c, ID: g.ID, Name: g.Name})
-	}
-	st := a.runSt()
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if st.current != nil {
-		cur := *st.current
-		v.Current = &cur
-	}
-	v.History = append(v.History, st.history...)
-	v.LastError, v.Loop = st.lastError, st.loop
-	return v
-}
-
-// StopRunner 停掉目前在跑的那筆(任務回報 blocked「人工停止」);沒有在跑回 false
-func (a *App) StopRunner() bool {
-	st := a.runSt()
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if st.current == nil || st.cancel == nil {
-		return false
-	}
-	st.stopped = true
-	st.cancel()
-	return true
-}
-
-func init() {
-	OnStart(func(a *App) {
-		if config.Current().Bool(config.NoTimers) {
-			return
-		}
-		go a.runnerLoop()
-	})
-	RegisterView("agent_runner", func(a *App) any { return a.runnerView() })
-	RegisterAction("agent_runner_save", func(a *App, args map[string]any) (any, error) {
-		id := strings.TrimSpace(agentArg(args, "agent"))
-		if id == "" {
-			return nil, UserError{"要給角色 id(agent)"}
-		}
-		org := a.currentOrgNow()
-		if org == "" {
-			return nil, UserError{"還沒有組織"}
-		}
-		if a.FindAgentIn(org, id) == nil {
-			return nil, UserError{"找不到角色 " + id}
-		}
-		var c AgentRunConfig
-		m := map[string]any{}
-		for k, v := range args {
-			if k != "agent" && k != UserKey {
-				m[k] = v
-			}
-		}
-		if err := ReadInto(m, &c); err != nil {
-			return nil, UserError{"設定格式不對:" + err.Error()}
-		}
-		saved, err := SaveRunnerConfig(org, id, c)
-		if err != nil {
-			return nil, agentUserErr(err)
-		}
-		name := a.AgentOps().agentName(org, id)
-		state := "關閉"
-		if saved.AutoRun {
-			state = "開啟"
-		}
-		a.AgentOps().logf(UserActor(a, args), "play.circle", state+name+"的自動執行")
-		a.Changed("agent_runner")
-		a.wakeRunner()
-		return saved, nil
-	})
-	RegisterAction("agent_runner_stop", func(a *App, args map[string]any) (any, error) {
-		if !a.StopRunner() {
-			return nil, UserError{"目前沒有在自動執行的任務"}
-		}
-		return map[string]any{"stopped": true}, nil
-	})
 }

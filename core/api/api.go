@@ -72,6 +72,7 @@
 //	POST /api/orgs/{org}/agent-tasks/{id}/release {reason?} 放棄領取,退回待領取(領取者本人或組織管理員)
 //	POST /api/orgs/{org}/agent-tasks/{id}/report  {status?, result?, note?, links?} 回報(成員;角色憑證只能回報綁定的任務)
 //	POST /api/orgs/{org}/agent-tasks/{id}/cancel | /requeue   取消、重新排隊(組織管理員)
+//	POST /api/orgs/{org}/agent-tasks/{id}/reply   回覆需要協助的任務(記成備註並退回待領取;組織管理員)
 //	GET  /api/orgs/{org}/agent-tasks?reportTo=me|user:<email>|agent:<id>   依組織鏈回報給這個節點的任務
 //
 //	GET  /api/orgs/{org}/chain                 組織鏈 {edges: [{from, to, label}], updatedAt}(成員;角色憑證也可以)

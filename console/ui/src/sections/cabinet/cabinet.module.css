@@ -45,11 +45,8 @@ select.projectSelect { min-width: 0; }
 /* MARK: - 右欄:文件 */
 .doc { padding: 20px; display: flex; flex-direction: column; gap: 12px; max-width: 820px; }
 .title { user-select: text; flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
-/* input.titleInput、textarea.body 提高權重:蓋過全域 .input / .textarea 的字級與高度 */
+/* input.titleInput 提高權重:蓋過全域 .input 的字級 */
 input.titleInput { font-size: var(--fs-lg); flex: 1 1 220px; }
-textarea.body { min-height: 360px; }
-textarea.newBody { min-height: 260px; }
-textarea.description { min-height: 80px; }
 .frame { width: 100%; border: 0; border-radius: var(--r-xl); }
 
 /* MARK: - 結構編輯 */

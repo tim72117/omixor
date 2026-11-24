@@ -4,6 +4,3 @@
 /* button.small、input.title 提高權重:蓋過全域 .btn / .input 的字級 */
 button.small { font-size: var(--fs-sm); }
 input.title { font-size: var(--fs-lg); }
-/* textarea.x 提高權重:蓋過全域 .textarea 的 min-height */
-textarea.bodyTall { min-height: 220px; }
-textarea.body { min-height: 180px; }

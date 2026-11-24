@@ -174,7 +174,7 @@ func (p *PG) CreateIssueItem(org string, in *model.IssueItem) (*model.IssueItem,
 	}
 	defer tx.Rollback(c)
 	var one int
-	if err := tx.QueryRow(c, `select 1 from ops_issues where org = $1 and id = $2`, org, it.IssueID).Scan(&one); err != nil {
+	if err := tx.QueryRow(c, `select 1 from omixor_issues where org = $1 and id = $2`, org, it.IssueID).Scan(&one); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: Issue 不存在", ErrBadRef)
 		}

@@ -51,6 +51,10 @@ func roleEndpoint(h *Handler, svc *service.Service) http.Handler {
 			a.MCP.LastTool = name
 			a.Mu.Unlock()
 		},
+		// 憑證綁定的任務就是自動執行正在跑的那筆時,記進它的執行日誌
+		Done: func(role coremcp.Role, tool string, err error) {
+			a.RoleCallDone(role.Org, role.TaskID, tool, err)
+		},
 	})
 	roleEndpoints[svc] = e
 	return e

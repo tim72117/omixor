@@ -29,6 +29,7 @@ var adminActions = map[string]string{
 	"agent_task_transfer": "轉移角色的任務",
 	"agent_task_cancel":   "取消角色任務",
 	"agent_task_requeue":  "重新排入角色任務",
+	"agent_task_reply":    "回覆需要協助的角色任務",
 	"agent_routine_run":   "手動執行角色的例行工作",
 	"chain_save":          "改組織鏈",
 	// 文件櫃版面與專案(核心:組織管理員)
@@ -76,6 +77,7 @@ var adminActions = map[string]string{
 	"facebook_disconnect": "中斷 Facebook 連線",
 	"voice_settings":      "改旁白設定",
 	"agent_runner_save":   "改自動執行設定",
+	"agent_runner_start":  "手動啟動待領取的任務",
 	"agent_runner_stop":   "停止自動執行中的任務",
 	// console 的 MCP 連接埠權杖:查看完整權杖、換新(本機單人模式 web 使用者就是本機管理員;啟用 LDAP 時只有 web 管理員)
 	"mcp_token_reveal": "查看 MCP 權杖",

@@ -4,7 +4,8 @@
 // 組織要用哪些功能(組織層)在 設定 › 功能(../settings/SettingsFeatures.tsx)。
 // 對應 App 的 Features/System/SystemView.swift。
 import { useState } from "react";
-import { action, useRun } from "../../api";
+import { useRun } from "../../api";
+import { go } from "../../lib/nav";
 import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorText } from "../../components/ErrorText";
@@ -45,7 +46,7 @@ export default function SystemView(_: SectionProps) {
         subtitle="選擇這台伺服器開放哪些功能(所有組織共用)。沒開放的功能各組織都看不到、也不能開;各組織要用哪些,由組織管理員在 設定 › 功能 決定。"
         right={
           <div className="row gap8">
-            <button className="btn" onClick={() => action("navigate", { section: "settings", focusId: "features" })}><Icon name="switch.2" size={12} />設定 › 功能</button>
+            <button className="btn" onClick={() => go("settings", "features")}><Icon name="switch.2" size={12} />設定 › 功能</button>
             <button className="btn" disabled={reloading} onClick={() => run(reloadFeatures)}><Icon name="arrow.clockwise" size={12} />重新讀取</button>
           </div>
         }

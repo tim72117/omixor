@@ -175,10 +175,12 @@ func CoreToolDefs() []any {
 				"symbol":       pStr("Icon name"),
 			})),
 		coreDef("agent_task_create",
-			"Creates a task assigned to an agent, waiting to be claimed (organization admin). assign_to is the agent that takes the task.", false,
+			"Creates a task assigned to an agent, waiting to be claimed (organization admin). assign_to is the agent that takes the task. "+
+				"Give issue to link the task to an issue (the same link tasks created by assigning an issue carry; the issue's page then shows the task and its need-help state); title and instructions are used as given. Unknown or invisible issue: error issueNotFound, no task created.", false,
 			obj(map[string]any{
 				"assign_to":    pStr("Id or name of the agent that takes this task"),
 				"instructions": pStr("Task description (Markdown)"),
+				"issue":        pStr("Optional: the issue this task is about, a key (e.g. ISS-3, APP-12) or an internal id; one issue only"),
 				"priority":     pEnum("Priority, default normal", prio...),
 				"title":        pStr("Title"),
 			}, "assign_to", "title")),

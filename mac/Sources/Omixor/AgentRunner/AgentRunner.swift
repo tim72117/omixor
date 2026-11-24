@@ -46,25 +46,14 @@ struct RunnerFile: Codable {
     }
 }
 
-struct RunnerLogEntry: Identifiable, Hashable {
-    let id = UUID()
-    var taskId: String
-    var agentId: String
-    var title: String
-    var outcome: String         // done、blocked、錯誤
-    var detail: String
-    var started: Date
-    var seconds: Int
-    var costUSD: Double?
-}
-
 @MainActor
 final class AgentRunner: ObservableObject {
     unowned let app: AppState
     @Published private(set) var configs: [String: RunnerConfig] = [:]
     private var handled: [String] = []
     @Published private(set) var running: (task: AgentTask, started: Date, lastText: String)?
-    @Published private(set) var log: [RunnerLogEntry] = []
+    /// 執行日誌的歷史(新到舊,最多 RunLogLimits.keep 筆;「執行日誌」頁籤用,啟動後由 loadHistory 從日誌檔補上)
+    @Published private(set) var history: [RunLog] = []
     @Published private(set) var lastError: String?
     private var timer: Timer?
     private var job: Task<Void, Never>?
@@ -76,7 +65,99 @@ final class AgentRunner: ObservableObject {
 
     init(app: AppState) { self.app = app }
 
-    var claudeFound: Bool { ClaudeCLI.binary() != nil }
+    /// 測試用:只改記憶體裡的設定(不存檔、不觸發 tick)
+    func configsForTest(_ agentId: String, _ c: RunnerConfig) { loadIfNeeded(); configs[agentId] = c }
+    /// 測試用:取代找 claude 執行檔
+    var findClaude: () -> Bool = { ClaudeCLI.binary() != nil }
+    var claudeFound: Bool { findClaude() }
+
+    // MARK: claude 登入狀態(只代表 `claude auth status --json` 回報已登入,不呼叫模型、不碰憑證)
+
+    /// 登入狀態;unknown = 還沒檢查或檢查失敗(逾時、指令不支援),不能當成已登入
+    enum LoginState: Equatable { case unknown, loggedIn, loggedOut }
+    static let loginCacheTTL: TimeInterval = 30
+    static let loginCheckTimeout: TimeInterval = 5
+    static let loginOutHint = "找到 claude,但還沒登入:在終端機執行 claude,再輸入 /login"
+    static let loginUnknownHint = "正在確認 claude 是否已登入"
+    @Published private(set) var login: LoginState = .unknown
+    private var loginAt: Date?
+    private var loginChecking = false
+    /// 測試用:取代執行 `claude auth status`(預設真的跑,最多 5 秒)
+    var checkLogin: () async -> LoginState = { await AgentRunner.realCheckLogin() }
+
+    /// 解析 `claude auth status --json` 的輸出。已驗證(claude 2.1.205):未登入輸出 {"loggedIn":false,...}、結束碼 0;
+    /// 已登入假設為 {"loggedIn":true,...}。也容許純文字("Not logged in")。逾時、失敗、看不懂都回 unknown
+    nonisolated static func parseAuth(_ out: String) -> LoginState {
+        if let d = out.data(using: .utf8), let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any], let b = o["loggedIn"] as? Bool {
+            return b ? .loggedIn : .loggedOut
+        }
+        return out.lowercased().contains("not logged in") ? .loggedOut : .unknown
+    }
+
+    nonisolated static func realCheckLogin() async -> LoginState {
+        guard let bin = ClaudeCLI.binary() else { return .unknown }
+        return await withCheckedContinuation { cont in
+            DispatchQueue.global().async {
+                let p = Process()
+                p.executableURL = bin
+                p.arguments = ["auth", "status", "--json"]
+                var env = ProcessInfo.processInfo.environment
+                if env["PATH"].map({ !$0.contains("/opt/homebrew/bin") }) ?? true { env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (env["PATH"] ?? "") }
+                p.environment = env
+                let out = Pipe()
+                p.standardOutput = out
+                p.standardError = FileHandle.nullDevice
+                p.standardInput = FileHandle.nullDevice
+                do { try p.run() } catch { cont.resume(returning: .unknown); return }
+                let deadline = Date().addingTimeInterval(loginCheckTimeout)
+                while p.isRunning, Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+                if p.isRunning { p.terminate(); cont.resume(returning: .unknown); return }
+                let data = out.fileHandleForReading.readDataToEndOfFile()
+                cont.resume(returning: parseAuth(String(decoding: data, as: UTF8.self)))
+            }
+        }
+    }
+
+    /// 快取新鮮就用,否則檢查一次(同一時間只查一次)
+    func ensureLogin() async -> LoginState {
+        if let at = loginAt, Date().timeIntervalSince(at) < Self.loginCacheTTL { return login }
+        await refreshLogin()
+        return login
+    }
+
+    func refreshLogin() async {
+        guard !loginChecking else { return }
+        loginChecking = true
+        defer { loginChecking = false }
+        let r = await checkLogin()
+        setLogin(r)
+    }
+
+    /// 記下登入狀態(也給實際執行的結果用:成功 = 已登入;"Not logged in" = 未登入)
+    func setLogin(_ s: LoginState) {
+        login = s
+        loginAt = Date()
+        if s == .loggedIn, lastError == Self.loginOutError || lastError == Self.loginUnknownError { lastError = nil }
+    }
+
+    /// 測試用:直接設定登入狀態(視為剛檢查過)
+    func loginForTest(_ s: LoginState) { setLogin(s) }
+
+    static let loginOutError = "claude 尚未登入:在終端機執行 claude,再輸入 /login;登入後會自動繼續,任務先留在待領取"
+    static let loginUnknownError = "無法確認 claude 是否已登入(`claude auth status` 沒有回應或不支援),任務先留在待領取"
+    var loginBlock: String? {
+        switch login {
+        case .loggedIn: return nil
+        case .loggedOut: return Self.loginOutError
+        case .unknown: return Self.loginUnknownError
+        }
+    }
+    /// 畫面用:快取過期就在背景更新
+    func refreshLoginIfStale() {
+        guard claudeFound, !loginChecking else { return }
+        if let at = loginAt, Date().timeIntervalSince(at) < Self.loginCacheTTL { return }
+        Task { await refreshLogin() }
+    }
     /// 連得到 core server(遠端 omixor 或本機守護服務)才能自動執行:角色端點 /mcp/agent 在 server 上
     var serverReady: Bool { IssueServerConfig.current.unavailable == nil }
 
@@ -248,18 +329,83 @@ final class AgentRunner: ObservableObject {
             .sorted { ($0.priority, $0.createdAt) < ($1.priority, $1.createdAt) }.first
         guard let t = pick else { return }
         job = Task { [weak self] in
+            // 沒登入就不領取:任務留在待領取;同一則訊息只記一次
+            if let self, self.claudeFound {
+                _ = await self.ensureLogin()
+                if let why = self.loginBlock {
+                    if self.lastError != why { self.lastError = why }
+                    self.job = nil
+                    return
+                }
+            }
             await self?.process(t)
             self?.job = nil
         }
     }
 
+    /// 人工啟動這筆待領取的任務前的檢查(同 web 的 startTask):回傳不能啟動的原因,可以啟動回傳 nil。
+    /// 系統設定的「自動執行」要開著、角色啟用、任務還是待領取、連得到 server、找得到 claude;
+    /// 一次一筆:迴圈或另一筆人工啟動的正在跑時不排隊,直接回原因
+    func startBlockReason(_ t: AgentTask) -> String? {
+        loadIfNeeded()
+        guard featureEnabled else { return "「自動執行」在系統設定裡關閉了,不能啟動任務" }
+        guard let store = app.agentStore, let cur = store.task(t.id) ?? app.agentTasks.first(where: { $0.id == t.id }) else { return "找不到任務 \(t.id)" }
+        guard cur.status == .queued else { return "任務 \(t.id) 不是待領取,不能啟動" }
+        guard store.agent(cur.agentId)?.active ?? false else { return "角色 \(cur.agentId) 已停用,不能啟動它的任務" }
+        guard serverReady else { return "連不到 omixor server,不能啟動任務" }
+        guard claudeFound else { return "找不到 claude(Claude Code CLI):請安裝並用訂閱帳號登入" }
+        if let why = loginBlock { refreshLoginIfStale(); return why }
+        guard job == nil, running == nil else { return "目前已有任務在自動執行,請等它做完(或先停止)再啟動" }
+        return nil
+    }
+
+    /// 人工啟動一筆待領取的任務(「自動執行」關著的角色用):用角色存好的設定(沒存過 = 預設設定,只用 omixor 工具),
+    /// 即使角色的 autoRun 是關的也跑;領取、執行、回報都走 process。通過檢查就在背景執行並回傳那個工作;
+    /// 沒通過丟錯誤。領取失敗(被別人領走等)記在 lastError
+    @discardableResult
+    func startManually(_ t: AgentTask) throws -> Task<Void, Never> {
+        if let why = startBlockReason(t) { throw CabinetError(why) }
+        let j = Task { [weak self] in
+            await self?.process(t)
+            self?.job = nil
+            self?.tick()   // 做完後接著看自動執行的角色
+        }
+        job = j
+        return j
+    }
+
+    /// 只切換某角色的自動/手動(其餘設定照原樣存回)
+    func setAutoRun(_ agentId: String, _ on: Bool) throws {
+        var c = config(agentId)
+        c.autoRun = on
+        try save(agentId, c)
+    }
+
     /// 停掉目前在跑的那筆(任務回報 blocked「人工停止」)
     func stop() { job?.cancel() }
 
-    private func finish(_ t: AgentTask, _ started: Date, _ outcome: String, _ detail: String, cost: Double? = nil) {
-        log.insert(RunnerLogEntry(taskId: t.id, agentId: t.agentId, title: t.title, outcome: outcome, detail: String(mask(detail).prefix(300)),
-                                  started: started, seconds: Int(Date().timeIntervalSince(started)), costUSD: cost), at: 0)
-        if log.count > 20 { log.removeLast(log.count - 20) }
+    private var runLogURL: URL { app.dataDir.appendingPathComponent("agent-run-logs.json") }
+
+    /// 從日誌檔補上歷史(讀檔在背景;和執行中新寫入的合併,同 runId 以檔案為準)
+    func loadHistory() async {
+        let url = runLogURL
+        let saved = await Task.detached { RunLogStore.load(url).runs }.value
+        let ids = Set(saved.map(\.runId))
+        history = Array((saved + history.filter { !ids.contains($0.runId) }).sorted { $0.startedAt > $1.startedAt }.prefix(RunLogLimits.keep))
+    }
+
+    /// 執行結束時任務已不是進行中 = 角色自己回報了;否則由 omixor 補回報(要在 reportEnd 之前問)
+    private func reporter(of t: AgentTask) -> String {
+        app.agentStore?.refresh()
+        return app.agentStore?.task(t.id)?.status == .inProgress ? RunReportedBy.runner : RunReportedBy.role
+    }
+
+    private func finish(_ t: AgentTask, _ started: Date, _ outcome: String, _ detail: String, cost: Double? = nil,
+                        recorder: RunLogRecorder, reportedBy: String) {
+        let seconds = Int(Date().timeIntervalSince(started))
+        let runLog = recorder.finish(outcome: outcome, error: outcome == RunOutcome.done ? "" : mask(detail), seconds: seconds, cost: cost, reportedBy: reportedBy)
+        do { try RunLogStore.persist(runLog, to: runLogURL) } catch { lastError = "執行日誌寫入失敗:\(error.localizedDescription)" }
+        history = Array(([runLog] + history.filter { $0.runId != runLog.runId }).prefix(RunLogLimits.keep))
         running = nil
     }
 
@@ -281,6 +427,7 @@ final class AgentRunner: ObservableObject {
         defer { secret = "" }
         let agent = claim.agent ?? store.agent(t.agentId)
         let name = agent?.name ?? t.agentId
+        let recorder = RunLogRecorder(task: t, agentName: name, started: started, secrets: { [weak self] in [self?.secret ?? "", self?.gwToken ?? ""] })
 
         // 外部 MCP 閘道:功能開著、角色在 core 有任何外部工具權限時,加上 App 閘道的端點與一次性的閘道 token
         // (綁定這次任務與角色,只在記憶體,任務結束即失效;只放行該角色可用的工具)
@@ -316,8 +463,9 @@ final class AgentRunner: ObservableObject {
             let data = try JSONSerialization.data(withJSONObject: mcp)
             FileManager.default.createFile(atPath: cfgFile.path, contents: data, attributes: [.posixPermissions: 0o600])
         } catch {
+            let by = reporter(of: t)
             reportEnd(t, .blocked, note: "自動執行沒有啟動:\(error.localizedDescription)")
-            finish(t, started, "錯誤", error.localizedDescription)
+            finish(t, started, RunOutcome.error, error.localizedDescription, recorder: recorder, reportedBy: by)
             return
         }
 
@@ -326,6 +474,13 @@ final class AgentRunner: ObservableObject {
         o.effort = cfg.effort
         o.mcpConfigFile = cfgFile
         o.timeout = TimeInterval(cfg.timeoutMinutes * 60)
+        let abort = RunAbort()
+        o.eventSink = { obj in
+            recorder.consume(obj)
+            if let why = McpGate.abortMessage(obj) { abort.set(why) }
+        }
+        o.abortReason = { abort.reason }
+        o.env = ClaudeCLI.waitForMCPEnv(timeoutMs: McpGate.connectWaitMs)
         o.allowedTools = ["mcp__omixor"] + (gatewayToken != nil ? ["mcp__\(Self.gatewayServerName)"] : [])
         if !cfg.workdir.isEmpty {
             o.workdir = URL(fileURLWithPath: cfg.workdir)
@@ -348,24 +503,46 @@ final class AgentRunner: ObservableObject {
 
         do {
             let r = try await runClaude(prompt, o)
+            if r.isError, r.text.lowercased().contains("not logged in") { setLogin(.loggedOut) } else if !r.isError { setLogin(.loggedIn) }
             store.refresh()
             let cur = store.task(t.id)
+            let by = cur?.status == .inProgress ? RunReportedBy.runner : RunReportedBy.role
+            var noWork: String?
             if cur?.status == .inProgress {
                 if r.isError {
                     reportEnd(t, .blocked, note: "自動執行失敗:\(r.text.prefix(500))")
+                } else if let why = recorder.noWork {
+                    // 角色沒呼叫過任何 omixor 工具:不是「做完沒回報」,不能報 done
+                    noWork = why
+                    reportEnd(t, .blocked, note: why)
                 } else {
                     reportEnd(t, .done, result: String(r.text.prefix(4000)))
                 }
             }
+            if let noWork {
+                finish(t, started, RunOutcome.error, noWork, cost: r.costUSD, recorder: recorder, reportedBy: by)
+                return
+            }
             let final = store.task(t.id)?.status
-            finish(t, started, final == .done ? "done" : final == .blocked ? "blocked" : (final?.label ?? "?"), r.text, cost: r.costUSD)
+            finish(t, started, final == .done ? RunOutcome.done : final == .blocked ? RunOutcome.blocked : (final?.label ?? "?"), r.text, cost: r.costUSD, recorder: recorder, reportedBy: by)
         } catch is CancellationError {
+            let by = reporter(of: t)
             reportEnd(t, .blocked, note: "人工停止自動執行")
-            finish(t, started, "blocked", "人工停止")
+            finish(t, started, RunOutcome.blocked, "人工停止", recorder: recorder, reportedBy: by)
         } catch {
+            if error.localizedDescription.lowercased().contains("not logged in") { setLogin(.loggedOut) }
+            let by = reporter(of: t)
             reportEnd(t, .blocked, note: "自動執行失敗:\(error.localizedDescription)")
-            finish(t, started, "錯誤", error.localizedDescription)
+            finish(t, started, RunOutcome.error, error.localizedDescription, recorder: recorder, reportedBy: by)
         }
+    }
+
+    /// init 時發現 omixor 的 MCP 不能用:記下原因,讓 ClaudeCLI 的輪詢馬上結束 CLI
+    private final class RunAbort: @unchecked Sendable {
+        private let lock = NSLock()
+        private var why: String?
+        func set(_ s: String) { lock.withLock { if why == nil { why = s } } }
+        var reason: String? { lock.withLock { why } }
     }
 
     /// 這次領取的密鑰(只在處理期間有值);寫進回報、紀錄、畫面前一律換成 ***
@@ -427,65 +604,26 @@ final class AgentRunner: ObservableObject {
 struct AutoRunnerView: View {
     @EnvironmentObject var app: AppState
     @ObservedObject var runner: AgentRunner
+    /// 到「執行日誌」頁籤(歷史與日誌在那裡)
+    let openLog: () -> Void
+    /// 點執行中的任務 id
+    let openTask: (String) -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                status
+                AutoRunnerStrip(runner: runner, openLog: openLog, openTask: openTask)
                 Text("各角色的自動執行").font(.headline)
                 Text("開了「自動執行」的角色,派給它的任務會由這台 Mac 的 Claude Code(訂閱額度)自動領取、處理並回報。只在連 omixor server(遠端模式)時執行;App 要開著。")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ForEach(app.agents.filter(\.active)) { a in
                     RunnerConfigRow(runner: runner, agent: a)
                 }
-                if !runner.log.isEmpty {
-                    Text("最近的執行").font(.headline).padding(.top, 8)
-                    ForEach(runner.log) { e in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Image(systemName: e.outcome == "done" ? "checkmark.circle.fill" : e.outcome == "blocked" ? "hand.raised.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(e.outcome == "done" ? .green : .orange)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(e.taskId)「\(e.title)」· \(app.agents.first { $0.id == e.agentId }?.name ?? e.agentId)").font(.callout)
-                                Text("\(e.outcome) · \(e.seconds) 秒" + (e.costUSD.map { String(format: " · 約 $%.3f(額度估計)", $0) } ?? "") + (e.detail.isEmpty ? "" : " · \(e.detail)"))
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                            }
-                        }
-                    }
-                }
             }
             .padding(20)
             .frame(maxWidth: 820, alignment: .leading)
         }
-        .onAppear { runner.loadIfNeeded() }
-    }
-
-    @ViewBuilder private var status: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !runner.claudeFound {
-                Label("找不到 claude(Claude Code CLI):請先安裝並用訂閱帳號登入", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-            }
-            if !runner.featureEnabled {
-                Label("「自動執行」功能在 系統 › 功能開關 關閉了:不會領取新任務,也不會因 @ 排回覆任務;進行中的那筆會做完", systemImage: "pause.circle.fill")
-                    .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-            }
-            if !runner.serverReady {
-                Label("還連不上 omixor server(本機模式是本機服務):連上後才會自動執行", systemImage: "internaldrive").foregroundStyle(.secondary)
-            }
-            if let r = runner.running {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text("正在處理 \(r.task.id)「\(r.task.title)」(\(app.agents.first { $0.id == r.task.agentId }?.name ?? r.task.agentId)),開始於 \(r.started.formatted(date: .omitted, time: .shortened))")
-                    Spacer()
-                    Button("停止") { runner.stop() }
-                }
-            } else {
-                Label("目前沒有在處理的任務", systemImage: "pause.circle").foregroundStyle(.secondary)
-            }
-            if let e = runner.lastError { Text(e).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        .onAppear { runner.loadIfNeeded(); runner.refreshLoginIfStale() }
     }
 }
 

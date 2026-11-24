@@ -69,7 +69,6 @@
 /* 時間軸 */
 .emptyTl { text-align: center; padding: 16px 0; }
 .composer.composer { align-items: flex-end; padding-top: 4px; }
-.note.note { resize: vertical; border-radius: var(--r-lg); }
 .tlRow.tlRow { align-items: stretch; gap: 10px; }
 .tlTime { width: 54px; align-items: flex-end; padding-top: 2px; flex: none; }
 .tlRail { width: 24px; align-items: center; flex: none; }

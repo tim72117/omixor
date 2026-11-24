@@ -16,6 +16,7 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `OMIXOR_DATABASE_URL` | `OPS_DATABASE_URL` | 網址或 key=value(postgres/postgresql) |  | server | 是 | server、local、web | PostgreSQL 連線設定,網址形式(postgres://使用者:密碼@主機/資料庫,可有多個主機、unix socket)或 key=value 形式(host=/cloudsql/專案:區域:執行個體 user=… password=… dbname=…,Cloud SQL 常用);密碼(網址的密碼、query 的 password/sslpassword、key=value 的 password=)會被遮蔽。server 必填;local 沒設就啟動內建的 PostgreSQL;web 沒設就存資料夾裡的 JSON 檔。獨立模式的 omixor-local 也會使用它(例如開發用的 docker-compose 為 omixor-web 設的) |
 | `OMIXOR_ADDR` |  | 字串 | server: :$PORT(沒有 PORT 就 :8080);local:獨立模式 127.0.0.1:8770、App 模式 127.0.0.1:0 |  |  | server、local | HTTP 監聽位址。local 只接受本機位址 |
 | `OMIXOR_SERVER` | `OPS_ISSUE_SERVER` | 網址(http/https) | cli:上次登入的、舊版登入資料的、正式站 |  |  | cli、web | 連哪一台 omixor server。cli:--server 旗標優先於它;web:設了就是遠端模式,授權、組織、Issue 交給那台 |
+| `OMIXOR_MCP_LIST_TTL_SECONDS` |  | 整數(0–86400) | `300` |  |  | server、local、web | MCP 2026-07-28 請求的快取提示:server/discover、tools/list、resources/list、resources/read 結果的 ttlMs 取自這個秒數(0 = 一律視為過期);舊版協定的回應不帶快取提示 |
 
 ## 伺服器(omixor-server)
 

@@ -16,7 +16,18 @@
 .form { padding: 12px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--bg2); gap: 10px; }
 .optEdit { display: flex; gap: 6px; align-items: center; }
 .optEdit input[type="text"], .optEdit .input { min-width: 0; }
-.note { min-height: 64px; font-family: inherit; }
-.body { min-height: 120px; }
 .summaryBar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .optCount { margin-left: 6px; }
+/* 整個分頁:內容(需要協助群組 + 兩欄)比視窗高時由這層捲動,不讓兩欄被壓扁而疊在群組上 */
+.tab { overflow-y: auto; }
+/* 需要協助的任務群組:自然高度、完整顯示(回覆框與按鈕不被裁切),太高時由 .tab 整頁捲動 */
+.helpGroup { padding: 12px 16px 0; flex: none; }
+/* 兩欄:至少留這麼高才好用;不夠時由 .tab 捲動 */
+.panes { min-height: 320px; }
+/* 只有需要協助的任務、沒有任何待決定時,不佔兩欄空間 */
+.noDecisions { padding: 12px 16px; flex: none; }
+/* 窄螢幕:清單在上、詳情在下 */
+@media (max-width: 600px) {
+  .panes { flex-direction: column; }
+  .side { width: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--line); }
+}

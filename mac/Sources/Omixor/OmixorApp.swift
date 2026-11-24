@@ -54,6 +54,9 @@ struct OmixorApp: App {
                     Button(s.title) { app.go(s) }
                 }
                 Divider()
+                Button("返回上一頁") { app.goBack() }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(!app.navHistory.canGoBack)
                 if app.isFeatureEnabled("assistant") {
                     Button(app.showAssistant ? "隱藏 AI 助理" : "顯示 AI 助理") { app.showAssistant.toggle() }
                         .keyboardShortcut("j", modifiers: .command)

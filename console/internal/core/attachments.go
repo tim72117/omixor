@@ -18,7 +18,7 @@ import (
 // 附件(Issue 內文與留言裡的圖片)現在存在核心(omixor-core,見 SaveAttachment / ReadAttachment);下面的本機存放只剩 Jira 匯入(SaveAttachmentIn)與舊資料的讀取。
 // 舊的說明:分組織存放,只收 PNG、JPEG、GIF、WebP(看檔案內容判斷,不收 SVG)。
 //   - 檔案模式:<組織資料夾>/attachments/<id>
-//   - 資料庫模式:ops_files 資料表(path = orgs/<組織>/attachments/<id>,data bytea)
+//   - 資料庫模式:omixor_files 資料表(path = orgs/<組織>/attachments/<id>,data bytea)
 // id = 內容(或來源)的 SHA-256 前 32 碼 + 副檔名,同一張圖只存一份。
 // 網址 /api/attachments/<id>,讀的是目前組織的附件。
 
@@ -128,7 +128,7 @@ func attachmentWrite(orgDir, id string, data []byte) error {
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgExec(ctx, `insert into ops_files (path, data) values ($1, $2) on conflict (path) do nothing`, k, data)
+	_, err := pgExec(ctx, `insert into omixor_files (path, data) values ($1, $2) on conflict (path) do nothing`, k, data)
 	return err
 }
 
@@ -143,7 +143,7 @@ func attachmentRead(orgDir, id string) ([]byte, error) {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var b []byte
-	err := pgQueryRow(ctx, `select data from ops_files where path = $1`, k).Scan(&b)
+	err := pgQueryRow(ctx, `select data from omixor_files where path = $1`, k).Scan(&b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fs.ErrNotExist
 	}
@@ -162,6 +162,6 @@ func attachmentExists(orgDir, id string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var n int
-	_ = pgQueryRow(ctx, `select count(*) from ops_files where path = $1`, k).Scan(&n)
+	_ = pgQueryRow(ctx, `select count(*) from omixor_files where path = $1`, k).Scan(&n)
 	return n > 0
 }

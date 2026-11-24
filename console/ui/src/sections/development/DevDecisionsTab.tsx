@@ -1,6 +1,7 @@
 // 開發 › 待決定:要人選一個(decision)與要人做事(help)的清單、詳情與動作。
 // 資料與操作走 MCP 工具(decisionApi.ts);純邏輯在 decisionModel.ts。撤回與重新開啟是 console 自己的工具,features 有宣告才開放按鈕(沒宣告時停用並說明)。
 // 所有資料都以 React 文字節點顯示(內文走 MarkdownText,和 Issue 內文一樣),沒有外部網址。
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { useMemo, useState } from "react";
 import { useConfirm } from "../../components/Confirm";
 import { EmptyState } from "../../components/EmptyState";
@@ -14,6 +15,9 @@ import { useAct } from "../../components/Toast";
 import { monthDayTime } from "../../lib/format";
 import { layoutClass } from "../../components/Layout";
 import type { Decision } from "../../models";
+import { Card } from "../../components/Card";
+import { go } from "../../lib/nav";
+import { NeedsHelpList } from "../automation/NeedsHelp";
 import { useDev } from "./devShared";
 import ds from "./devShared.module.css";
 import s from "./DevDecisions.module.css";
@@ -36,9 +40,13 @@ export function DevDecisionsTab() {
   const counts = countByStatus(all);
   const issueKeys = useMemo(() => [...new Set(all.map((d) => d.sourceIssue).filter(Boolean))].sort(), [all]);
   const sel = all.find((d) => d.id === dev.selectedDecision);
+  // 需要協助的任務是「待處理」:篩單一來源 Issue 時不列(Issue 詳情有自己的區塊),看已處理 / 已撤回時也不列
+  const showHelp = dev.help.tasks.length > 0 && !f.issue && (f.status === "open" || f.status === "all");
+  // 只有需要協助的任務、完全沒有待決定:不顯示兩欄空狀態,改一行提示
+  const onlyHelp = showHelp && !!list && all.length === 0;
   const statusOpt = (st: StatusFilter, text: string) => ({ value: st, text, label: <>{text}{counts[st] > 0 && <span className={"muted num " + s.optCount}>{counts[st]}</span>}</> });
   return (
-    <div className={layoutClass.page}>
+    <div className={layoutClass.page + " " + s.tab}>
       <FilterBar
         filters={[
           { key: "kind", label: "種類", title: "依種類篩選", allLabel: "全部", value: f.kind, onChange: (v: string) => set({ kind: (v || "all") as KindFilter }), defaultValue: "all",
@@ -51,7 +59,15 @@ export function DevDecisionsTab() {
             options: [...issueKeys, ...(f.issue && !issueKeys.includes(f.issue) ? [f.issue] : [])].map((k) => ({ value: k, label: k })) },
         ]}
         end={(compact) => <button className="btn primary" title="提出新的待決定或需要協助" onClick={() => setCreating(true)}><SIcon name="plus" />{!compact && "提出新的待決定"}</button>} />
-      <div className={layoutClass.fill}>
+      {showHelp && (
+        <div className={s.helpGroup}>
+          <Card title="需要協助的任務" subtitle={`${dev.help.tasks.length} 件:角色卡住了,等你回覆`}>
+            <NeedsHelpList tasks={dev.help.tasks} agents={dev.help.agents} openTask={(t) => go("automation", t.id)} />
+          </Card>
+        </div>
+      )}
+      {onlyHelp ? <div className={"caption muted " + s.noDecisions}>還沒有待決定。AI 或你可以用「提出新的待決定」把要人選擇、要人做的事放在這裡。</div> : (
+      <div className={layoutClass.fill + " " + s.panes}>
         <div className={ds.sideList + " " + s.side}>
           {error && !list ? <EmptyState title="讀不到待決定" icon="exclamationmark.triangle" message={error} />
             : !list ? null : shown.length === 0 ? (
@@ -69,6 +85,7 @@ export function DevDecisionsTab() {
             : <EmptyState title="選一筆待決定" icon="questionmark.bubble" message="左邊選一筆看內文、選項與處理紀錄,並回答、撤回或由它開 Issue。" />}
         </div>
       </div>
+      )}
       <Modal open={creating} onClose={() => setCreating(false)} width={600}>
         <NewDecision defaultIssue={f.issue} onDone={(id) => { setCreating(false); reload(); if (id) { dev.setSelectedDecision(id); set({ status: "open" }); } }} />
       </Modal>
@@ -204,7 +221,7 @@ function AnswerForm({ d, run, onDone }: { d: Decision; run: <T>(f: () => Promise
           <span className={s.optionLabel}>{c.label}</span>
         </label>
       ))}
-      <textarea className={"textarea " + s.note} placeholder={needNote ? "說明(必填)" : "補充說明(選填)"} value={a.note} onChange={(e) => setA({ ...a, note: e.target.value })} />
+      <AutoTextarea ariaLabel="說明" placeholder={needNote ? "說明(必填)" : "補充說明(選填)"} value={a.note} onChange={(note) => setA({ ...a, note })} />
       {d.kind === "help" && a.choice === "done" && <input className="input" placeholder="證據(連結、輸出、版本號;選填)" value={a.evidence} onChange={(e) => setA({ ...a, evidence: e.target.value })} />}
       <div className="row gap8">
         <span className="caption muted">送出後結論會留言到來源 Issue</span>
@@ -247,7 +264,7 @@ function NewDecision({ defaultIssue, onDone }: { defaultIssue: string; onDone: (
         <input className="input grow" placeholder="來源 Issue(選填,例如 ISS-37)" value={draft.sourceIssue} onChange={(e) => set({ sourceIssue: e.target.value })} />
       </div>
       <input className="input" placeholder="標題(一句話說明問題或請求)" value={draft.title} autoFocus onChange={(e) => set({ title: e.target.value })} />
-      <textarea className={"textarea " + s.body} placeholder="內文(背景,支援 Markdown;選填)" value={draft.body} onChange={(e) => set({ body: e.target.value })} />
+      <AutoTextarea monospace minRows={5} maxRows={16} placeholder="內文(背景,支援 Markdown;選填)" value={draft.body} onChange={(v) => set({ body: v })} />
       {draft.kind === "decision" && (
         <div className="col gap6">
           <span className="caption muted">選項(至少 2 個,可標一個建議;最多 {MAX_OPTIONS} 個)</span>

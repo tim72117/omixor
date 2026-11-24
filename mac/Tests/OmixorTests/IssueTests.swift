@@ -36,7 +36,7 @@ final class IssueTests: XCTestCase {
 
         var (obj, text, isError) = try await call(mcp, "issue_create", [
             "title": "首頁訪客 7 天播放率只有 55%", "body": "## 現象\n- 打開 29 次,播放 16 次",
-            "priority": "high", "labels": ["evoleap", "訪客", "evoleap"], "source": "網站訪客 7d",
+            "priority": "high", "labels": ["evoleap", "訪客", "evoleap"], "source": "網站訪客 7d", "return": "full",
         ])
         XCTAssertFalse(isError, text)
         var d = try XCTUnwrap(obj as? [String: Any])
@@ -48,13 +48,19 @@ final class IssueTests: XCTestCase {
 
         (_, text, isError) = try await call(mcp, "issue_create", ["title": "第二筆", "priority": "urgent"])
         XCTAssertFalse(isError, text)
+        // 預設回精簡回執:有 key / version / changed,沒有完整欄位
+        let ack = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], text)
+        XCTAssertEqual(ack["key"] as? String, "ISS-2")
+        XCTAssertNotNil(ack["version"])
+        XCTAssertEqual(ack["changed"] as? [String], ["created"])
+        XCTAssertNil(ack["labels"]); XCTAssertNil(ack["body"])
         (_, _, isError) = try await call(mcp, "issue_create", ["body": "沒有標題"])
         XCTAssertTrue(isError)
         (_, _, isError) = try await call(mcp, "issue_create", ["title": "x", "priority": "p0"])
         XCTAssertTrue(isError)
 
         (obj, text, isError) = try await call(mcp, "issue_update", [
-            "id": "iss-1", "comment": "又看了 1 天的數字,45%", "add_labels": ["播放率"], "append_body": "## 建議\n縮短開場",
+            "id": "iss-1", "comment": "又看了 1 天的數字,45%", "add_labels": ["播放率"], "append_body": "## 建議\n縮短開場", "return": "full",
         ])
         XCTAssertFalse(isError, text)
         d = try XCTUnwrap(obj as? [String: Any])
@@ -88,11 +94,11 @@ final class IssueTests: XCTestCase {
         (_, _, isError) = try await call(mcp, "issue_create", ["title": "x", "agent": "不存在"])
         XCTAssertTrue(isError)
         let role = RoleMCP(app: app)
-        var (ro, rtext, rerr) = try await role.call("marketing", "issue_create", ["title": "UTM"])
+        var (ro, rtext, rerr) = try await role.call("marketing", "issue_create", ["title": "UTM", "return": "full"])
         XCTAssertFalse(rerr, rtext)
         XCTAssertEqual(ro["createdBy"] as? String, "行銷")
         XCTAssertEqual(app.issues.first?.createdBy, "agent:marketing")
-        (ro, rtext, rerr) = try await role.call("visitor-analyst", "issue_update", ["id": "ISS-1", "comment": "補數字"])
+        (ro, rtext, rerr) = try await role.call("visitor-analyst", "issue_update", ["id": "ISS-1", "comment": "補數字", "return": "full"])
         XCTAssertFalse(rerr, rtext)
         XCTAssertEqual((ro["comments"] as? [[String: Any]])?.last?["author"] as? String, "訪客分析師")
 

@@ -178,6 +178,18 @@ func (a *API) agentRoutes(mux *http.ServeMux) {
 		t, err := a.Svc.CancelTask(p, r.PathValue("org"), r.PathValue("id"))
 		reply(w, t, err)
 	}))
+	// 回覆需要協助的任務:body {"text": "..."};回覆記成備註、任務退回待領取(組織管理員)
+	mux.HandleFunc("POST "+tk+"/{id}/reply", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
+		var in struct {
+			Text string `json:"text"`
+		}
+		if err := read(r, &in); err != nil {
+			bad(w, err)
+			return
+		}
+		t, err := a.Svc.ReplyTask(p, r.PathValue("org"), r.PathValue("id"), in.Text)
+		reply(w, t, err)
+	}))
 	mux.HandleFunc("POST "+tk+"/{id}/requeue", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		t, err := a.Svc.RequeueTask(p, r.PathValue("org"), r.PathValue("id"))
 		reply(w, t, err)

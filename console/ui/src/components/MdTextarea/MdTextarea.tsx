@@ -2,17 +2,18 @@
 // 上傳到目前組織的附件後在游標位置插入 ![檔名](/api/attachments/…)。
 import { useRef, useState } from "react";
 import { uploadImage } from "../../api";
+import { AutoTextarea } from "../AutoTextarea";
 import { SIcon } from "../SIcon";
 import s from "./MdTextarea.module.css";
 
 const ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 
 /**
- * className 加在 textarea 上(全域 .textarea 預設 min-height 160px、等寬字;要蓋過時用 textarea.x 提高權重);
- * wrapClassName 加在外層欄。
+ * 輸入框本身是 AutoTextarea:minRows / maxRows / monospace 原樣轉給它;wrapClassName 加在外層欄。
  */
-export function MdTextarea({ value, onChange, placeholder, className, wrapClassName, autoFocus }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; className?: string; wrapClassName?: string; autoFocus?: boolean;
+export function MdTextarea({ value, onChange, placeholder, wrapClassName, autoFocus, minRows, maxRows, monospace }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; wrapClassName?: string; autoFocus?: boolean;
+  minRows?: number; maxRows?: number; monospace?: boolean;
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -53,8 +54,8 @@ export function MdTextarea({ value, onChange, placeholder, className, wrapClassN
 
   return (
     <div className={"col gap4 grow " + s.root + (wrapClassName ? " " + wrapClassName : "")}>
-      <textarea ref={ta} className={"textarea" + (className ? " " + className : "") + (over ? " " + s.over : "")} autoFocus={autoFocus} placeholder={placeholder} value={value}
-        onChange={(e) => onChange(e.target.value)}
+      <AutoTextarea ref={ta} className={over ? s.over : undefined} autoFocus={autoFocus} placeholder={placeholder} value={value}
+        minRows={minRows} maxRows={maxRows} monospace={monospace} onChange={onChange}
         onPaste={(e) => {
           const files = Array.from(e.clipboardData.files);
           if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); void insert(files); }

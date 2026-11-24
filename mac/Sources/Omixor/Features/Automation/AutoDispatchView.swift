@@ -4,8 +4,14 @@ import SwiftUI
 /// 點任務在列下方展開派發細節(AgentTaskDetail)。
 struct AutoDispatchView: View {
     @EnvironmentObject var app: AppState
+    /// 各角色的自動/手動與「開始執行」(同 web 的 agent_runner_save / agent_runner_start)
+    @ObservedObject var runner: AgentRunner
     /// 展開細節的任務(其他頁跳過來時也用這個)
     @Binding var selected: String?
+    /// 到「需要處理」分頁並標示這個任務
+    let openHelp: (String) -> Void
+    /// 到「執行日誌」分頁
+    let openLog: () -> Void
 
     enum Scope: String, CaseIterable, Identifiable {
         case open, all
@@ -15,6 +21,7 @@ struct AutoDispatchView: View {
 
     @State private var scope: Scope = .open
     @State private var agentId = ""
+    @State private var actionError: String?
 
     private var store: AgentStore { app.startAgents() }
 
@@ -36,9 +43,11 @@ struct AutoDispatchView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        if runner.featureEnabled { AutoRunnerStrip(runner: runner, openLog: openLog) { selected = $0 } }
                         load
                         Card("派發列表", subtitle: "\(rows.count) 筆") {
                             filters
+                            if let e = actionError { Text(e).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
                             if rows.isEmpty { Text("沒有符合的任務").foregroundStyle(.secondary) }
                             ForEach(rows) { t in
                                 VStack(alignment: .leading, spacing: 4) {
@@ -75,6 +84,8 @@ struct AutoDispatchView: View {
             ForEach(app.agents) { a in
                 let open = app.agentTasks.filter { $0.agentId == a.id && $0.status.isOpen }.count
                 let blocked = Self.count(app.agentTasks, agent: a.id, .blocked)
+                let auto = runner.config(a.id).autoRun
+                HStack(spacing: 8) {
                 Button {
                     agentId = agentId == a.id ? "" : a.id
                 } label: {
@@ -96,6 +107,14 @@ struct AutoDispatchView: View {
                 }
                 .buttonStyle(.plain)
                 .opacity(a.active ? 1 : 0.5)
+                    HStack(spacing: 6) {
+                        Toggle("", isOn: Binding(get: { auto }, set: { v in
+                            do { try runner.setAutoRun(a.id, v); actionError = nil } catch { actionError = error.localizedDescription }
+                        })).toggleStyle(.switch).controlSize(.small).labelsHidden()
+                        Text(auto ? "自動" : "手動").font(.caption).foregroundStyle(auto ? .primary : .secondary)
+                    }
+                    .help(auto ? "自動:派發後自動領取並執行" : "手動:派發後留在待領取,要在派發列表按「開始執行」")
+                }
             }
         }
     }
@@ -137,11 +156,26 @@ struct AutoDispatchView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            if t.status == .queued {
+                let auto = runner.config(t.agentId).autoRun
+                let why = runner.startBlockReason(t)   // 含「claude 尚未登入」(未登入時按鈕停用)
+                if auto { Pill(text: "自動", color: .green) }
+                Button("開始執行") {
+                    do { try runner.startManually(t); actionError = nil } catch { actionError = error.localizedDescription }
+                }
+                .controlSize(.small).disabled(why != nil)
+                .help(why ?? (auto ? "不等自動執行的下一輪,現在就啟動" : "在這台 Mac 上啟動 Claude Code 以這個角色身分處理"))
+            }
             if let iss = t.issueKey(in: app.issues) {
                 Button(iss) { app.go(.development, focus: iss) }.buttonStyle(.link).font(.caption)
             }
             if t.priority <= .high { Pill(text: t.priority.label, color: t.priority.color) }
-            Pill(text: t.status.label, color: t.status.color, icon: t.status == .blocked ? "hand.raised.fill" : nil)
+            if t.needsHelp {
+                Button { openHelp(t.id) } label: { Pill(text: t.status.label, color: t.status.color, icon: "hand.raised.fill") }
+                    .buttonStyle(.plain).help("到「需要處理」回覆這個任務")
+            } else {
+                Pill(text: t.status.label, color: t.status.color)
+            }
             Text(store.authorName(t.createdBy)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 .frame(width: 110, alignment: .leading).help("派發者")
             Text(t.updatedAt, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)

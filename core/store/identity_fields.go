@@ -16,7 +16,7 @@ type IdentityForm string
 const (
 	// IdentityFree 自由字串:agent:<id>、user:<email>、含 @ 的 email、本機身分名稱…(空字串 = 沒有)
 	IdentityFree IdentityForm = "free"
-	// IdentityAgentID 純角色 id(沒有 agent: 前綴;ops_issues.assignee)
+	// IdentityAgentID 純角色 id(沒有 agent: 前綴;omixor_issues.assignee)
 	IdentityAgentID IdentityForm = "agentID"
 	// IdentityActor 事件時間軸的執行者:Column 是 actor_id,種類在 KindColumn(actor_kind:ai / person / system)
 	IdentityActor IdentityForm = "actor"
@@ -32,9 +32,9 @@ type IdentityField struct {
 
 // IdentityFields 所有「誰」的欄位(19 個,14 張表)
 var IdentityFields = []IdentityField{
-	{"ops_issues", "created_by", IdentityFree, ""},
-	{"ops_issues", "assignee", IdentityAgentID, ""},
-	{"ops_issue_comments", "author", IdentityFree, ""},
+	{"omixor_issues", "created_by", IdentityFree, ""},
+	{"omixor_issues", "assignee", IdentityAgentID, ""},
+	{"omixor_issue_comments", "author", IdentityFree, ""},
 	{"omixor_docs", "author", IdentityFree, ""},
 	{"omixor_agent_tasks", "created_by", IdentityFree, ""},
 	{"omixor_agent_tasks", "claimed_by", IdentityFree, ""},
@@ -82,12 +82,12 @@ type ActorColumn struct {
 	FK string
 }
 
-// ActorColumns 22 個存 actor id 的欄位(IdentityFields 的 19 個 + ops_issues.deleted_by、omixor_server_features.updated_by、omixor_audit.user_id)
+// ActorColumns 22 個存 actor id 的欄位(IdentityFields 的 19 個 + omixor_issues.deleted_by、omixor_server_features.updated_by、omixor_audit.user_id)
 var ActorColumns = []ActorColumn{
-	{IdentityField{"ops_issues", "created_by", IdentityFree, ""}, ActorColInPlace, "created_by", false, "fk_ops_issues_created_by"},
-	{IdentityField{"ops_issues", "assignee", IdentityAgentID, ""}, ActorColInPlace, "assignee", true, "fk_ops_issues_assignee"},
-	{IdentityField{"ops_issues", "deleted_by", IdentityFree, ""}, ActorColInPlace, "deleted_by", true, "fk_ops_issues_deleted_by"},
-	{IdentityField{"ops_issue_comments", "author", IdentityFree, ""}, ActorColInPlace, "author", false, "fk_ops_issue_comments_author"},
+	{IdentityField{"omixor_issues", "created_by", IdentityFree, ""}, ActorColInPlace, "created_by", false, "fk_omixor_issues_created_by"},
+	{IdentityField{"omixor_issues", "assignee", IdentityAgentID, ""}, ActorColInPlace, "assignee", true, "fk_omixor_issues_assignee"},
+	{IdentityField{"omixor_issues", "deleted_by", IdentityFree, ""}, ActorColInPlace, "deleted_by", true, "fk_omixor_issues_deleted_by"},
+	{IdentityField{"omixor_issue_comments", "author", IdentityFree, ""}, ActorColInPlace, "author", false, "fk_omixor_issue_comments_author"},
 	{IdentityField{"omixor_docs", "author", IdentityFree, ""}, ActorColInPlace, "author", true, "fk_omixor_docs_author"},
 	{IdentityField{"omixor_agent_tasks", "created_by", IdentityFree, ""}, ActorColInPlace, "created_by", true, "fk_omixor_agent_tasks_created_by"},
 	{IdentityField{"omixor_agent_tasks", "claimed_by", IdentityFree, ""}, ActorColInPlace, "claimed_by", true, "fk_omixor_agent_tasks_claimed_by"},

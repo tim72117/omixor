@@ -61,7 +61,7 @@ func TestUnifiedProtectedResourceMetadata(t *testing.T) {
 	w := o.do("GET", "/.well-known/oauth-protected-resource/mcp", "")
 	m := jsonBody(t, w)
 	if w.Code != 200 || m["resource"] != tUnified || m["authorization_servers"].([]any)[0] != tPublic+"/oauth" ||
-		m["scopes_supported"].([]any)[0] != "mcp:read" || len(m["scopes_supported"].([]any)) != 2 || m["scopes_supported"].([]any)[1] != "mcp:write" {
+		m["scopes_supported"].([]any)[0] != "mcp:read" || len(m["scopes_supported"].([]any)) != 3 || m["scopes_supported"].([]any)[1] != "mcp:write" || m["scopes_supported"].([]any)[2] != "mcp:admin" {
 		t.Fatal(w.Code, m)
 	}
 	// 既有的不變:組織路徑、根目錄備援

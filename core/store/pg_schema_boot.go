@@ -54,10 +54,10 @@ type rowQ interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// omixorTableCount 目前 schema 裡有幾張 omixor 的表(omixor_*、ops_issues、ops_issue_comments)
+// omixorTableCount 目前 schema 裡有幾張 omixor 的表(omixor_*)
 func omixorTableCount(c context.Context, q schemaQ) (int, error) {
 	rows, err := q.Query(c, `select count(distinct table_name) from information_schema.columns where table_schema = current_schema()
-		and (table_name like 'omixor\_%' or table_name in ('ops_issues', 'ops_issue_comments'))`)
+		and table_name like 'omixor\_%'`)
 	if err != nil {
 		return 0, fmt.Errorf("查資料庫結構失敗:%w", err)
 	}

@@ -120,7 +120,7 @@ func CoreToolSet(keep func(CoreTool) bool) map[string]bool {
 
 // OAuthWriteTools OAuth 寫入授權(scope mcp:write)額外開放的工具:只有協作類寫入,明確列在這裡(不是「所有非唯讀」);
 // 實際可用 = ReadOnly ∪ OAuthWriteTools,而且 service 層照既有授權表檢查(成員角色、受限專案),OAuth 不繞過任何一項,也不是伺服器管理員(Principal.ServerAdmin)。
-// 新增 Admin 工具時必須分類:ReadOnly、這裡、或 OAuthForbiddenTools(model 的測試會檢查)
+// 新增 Admin 工具時必須分類:ReadOnly、這裡、OAuthAdminTools、或 OAuthForbiddenTools(model 的測試會檢查)
 var OAuthWriteTools = map[string]bool{
 	"issue_create": true, "issue_update": true, "issue_accept": true, "report_problem": true,
 	"issue_decision_add": true, "issue_decision_answer": true, "issue_decision_to_issue": true,
@@ -130,18 +130,20 @@ var OAuthWriteTools = map[string]bool{
 	"agent_task_report": true,
 }
 
-// OAuthForbiddenTools 明確不開放給 OAuth(含 mcp:write)的 Admin 工具與原因(只是紀錄與測試用;開放與否以 OAuthWriteTools 為準)
+// OAuthAdminTools OAuth 組織管理員授權(scope mcp:admin,隱含 mcp:write 與 mcp:read)額外開放的組織結構工具:管理角色、組織鏈、專案與專案成員、
+// 文件櫃結構、事件。實際可用 = ReadOnly ∪ OAuthWriteTools ∪ OAuthAdminTools,而且每次呼叫都要「呼叫者目前是該 org 的管理員」(MCP 層即時檢查,再加 service 層既有的授權表),
+// 不是伺服器管理員(Principal.ServerAdmin 對 OAuth 一律 false)。不含任何會簽發角色憑證、或讓用戶端替角色排工作的工具(那些在 OAuthForbiddenTools)
+var OAuthAdminTools = map[string]bool{
+	"agent_upsert": true, "chain_save": true, "project_save": true, "cabinet_layout_save": true,
+	"incident_declare": true, "incident_update": true,
+}
+
+// OAuthForbiddenTools 明確不開放給 OAuth(含 mcp:write、mcp:admin)的 Admin 工具與原因(只是紀錄與測試用;開放與否以 OAuthWriteTools、OAuthAdminTools 為準)
 var OAuthForbiddenTools = map[string]string{
 	"agent_task_create":   "排任務給角色(角色會用自己的憑證執行),OAuth 授權不能讓用戶端替角色排工作,僅限 omx_ 使用者 token(ISS-60)",
 	"agent_task_claim":    "會簽發角色憑證(可用該角色身分工作),OAuth 不發憑證",
 	"issue_item_claim":    "負責人是角色時會自動建立任務並簽發角色憑證",
-	"agent_upsert":        "角色與組織結構管理",
-	"agent_task_transfer": "轉移角色任務(角色與任務歸屬管理),先不開放",
-	"chain_save":          "組織鏈(組織結構)管理",
-	"project_save":        "專案與專案成員、可見性管理",
-	"cabinet_layout_save": "文件櫃結構管理",
-	"incident_declare":    "事件管理,先不開放",
-	"incident_update":     "事件管理,先不開放",
+	"agent_task_transfer": "把角色的任務轉給別的角色(改變角色替誰工作、會替角色排工作),屬於替角色排工作的同一類(ISS-60),不是組織結構設定;mcp:admin 也不開放,僅限 omx_ 使用者 token",
 	"commits_report":      "寫入 commit 資料(任何成員都能說謊,僅限 omx_ 使用者 token;ISS-69 phase 1),先不開放",
 	"issue_commit_link":   "手動連結 Issue 與 commit(僅限 omx_ 使用者 token;ISS-69 phase 1),先不開放",
 	"issue_commit_unlink": "取消 Issue 與 commit 的連結(僅限 omx_ 使用者 token;ISS-69 phase 1),先不開放",

@@ -488,8 +488,13 @@ func RegisterAgentTools(s *Server) {
 		if err != nil {
 			return nil, err
 		}
-		t, err := bk.AssignTask(org, service.TaskInput{AgentID: target.ID, Title: title, Instructions: instructions, Priority: priority, Author: by})
+		t, err := bk.AssignTask(org, service.TaskInput{AgentID: target.ID, Title: title, Instructions: instructions, Priority: priority,
+			Issue: c.Args.Str("issue"), Author: by})
 		if err != nil {
+			if in := httperr.Classify(err); in.Data["code"] == service.IssueNotFoundCode { // 機器碼來自服務,不讀錯誤原文
+				return nil, ToolError{Message: "Not found: issue " + c.Args.Str("issue") + " (it does not exist or you cannot see it); the task was not created.",
+					Status: 404, Data: map[string]any{"code": service.IssueNotFoundCode}}
+			}
 			return nil, terr(err)
 		}
 		return taskJSON(e, *t), nil

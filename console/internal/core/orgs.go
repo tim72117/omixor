@@ -12,8 +12,8 @@ import (
 	"omixor-web/internal/templates"
 )
 
-// 組織:同 Swift 版 Orgs.swift。每個組織的資料放在 <資料夾>/orgs/<組織 id>/,orgs.json 記清單與目前的組織。
-// 第一次啟動時,舊版直接放在 <資料夾> 的 issues.json 等檔案會複製到預設組織(原檔保留)。
+// 組織:本機模式的組織清單在核心(PostgreSQL),orgs.json 只記目前選的組織;遠端模式的清單快取在 orgs-remote-*.json。
+// 每個組織自己的設定檔(connections.json、github.json…)放在 <資料夾>/orgs/<組織 id>/。
 //
 // 各功能用這三個鉤子跟組織連動(在 init() 登記):
 //   OnOrgLoad(f)   啟動時與切換組織後,從 a.DataDir() 重新讀自己的檔案(呼叫時拿著 Mu)
@@ -21,8 +21,6 @@ import (
 //   OnOrgDelete(f) 刪除組織前清掉該組織的東西(例如鑰匙圈裡的登入;呼叫時拿著 Mu)
 
 const DefaultOrgID = "default"
-
-var PerOrgFiles = []string{"issues.json", "agents.json", "cabinet.json", "cabinet-layout.json", "connections.json", "github.json", "gcp.json"}
 
 type Organization struct {
 	Color     string `json:"color"`

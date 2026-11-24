@@ -15,7 +15,7 @@ import (
 //
 // 來源與保存(優先序):
 //  1. 環境變數 OMIXOR_CONSOLE_MCP_TOKEN(至少 32 字元,有設但無效就拒絕啟動;給 Docker、自動化用):有設就用它,不保存、不能在畫面換(要換請改環境變數後重啟)
-//  2. 有資料庫:Vault 的帳號 mcp:token(用 OMIXOR_SECRET_KEY 加密的 ops_secrets);同時鏡射一份到 console 資料夾的 mcp_token(權限 0600),
+//  2. 有資料庫:Vault 的帳號 mcp:token(用 OMIXOR_SECRET_KEY 加密的 omixor_secrets);同時鏡射一份到 console 資料夾的 mcp_token(權限 0600),
 //     讓同一台機器上的 omixor-mcp 讀得到
 //  3. 沒有資料庫:只存 console 資料夾的 mcp_token(權限 0600)
 //

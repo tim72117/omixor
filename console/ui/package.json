@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
-    "test": "tsc -p contract && node --experimental-strip-types --test contract/contract.test.ts contract/auth.test.ts contract/viewStore.test.ts contract/issueAccept.test.ts contract/decisions.test.ts"
+    "test": "tsc -p contract && node --experimental-strip-types --test contract/contract.test.ts contract/auth.test.ts contract/viewStore.test.ts contract/issueAccept.test.ts contract/decisions.test.ts contract/needsHelp.test.ts contract/autoTextarea.test.ts contract/runLog.test.ts contract/navRoute.test.ts contract/navStore.test.ts"
   },
   "dependencies": {
     "lucide-react": "^0.460.0",

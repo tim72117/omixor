@@ -67,7 +67,7 @@ func TestPGSeqPartialIndexAndNonNumeric(t *testing.T) {
 	p := fkPG(t, url)
 	at := mt("2026-01-02T03:04:05Z")
 	chk(t, p.CreateOrg(model.Org{ID: "o", Name: "o", CreatedAt: at}))
-	if n := pgCount(t, p, `select count(*) from pg_index i join pg_class c on c.oid = i.indexrelid where c.relname = 'ops_issues_org_number' and i.indpred is not null and i.indisvalid`); n != 1 {
+	if n := pgCount(t, p, `select count(*) from pg_index i join pg_class c on c.oid = i.indexrelid where c.relname = 'omixor_issues_org_number' and i.indpred is not null and i.indisvalid`); n != 1 {
 		t.Fatal("要有有效的部分唯一索引", n)
 	}
 	mk := func(id string) model.Issue { x := seqIssue(at); x.ID = id; return x }

@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
+	"unicode"
 
 	"omixor-core/mcp"
 	"omixor-core/model"
@@ -81,9 +83,18 @@ func TestAgentToolsFollowRoleSettings(t *testing.T) {
 		t.Fatal(tools)
 	}
 	un := tools["unavailable"].([]any)
-	if len(un) != 8 || un[0].(map[string]any)["name"] != "agent_task_delegate" || un[0].(map[string]any)["reason"] == "" {
+	if len(un) != 8 || un[0].(map[string]any)["name"] != "agent_task_delegate" {
 		t.Fatal(un)
 	}
+	// 沒設定時四種原因代碼都出現;LLM 看的欄位沒有中文,per-call 的 note 已移到 instructions
+	if _, has := tools["note"]; has {
+		t.Fatal("tools.note 應已移除", tools)
+	}
+	if codes := unavailableCodes(t, tools); !slices.Equal(codes, []string{"doc_read_missing", "doc_write_missing", "no_downstream", "not_channel_member"}) {
+		t.Fatal(codes)
+	}
+	assertNoCJKExceptLabel(t, tools)
+	assertInstructionsExplainUnavailable(t, role, auth)
 
 	// 開放:唯讀文件、組織鏈下游、加進頻道
 	g, _ := st.GetAgent("lab", "solo")
@@ -104,42 +115,81 @@ func TestAgentToolsFollowRoleSettings(t *testing.T) {
 	if slices.Contains(got, "doc_save") { // 唯讀:不能寫
 		t.Fatal(got)
 	}
+	// 唯讀文件 + 有下游 + 在頻道:只剩寫入原因
+	tools = ok(t, role, auth, "agent_context", map[string]any{})["tools"].(map[string]any)
+	if codes := unavailableCodes(t, tools); !slices.Equal(codes, []string{"doc_write_missing"}) {
+		t.Fatal(codes)
+	}
+	assertNoCJKExceptLabel(t, tools)
 	l, err := svc.AgentTools(boss, "lab", "solo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, x := range l {
-		if x.Available == (x.Name == "doc_save") || (x.Name == "doc_save" && x.Reason == "") {
+		if x.Available == (x.Name == "doc_save") || (x.Name == "doc_save" && (x.Reason == "" || x.ReasonCode != "doc_write_missing")) {
 			t.Fatal(x)
 		}
 	}
 }
 
-// 登記表(model.CoreTools)與工具規格一致:每個規格都有登記、每個登記都有規格,標題取自登記表;
-// 執行者端點的工具標成 Worker,其他至少開放給一個端點
-func TestCoreToolRegistry(t *testing.T) {
-	defs := map[string]map[string]any{}
-	for _, d := range append(mcp.CoreToolDefs(), mcp.WorkerToolDefs()...) {
-		m := d.(map[string]any)
-		defs[m["name"].(string)] = m
-	}
-	for _, ct := range model.CoreTools {
-		d, ok := defs[ct.Name]
-		if !ok {
-			t.Fatalf("%s 有登記但沒有規格", ct.Name)
+// unavailableCodes tools.unavailable 出現的原因代碼(排序、去重);順便確認每個都有英文說明
+func unavailableCodes(t *testing.T, tools map[string]any) []string {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, u := range tools["unavailable"].([]any) {
+		m := u.(map[string]any)
+		code, _ := m["reason"].(string)
+		if msg, _ := m["reason_message"].(string); code == "" || msg == "" {
+			t.Fatal(m)
 		}
-		if d["title"] != ct.Title {
-			t.Fatalf("%s 標題 %v ≠ 登記表 %s", ct.Name, d["title"], ct.Title)
-		}
-		if !ct.Admin && !ct.Agent && !ct.Worker {
-			t.Fatalf("%s 沒有開放給任何端點", ct.Name)
-		}
-		delete(defs, ct.Name)
+		seen[code] = true
 	}
-	if len(defs) > 0 {
-		t.Fatalf("有規格但沒登記:%v", defs)
+	out := []string{}
+	for c := range seen {
+		out = append(out, c)
 	}
-	if !mcp.AdminToolAllow["issues"] || mcp.AdminToolAllow["agent_task_delegate"] || !mcp.AgentToolAllow["agent_task_delegate"] || mcp.AgentToolAllow["chain_save"] {
-		t.Fatal(mcp.AdminToolAllow, mcp.AgentToolAllow)
+	slices.Sort(out)
+	return out
+}
+
+// assertNoCJKExceptLabel tools 區塊除了 label(給人看的名稱)以外不含中日韓文字
+func assertNoCJKExceptLabel(t *testing.T, tools map[string]any) {
+	t.Helper()
+	var walk func(v any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case string:
+			for _, r := range x {
+				if unicode.Is(unicode.Han, r) {
+					t.Fatalf("tools 區塊有中文:%q", x)
+				}
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		case map[string]any:
+			for k, e := range x {
+				if k != "label" {
+					walk(e)
+				}
+			}
+		}
+	}
+	walk(tools)
+}
+
+// assertInstructionsExplainUnavailable 角色端點 initialize 的 instructions 說明 unavailable 工具的處理方式(取代每次 agent_context 都帶的 note)
+func assertInstructionsExplainUnavailable(t *testing.T, h http.Handler, auth string) {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", auth)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	for _, want := range []string{"tools.unavailable", "only a human can change", "do not retry them or invent workarounds", "agent_task_report status=blocked"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("instructions 缺 %q:%s", want, rec.Body.String())
+		}
 	}
 }

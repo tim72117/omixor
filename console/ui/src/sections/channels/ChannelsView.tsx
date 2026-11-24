@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { action, useView } from "../../api";
 import { AgentAvatar } from "../../components/Avatar";
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
@@ -310,9 +311,9 @@ function Composer({ members, onSend }: { members: Who[]; onSend: (text: string) 
         </div>
       )}
       <div className={s.inputRow + " gap8"}>
-        <textarea ref={ta} className={"input grow " + s.textarea} rows={Math.min(8, Math.max(1, text.split("\n").length))}
+        <AutoTextarea ref={ta} className="grow" minRows={1} maxRows={8}
           placeholder="寫訊息…(Enter 送出、Shift+Enter 換行,@ 提到成員)" value={text}
-          onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setPick(0); }}
+          onChange={(v, e) => { setText(v); setCaret(e.target.selectionStart ?? v.length); setPick(0); }}
           onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
           onKeyDown={onKey} />
         <button className="btn primary" disabled={busy || !text.trim()} onClick={submit}><Icon name="paperplane" size={14} /></button>

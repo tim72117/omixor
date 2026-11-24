@@ -1,6 +1,6 @@
 // 開發進度頁內部共用:分頁、跨分頁狀態、計算指標、小元件(Swift 的 DevShared.swift)。
 import { createContext, useContext } from "react";
-import { action } from "../../api";
+import { go } from "../../lib/nav";
 import { EmptyState } from "../../components/EmptyState";
 import { Bar } from "../../components/ProgressBar";
 import { SIcon } from "../../components/SIcon";
@@ -8,8 +8,10 @@ import { color } from "../../lib/color";
 import { now, t } from "../../lib/format";
 import { CHECK, WORK_TYPE, type CheckKey, type PullRequest, type Repository, type WorkItem, type WorkTypeKey } from "../../models";
 import css from "./devShared.module.css";
+import type { SetMode } from "../../lib/nav";
 import type { IssueFilters } from "./issueFilters";
 import type { DecisionFilters } from "./decisionModel";
+import type { NeedsHelpData } from "../automation/needsHelpApi";
 
 // Repositories(功能 development.repos,選用模組 integrations):GitHub 與 GitLab 追蹤中的 repo 一起列;
 // 原本的 GitHub、GitLab 分頁已併進來(舊連結的 focusId "github" / "gitlab" 改開 Repositories)
@@ -28,7 +30,8 @@ export type DevModel = {
   selectedPR?: number; setSelectedPR: (n?: number) => void;
   prRepoFilter?: string; setPrRepoFilter: (r?: string) => void;
   highlightedItem?: string; setHighlightedItem: (id?: string) => void;
-  selectedIssue?: string; setSelectedIssue: (id?: string) => void;
+  /** 選中的 Issue 存在網址(?issue=):使用者點選預設 push(上一頁回到上一個選的),自動選取 / 解析 / 刪除後取消請傳 "replace" */
+  selectedIssue?: string; setSelectedIssue: (id?: string, mode?: SetMode) => void;
   /** Repositories 選的 repo(「平台:key」,例如 github:owner/name、gitlab:42) */
   selectedRepo?: string; setSelectedRepo: (id?: string) => void;
   showIssue: (id: string) => void; showPR: (id: number) => void; showRepoPRs: (repo: string) => void; showItem: (id: string) => void;
@@ -40,6 +43,9 @@ export type DevModel = {
   decisionFilters: DecisionFilters; setDecisionFilters: (patch: Partial<DecisionFilters>) => void;
   selectedDecision?: string; setSelectedDecision: (id?: string) => void;
   showDecisions: (issueKey: string) => void;
+  /** 需要處理的任務(AI 自動化同一份資料):依 Issue 分組給看板卡、列表列、詳情用;showIssueHelp 打開 Issue 詳情並停在「需要協助」 */
+  help: NeedsHelpData;
+  showIssueHelp: (id: string) => void;
 };
 export const DevCtx = createContext<DevModel | null>(null);
 export const useDev = () => useContext(DevCtx)!;
@@ -61,7 +67,7 @@ export function usedRepos(issues: { repo?: string }[]): string[] {
 // MARK: - 程式碼倉庫設定的入口(Repositories 分頁用)
 
 /** 跳到 設定 › 程式碼倉庫(SettingsView 以 focusId 決定打開的分頁) */
-export const openRepoSettings = () => action("navigate", { section: "settings", focusId: "repos" }).catch(() => undefined);
+export const openRepoSettings = () => go("settings", "repos").catch(() => undefined);
 
 /** 分頁頂端的小按鈕:管理連線與追蹤的 repo / 專案 */
 export function ManageReposButton() {

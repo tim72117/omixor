@@ -16,14 +16,14 @@ import (
 //
 //	omixor_agent_credentials (org, task_id)           → omixor_agent_tasks (org, id)   (cascade)
 //	omixor_channel_messages、omixor_channel_reads (org, channel_id) → omixor_channels (org, id)   (cascade)
-//	omixor_channels (org, issue_id)                   → ops_issues (org, id)           (set null (issue_id);update cascade)
+//	omixor_channels (org, issue_id)                   → omixor_issues (org, id)           (set null (issue_id);update cascade)
 //	omixor_docs (org, project_ref)                    → omixor_projects (org, id)      (restrict)
-//	ops_issues (org, project_ref)                     → omixor_projects (org, id)      (restrict:專案底下還有 Issue(含垃圾桶)時不能刪)
+//	omixor_issues (org, project_ref)                     → omixor_projects (org, id)      (restrict:專案底下還有 Issue(含垃圾桶)時不能刪)
 //	omixor_cabinet_sections (org, project_ref)        → omixor_projects (org, id)      (cascade)
 //	omixor_cabinet_tabs (org, project, section_id)    → omixor_cabinet_sections (org, project, id)   (cascade;update cascade)
 //	omixor_agent_tasks (org, agent_id)                → omixor_agents (org, id)        (restrict:名下還有任務的角色不能刪,先轉移)
 //	omixor_project_members (actor_id)                 → omixor_actors (id)             (cascade;(org, project) → omixor_projects 另在建表時就有,cascade)
-//	omixor_decisions (created_by)、(decided_by)       → omixor_actors (id)             (restrict;(org, source_issue) → ops_issues 在建表時就有,set null (source_issue);update cascade)
+//	omixor_decisions (created_by)、(decided_by)       → omixor_actors (id)             (restrict;(org, source_issue) → omixor_issues 在建表時就有,set null (source_issue);update cascade)
 //	omixor_issue_items (assignee)、(claimed_by)、(created_by) → omixor_actors (id)         (assignee、claimed_by:set null;created_by:restrict;(org, issue_id)、(org, depends_on)、(org, promoted_issue_id) 在建表時就有)
 //	各表的 org                                        → omixor_orgs (id)               (cascade)
 //
@@ -48,7 +48,7 @@ type fkSpec struct {
 
 // orgFKTables 有 org 欄位、要掛到 omixor_orgs 的表(omixor_org_members 本來就有)
 var orgFKTables = []string{
-	"ops_issues", "omixor_attachments", "omixor_agents", "omixor_agent_tasks", "omixor_agent_credentials",
+	"omixor_issues", "omixor_attachments", "omixor_agents", "omixor_agent_tasks", "omixor_agent_credentials",
 	"omixor_cabinet_layouts", "omixor_cabinet_sections", "omixor_cabinet_tabs", "omixor_docs", "omixor_projects",
 	"omixor_project_seq", "omixor_org_chains", "omixor_channels", "omixor_channel_messages", "omixor_channel_reads",
 	"omixor_incidents", "omixor_decisions", "omixor_issue_items", "omixor_org_integrations", "omixor_org_system",
@@ -63,10 +63,10 @@ func fkSpecs() []fkSpec {
 		{"fk_channel_reads_channel", "omixor_channel_reads",
 			`foreign key (org, channel_id) references omixor_channels (org, id) on delete cascade`},
 		{"fk_channels_issue", "omixor_channels",
-			`foreign key (org, issue_id) references ops_issues (org, id) on delete set null (issue_id) on update cascade`},
+			`foreign key (org, issue_id) references omixor_issues (org, id) on delete set null (issue_id) on update cascade`},
 		{"fk_docs_project", "omixor_docs",
 			`foreign key (org, project_ref) references omixor_projects (org, id) on delete restrict`},
-		{"fk_issues_project", "ops_issues",
+		{"fk_issues_project", "omixor_issues",
 			`foreign key (org, project_ref) references omixor_projects (org, id) on delete restrict`},
 		{"fk_cabinet_sections_project", "omixor_cabinet_sections",
 			`foreign key (org, project_ref) references omixor_projects (org, id) on delete cascade`},

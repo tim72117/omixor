@@ -20,6 +20,7 @@ import { boardDropStatus } from "../../models";
 import s from "./DevBoardTab.module.css";
 import { usedRepos, useDev } from "./devShared";
 import { PRIORITY, showPriorityPill, type Issue } from "./DevIssuesTab";
+import { IssueHelpPill } from "./IssueHelp";
 import { issueKey, PROJECT_ALL } from "./issueModel";
 import { updateIssue, useProjects } from "./issueApi";
 import { issueFilterDefs } from "./issueFilters";
@@ -174,6 +175,7 @@ function IssueCard({ issue, onStatus, dragging, onDragStart, onDragEnd }: {
             {issue.comments?.length > 0 && <span className="caption muted row gap4"><SIcon name="bubble.left" size={11} />{issue.comments.length}</span>}
             {showPriorityPill(issue.priority) && <Pill text={p.label} color={p.color} />}
           </div>
+          <IssueHelpPill issueId={issue.id} />
           <div className={s.title + (open ? "" : " " + s.closed)}>{issue.title}</div>
           {(agentName || issue.repo) && (
             <div className={"col gap4 " + s.tags}>

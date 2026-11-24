@@ -4,13 +4,15 @@ import SwiftUI
 // AI 自動化畫面內共用的小元件與輔助型別(只在 Features/Automation 內使用)。
 
 enum AutoTab: String, CaseIterable, Identifiable {
-    case inbox, agents, dispatch, chain, runner, facebook, flows, runs, insights
+    case inbox, agents, dispatch, help, log, chain, runner, facebook, flows, runs, insights
     var id: String { rawValue }
     var label: String {
         switch self {
         case .inbox: return "待核准"
         case .agents: return "虛擬角色"
         case .dispatch: return "派發"
+        case .help: return "需要處理"
+        case .log: return "執行日誌"
         case .chain: return "組織鏈"
         case .runner: return "自動執行"
         case .facebook: return "粉絲專頁"
@@ -24,6 +26,8 @@ enum AutoTab: String, CaseIterable, Identifiable {
         case .inbox: return "tray.full"
         case .agents: return "person.2"
         case .dispatch: return "arrow.triangle.branch"
+        case .help: return "hand.raised"
+        case .log: return "clock.arrow.circlepath"
         case .chain: return "point.3.filled.connected.trianglepath.dotted"
         case .runner: return "bolt.horizontal.circle"
         case .facebook: return "megaphone"

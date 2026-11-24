@@ -5,6 +5,7 @@ import { Segmented } from "../../components/Segmented";
 import { OmixorProvider } from "../../lib/directory";
 import { now, t } from "../../lib/format";
 import { useList } from "../../lib/hooks";
+import { useRouteChoice } from "../../lib/nav";
 import type { Deployment, PipelineRun } from "../../models";
 import type { SectionProps } from "..";
 import { runIsActive } from "./pipeShared";
@@ -21,13 +22,16 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "runs", label: "執行紀錄" }, { value: "deployments", label: "部署" }, { value: "environments", label: "環境" }, { value: "voice", label: "旁白發佈" },
 ];
 
+const TAB_IDS = TABS.map((x) => x.value);
+
 export default function PipelinesView(props: SectionProps) {
   return <OmixorProvider><Pipelines {...props} /></OmixorProvider>;
 }
 
 function Pipelines({ focusId, clearFocus }: SectionProps) {
-  const [rawTab, setRawTab] = useState<Tab>("runs");
-  const tabs = useFeatureTabs(TABS.map((x) => x.value), rawTab, setRawTab, (x) => `pipelines.${x}`);
+  // 分頁存在網址(#/pipelines?tab=deployments):重新整理、上一頁都會還原;切分頁不新增歷史
+  const [rawTab, setRawTab] = useRouteChoice("tab", TAB_IDS, "runs");
+  const tabs = useFeatureTabs(TAB_IDS, rawTab, setRawTab, (x) => `pipelines.${x}`);
   const tab = tabs.shown, setTab = tabs.select;
   const [selectedRunId, setSelectedRunId] = useState<number>();
   const [highlight, setHighlight] = useState<string>();

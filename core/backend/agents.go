@@ -37,6 +37,9 @@ func (Unsupported) ReportTask(string, string, service.TaskReport) (*model.AgentT
 }
 func (Unsupported) CancelTask(string, string) (*model.AgentTask, error)  { return nil, errUnsupported }
 func (Unsupported) RequeueTask(string, string) (*model.AgentTask, error) { return nil, errUnsupported }
+func (Unsupported) ReplyTask(string, string, string) (*model.AgentTask, error) {
+	return nil, errUnsupported
+}
 func (Unsupported) ClaimNext(string, string) (*service.ClaimResult, error) {
 	return nil, errUnsupported
 }
@@ -116,6 +119,11 @@ func (l *Local) CancelTask(org, id string) (*model.AgentTask, error) {
 func (l *Local) RequeueTask(org, id string) (*model.AgentTask, error) {
 	l.ensureOrg(org)
 	return l.Svc.RequeueTask(l.P, org, id)
+}
+
+func (l *Local) ReplyTask(org, id, text string) (*model.AgentTask, error) {
+	l.ensureOrg(org)
+	return l.Svc.ReplyTask(l.P, org, id, text)
 }
 
 func (l *Local) ClaimNext(org, agentID string) (*service.ClaimResult, error) {
@@ -231,6 +239,14 @@ func (r *Remote) CancelTask(org, id string) (*model.AgentTask, error) {
 
 func (r *Remote) RequeueTask(org, id string) (*model.AgentTask, error) {
 	t, err := r.Client().RequeueTask(r.org(org), id)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return t, nil
+}
+
+func (r *Remote) ReplyTask(org, id, text string) (*model.AgentTask, error) {
+	t, err := r.Client().ReplyTask(r.org(org), id, text)
 	if err != nil {
 		return nil, wrap(err)
 	}

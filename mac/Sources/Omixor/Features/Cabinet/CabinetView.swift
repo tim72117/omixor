@@ -253,8 +253,9 @@ private struct CabinetDocDetail: View {
                     if editing {
                         TextEditor(text: $draftBody)
                             .font(.system(size: 13, design: .monospaced))
+                            .scrollContentBackground(.hidden)
                             .frame(minHeight: 360)
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                            .inputBox()
                         if let error { Text(error).font(.caption).foregroundStyle(.orange) }
                     } else if doc.body.isEmpty {
                         Text("沒有內文").foregroundStyle(.secondary)
@@ -457,8 +458,9 @@ private struct NewDocSheet: View {
             TextField("標題", text: $title).textFieldStyle(.roundedBorder)
             TextEditor(text: $bodyText)
                 .font(.system(size: 13, design: .monospaced))
+                .scrollContentBackground(.hidden)
                 .frame(minHeight: 260)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                .inputBox()
             HStack {
                 if let error {
                     Text(error).font(.caption).foregroundStyle(.orange).lineLimit(3).textSelection(.enabled)

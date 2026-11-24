@@ -10,8 +10,6 @@ input.search { min-width: 120px; max-width: 220px; flex: 1; }
 .sideDetail { flex: none; border-left: 1px solid var(--line); overflow-y: auto; background: var(--bg); }
 .bottomDetail { height: 380px; flex: none; border-top: 1px solid var(--line); overflow-y: auto; }
 .detail { padding: 16px; gap: 14px; }
-/* textarea.note 提高權重:蓋過全域 .textarea 的高度與字型 */
-textarea.note { min-height: 34px; height: 40px; font-family: inherit; }
 .start { align-self: flex-start; }
 .aiReview { padding: 12px; border-radius: var(--r-xl); background: color-mix(in srgb, var(--purple) 7%, transparent); border: 1px solid color-mix(in srgb, var(--purple) 18%, transparent); }
 .finding { display: flex; align-items: baseline; }

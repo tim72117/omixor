@@ -18,6 +18,8 @@ case "$APP" in /*) ;; *) APP="$PWD/$APP" ;; esac
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/omixor"
+# App 圖示(由 site/favicon.svg 產生,重產見 scripts/gen-appicon.sh)
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # 本機守護服務(App 啟動本機模式時在背景執行,只聽 127.0.0.1)
 (cd ../server && CGO_ENABLED=0 go build -trimpath -o "$APP/Contents/MacOS/omixor-local" ./cmd/omixor-local)
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -29,6 +31,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>omixor</string>
   <key>CFBundleIdentifier</key><string>com.tim72117.ops</string>
   <key>CFBundleExecutable</key><string>omixor</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>

@@ -42,6 +42,8 @@ final class AppState: ObservableObject {
     @Published var showCommandPalette = false
     /// 跨頁跳轉時要選中的項目(例如從總覽點告警 → 監控頁選中該告警)
     @Published var focusId: String?
+    /// 導覽歷史:go(_:focus:) 離開目前位置時記下,goBack() 退一步(工具列返回鈕、⌘[)
+    @Published private(set) var navHistory = NavHistory()
     /// 功能開關(兩層:系統層 && 組織層;System/SystemSettings.swift;core 讀不到前是保守預設)
     @Published var features = FeatureFlags() { didSet { if features != oldValue { featuresChanged() } } }
     /// 跳到關掉的功能時的提示(畫面上方顯示一下)
@@ -241,6 +243,10 @@ final class AppState: ObservableObject {
     @Published var issues: [Issue] = []
     /// 指向 Issue 的參照(core 的內部 id 或 key,例如頻道的 issueId)換成顯示用的 key;不在目前的列表裡就原樣回傳
     func issueKey(_ ref: String) -> String { issues.first { $0.matches(ref) }?.id ?? ref }
+    /// 這張 Issue 的任務裡需要協助的(links 對得到這張 Issue;判斷同 AgentTask.needsHelp,和網頁的 needsHelpByIssue 一致)
+    func helpTasks(for issue: Issue) -> [AgentTask] {
+        agentTasks.filter { $0.needsHelp && $0.links.contains { issue.matches($0) } }
+    }
     private(set) var issueStore: IssueStore?
 
     /// 開啟 Issue 功能(畫面與 MCP 第一次用到時呼叫;重複呼叫不會重新讀檔)
@@ -338,12 +344,12 @@ final class AppState: ObservableObject {
         case .incidents: n = on("incidents.list") ? openIncidents.count : 0
         case .automation:
             n = (on("automation.inbox") ? pendingApprovals.count : 0)
-                + (on("automation.agents") || on("automation.dispatch") ? agentTasks.filter { $0.status == .blocked }.count : 0)
+                + (on("automation.agents") || on("automation.dispatch") ? agentTasks.filter(\.needsHelp).count : 0)
         case .pipelines:
             n = (on("pipelines.runs") ? runningPipelines.count : 0) + (on("pipelines.voice") ? voiceJobs.filter { $0.state == .ready }.count : 0)
         case .development: n = on("development.issues") ? issues.filter { $0.status == .open && $0.priority <= .high }.count : 0
         case .channels: n = channels.reduce(0) { $0 + $1.unread }
-        case .help: n = agentTasks.filter { $0.status == .blocked }.count + myMentions.count
+        case .help: n = agentTasks.filter(\.needsHelp).count + myMentions.count
         default: n = 0
         }
         return n > 0 ? n : nil
@@ -356,13 +362,28 @@ final class AppState: ObservableObject {
     func go(_ section: AppSection, focus id: String? = nil) -> Bool {
         guard isVisible(section) else {
             noteFeatureOff(section.rawValue, name: section.title)
-            self.section = .overview
-            focusId = nil
+            move(to: .init(section: .overview, focus: nil))
             return false
         }
-        self.section = section
-        focusId = id
+        move(to: .init(section: section, focus: id))
         return true
+    }
+
+    /// 回到上一個位置(沒有歷史就不動);那一頁後來被關掉了就繼續往前找
+    func goBack() {
+        while let p = navHistory.pop() {
+            if isVisible(p.section) {
+                section = p.section
+                focusId = p.focus
+                return
+            }
+        }
+    }
+
+    private func move(to p: NavHistory.Point) {
+        navHistory.record(from: .init(section: section, focus: focusId), to: p)
+        section = p.section
+        focusId = p.focus
     }
 
     // MARK: - 動作(目前只改本機狀態,並寫進動態牆)

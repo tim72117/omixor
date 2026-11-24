@@ -36,7 +36,6 @@ button.issueLink { padding: 0 6px; font-size: var(--fs-sm); }
 .option:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
 .option.on { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .inputRow { display: flex; align-items: flex-end; }
-.textarea { resize: none; font-family: inherit; }
 
 /* 頻道設定 */
 .sectionTitle { font-weight: 600; font-size: var(--fs-md); }

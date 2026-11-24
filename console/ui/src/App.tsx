@@ -10,8 +10,9 @@ import { IconButton } from "./components/IconButton";
 import { Dropdown, MenuList } from "./components/Menu";
 import { Segmented } from "./components/Segmented";
 import { color } from "./lib/color";
+import { clearFocus, go, goBack, guardedNavigate, useNavSync } from "./lib/nav";
 import { DirectoryProvider } from "./lib/directory";
-import { guardedNavigate, useFeatures, useFeaturesError, useFeaturesSync, useLocalNotice, useTimedNotice } from "./features";
+import { useFeatures, useFeaturesError, useFeaturesSync, useLocalNotice, useTimedNotice } from "./features";
 import { openOffice, useOfficeAvailable } from "./officeLink";
 import { SECTION_VIEWS } from "./sections";
 import { SECTIONS, type Nav, type SectionId } from "./types";
@@ -35,11 +36,12 @@ export function App() {
   const badges = useBadges();
   useFeaturesSync();
   const flags = useFeatures();
-  // 系統設定關掉的頁面不顯示(後端會切回總覽並提示;這裡先照總覽畫,不閃一下)
-  const asked: SectionId = nav?.section ?? "overview";
+  // 這個分頁的所在頁以網址為準(lib/nav.ts);網址沒有路由時 useNavSync 會採用後端的目前頁
+  const { route, canGoBack } = useNavSync(nav);
+  // 系統設定關掉的頁面不顯示(useNavSync 會把網址換成總覽;這裡先照總覽畫,不閃一下)
+  const asked = (route?.section ?? "overview") as SectionId;
   const section: SectionId = SECTION_VIEWS[asked] && flags.visible(asked) ? asked : "overview";
   const View = SECTION_VIEWS[section];
-  const go = (s: SectionId) => guardedNavigate(s);
   const [showAssistantPref, setShowAssistant] = useAssistantVisible();
   // AI 助理是實驗功能(系統設定的 assistant):關掉時面板、右上角按鈕與 ⌘J 都不提供
   const assistantOn = flags.enabled("assistant");
@@ -83,12 +85,13 @@ export function App() {
       </aside>
       <main className="main">
         <header className={"toolbar " + s.toolbar}>
+          {canGoBack && <button className={"btn link " + s.back} title="回到上一個畫面" onClick={goBack}><Icon name="chevron.left" size={14} />返回</button>}
           {ENV_SECTIONS.includes(section) && <Segmented
             value={nav?.env ?? "production"}
             options={[{ value: "production", label: "Production" }, { value: "staging", label: "Staging" }, { value: "development", label: "Development" }]}
-            onChange={(v) => action("navigate", { section, focusId: nav?.focusId ?? "", env: v })}
+            onChange={(v) => action("navigate", { section, focusId: route?.focusId ?? "", env: v })}
           />}
-          {RANGE_SECTIONS.includes(section) && <select className="select" value={nav?.timeRange ?? "24h"} onChange={(e) => action("navigate", { section, focusId: nav?.focusId ?? "", timeRange: e.target.value })}>
+          {RANGE_SECTIONS.includes(section) && <select className="select" value={nav?.timeRange ?? "24h"} onChange={(e) => action("navigate", { section, focusId: route?.focusId ?? "", timeRange: e.target.value })}>
             <option value="1h">1 小時</option>
             <option value="6h">6 小時</option>
             <option value="24h">24 小時</option>
@@ -107,7 +110,7 @@ export function App() {
         <FeatureNotice />
         <div className="content">
           <Suspense fallback={<div className={"muted " + s.loading}>載入中…</div>}>
-            <View key={section} focusId={nav?.focusId || undefined} clearFocus={() => action("navigate", { section, focusId: "" })} />
+            <View key={section} focusId={route?.focusId} clearFocus={clearFocus} />
           </Suspense>
         </div>
       </main>
@@ -174,7 +177,7 @@ function OrgSwitcher() {
               onClick: () => { if (o.id !== idx?.current) action("org_switch", { id: o.id }); },
             })),
             "sep",
-            { label: <><Icon name="gearshape" size={14} /> 管理組織…</>, onClick: () => action("navigate", { section: "settings", focusId: "orgs" }) },
+            { label: <><Icon name="gearshape" size={14} /> 管理組織…</>, onClick: () => go("settings", "orgs") },
           ]} />
         </Dropdown>
       )}

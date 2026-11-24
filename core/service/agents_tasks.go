@@ -20,6 +20,8 @@ type TaskInput struct {
 	Instructions string   `json:"instructions"`
 	Priority     string   `json:"priority"`
 	Links        []string `json:"links"`
+	// Issue 選填:這筆任務要連到的 Issue(key 或內部 id);呼叫者要看得到它。解析成內部 id 放在 Links 最前面(和 Issue 指派自動排的任務一樣)
+	Issue string `json:"issue,omitempty"`
 	// Author 任務的建立者署名;只有伺服器管理員(例如 omixor-web 內建核心)給的才算數,其他人一律是自己的 email
 	Author string `json:"author,omitempty"`
 }
@@ -112,14 +114,37 @@ func (s *Service) AssignTask(p *model.Principal, org string, in TaskInput) (*mod
 	if err != nil {
 		return nil, err
 	}
+	links, err := s.taskIssueLinks(p, org, in)
+	if err != nil {
+		return nil, err
+	}
 	s.agents.mu.Lock()
 	defer s.agents.mu.Unlock()
-	t, err := s.insertTask(org, g, title, instructions, in.Priority, by.ID, in.Links)
+	t, err := s.insertTask(org, g, title, instructions, in.Priority, by.ID, links)
 	if err != nil {
 		return nil, err
 	}
 	s.Audit(p, "agent.task.assign", org, map[string]any{"task": t.ID, "agent": g.ID})
 	return s.presentTask(t)
+}
+
+// taskIssueLinks 派任務的 links:in.Issue 有給就解析成內部 id 放最前面,後面接 in.Links。
+// Issue 不存在、在垃圾桶裡、或呼叫者看不到(受限專案)都回 issueNotFound(404,機器碼 IssueNotFoundCode),任務不建立
+func (s *Service) taskIssueLinks(p *model.Principal, org string, in TaskInput) ([]string, error) {
+	ref := strings.TrimSpace(in.Issue)
+	if ref == "" {
+		return in.Links, nil
+	}
+	id, err := s.ResolveIssueID(p, org, ref)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.Store.GetIssue(org, id); errors.Is(err, store.ErrNotFound) { // ResolveIssueID 含垃圾桶;只能連到還在的 Issue
+		return nil, issueNotFound(ref)
+	} else if err != nil {
+		return nil, err
+	}
+	return append([]string{id}, in.Links...), nil
 }
 
 func (s *Service) findTask(org, id string) (*model.AgentTask, error) {
@@ -312,6 +337,45 @@ func (s *Service) RequeueTask(p *model.Principal, org, id string) (*model.AgentT
 	u, err := s.saveTaskChange(org, *t, func(x *model.AgentTask) { x.Status = "queued" })
 	if err == nil {
 		s.Audit(p, "agent.task.requeue", org, map[string]any{"task": t.ID})
+	}
+	return s.presentTaskErr(u, err)
+}
+
+// MaxTaskReplyRunes 人回覆「需要協助」任務的字數上限
+const MaxTaskReplyRunes = 4000
+
+// ReplyTask 人回覆「需要協助」(blocked)的任務:回覆以呼叫者本人署名記成備註,任務退回待領取(組織管理員;憑證作廢)。
+// 角色下次領取時,備註會跟著任務一起交給它(agent_context、dispatch 的 task.notes)。只有 blocked 的任務能回覆
+func (s *Service) ReplyTask(p *model.Principal, org, id, text string) (*model.AgentTask, error) {
+	if err := s.needOrgAdmin(p, org); err != nil {
+		return nil, err
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, fail(400, "要寫回覆內容")
+	}
+	if tooLong(text, MaxTaskReplyRunes) {
+		return nil, fail(400, "回覆太長(上限 %d 字)", MaxTaskReplyRunes)
+	}
+	by, err := s.callerActorID(p, org)
+	if err != nil {
+		return nil, err
+	}
+	s.agents.mu.Lock()
+	defer s.agents.mu.Unlock()
+	t, err := s.findTask(org, id)
+	if err != nil {
+		return nil, err
+	}
+	if t.Status != "blocked" {
+		return nil, fail(409, "%s 目前是%s,不是需要協助,不能回覆", t.ID, model.TaskStatusLabel(t.Status))
+	}
+	u, err := s.saveTaskChange(org, *t, func(x *model.AgentTask) {
+		x.Status = "queued"
+		x.Notes = append(x.Notes, model.AgentTaskNote{ID: uuid(), Author: by, Text: text, At: s.mt()})
+	})
+	if err == nil {
+		s.Audit(p, "agent.task.reply", org, map[string]any{"task": t.ID})
 	}
 	return s.presentTaskErr(u, err)
 }

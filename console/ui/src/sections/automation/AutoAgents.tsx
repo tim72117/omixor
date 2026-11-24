@@ -1,4 +1,5 @@
 // AI 自動化 › 虛擬角色:角色設定、例行任務、指派任務、看任務進度(Swift 的 AutoAgentsView)
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { Fragment, useEffect, useState } from "react";
 import { ApiError, action, tool, useRun, useView } from "../../api";
 import { AgentAvatar } from "../../components/Avatar";
@@ -13,7 +14,7 @@ import { Pill } from "../../components/Pill";
 import { useCopied } from "../../lib/clipboard";
 import { color } from "../../lib/color";
 import { useDirectory } from "../../lib/directory";
-import { go } from "../../lib/nav";
+import { go, type SetMode } from "../../lib/nav";
 import {
   DOC_ACCESS_LABEL, PRIORITIES, PRIORITY_COLOR, PRIORITY_LABEL, ROUTINE_KIND_LABEL, TASK_COLOR, TASK_ICON, TASK_LABEL, leaseLabel, tabTitle, taskOpen,
   type Agent, type AgentRoutine, type AgentTask, type AgentTaskStatus, type CabinetSection, type CabinetView, type DocAccess, type Priority, type RoutineKind,
@@ -21,6 +22,7 @@ import {
 import { relative } from "../../fmt";
 import { AgentAutoRunCard } from "./AutoRunner";
 import { useIssueLabel, useIsIssueRef } from "../development/issueApi";
+import { issueKey, type Issue } from "../development/issueModel";
 import { TransferTasksModal } from "./TransferTasks";
 import css from "./automation.module.css";
 import { useAuto } from "./autoShared";
@@ -55,7 +57,7 @@ const fmtMDHM = (d: Date | string) => { const x = new Date(d); return `${x.getMo
 const newRoutine = (): AgentRoutine => ({ id: crypto.randomUUID().toUpperCase(), title: "", instructions: "", kind: "daily", hour: 9, minute: 0, weekday: 2, everyHours: 6, priority: "normal", enabled: true, createdAt: new Date().toISOString() });
 const blankAgent = (): Agent => ({ id: "", name: "", role: "", symbol: "person.crop.circle", color: "blue", instructions: "", active: true, routines: [], docAccess: {} });
 
-export function AutoAgents({ selection, setSelection }: { selection?: string; setSelection: (id?: string) => void }) {
+export function AutoAgents({ selection, setSelection }: { selection?: string; setSelection: (id?: string, mode?: SetMode) => void }) {
   const d = useAuto();
   const [editing, setEditing] = useState<Agent>();
   const agents = d.agents?.agents ?? [];
@@ -74,7 +76,7 @@ export function AutoAgents({ selection, setSelection }: { selection?: string; se
           {agents.map((a) => {
             const open = d.agents!.tasks.filter((x) => x.agentId === a.id && taskOpen(x.status));
             return (
-              <div key={a.id} className={css.listRow + " " + css.agentRow + (selection === a.id ? " " + css.on : "") + (a.active ? "" : " " + css.inactive)} onClick={() => setSelection(a.id)}>
+              <div key={a.id} className={css.listRow + " " + css.agentRow + (selection === a.id ? " " + css.on : "") + (a.active ? "" : " " + css.inactive)} onClick={() => setSelection(a.id, "push")}>
                 <AgentAvatar agent={a} size={28} />
                 <div className="col grow"><span className="ellipsis">{a.name}</span><span className="caption muted ellipsis">{a.role}</span></div>
                 {open.some((x) => x.status === "blocked") && <Icon name="hand.raised.fill" size={12} color="var(--orange)" />}
@@ -104,6 +106,9 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [priority, setPriority] = useState<Priority>("normal");
+  const [issue, setIssue] = useState(""); // 選填:連到的 Issue(key);任務會出現在那張 Issue 的卡片上
+  const [issues] = useView<Issue[]>("issues");
+  const openIssues = (Array.isArray(issues) ? issues : []).filter((i) => i.status === "open");
   const [selectedTask, setSelectedTask] = useState<string>();
   const [transferring, setTransferring] = useState(false);
   const allAgents = useAuto().agents?.agents ?? [];
@@ -117,10 +122,10 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
     copy(key, typeof r === "string" ? r : r?.text ?? "");
   });
   const assign = () => run(async () => {
-    const r = await tool<{ id?: string; task?: { id?: string } }>("agent_task_create", { assign_to: agent.id, title: title.trim(), instructions, priority });
+    const r = await tool<{ id?: string; task?: { id?: string } }>("agent_task_create", { assign_to: agent.id, title: title.trim(), instructions, priority, ...(issue ? { issue } : {}) });
     const id = r?.id ?? r?.task?.id;
     if (id) setSelectedTask(id);
-    setTitle(""); setInstructions(""); setPriority("normal");
+    setTitle(""); setInstructions(""); setPriority("normal"); setIssue("");
   });
   const scope = Object.entries(agent.docAccess ?? {}).sort(([a], [b]) => a.localeCompare(b)).flatMap(([k, v]) => {
     const s = layout.find((x) => x.id === k || x.label === k);
@@ -183,8 +188,14 @@ function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[];
           <input className="input grow" value={title} placeholder={`要${agent.name}做什麼?`} onChange={(e) => setTitle(e.target.value)} />
           <select className={"select " + css.minW100} value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>{PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}</select>
         </div>
-        <textarea className="input" rows={2} value={instructions} placeholder="補充說明(選填,Markdown)" onChange={(e) => setInstructions(e.target.value)} />
-        <div className={"row " + css.end}><button className="btn primary" disabled={!title.trim() || busy} onClick={assign}>指派</button></div>
+        <AutoTextarea ariaLabel="補充說明" value={instructions} placeholder="補充說明(選填,Markdown)" onChange={setInstructions} />
+        <div className="row gap8">
+          <select className={"select grow"} value={issue} title="連到一張 Issue:任務會顯示在那張 Issue 的卡片上(選填)" onChange={(e) => setIssue(e.target.value)}>
+            <option value="">不連 Issue</option>
+            {openIssues.map((i) => <option key={i.id} value={issueKey(i)}>{issueKey(i)} {i.title}</option>)}
+          </select>
+          <button className="btn primary" disabled={!title.trim() || busy} onClick={assign}>指派</button>
+        </div>
       </Card>
       <Card title="任務" subtitle={tasks.length ? `${tasks.filter((x) => taskOpen(x.status)).length} 件未完成` : undefined}>
         {tasks.length === 0 && <span className="muted">還沒有任務</span>}
@@ -289,7 +300,7 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
         ))}</div>
       </div>
       <label className="row gap6"><input type="checkbox" checked={draft.active} onChange={(e) => set({ active: e.target.checked })} />啟用(停用時例行任務不會排)</label>
-      <label className={fieldClass}><span>角色設定(給 AI 的說明,Markdown)</span><textarea className={"textarea " + css.minH140} value={draft.instructions} onChange={(e) => set({ instructions: e.target.value })} /></label>
+      <label className={fieldClass}><span>角色設定(給 AI 的說明,Markdown)</span><AutoTextarea minRows={6} maxRows={20} value={draft.instructions} onChange={(v) => set({ instructions: v })} /></label>
       <div className={fieldClass}>
         <span>文件櫃存取範圍</span>
         <DocAccessEditor layout={Array.isArray(cab?.layout) ? cab!.layout : []} access={draft.docAccess} onChange={(docAccess) => set({ docAccess })} />
@@ -322,7 +333,7 @@ function EditSheet({ original, onClose, onSaved }: { original: Agent; onClose: (
                 </span>
               )}
             </div>
-            <textarea className="input" rows={1} placeholder="要做什麼(給 AI 的任務說明)" value={r.instructions} onChange={(e) => setRoutine(r.id, { instructions: e.target.value })} />
+            <AutoTextarea ariaLabel="排程任務說明" minRows={1} placeholder="要做什麼(給 AI 的任務說明)" value={r.instructions} onChange={(v) => setRoutine(r.id, { instructions: v })} />
           </div>
         ))}
         <button className={"btn link " + css.start} onClick={() => setDraft((d) => ({ ...d, routines: [...d.routines, newRoutine()] }))}><Icon name="plus" size={12} />新增例行任務</button>

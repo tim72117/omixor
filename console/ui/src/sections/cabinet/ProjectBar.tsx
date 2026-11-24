@@ -2,6 +2,7 @@
 // 新增、改名、刪除專案要組織管理員(核心檢查;裡面還有文件時刪不掉,顯示伺服器的錯誤訊息)
 import { useState } from "react";
 import { action, useRun, useView } from "../../api";
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { ErrorText } from "../../components/ErrorText";
 import { Icon } from "../../components/Icon";
 import { iconButtonClass } from "../../components/IconButton";
@@ -74,7 +75,7 @@ function ProjectSheet({ project, onClose, onSaved }: { project?: Project; onClos
           : keyProblem ? <span className={"caption " + s.red}>{keyProblem}</span>
           : <span className="caption muted">專案裡 Issue 的編號是「代號-流水號」,例如 {cleanProjectKey(key) || "APP"}-1;沒有代號的專案不能放 Issue。組織內不能重複,有 Issue 之後就不能改。</span>}
       </div>
-      <textarea className={"textarea " + s.description} placeholder="說明(選填)" value={description} onChange={(e) => setDescription(e.target.value)} />
+      <AutoTextarea minRows={3} maxRows={8} placeholder="說明(選填)" value={description} onChange={setDescription} />
       <ErrorText>{error}</ErrorText>
       <div className={"row gap8 " + s.end}>
         <button className="btn" onClick={onClose}>取消</button>

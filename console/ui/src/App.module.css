@@ -2,6 +2,8 @@
 .spacer { flex: 1; }
 .toolbar { position: relative; }
 .toolbarRight { position: absolute; right: 12px; }
+/* 「返回」:只在應用程式內還有上一頁時出現,貼在工具列左邊 */
+.back { position: absolute; left: 12px; }
 .loading { padding: 20px; }
 .warn { color: var(--orange); }
 

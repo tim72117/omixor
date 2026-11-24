@@ -16,12 +16,26 @@ type AgentTool struct {
 	Label     string `json:"label"`
 	Group     string `json:"group"`
 	Available bool   `json:"available"`
-	Reason    string `json:"reason,omitempty"` // 不能用的原因(要怎麼開)
+	Reason    string `json:"reason,omitempty"` // 不能用的原因(要怎麼開);給人看的繁中,來自 needReasons
+	// ReasonCode 不能用的原因的穩定代碼(見 needReasons);ReasonEN 是給 LLM 的英文短句(角色端點 agent_context 用,不進 API)
+	ReasonCode string `json:"reasonCode,omitempty"`
+	ReasonEN   string `json:"-"`
 	// 外部 MCP 閘道的工具(Source = "mcp"):由 App 的閘道提供,名稱是 <伺服器 id>__<工具名>(見 service/mcp.go)
 	Source  string `json:"source,omitempty"`
 	Server  string `json:"server,omitempty"`
 	Tool    string `json:"tool,omitempty"`
 	Confirm bool   `json:"confirm,omitempty"` // 呼叫前要人確認
+}
+
+// needReason 一個開放條件(model.Need*)不滿足時的原因:穩定代碼、給 LLM 的英文、給人看的繁中(怎麼開)
+type needReason struct{ Code, EN, ZH string }
+
+// needReasons 以 model.Need* 為鍵的原因表(代碼、英文、繁中的唯一來源)
+var needReasons = map[string]needReason{
+	model.NeedDocRead:    {"doc_read_missing", "The role has no cabinet access.", "沒有文件權限(在角色設定的「文件權限」加位置)"},
+	model.NeedDocWrite:   {"doc_write_missing", "The role has no writable cabinet location.", "沒有可寫的文件位置(文件權限要設成「可寫」)"},
+	model.NeedDownstream: {"no_downstream", "The role has no downstream agent on the organization chain.", "組織鏈上沒有下游角色(在「組織鏈」加一條從這個角色出發的邊)"},
+	model.NeedChannel:    {"not_channel_member", "The role is not a member of any channel.", "還不是任何頻道的成員(把角色加進頻道)"},
 }
 
 // AgentToolNames 角色端點可能開放的全部核心工具(登記表 model.CoreTools 的 Agent)
@@ -96,12 +110,6 @@ func (s *Service) agentTools(org string, g model.Agent) []AgentTool {
 		}
 	}
 	ok := map[string]bool{model.NeedDocRead: read, model.NeedDocWrite: write, model.NeedDownstream: delegate, model.NeedChannel: member}
-	why := map[string]string{
-		model.NeedDocRead:    "沒有文件權限(在角色設定的「文件權限」加位置)",
-		model.NeedDocWrite:   "沒有可寫的文件位置(文件權限要設成「可寫」)",
-		model.NeedDownstream: "組織鏈上沒有下游角色(在「組織鏈」加一條從這個角色出發的邊)",
-		model.NeedChannel:    "還不是任何頻道的成員(把角色加進頻道)",
-	}
 	out := []AgentTool{}
 	for _, ct := range model.CoreTools {
 		if !ct.Agent {
@@ -109,7 +117,8 @@ func (s *Service) agentTools(org string, g model.Agent) []AgentTool {
 		}
 		t := AgentTool{Name: ct.Name, Label: ct.Title, Group: ct.Group, Available: true}
 		if ct.Needs != "" && !ok[ct.Needs] {
-			t.Available, t.Reason = false, why[ct.Needs]
+			r := needReasons[ct.Needs]
+			t.Available, t.Reason, t.ReasonCode, t.ReasonEN = false, r.ZH, r.Code, r.EN
 		}
 		out = append(out, t)
 	}

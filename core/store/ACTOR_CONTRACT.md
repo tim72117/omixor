@@ -17,10 +17,10 @@
 
 | # | 欄位(最終欄名) | 型別 | NULL | 橋 key | 讀取輸出格式(`model.Legacy*`) | 擁有者 |
 |---|---|---|---|---|---|---|
-| 1 | `ops_issues.created_by` | text | 否 | `ops_issues.created_by` | Free | C-2a |
-| 2 | `ops_issues.assignee` | text | 是 | `ops_issues.assignee` | AgentID(只有角色 handle) | C-2a |
-| 3 | `ops_issues.deleted_by` | text | 是 | `ops_issues.deleted_by` | Free | C-2a |
-| 4 | `ops_issue_comments.author` | text | 否 | `ops_issue_comments.author` | Free | C-2a |
+| 1 | `omixor_issues.created_by` | text | 否 | `omixor_issues.created_by` | Free | C-2a |
+| 2 | `omixor_issues.assignee` | text | 是 | `omixor_issues.assignee` | AgentID(只有角色 handle) | C-2a |
+| 3 | `omixor_issues.deleted_by` | text | 是 | `omixor_issues.deleted_by` | Free | C-2a |
+| 4 | `omixor_issue_comments.author` | text | 否 | `omixor_issue_comments.author` | Free | C-2a |
 | 5 | `omixor_docs.author` | text | 是 | `omixor_docs.author` | Free | C-2a |
 | 6 | `omixor_agent_tasks.created_by` | text | 是 | `omixor_agent_tasks.created_by` | Free | C-2b |
 | 7 | `omixor_agent_tasks.claimed_by` | text | 是 | `omixor_agent_tasks.claimed_by` | Free | C-2b |

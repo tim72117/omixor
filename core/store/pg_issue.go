@@ -36,7 +36,7 @@ var ErrDuplicateKey = errors.New("duplicate key")
 // 先查別名表(key 不分大小寫),查不到再當成 id。id 一律存小寫的 UUID,所以直接 x.id = lower(...),走 (org, id) 主鍵索引
 func issueRef(n int) string {
 	return fmt.Sprintf(`coalesce((select k.issue_id from omixor_issue_keys k where k.org = $1 and k.key = upper(btrim($%[1]d::text))),
-		(select x.id from ops_issues x where x.org = $1 and x.id = lower(btrim($%[1]d::text))))`, n)
+		(select x.id from omixor_issues x where x.org = $1 and x.id = lower(btrim($%[1]d::text))))`, n)
 }
 
 // CountProjectIssues 見 Store.CountProjectIssues
@@ -44,7 +44,7 @@ func (p *PG) CountProjectIssues(org, project string) (int, error) {
 	c, cancel := ctx()
 	defer cancel()
 	var n int
-	err := p.pool.QueryRow(c, `select count(*) from ops_issues where org = $1 and project = $2`, org, project).Scan(&n)
+	err := p.pool.QueryRow(c, `select count(*) from omixor_issues where org = $1 and project = $2`, org, project).Scan(&n)
 	return n, err
 }
 
@@ -60,7 +60,7 @@ func (p *PG) ProjectKeyAliasTaken(org, prefix string) (string, error) {
 	pat := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(prefix) + `-%`
 	var k string
 	err := p.pool.QueryRow(c, `select k.key from omixor_issue_keys k where k.org = $1 and k.key like $2
-		and not exists (select 1 from ops_issues x where x.org = k.org and x.id = k.issue_id and upper(x.key) = k.key) limit 1`, org, pat).Scan(&k)
+		and not exists (select 1 from omixor_issues x where x.org = k.org and x.id = k.issue_id and upper(x.key) = k.key) limit 1`, org, pat).Scan(&k)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -83,7 +83,7 @@ func nextIssueKey(c context.Context, tx pgx.Tx, org, project, prefix string) (st
 		var taken bool
 		if err := tx.QueryRow(c, `select exists (select 1 from omixor_issue_keys where org = $1 and key = upper($2))
 			or exists (select 1 from omixor_issue_keys_retired where org = $1 and key = upper($2))
-			or exists (select 1 from ops_issues where org = $1 and key <> '' and upper(key) = upper($2))`, org, key).Scan(&taken); err != nil {
+			or exists (select 1 from omixor_issues where org = $1 and key <> '' and upper(key) = upper($2))`, org, key).Scan(&taken); err != nil {
 			return "", 0, err
 		}
 		if !taken {
@@ -154,7 +154,7 @@ func listIssues(c context.Context, q querier, org, ref string, del issueDel) ([]
 	case deletedIssues:
 		where += ` and deleted_at is not null`
 	}
-	rows, err := q.Query(c, `select `+issueCols+` from ops_issues where `+where+` order by pos desc, number desc`, args...)
+	rows, err := q.Query(c, `select `+issueCols+` from omixor_issues where `+where+` order by pos desc, number desc`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func listIssues(c context.Context, q querier, org, ref string, del issueDel) ([]
 	if ref != "" && len(list) == 1 {
 		cw, cargs = `org = $1 and issue_id = $2`, []any{org, list[0].ID}
 	}
-	crows, err := q.Query(c, `select issue_id, id, author, text, at from ops_issue_comments where `+cw+` order by issue_id, pos`, cargs...)
+	crows, err := q.Query(c, `select issue_id, id, author, text, at from omixor_issue_comments where `+cw+` order by issue_id, pos`, cargs...)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func resolveIssue(c context.Context, q interface {
 		return "", ErrNotFound
 	}
 	var id string
-	err := q.QueryRow(c, `select id from ops_issues where org = $1 and id = `+issueRef(2), org, ref).Scan(&id)
+	err := q.QueryRow(c, `select id from omixor_issues where org = $1 and id = `+issueRef(2), org, ref).Scan(&id)
 	return id, notFound(err)
 }
 
@@ -304,7 +304,7 @@ func writeIssue(c context.Context, tx pgx.Tx, org string, i model.Issue, pos int
 		if version <= 0 {
 			version = 1
 		}
-		if _, err := tx.Exec(c, `insert into ops_issues (org, id, number, pos, title, body, status, priority, labels, source, link,
+		if _, err := tx.Exec(c, `insert into omixor_issues (org, id, number, pos, title, body, status, priority, labels, source, link,
 			created_by, created_at, updated_at, closed_at, assignee, repo, project, key, version, deleted_at, deleted_by)
 			values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
 			org, i.ID, i.Number(), pos, i.Title, i.Body, i.Status, i.Priority, labels, i.Source, i.Link,
@@ -324,7 +324,7 @@ func writeIssue(c context.Context, tx pgx.Tx, org string, i model.Issue, pos int
 			cond, args = ` and version = $16`, append(args, i.Version)
 		}
 		var id string
-		err = tx.QueryRow(c, `update ops_issues set title = $3, body = $4, status = $5, priority = $6, labels = $7, source = $8,
+		err = tx.QueryRow(c, `update omixor_issues set title = $3, body = $4, status = $5, priority = $6, labels = $7, source = $8,
 			link = $9, created_by = $10, created_at = $11, updated_at = $12, closed_at = $13, assignee = $14, repo = $15,
 			version = version + case when (title, body, status, priority, labels, source, link, assignee, repo, closed_at)
 				is distinct from ($3::text, $4::text, $5::text, $6::text, $7::text[], $8::text, $9::text, $14::text, $15::text, $13::timestamptz)
@@ -340,12 +340,12 @@ func writeIssue(c context.Context, tx pgx.Tx, org string, i model.Issue, pos int
 		if i.Comments == nil { // nil = 留言不動(見 Store.UpdateIssue)
 			return nil
 		}
-		if _, err := tx.Exec(c, `delete from ops_issue_comments where org = $1 and issue_id = $2`, org, i.ID); err != nil {
+		if _, err := tx.Exec(c, `delete from omixor_issue_comments where org = $1 and issue_id = $2`, org, i.ID); err != nil {
 			return err
 		}
 	}
 	for k, cm := range i.Comments {
-		if _, err := tx.Exec(c, `insert into ops_issue_comments (org, issue_id, pos, id, author, text, at) values ($1,$2,$3,$4,$5,$6,$7)`,
+		if _, err := tx.Exec(c, `insert into omixor_issue_comments (org, issue_id, pos, id, author, text, at) values ($1,$2,$3,$4,$5,$6,$7)`,
 			org, i.ID, k, cm.ID, cm.Author, cm.Text, secs(cm.At.Time)); err != nil {
 			return fkErr(err)
 		}
@@ -357,7 +357,7 @@ func writeIssue(c context.Context, tx pgx.Tx, org string, i model.Issue, pos int
 func issueMissOrConflict(c context.Context, tx pgx.Tx, org, ref string) error {
 	var v int
 	var deleted bool
-	err := tx.QueryRow(c, `select version, deleted_at is not null from ops_issues where org = $1 and id = `+issueRef(2), org, ref).Scan(&v, &deleted)
+	err := tx.QueryRow(c, `select version, deleted_at is not null from omixor_issues where org = $1 and id = `+issueRef(2), org, ref).Scan(&v, &deleted)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && deleted) {
 		return ErrNotFound
 	}
@@ -390,7 +390,7 @@ func (p *PG) CreateIssue(org string, i model.Issue) (model.Issue, error) {
 		return i, err
 	}
 	var pos int64
-	if err := tx.QueryRow(c, `select coalesce(max(pos),0) from ops_issues where org = $1`, org).Scan(&pos); err != nil {
+	if err := tx.QueryRow(c, `select coalesce(max(pos),0) from omixor_issues where org = $1`, org).Scan(&pos); err != nil {
 		return i, err
 	}
 	if !model.IsUUID(i.ID) { // 只有給的是 UUID 才沿用(舊程式可能帶 ISS-<n> 當草稿 id)
@@ -433,7 +433,7 @@ func (p *PG) MoveIssue(org, ref, project string, expected int, at model.Time) (*
 	}
 	var id, curProject, oldKey string
 	var version int
-	err = tx.QueryRow(c, `select id, project, key, version from ops_issues where org = $1 and id = `+issueRef(2)+` and deleted_at is null for update`,
+	err = tx.QueryRow(c, `select id, project, key, version from omixor_issues where org = $1 and id = `+issueRef(2)+` and deleted_at is null for update`,
 		org, ref).Scan(&id, &curProject, &oldKey, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", ErrNotFound
@@ -453,7 +453,7 @@ func (p *PG) MoveIssue(org, ref, project string, expected int, at model.Time) (*
 		if err != nil {
 			return nil, "", err
 		}
-		if _, err := tx.Exec(c, `update ops_issues set project = $3, key = $4, number = $5, version = version + 1, updated_at = $6
+		if _, err := tx.Exec(c, `update omixor_issues set project = $3, key = $4, number = $5, version = version + 1, updated_at = $6
 			where org = $1 and id = $2`, org, id, project, key, num, secs(at.Time)); err != nil {
 			return nil, "", fkErr(err)
 		}
@@ -498,10 +498,10 @@ func (p *PG) setIssueDeleted(org, ref string, deleted bool, by string, at model.
 	defer tx.Rollback(c)
 	var id string
 	if deleted {
-		err = tx.QueryRow(c, `update ops_issues set deleted_at = $3, deleted_by = $4, version = version + 1
+		err = tx.QueryRow(c, `update omixor_issues set deleted_at = $3, deleted_by = $4, version = version + 1
 			where org = $1 and id = `+issueRef(2)+` and deleted_at is null returning id`, org, ref, secs(at.Time), IDOrNil(by)).Scan(&id)
 	} else {
-		err = tx.QueryRow(c, `update ops_issues set deleted_at = null, deleted_by = null, version = version + 1
+		err = tx.QueryRow(c, `update omixor_issues set deleted_at = null, deleted_by = null, version = version + 1
 			where org = $1 and id = `+issueRef(2)+` and deleted_at is not null returning id`, org, ref).Scan(&id)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -535,7 +535,7 @@ func (p *PG) AddIssueComment(org, issueID string, cm model.Comment) (*model.Issu
 	}
 	defer tx.Rollback(c)
 	var id string
-	err = tx.QueryRow(c, `update ops_issues set updated_at = $3 where org = $1 and id = `+issueRef(2)+` and deleted_at is null returning id`,
+	err = tx.QueryRow(c, `update omixor_issues set updated_at = $3 where org = $1 and id = `+issueRef(2)+` and deleted_at is null returning id`,
 		org, issueID, secs(cm.At.Time)).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -543,8 +543,8 @@ func (p *PG) AddIssueComment(org, issueID string, cm model.Comment) (*model.Issu
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(c, `insert into ops_issue_comments (org, issue_id, pos, id, author, text, at)
-		select $1, $2, coalesce(max(pos), -1) + 1, $3, $4, $5, $6 from ops_issue_comments where org = $1 and issue_id = $2`,
+	if _, err := tx.Exec(c, `insert into omixor_issue_comments (org, issue_id, pos, id, author, text, at)
+		select $1, $2, coalesce(max(pos), -1) + 1, $3, $4, $5, $6 from omixor_issue_comments where org = $1 and issue_id = $2`,
 		org, id, cm.ID, cm.Author, cm.Text, secs(cm.At.Time)); err != nil {
 		return nil, fkErr(err)
 	}
@@ -587,7 +587,7 @@ func (p *PG) DeleteIssue(org, id string) error {
 		on conflict (org, key) do nothing`, org, iid); err != nil {
 		return err
 	}
-	tag, err := tx.Exec(c, `delete from ops_issues where org = $1 and id = $2`, org, iid)
+	tag, err := tx.Exec(c, `delete from omixor_issues where org = $1 and id = $2`, org, iid)
 	if err != nil {
 		return err
 	}
@@ -735,7 +735,7 @@ func prepareImport(c context.Context, tx pgx.Tx, org string, list []model.Issue)
 		var hit string
 		err := tx.QueryRow(c, `select key from (
 			select key from omixor_issue_keys where org = $1 and key = any($2)
-			union all select upper(key) from ops_issues where org = $1 and key <> '' and upper(key) = any($2)) x limit 1`, org, chk).Scan(&hit)
+			union all select upper(key) from omixor_issues where org = $1 and key <> '' and upper(key) = any($2)) x limit 1`, org, chk).Scan(&hit)
 		if err == nil {
 			return nil, importTaken("key %s 已經是組織裡另一個 Issue 的編號", hit)
 		}
@@ -795,7 +795,7 @@ func (p *PG) ImportIssues(org string, list []model.Issue) (int, error) {
 		return 0, err
 	}
 	var n int
-	if err := tx.QueryRow(c, `select count(*) from ops_issues where org = $1`, org).Scan(&n); err != nil {
+	if err := tx.QueryRow(c, `select count(*) from omixor_issues where org = $1`, org).Scan(&n); err != nil {
 		return 0, err
 	}
 	if n > 0 {
@@ -833,7 +833,7 @@ func (p *PG) MergeIssues(org string, list []model.Issue, overwrite bool) (MergeC
 	}
 	var minPos int64
 	var cnt int
-	if err := tx.QueryRow(c, `select coalesce(min(pos), 0), count(*) from ops_issues where org = $1`, org).Scan(&minPos, &cnt); err != nil {
+	if err := tx.QueryRow(c, `select coalesce(min(pos), 0), count(*) from omixor_issues where org = $1`, org).Scan(&minPos, &cnt); err != nil {
 		return res, err
 	}
 	if cnt == 0 {
@@ -897,7 +897,7 @@ func (p *PG) MergeIssues(org string, list []model.Issue, overwrite bool) (MergeC
 func (p *PG) IssueOrgs() ([]string, error) {
 	c, cancel := ctx()
 	defer cancel()
-	rows, err := p.pool.Query(c, `select distinct org from ops_issues where org not like 'deleted-orgs/%' order by org`)
+	rows, err := p.pool.Query(c, `select distinct org from omixor_issues where org not like 'deleted-orgs/%' order by org`)
 	if err != nil {
 		return nil, err
 	}

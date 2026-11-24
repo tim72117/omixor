@@ -70,6 +70,8 @@ type Backend interface {
 	ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error)
 	CancelTask(org, id string) (*model.AgentTask, error)
 	RequeueTask(org, id string) (*model.AgentTask, error)
+	// ReplyTask 人回覆需要協助(blocked)的任務:回覆記成備註、任務退回待領取(組織管理員)
+	ReplyTask(org, id, text string) (*model.AgentTask, error)
 	// ClaimNext 從全部啟用中角色的待領取任務挑優先度最高(同優先度最舊)的一筆領走;agentID 非空就限定該角色。沒有可領的任務時回傳的 Task 是 nil
 	ClaimNext(org, agentID string) (*service.ClaimResult, error)
 	// ReleaseTask 放棄領取(進行中 → 待領取,作廢憑證、解鎖、留備註);只有領取者本人或組織管理員可以

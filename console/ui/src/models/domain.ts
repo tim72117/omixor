@@ -212,9 +212,18 @@ export type RunnerOutcome = "done" | "blocked" | "error";
 export type RunnerRecord = {
   taskId: string; agentId: string; agentName: string; title: string; outcome: RunnerOutcome | string; error?: string;
   startedAt: string; finishedAt: string; durationSeconds: number; costUsd: number;
+  /** 執行日誌摘要;完整日誌用 action agent_runner_log */
+  runId: string; entryCount: number; toolCalls: number; serverCalls: number; reportedBy: RunReportedBy;
+};
+/** 誰回報了任務:role = 角色自己、runner = omixor 補回報、空 = 不知道 */
+export type RunReportedBy = "role" | "runner" | "";
+export type RunLogEntry = { at: string; kind: "start" | "text" | "tool_call" | "tool_result" | "server_call" | "error" | "end"; tool?: string; args?: string; status?: "ok" | "error"; text?: string };
+export type RunLog = {
+  runId: string; taskId: string; model?: string; sessionId?: string; mcpStatus?: string; reportedBy: RunReportedBy;
+  toolCalls: number; serverCalls: number; truncated?: boolean; entries: RunLogEntry[];
 };
 export type AgentRunnerView = {
-  org: string; loop: boolean; claudeFound: boolean; claudeBin: string; efforts: string[];
+  org: string; loop: boolean; claudeFound: boolean; claudeLoggedIn?: boolean; claudeLoginChecking?: boolean; claudeLoginHint?: string; claudeBin: string; efforts: string[];
   agents: { id: string; name: string; active: boolean; config: AgentRunConfig }[];
   current: RunnerCurrent | null; history: RunnerRecord[]; lastError?: string; error?: string;
   /** 系統設定關掉了「自動執行」:不領新任務(進行中的做完) */

@@ -109,3 +109,4 @@ LDAP 變數的完整說明在 [`../docs/configuration.md`](../docs/configuration
 OMIXOR_SERVER=http://127.0.0.1:8770 OMIXOR_CREDENTIALS=<資料夾>/credentials.json omixor orgs   # CLI 連獨立模式
 server/scripts/build-local.sh   # 交叉編譯 windows/amd64(windows/arm64 會略過,見上)、darwin/arm64、darwin/amd64、linux/amd64 到 server/dist/
 ```
+- **OAuth 組織管理員(scope `mcp:admin`,預設關閉)**:客戶端要求 `mcp:admin` 時同意畫面多出第三個單選鈕「組織管理員」(只有帳號層級 `/mcp` 授權;送出時使用者要是至少一個組織的管理員,否則被拒);授予後統一入口多開組織結構工具(角色、組織鏈、專案、文件櫃結構、事件),每次呼叫仍即時檢查呼叫者是該組織的管理員;不發角色憑證、不是伺服器管理員。metadata 的 `scopes_supported` 含 `mcp:admin`。

@@ -62,7 +62,21 @@ func HTTPHandler(handle func(body []byte) []byte) http.Handler {
 			text(w, 413, "Body too large")
 			return
 		}
+		// MCP 2026-07-28(只有 _meta 帶 protocolVersion 的請求):先驗版本、clientCapabilities 與路由標頭;舊版請求不受影響
+		status, rej, modern := modernPreflight(r, body)
+		if rej != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Length", strconv.Itoa(len(rej)))
+			w.WriteHeader(status)
+			_, _ = w.Write(rej)
+			return
+		}
 		out := handle(body)
+		if modern && out != nil {
+			status = modernStatus(out)
+		} else {
+			status = 200
+		}
 		if out == nil {
 			w.Header().Set("Content-Length", "0")
 			w.WriteHeader(202)
@@ -70,7 +84,7 @@ func HTTPHandler(handle func(body []byte) []byte) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Length", strconv.Itoa(len(out)))
-		w.WriteHeader(200)
+		w.WriteHeader(status)
 		_, _ = w.Write(out)
 	})
 }

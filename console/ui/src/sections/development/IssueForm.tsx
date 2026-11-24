@@ -157,7 +157,7 @@ export function IssueEditForm({ issue, onClose, onSaved }: { issue: Issue; onClo
       <input className="input" placeholder="標籤(逗號分隔)" value={draft.labels} onChange={(e) => set("labels", e.target.value)} />
       <RepoPicker value={draft.repo} onChange={(v) => set("repo", v)} />
       <ProjectPicker value={draft.project} onChange={(v) => set("project", v)} projects={projects} moving={draft.project !== (base.project ?? "")} />
-      <MdTextarea className={s.bodyTall} value={draft.body} onChange={(v) => set("body", v)} />
+      <MdTextarea monospace minRows={11} maxRows={24} value={draft.body} onChange={(v) => set("body", v)} />
       {error && <Banner>{error}</Banner>}
       <div className="row gap8">
         <span className="caption muted">內文支援 Markdown</span>
@@ -197,7 +197,7 @@ export function NewIssue({ onDone, defaultProject = "" }: { onDone: (id?: string
       </div>
       <ProjectPicker value={project} onChange={setProject} projects={projects} />
       <RepoPicker value={repo} onChange={setRepo} />
-      <MdTextarea className={s.body} value={body} onChange={setBody} />
+      <MdTextarea monospace minRows={9} maxRows={24} value={body} onChange={setBody} />
       {error && <Banner>{error}</Banner>}
       <div className="row gap8">
         <span className="caption muted">內文支援 Markdown</span>

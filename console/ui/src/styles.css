@@ -47,7 +47,7 @@ body { background: var(--bg); color: var(--fg); }
 button { font: inherit; color: inherit; }
 input, select, textarea { font: inherit; color: inherit; }
 /* textarea 一律自動換行,不需要橫向捲動;擋掉次像素溢出造成的橫向捲軸 */
-textarea { overflow-x: hidden; }
+textarea { overflow-x: hidden; resize: none; }
 
 .app { display: flex; height: 100%; }
 .sidebar { width: 210px; flex: none; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 10px 8px; gap: 6px; overflow-y: auto; }
@@ -105,15 +105,14 @@ textarea { overflow-x: hidden; }
 :where(.side-item, .list-item, .list-row):focus-visible { outline-offset: -2px; }
 .btn.primary:focus-visible, .btn.red:focus-visible { box-shadow: 0 0 0 1px var(--bg2) inset; }
 /* 表單控制項統一:高度 --h-md(textarea 除外)、內距 0 10px;select 用自訂箭頭並預留右側空間 */
-.input, .select, .textarea { border: 1px solid var(--line); background-color: var(--bg2); border-radius: var(--r-md); padding: 6px 10px; font-size: var(--fs-base); line-height: 1.4; box-sizing: border-box; }
+.input, .select { border: 1px solid var(--line); background-color: var(--bg2); border-radius: var(--r-md); padding: 6px 10px; font-size: var(--fs-base); line-height: 1.4; box-sizing: border-box; }
 input.input, select.select { height: var(--h-md); padding-top: 0; padding-bottom: 0; }
-.input:focus, .select:focus, .textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; border-color: var(--accent); }
+.input:focus, .select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; border-color: var(--accent); }
 .select { appearance: none; -webkit-appearance: none; padding-right: 28px; min-width: 72px; cursor: pointer;
   background-image: linear-gradient(45deg, transparent 50%, var(--fg2) 50%), linear-gradient(135deg, var(--fg2) 50%, transparent 50%);
   background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
 .select:disabled { opacity: .5; cursor: default; }
 input::placeholder, textarea::placeholder { opacity: 1; }
-.textarea { width: 100%; min-height: 160px; font-family: ui-monospace, Menlo, monospace; font-size: var(--fs-base); resize: vertical; overflow-y: auto; }
 .input { min-width: 0; }
 
 .split { flex: 1; display: flex; min-height: 0; }

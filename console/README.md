@@ -23,13 +23,13 @@ make build      # 先 npm run build 建畫面,再把它包進 Go 執行檔
 
 | 資料表 | 內容 |
 |---|---|
-| `ops_documents` | 原本的 JSON 檔(組織、Issue、角色與任務、文件櫃、連線設定、GitHub/GCP/GitLab 設定、認證設定、旁白批次),依路徑存成 jsonb |
-| `ops_secrets` | 連線 token、client secret、LDAP 服務帳號密碼,用 `OMIXOR_SECRET_KEY` 以 AES-256-GCM 加密(帳號名稱當 AAD) |
-| `ops_sessions` | 網頁登入的 session(只存 token 的 SHA-256),重開不用重新登入 |
-| `ops_activity` | 動態牆全部歷史(畫面載入最新 1000 筆,`activity_history` 查更早的) |
-| `ops_state` | 範例資料的變更(告警、事件、工作項目、部署…),每 10 秒與結束前存 |
+| `omixor_documents` | 原本的 JSON 檔(組織、Issue、角色與任務、文件櫃、連線設定、GitHub/GCP/GitLab 設定、認證設定、旁白批次),依路徑存成 jsonb |
+| `omixor_secrets` | 連線 token、client secret、LDAP 服務帳號密碼,用 `OMIXOR_SECRET_KEY` 以 AES-256-GCM 加密(帳號名稱當 AAD) |
+| `omixor_sessions` | 網頁登入的 session(只存 token 的 SHA-256),重開不用重新登入 |
+| `omixor_activity` | 動態牆全部歷史(畫面載入最新 1000 筆,`activity_history` 查更早的) |
+| `omixor_state` | 範例資料的變更(告警、事件、工作項目、部署…),每 10 秒與結束前存 |
 
-資料表名稱沿用舊的 `ops_` 前綴(改名要搬既有資料庫,目前不改)。
+舊版的表叫 `ops_` 開頭(`ops_documents`…);啟動時(`ensurePGSchema`)若發現舊表,連同索引、序號、主鍵一起改成 `omixor_` 開頭、資料保留,再建缺的表。新舊同時存在(改名後又跑過舊版程式)會報錯、不覆蓋,細節與回滾見 `docs/design-schema-rename.md`。
 
 用 Docker 開(含 PostgreSQL):
 
@@ -76,7 +76,7 @@ console 的 MCP 連接埠(預設 `127.0.0.1:3765`)**一律要驗證**:`/mcp`、`
 沒帶或不符回 401(`WWW-Authenticate: Bearer realm="omixor"`),同一來源失敗太多次回 429;沒有「本機免驗證」的例外。`/mcp/agent` 不受影響(照舊驗角色憑證)。
 
 - **權杖是什麼**:`omxm_` 加 32 位元組隨機。console 第一次啟動時產生,之後沿用(不寫進 log)。`OMIXOR_CONSOLE_MCP_TOKEN`(至少 32 字元、不能含空白或換行)有設就以它為準(Docker、自動化用,設了之後畫面不能換新);有設但無效時 console 與 omixor-mcp 會拒絕啟動並說明,不會悄悄改用別把。
-- **存在哪**:有資料庫時存在加密的機密表(`ops_secrets`,用 `OMIXOR_SECRET_KEY` 加密),並鏡射一份到 console 資料夾的 `mcp_token`(權限 0600,給同一台機器上的 `omixor-mcp` 讀);沒有資料庫時只存 `mcp_token`。
+- **存在哪**:有資料庫時存在加密的機密表(`omixor_secrets`,用 `OMIXOR_SECRET_KEY` 加密),並鏡射一份到 console 資料夾的 `mcp_token`(權限 0600,給同一台機器上的 `omixor-mcp` 讀);沒有資料庫時只存 `mcp_token`。
 - **怎麼取得**:管理員呼叫 action `mcp_token_reveal`(完整權杖,動態牆會記「查看了 MCP 權杖」);`mcp_access` view 只回遮罩的 `tokenHint`(`omxm_…` 加最後 4 碼)、`tokenSet`、範例指令。也可以直接讀 console 資料夾的 `mcp_token`(本機單人模式)。
   `mcp_token_rotate` 換新權杖,舊的立刻失效(環境變數指定的不能換)。啟用 LDAP 時這兩個 action 只有 web 管理員能用;沒啟用登入的本機單人模式,web 使用者就是本機管理員。
 - **Claude Code(或其他支援 HTTP 的用戶端)**:

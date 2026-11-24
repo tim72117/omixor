@@ -75,7 +75,8 @@ components/<Name>/
 | `KpiGrid` | `KpiGrid` | KPI 卡片列,依卡片數(`n`,預設 children 數)與容器寬度選欄數 |
 | `Page` `Fill` `Scroll` `layoutClass` `PageScroll` `Flow` | `Layout` | 頁面骨架:直向撐滿 / 橫向撐滿 / 撐滿並捲動;`PageScroll` 是 `.page-scroll > .page-inner` |
 | `Markdown` `MarkdownText` | `Markdown` | 兩套輸出不同,之後再決定合併 |
-| `MdTextarea` | `MdTextarea` | 可貼上 / 拖曳圖片的 Markdown 輸入框;`className` 加在 textarea(要蓋全域 `.textarea` 的高度、字型時用 `textarea.x`)、`wrapClassName` 加在外層 |
+| `AutoTextarea` | `AutoTextarea` | 全站唯一的 textarea:隨內容長高(`minRows`~`maxRows`,超過才捲動)、無拖曳把手;`monospace` 給程式碼類、可 `ref`、標準 textarea 屬性透傳、`onChange(v, e)` |
+| `MdTextarea` | `MdTextarea` | 可貼上 / 拖曳圖片的 Markdown 輸入框;輸入框是 `AutoTextarea`(`minRows` / `maxRows` / `monospace` 轉給它)、`wrapClassName` 加在外層 |
 | `MenuList` `MenuButton` `useContextMenu` `Dropdown` `menuItemClass` `menuSepClass` | `Menu` | `useContextMenu("simple")`:沒有勾選欄、按任何鍵關閉。`Dropdown`:絕對定位的下拉容器(位置由 `className` 給),`items` 時內容是 `MenuList`,自訂內容用 `menuItemClass` |
 | `MetaFit` `FitItem` | `MetaFit` | 放在 `.meta` 資訊行裡,放不下的項目整個拿掉 |
 | `MetricTile` | `MetricTile` | 有 delta / sparkline 的版本是 `charts/Metric` |
@@ -153,7 +154,7 @@ return <ViewState view={v} what="事件">{(list) => <IncidentList list={list} />
 |---|---|
 | reset / 元素 | `*` `html` `body` `#root` `button` `input` `select` `textarea`、焦點框(`:where(button, [role="button"], a, summary, [tabindex])`;`.side-item` `.list-item` `.list-row` 的焦點框往內縮) |
 | 排版工具 | `.row` `.col` `.grow` `.wrap` `.gap4/6/8/12` `.grid` `.g2/.g3/.g4` `.caption` `.muted` `.faint` `.mono` `.num` `.ellipsis` `.h2` `.h3` `.divider` `.hscroll` |
-| 按鈕與表單 | `.btn`(`.primary` `.danger` `.link` `.small` `.red` `.purple` `.indigo` `.green`)、`.input` `.select` `.textarea` |
+| 按鈕與表單 | `.btn`(`.primary` `.danger` `.link` `.small` `.red` `.purple` `.indigo` `.green`)、`.input` `.select` |
 | App 骨架 | `.app` `.sidebar` `.side-group` `.side-label` `.side-item` `.side-badge` `.org-switcher` `.org-current` `.mcp-status` `.main` `.toolbar` `.content` `.feature-notice` |
 | 頁面骨架 | `.page-scroll` `.page-inner` `.page-title`、`.split` `.split-list` `.split-detail` |
 | 各頁共用的清單與列 | `.tabbar` `.tabscroll`(useTabScroll 依這兩個 class 找捲動容器,`data-fade-l/r` 邊緣淡出)、`.list` `.list-row` `.list-foot` `.list-item` `.list-head` `.section-label`、`.meta`(清單列的資訊行,配 MetaFit)、`.actions`(頁首動作群) |

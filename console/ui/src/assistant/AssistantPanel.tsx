@@ -2,6 +2,7 @@
 // (Swift 的 AssistantPanel、AssistChat;回答由後端的 assistant_briefing / assistant_ask 產生)
 import { useEffect, useRef, useState } from "react";
 import { action, tool, useVersion, useView } from "../api";
+import { AutoTextarea } from "../components/AutoTextarea";
 import { cardClass } from "../components/Card";
 import { ErrorText } from "../components/ErrorText";
 import { Icon } from "../components/Icon";
@@ -232,7 +233,7 @@ export function AssistantPanel() {
       </div>
       <div className={s.composer}>
         <div className={s.input}>
-          <textarea ref={inputRef} rows={1} value={draft} placeholder="問問目前的狀況…" onChange={(e) => setDraft(e.target.value)}
+          <AutoTextarea ref={inputRef} className={s.field} minRows={1} maxRows={5} value={draft} placeholder="問問目前的狀況…" onChange={setDraft}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} />
           <button className={iconButtonClass.normal} title="送出(Return)" disabled={!draft.trim() || busy} onClick={send}>
             <Icon name="arrow.up.circle.fill" size={20} color={!draft.trim() || busy ? "var(--fg3)" : "var(--indigo)"} />

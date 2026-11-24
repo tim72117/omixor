@@ -15,7 +15,7 @@ import (
 
 // Windows 沒有 macOS 的鑰匙圈(/usr/bin/security),改用 DPAPI(CryptProtectData)加密後存成檔案:
 // <資料夾>/secrets/<帳號名稱的十六進位>.bin。只有同一個 Windows 使用者能解開。
-// 設了 OMIXOR_DATABASE_URL 時照舊由資料庫的 ops_secrets 取代(OpenDB 會換掉 Vault)。
+// 設了 OMIXOR_DATABASE_URL 時照舊由資料庫的 omixor_secrets 取代(OpenDB 會換掉 Vault)。
 
 func init() {
 	if !testing.Testing() {

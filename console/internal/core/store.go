@@ -8,9 +8,11 @@ import (
 	"strings"
 )
 
-// 資料的存放處。預設是資料夾裡的 JSON 檔(格式和 Swift 版相同);設了 OMIXOR_DATABASE_URL 就改存 PostgreSQL
-// (store_pg.go)。各功能一律透過 ReadJSON / WriteJSON / ReadData / RenameData / DataExists… 讀寫,
-// 路徑照舊用 DataRoot() 底下的檔案路徑(例如 a.DataDir()/issues.json),由存放處決定實際存哪。
+// 這台機器的設定與狀態(連線、模式、語音工作…的 JSON 檔)的存放處,不是組織 / Issue / 成員 / 角色 / 文件櫃的資料來源
+// (那些一律在核心 service + PostgreSQL,沒有資料庫就回 errNoDB,不退回存檔案)。
+// 預設是 DataRoot() 資料夾裡的 JSON 檔(遠端模式沒有資料庫時就是這樣);設了 OMIXOR_DATABASE_URL 就改存 PostgreSQL 的
+// omixor_documents(store_pg.go)。各功能一律透過 ReadJSON / WriteJSON / ReadData / RenameData / DataExists… 讀寫,
+// 路徑用 DataRoot() 底下的檔案路徑,由存放處決定實際存哪。
 //
 // 不在 DataRoot() 底下的檔案(例如 shuttle 專案裡的旁白檔)不經過這裡,照常用 os 讀寫。
 
@@ -22,13 +24,10 @@ type Backend interface {
 	Exists(key string) bool
 	// Rename 改名一個檔案
 	Rename(oldKey, newKey string) error
-	// MoveDir 搬移整個資料夾(prefix 底下的全部)
-	MoveDir(oldPrefix, newPrefix string) error
 	// RemoveDir 刪掉 prefix 底下的全部(不能復原)
 	RemoveDir(prefix string) error
 	// DirExists prefix 底下有沒有任何東西
 	DirExists(prefix string) bool
-	Name() string
 }
 
 // Store 目前的存放處
@@ -80,22 +79,6 @@ func RenameData(oldPath, newPath string) error {
 	return os.Rename(oldPath, newPath)
 }
 
-// MoveDataDir 搬移資料夾裡的整個子資料夾(刪除組織時用)。目的地在資料夾外(例如垃圾桶)時,
-// 檔案存放處直接搬;資料庫存放處改搬到資料庫裡的 deleted-orgs/。
-func MoveDataDir(oldDir, newDir string) error {
-	k1, ok1 := keyOf(oldDir)
-	if !ok1 {
-		return os.Rename(oldDir, newDir)
-	}
-	if k2, ok2 := keyOf(newDir); ok2 {
-		return Store.MoveDir(k1, k2)
-	}
-	if Store.Name() == "files" {
-		return os.Rename(oldDir, newDir)
-	}
-	return Store.MoveDir(k1, "deleted-orgs/"+filepath.Base(newDir))
-}
-
 // RemoveDataDir 直接刪掉資料夾裡的整個子資料夾(刪除組織時用;不備份、不能復原)
 func RemoveDataDir(dir string) error {
 	if k, ok := keyOf(dir); ok {
@@ -117,8 +100,6 @@ func DataDirExists(dir string) bool {
 
 type fileBackend struct{}
 
-func (fileBackend) Name() string { return "files" }
-
 func (fileBackend) path(key string) string { return filepath.Join(DataRoot(), filepath.FromSlash(key)) }
 
 func (b fileBackend) Read(key string) ([]byte, error) { return os.ReadFile(b.path(key)) }
@@ -133,11 +114,6 @@ func (b fileBackend) Exists(key string) bool {
 func (b fileBackend) Rename(oldKey, newKey string) error {
 	_ = os.MkdirAll(filepath.Dir(b.path(newKey)), 0o755)
 	return os.Rename(b.path(oldKey), b.path(newKey))
-}
-
-func (b fileBackend) MoveDir(oldPrefix, newPrefix string) error {
-	_ = os.MkdirAll(filepath.Dir(b.path(newPrefix)), 0o755)
-	return os.Rename(b.path(oldPrefix), b.path(newPrefix))
 }
 
 func (b fileBackend) RemoveDir(prefix string) error { return os.RemoveAll(b.path(prefix)) }

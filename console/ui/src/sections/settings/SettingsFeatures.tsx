@@ -3,7 +3,8 @@
 // 實驗功能(只有模擬、範例資料)標「實驗」,預設關。總覽、設定、系統永遠開著。
 // 對應 App 的系統設定(組織層)。
 import { useState } from "react";
-import { action, useRun } from "../../api";
+import { useRun } from "../../api";
+import { go } from "../../lib/nav";
 import { Icon } from "../../components/Icon";
 import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
@@ -49,7 +50,7 @@ export function SettingsFeatures() {
           {hidden > 0 && (
             <div className="caption muted row gap6 wrap">
               <Icon name="info.circle" size={12} />這台伺服器還有 {hidden} 項功能沒有開放,不會列在這裡;要開放請伺服器管理員到
-              <button className="btn link" onClick={() => action("navigate", { section: "system" })}>系統</button>
+              <button className="btn link" onClick={() => go("system")}>系統</button>
             </div>
           )}
           {reloadErr && <ErrorText>重新讀取失敗:{reloadErr}</ErrorText>}

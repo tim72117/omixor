@@ -31,5 +31,7 @@ extension IncidentsView.IncTab: FeatureTab {
 
 extension AutoTab: FeatureTab {
     static var section: AppSection { .automation }
+    /// 需要處理、執行日誌沒有自己的功能開關,跟派發(同 console)
+    var featureKey: String { "automation.\(self == .help || self == .log ? AutoTab.dispatch.rawValue : rawValue)" }
     var featureTitle: String { label }
 }

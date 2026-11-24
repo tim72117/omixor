@@ -118,7 +118,7 @@ func (h *Handler) protectedResourceUnified(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, 200, map[string]any{
 		"resource":                 h.UnifiedURL(),
 		"authorization_servers":    []string{h.Issuer()},
-		"scopes_supported":         []string{model.OAuthScopeRead, model.OAuthScopeWrite},
+		"scopes_supported":         []string{model.OAuthScopeRead, model.OAuthScopeWrite, model.OAuthScopeAdmin},
 		"bearer_methods_supported": []string{"header"},
 		"resource_name":            "omixor",
 	})
@@ -136,7 +136,7 @@ func (h *Handler) protectedResource(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"resource":                 resource,
 		"authorization_servers":    []string{h.Issuer()},
-		"scopes_supported":         []string{model.OAuthScopeRead, model.OAuthScopeWrite},
+		"scopes_supported":         []string{model.OAuthScopeRead, model.OAuthScopeWrite, model.OAuthScopeAdmin},
 		"bearer_methods_supported": []string{"header"},
 		"resource_name":            "omixor",
 	})
@@ -154,7 +154,7 @@ func (h *Handler) serverMetadata(w http.ResponseWriter, r *http.Request) {
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
-		"scopes_supported":                      []string{model.OAuthScopeRead, model.OAuthScopeWrite, model.OAuthScopeOffline},
+		"scopes_supported":                      []string{model.OAuthScopeRead, model.OAuthScopeWrite, model.OAuthScopeAdmin, model.OAuthScopeOffline},
 	})
 }
 
@@ -328,7 +328,7 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 {{if .Account}}<dt>範圍</dt><dd>你帳號能存取的所有組織(包含之後加入的組織)</dd>{{else}}<dt>組織</dt><dd>{{.Org}}</dd>{{end}}
 {{if not .WriteRequested}}<dt>要求的權限</dt><dd>{{.Scope}}(只能讀取,不能修改任何資料)</dd>{{end}}
 </dl></div>
-{{if .WriteRequested}}<fieldset><legend>這個應用程式要求「讀寫」權限,請選擇要授予的權限(預設只授予唯讀)</legend>
+{{if .WriteRequested}}<fieldset><legend>這個應用程式要求{{if .AdminRequested}}「組織管理員」{{else}}「讀寫」{{end}}權限,請選擇要授予的權限(預設只授予唯讀)</legend>
 <label class="opt"><input type="radio" name="grant" form="consent" value="read" checked><strong>唯讀(建議)</strong><br><span class="note">{{.Scope}}:只能讀取,不能修改任何資料。</span></label>
 <label class="opt w"><input type="radio" name="grant" form="consent" value="write"><strong>讀寫(進階)</strong>
 <p class="warn">這個應用程式將能以你的身分修改資料。</p>
@@ -336,6 +336,11 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <ul><li>建立、更新、接受或放回 Issue</li><li>提出與處理待決定、需要協助,由待決定開出 Issue</li><li>新增、修改、回報 Issue 子項,把子項提升為 Issue</li><li>存文件到文件櫃</li><li>建立對話頻道、在頻道發訊息</li><li>回報任務(不能指派任務給角色)</li></ul>
 <span class="note">不能做:管理角色、組織鏈、專案與文件櫃結構、事件、領取角色憑證、伺服器管理員的操作(即使你是伺服器管理員也一樣),也不能管理 token 或使用者。</span><br>
 <span class="note">撤銷:目前沒有自助的撤銷畫面。退出該組織,或請伺服器管理員停用你的帳號,會立刻失效;存取權杖 10 分鐘到期,續期權杖最久 30 天。</span></label>
+{{if .AdminRequested}}<label class="opt w"><input type="radio" name="grant" form="consent" value="admin"{{if .AdminDenied}} disabled{{end}}><strong>組織管理員(最高權限,進階)</strong>
+{{if .AdminDenied}}<p class="warn">你不是任何組織的管理員,不能選這個選項;請改選唯讀或讀寫。</p>{{else}}<p class="warn">只有組織管理員能選。這個應用程式將能以你的身分管理你擔任管理員的組織的結構。</p>{{end}}
+<span class="note">包含上面「讀寫」的所有權限,另外可以(每次呼叫都會即時確認你當下仍是該組織的管理員,失去管理員身分就立刻失效):</span>
+<ul><li>新增、修改虛擬角色</li><li>修改組織鏈(誰向誰回報、誰可以指派誰)</li><li>新增、修改專案與專案成員、可見性</li><li>修改文件櫃的結構</li><li>宣告、更新事件</li></ul>
+<span class="note">仍然不能做:領取任務或簽發角色憑證、替角色排任務或轉移角色的任務、寫入 commit 資料、伺服器管理員的操作(即使你是伺服器管理員也一樣),也不能管理 token 或使用者。</span></label>{{end}}
 </fieldset>{{end}}
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
 <form id="consent" method="post" action="/oauth/authorize" autocomplete="off">
@@ -368,6 +373,7 @@ type consentView struct {
 	CSRF, ClientID, RedirectURI, Challenge, State, Resource string
 	RequestedScope                                          string
 	Account, WriteRequested                                 bool
+	AdminRequested, AdminDenied                             bool // AdminRequested:客戶端要求 mcp:admin(提供「組織管理員」選項);AdminDenied:剛剛證明身分的使用者不是任何組織的管理員(選項停用)
 	Evoleap, PairOpen                                       bool // Evoleap:提供 evoleap 登入按鈕;PairOpen:配對碼區預設展開(剛輸錯)
 }
 
@@ -392,7 +398,7 @@ func (h *Handler) renderFatal(w http.ResponseWriter, status int, msg string) {
 	_ = consentTmpl.Execute(w, consentView{Title: "授權錯誤", Fatal: msg})
 }
 
-func (h *Handler) renderConsent(w http.ResponseWriter, status int, c *service.OAuthAuthChecked, req service.OAuthAuthRequest, csrf, errMsg string) {
+func (h *Handler) renderConsent(w http.ResponseWriter, status int, c *service.OAuthAuthChecked, req service.OAuthAuthRequest, csrf, errMsg string, adminDenied ...bool) {
 	host, origin := "?", ""
 	if u, err := url.Parse(c.RedirectURI); err == nil {
 		host, origin = u.Host, u.Scheme+"://"+u.Host
@@ -404,7 +410,7 @@ func (h *Handler) renderConsent(w http.ResponseWriter, status int, c *service.OA
 	}
 	pageHeaders(w, fa)
 	w.WriteHeader(status)
-	_ = consentTmpl.Execute(w, consentView{Title: "授權確認", Error: errMsg, ClientName: c.Client.Name, RedirectHost: host, Org: c.Org, Scope: c.Scope, Account: c.Account, WriteRequested: c.WriteRequested,
+	_ = consentTmpl.Execute(w, consentView{Title: "授權確認", Error: errMsg, ClientName: c.Client.Name, RedirectHost: host, Org: c.Org, Scope: c.Scope, Account: c.Account, WriteRequested: c.WriteRequested, AdminRequested: c.AdminRequested, AdminDenied: len(adminDenied) > 0 && adminDenied[0],
 		CSRF: csrf, ClientID: c.Client.ID, RedirectURI: c.RedirectURI, Challenge: req.CodeChallenge, State: req.State, Resource: c.Resource,
 		RequestedScope: req.Scope, Evoleap: evo, PairOpen: errMsg != ""})
 }
@@ -520,14 +526,21 @@ func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 只有表單明確送 grant=write 才是讀寫(其他值、沒送都是唯讀);客戶端沒有要求 mcp:write 卻送 grant=write 由 service 拒絕(invalid_scope)
-	grantWrite := f.Get("grant") == "write"
-	d["grant_write"] = grantWrite
+	grant := service.OAuthGrantRead
+	switch f.Get("grant") {
+	case "write":
+		grant = service.OAuthGrantWrite
+	case "admin":
+		grant = service.OAuthGrantAdmin
+	}
+	d["grant_write"] = grant != service.OAuthGrantRead
+	d["grant"] = grant
 	// 「用 evoleap 登入並允許」:沒填配對碼才走這條(在配對碼欄按 Enter 時瀏覽器會用第一個送出鈕,也就是 evoleap 鈕;有填配對碼就當配對碼)
 	if f.Get("via") == "evoleap" && strings.TrimSpace(f.Get("pairing_code")) == "" {
-		h.startEvoleap(w, r, f, chk, req, grantWrite, d)
+		h.startEvoleap(w, r, f, chk, req, grant, d)
 		return
 	}
-	code, err := h.Svc.ApproveOAuthScope(chk, req.CodeChallenge, f.Get("pairing_code"), service.ClientIP(r), grantWrite)
+	code, err := h.Svc.ApproveOAuthGrant(chk, req.CodeChallenge, f.Get("pairing_code"), service.ClientIP(r), grant)
 	if err != nil {
 		var oe *service.OAuthError
 		if !errors.As(err, &oe) {
@@ -543,6 +556,15 @@ func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
 			d["pairing_result"] = oe.Reason
 		case oe.Code == "invalid_scope":
 			d["pairing_result"] = "bad_scope"
+		}
+		if oe == service.ErrOAuthNotOrgAdmin { // 身分已證明、但不是任何組織的管理員:重新顯示同意畫面,管理員選項停用(配對碼已消耗,要重新產生)
+			csrf, cerr := h.Svc.NewOAuthCSRF(chk, req.CodeChallenge, service.ClientIP(r))
+			if cerr != nil {
+				h.renderFatal(w, 429, "太頻繁,請稍後再試")
+				return
+			}
+			h.renderConsent(w, 403, chk, req, csrf, oe.Desc+"。若用配對碼,請重新產生一個。", true)
+			return
 		}
 		if oe == service.ErrOAuthPairInvalid {
 			csrf, cerr := h.Svc.NewOAuthCSRF(chk, req.CodeChallenge, service.ClientIP(r))
@@ -575,9 +597,9 @@ func (h *Handler) evoCookie(value string, maxAge int) *http.Cookie {
 }
 
 // startEvoleap 授權請求與 CSRF 已經驗證過:開始 evoleap 登入,設綁定瀏覽器的 cookie,303 導去 evoleap 核准頁
-func (h *Handler) startEvoleap(w http.ResponseWriter, r *http.Request, f url.Values, chk *service.OAuthAuthChecked, req service.OAuthAuthRequest, grantWrite bool, d map[string]any) {
+func (h *Handler) startEvoleap(w http.ResponseWriter, r *http.Request, f url.Values, chk *service.OAuthAuthChecked, req service.OAuthAuthRequest, grant string, d map[string]any) {
 	d["via"] = "evoleap"
-	loginURL, binding, err := h.Svc.StartOAuthEvoleap(chk, req.CodeChallenge, req.State, h.evoCallbackURL(), grantWrite)
+	loginURL, binding, err := h.Svc.StartOAuthEvoleapGrant(chk, req.CodeChallenge, req.State, h.evoCallbackURL(), grant)
 	if err != nil {
 		var oe *service.OAuthError
 		if !errors.As(err, &oe) {

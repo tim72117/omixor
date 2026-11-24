@@ -240,7 +240,7 @@ func TestCommitsCascadeOnIssuePurgeAndOrgDelete(t *testing.T) {
 	chk(t, err)
 	chk(t, p.PutRepoSync(org, model.RepoSync{Repo: "a/b", LastSHA: sha('a')}))
 	// 永久刪除 Issue:連結跟著刪,commit 還在
-	pgExec(t, p, `delete from ops_issues where org = 'o' and id = '`+iss+`'`)
+	pgExec(t, p, `delete from omixor_issues where org = 'o' and id = '`+iss+`'`)
 	if n := pgCount(t, p, `select count(*) from omixor_issue_commits where org = 'o'`); n != 0 {
 		t.Fatal("links must cascade", n)
 	}

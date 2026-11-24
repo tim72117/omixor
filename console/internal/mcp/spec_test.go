@@ -215,3 +215,21 @@ func TestToolsListOverRPC(t *testing.T) {
 		}
 	}
 }
+
+// 本機 /mcp 的 agent_task_create 規格取自核心,有選填的 issue 參數(派任務時連到 Issue)
+func TestAgentTaskCreateSpecHasIssue(t *testing.T) {
+	d, ok := specDefs(t)["agent_task_create"].(map[string]any)
+	if !ok {
+		t.Fatal("規格裡沒有 agent_task_create")
+	}
+	sch := d["inputSchema"].(map[string]any)
+	if _, has := sch["properties"].(map[string]any)["issue"]; !has {
+		t.Errorf("agent_task_create 沒有 issue 參數:%v", sch["properties"])
+	}
+	if req, _ := sch["required"].([]string); slices.Contains(req, "issue") {
+		t.Error("issue 是選填")
+	}
+	if req, _ := sch["required"].([]any); slices.Contains(req, any("issue")) {
+		t.Error("issue 是選填")
+	}
+}

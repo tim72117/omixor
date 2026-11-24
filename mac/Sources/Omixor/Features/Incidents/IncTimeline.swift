@@ -96,14 +96,7 @@ struct IncTimelineCard: View {
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
             ActorAvatar(actor: .person(app.me), size: 24)
-            TextField("新增備註,例如目前處置或觀察…(⌘↩ 送出)", text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...5)
-                .focused($composerFocused)
-                .padding(.horizontal, 10).padding(.vertical, 7)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(composerFocused ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.12)))
+            AutoGrowTextField(placeholder: "新增備註,例如目前處置或觀察…(⌘↩ 送出)", text: $draft)
             Button(action: submit) {
                 Label("送出", systemImage: "paperplane.fill")
             }

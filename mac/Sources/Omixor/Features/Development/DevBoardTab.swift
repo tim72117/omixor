@@ -361,6 +361,7 @@ private struct IssueBoardCard: View {
                     }
                     priorityBadge
                 }
+                helpPill
                 Text(issue.title)
                     .foregroundStyle(issue.status == .open ? .primary : .secondary)
                     .lineLimit(3)
@@ -410,6 +411,14 @@ private struct IssueBoardCard: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
         }
         .contextMenu { menu }
+    }
+
+    /// 有任務需要協助:橘色小標,按下去打開 Issue 詳情(那裡列出任務與問題)
+    @ViewBuilder private var helpPill: some View {
+        if !app.helpTasks(for: issue).isEmpty {
+            Button { model.showIssue(issue.stableId) } label: { IssueHelpPill(issue: issue) }
+                .buttonStyle(.plain).help("有任務需要協助,打開 Issue 查看並回覆")
+        }
     }
 
     /// 優先度:緊急、高顯示標記;一般、低只用左邊的色條

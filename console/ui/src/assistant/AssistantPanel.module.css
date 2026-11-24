@@ -42,4 +42,5 @@
 /* 輸入框 */
 .composer { border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
 .input { display: flex; align-items: flex-end; gap: 6px; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 8px 12px; }
-.input textarea { flex: 1; border: 0; outline: 0; background: none; resize: none; font-size: var(--fs-md); max-height: 110px; }
+/* 蓋過全域 .input 的框線、底色、內距、聚焦外框;輸入框長在外層圓角框裡 */
+.input textarea.field { flex: 1; border: 0; outline: 0; background: none; padding: 0; font-size: var(--fs-md); }

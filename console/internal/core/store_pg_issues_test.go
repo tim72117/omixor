@@ -49,16 +49,16 @@ func TestPGIssuesTable(t *testing.T) {
 	want := string(Marshal(a.Issues()))
 	a.Mu.Unlock()
 
-	if n := pgCount(t, url, `select count(*) from ops_issues where org = $1 and deleted_at is null`, org); n != 2 {
-		t.Fatalf("ops_issues 應該 2 列:%d", n)
+	if n := pgCount(t, url, `select count(*) from omixor_issues where org = $1 and deleted_at is null`, org); n != 2 {
+		t.Fatalf("omixor_issues 應該 2 列:%d", n)
 	}
-	if n := pgCount(t, url, `select count(*) from ops_issue_comments where org = $1 and issue_id = $2`, org, i1.ID); n != 2 {
+	if n := pgCount(t, url, `select count(*) from omixor_issue_comments where org = $1 and issue_id = $2`, org, i1.ID); n != 2 {
 		t.Fatalf("留言應該 2 列:%d", n)
 	}
-	if n := pgCount(t, url, `select count(*) from ops_issues where org = $1 and id = $2 and status = 'closed' and closed_at is not null`, org, i2.ID); n != 1 {
+	if n := pgCount(t, url, `select count(*) from omixor_issues where org = $1 and id = $2 and status = 'closed' and closed_at is not null`, org, i2.ID); n != 1 {
 		t.Fatal("關閉狀態沒存")
 	}
-	if n := pgCount(t, url, `select count(*) from ops_documents where path like '%issues.json'`); n != 0 {
+	if n := pgCount(t, url, `select count(*) from omixor_documents where path like '%issues.json'`); n != 0 {
 		t.Fatal("Issue 不該存成文件")
 	}
 
@@ -77,7 +77,7 @@ func TestPGIssuesTable(t *testing.T) {
 	b.WithOrgIssues("lab", func() { b.CreateIssue("lab 的", "", "", nil, "", "", "mcp") })
 	n := len(b.Issues())
 	b.Mu.Unlock()
-	if n != 2 || pgCount(t, url, `select count(*) from ops_issues where org = 'lab'`) != 1 {
+	if n != 2 || pgCount(t, url, `select count(*) from omixor_issues where org = 'lab'`) != 1 {
 		t.Fatal("別的組織的 Issue 存錯地方")
 	}
 }
@@ -104,7 +104,7 @@ func TestPGIssueImportRerunAndLegacyDocIgnored(t *testing.T) {
 	if err != nil || res[0].Inserted != 0 || res[0].Skipped != 2 {
 		t.Fatalf("重跑:%v %v", res, err)
 	}
-	if n := pgCount(t, url, `select count(*) from ops_issues`); n != 3 {
+	if n := pgCount(t, url, `select count(*) from omixor_issues`); n != 3 {
 		t.Fatalf("應該 3 列:%d", n)
 	}
 	// -overwrite 用檔案覆蓋
@@ -136,7 +136,7 @@ func TestPGIssueImportRerunAndLegacyDocIgnored(t *testing.T) {
 		t.Fatal(n.ID, first)
 	}
 
-	// 以前 ops_documents 裡的 orgs/<組織>/issues.json 會在第一次讀時搬進 Issue 表並改名 .migrated;
+	// 以前 omixor_documents 裡的 orgs/<組織>/issues.json 會在第一次讀時搬進 Issue 表並改名 .migrated;
 	// 那段搬移已在 e0a5b0b(Issue 規則統一到 core)移除。現行行為:Issue 只來自核心的表,舊文件不會被讀、也不會被改名。
 	_ = (pgBackend{}).Write("orgs/old/issues.json", []byte(`[{"id":"ISS-7","title":"舊的","createdBy":"mcp"}]`))
 	a.Mu.Lock()

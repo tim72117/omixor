@@ -51,13 +51,14 @@ func unauthorizedBody(w http.ResponseWriter, realm, resourceMetadata string, inv
 var AgentToolAllow = model.CoreToolSet(func(t model.CoreTool) bool { return t.Agent })
 
 // agentToolsContext agent_context 的 tools:能用的工具(含額外掛上來的)與不能用的工具和原因
+// (reason 是穩定代碼、reason_message 是英文短句,都給 LLM 看;怎麼處理 unavailable 寫在 agentInstructions,不每次重複)
 func agentToolsContext(svc *service.Service, org string, g model.Agent, extra []string) map[string]any {
 	can, cannot := []any{}, []any{}
 	for _, t := range svc.AgentToolsOf(org, g) {
 		if t.Available {
 			can = append(can, map[string]any{"name": t.Name, "label": t.Label})
 		} else {
-			cannot = append(cannot, map[string]any{"name": t.Name, "label": t.Label, "reason": t.Reason})
+			cannot = append(cannot, map[string]any{"name": t.Name, "label": t.Label, "reason": t.ReasonCode, "reason_message": t.ReasonEN})
 		}
 	}
 	for _, n := range extra {
@@ -66,7 +67,6 @@ func agentToolsContext(svc *service.Service, org string, g model.Agent, extra []
 	return map[string]any{
 		"available":   can,
 		"unavailable": cannot,
-		"note":        "只有 available 的工具能用;unavailable 要由人改角色設定才會開放,需要時回報 blocked 說明缺什麼",
 	}
 }
 
@@ -88,6 +88,9 @@ type AgentEndpointConfig struct {
 	// Begin、Tool 同 Hooks:每個請求開始(回傳的函式在處理完後呼叫)、工具執行前(統計、處理完重新整理畫面用)
 	Begin func() (end func())
 	Tool  func(name string)
+	// Done 每次工具呼叫處理完後(含被拒絕的):哪個角色、哪個任務(憑證綁定的)、呼叫哪個工具、成功(err 為 nil)或失敗。
+	// 只給稽核紀錄用(例如自動執行的執行日誌),不帶參數與結果
+	Done func(role Role, tool string, err error)
 }
 
 const agentInstructions = "This is omixor's agent endpoint: you are working as an agent, and your identity is determined by the credential. " +
@@ -98,7 +101,9 @@ const agentInstructions = "This is omixor's agent endpoint: you are working as a
 	"Message channels: mentions in agent_context are unread messages that mention you (only notifications, not tasks; you decide whether to reply); channels lists the channels you are in, channel_messages reads them (reading marks as read), and channel_post replies. The signature is always your agent. " +
 	"Items (to-do list): for work that spans phases, should be split among other sub-agents, or needs a human decision, use issue_item_add to open an item under the issue (do not open overly small ones); issue_items shows the list (only unfinished ones by default). " +
 	"If your task is an item (the task description states the item number, e.g. ISS-37.2), when finished use issue_item_report status=done (with evidence: commit, test results, anything not verified); " +
-	"if stuck or a human decision is needed, use issue_item_report status=blocked and write block_reason; when a human decision is needed, set wait_for_kind=user_decision and do not guess the answer."
+	"if stuck or a human decision is needed, use issue_item_report status=blocked and write block_reason; when a human decision is needed, set wait_for_kind=user_decision and do not guess the answer. " +
+	"Tools: only the tools listed in tools.available of agent_context can be used. Tools in tools.unavailable are blocked by the role configuration (reason is a stable code, reason_message explains it) and only a human can change that; do not retry them or invent workarounds. " +
+	"If the task needs one, report the task blocked (agent_task_report status=blocked) and say which tool or permission is missing." + protocolInstructions
 
 // AgentEndpoint 角色端點的 http.Handler(掛在 /mcp/agent):
 //
@@ -183,6 +188,11 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 			Ctx:   sess,
 			Begin: cfg.Begin,
 			Tool:  cfg.Tool,
+			Done: func(name string, err error) {
+				if cfg.Done != nil {
+					cfg.Done(*role, name, err)
+				}
+			},
 			Allow: func(name string) bool { return allow[name] && (extra[name] || avail[name]) },
 			Guard: func(name string, args map[string]any) error {
 				// 呼叫端自帶的 agent 參數不算數:不能指定其他角色,一律強制成憑證的角色
@@ -241,7 +251,7 @@ const adminInstructions = "This is omixor's MCP endpoint, operating the issues, 
 	"Message channels: channels lists my channels (with unread counts), channel_create creates one, channel_messages reads (reading marks as read), and channel_post posts a message; mentioning an agent with @ only notifies it and does not queue a task. " +
 	"Items (to-do list; the number is <issue key>.<sequence>, e.g. ISS-37.2): when a big idea needs phases or must be split among different sub-agents, use issue_item_add to open items under the issue (only for work that spans phases, spans sub-agents or needs a human decision), " +
 	"issue_items shows the list, issue_item_claim claims (when the owner is an agent, a task is queued and a credential issued automatically), issue_item_report reports (done with evidence; when a human decision is needed use status=blocked and wait_for_kind=user_decision, and do not guess the answer), " +
-	"issue_item_update modifies or cancels, and issue_item_promote promotes an item to an independent issue."
+	"issue_item_update modifies or cancels, and issue_item_promote promotes an item to an independent issue." + protocolInstructions
 
 // AdminEndpoint 管理用 MCP 的 http.Handler(雲端掛在 /mcp/org/{org},用 omixor token 認證)
 func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
@@ -296,7 +306,7 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 				return RejectIdentityAgent(name, args)
 			},
 			Resources: uiResources}
-		hooks = restrictOAuth(hooks, bk)
+		hooks = restrictOAuth(hooks, bk, false)
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})
 }

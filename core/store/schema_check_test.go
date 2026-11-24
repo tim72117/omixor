@@ -157,3 +157,32 @@ func TestCheckSchemaPG(t *testing.T) {
 		t.Errorf("主鍵不符沒被檢出:%+v", x)
 	}
 }
+
+// 宿主程式登記的額外表不算遺留表;沒登記的陌生表照樣報告;ok 只受遺留表影響
+func TestCheckSchemaPGRegisteredExtraTables(t *testing.T) {
+	p, err := NewPG(testPGBlank(t))
+	chk(t, err)
+	t.Cleanup(p.Close)
+	exec := func(sql string) {
+		t.Helper()
+		c, cancel := ctx()
+		defer cancel()
+		_, err := p.pool.Exec(c, sql)
+		chk(t, err)
+	}
+	exec(`create table omixor_host_extra (id text primary key)`)
+	exec(`create table omixor_host_stray (id text primary key)`)
+	RegisterExtraTables("omixor_host_extra")
+	RegisterExtraTables("omixor_host_extra") // 冪等
+	rep, err := p.CheckSchema()
+	chk(t, err)
+	if rep.OK || !reflect.DeepEqual(rep.OrphanTables, []string{"omixor_host_stray"}) {
+		t.Fatalf("只該剩沒登記的遺留表:ok=%v orphan=%v", rep.OK, rep.OrphanTables)
+	}
+	exec(`drop table omixor_host_stray`)
+	rep, err = p.CheckSchema()
+	chk(t, err)
+	if !rep.OK || len(rep.OrphanTables) != 0 {
+		t.Fatalf("只剩登記的表應 ok:%+v", rep)
+	}
+}

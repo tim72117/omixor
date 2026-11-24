@@ -55,6 +55,8 @@ type Options struct {
 	// Dir 工作目錄；Bin 是 CLI 的路徑，預設 "claude"
 	Dir string
 	Bin string
+	// Env 額外的環境變數(KEY=VALUE),加在訂閱用的環境之後
+	Env []string
 	// ExtraArgs 其他直接傳給 CLI 的參數
 	ExtraArgs []string
 }
@@ -101,6 +103,13 @@ func (o Options) flags() []string {
 	return append(args, o.ExtraArgs...)
 }
 
+// WaitForMCPEnv 讓 -p 模式在第一輪前等 MCP 伺服器連線完成(最多 timeoutMs 毫秒)。
+// 新版 CLI 的 -p 預設完全非同步連線(MCP_CONNECTION_NONBLOCKING 預設開),第一輪可能還沒有任何 mcp 工具;
+// 設成 false 才會等,等待上限由 MCP_CONNECT_TIMEOUT_MS 決定(CLI 預設 5000)。舊版 CLI 不認得這兩個變數,會忽略
+func WaitForMCPEnv(timeoutMs int) []string {
+	return []string{"MCP_CONNECTION_NONBLOCKING=false", fmt.Sprintf("MCP_CONNECT_TIMEOUT_MS=%d", timeoutMs)}
+}
+
 func (o Options) command(ctx context.Context, args []string) (*exec.Cmd, *strings.Builder) {
 	bin := o.Bin
 	if bin == "" {
@@ -108,7 +117,7 @@ func (o Options) command(ctx context.Context, args []string) (*exec.Cmd, *string
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = o.Dir
-	cmd.Env = subscriptionEnv()
+	cmd.Env = append(subscriptionEnv(), o.Env...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	return cmd, &stderr
@@ -200,6 +209,8 @@ func decode(line []byte) (Event, error) {
 		ev = &Init{}
 	case head.Type == "assistant":
 		ev = &Assistant{}
+	case head.Type == "user":
+		ev = &User{}
 	case head.Type == "rate_limit_event":
 		ev = &RateLimit{}
 	case head.Type == "result":

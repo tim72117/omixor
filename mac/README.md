@@ -35,6 +35,9 @@ swift run
 
 需要 macOS 14 以上與 Swift 6 工具鏈。
 
+App 圖示是 `Resources/AppIcon.icns`(已提交),build-app.sh 會複製進 `Contents/Resources/` 並在 Info.plist 設 `CFBundleIconFile`。
+圖樣取自 `site/favicon.svg`;改了 SVG 之後跑 `sh scripts/gen-appicon.sh` 重產(只用 macOS 內建的 qlmanage、sips、iconutil),再提交新的 .icns。
+
 ### 功能開關(系統層/組織層)
 
 所有功能都編進 App 與包進去的 omixor-local(不再有正式版/開發版、`OMIXOR_DEV`、`OMIXOR_EDITION`)。

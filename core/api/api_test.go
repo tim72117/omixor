@@ -308,7 +308,7 @@ func TestEnsureOrgsForIssuesRebuildsMissingOrg(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close(ctx)
-	if _, err := c.Exec(ctx, `alter table ops_issues drop constraint fk_ops_issues_org`); err != nil {
+	if _, err := c.Exec(ctx, `alter table omixor_issues drop constraint fk_omixor_issues_org`); err != nil {
 		t.Fatal(err)
 	}
 	// 只刪 default 組織(lab 還在)

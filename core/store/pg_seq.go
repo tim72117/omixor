@@ -14,7 +14,7 @@ func seqScopeMax(scope string) (sql string, extra []any) {
 	const f = `(select max(number) from %s where org = $1 and number > 0%s)`
 	switch scope {
 	case "issue":
-		return fmt.Sprintf(f, "ops_issues", " and project = ''"), nil
+		return fmt.Sprintf(f, "omixor_issues", " and project = ''"), nil
 	case "task":
 		return fmt.Sprintf(f, "omixor_agent_tasks", ""), nil
 	case "doc":
@@ -30,7 +30,7 @@ func seqScopeMax(scope string) (sql string, extra []any) {
 		return `(select max(seq) from omixor_issue_items where org = $1 and issue_id = $4)`, []any{is}
 	}
 	if pr, ok := strings.CutPrefix(scope, "issue:"); ok {
-		return fmt.Sprintf(f, "ops_issues", " and project = $4"), []any{pr}
+		return fmt.Sprintf(f, "omixor_issues", " and project = $4"), []any{pr}
 	}
 	if ch, ok := strings.CutPrefix(scope, "msg:"); ok {
 		return fmt.Sprintf(f, "omixor_channel_messages", " and channel_id = $4"), []any{ch}

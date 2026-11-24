@@ -120,6 +120,11 @@ extension IssueRemote {
         try decode(AgentTask.self, try send("POST", orgURL(org, ["agent-tasks", id, "requeue"]), try json([:])))
     }
 
+    /// 回覆需要協助(blocked)的任務:記成備註並退回待領取
+    func replyTask(org: String, id: String, text: String) throws -> AgentTask {
+        try decode(AgentTask.self, try send("POST", orgURL(org, ["agent-tasks", id, "reply"]), try json(["text": text])))
+    }
+
     // MARK: 版本
 
     /// GET /api/version(同步、不用登入;給 MCP 的 server 用)

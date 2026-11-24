@@ -216,7 +216,7 @@ final class IssueRemoteTests: XCTestCase {
         let app = AppState()
         let mcp = MCPHandler(app: app)
         var (obj, text, isError) = try await call(mcp, "issue_create", [
-            "title": "首頁播放率低", "priority": "high", "labels": ["evoleap", "訪客", "evoleap"], "source": "網站訪客 7d",
+            "title": "首頁播放率低", "priority": "high", "labels": ["evoleap", "訪客", "evoleap"], "source": "網站訪客 7d", "return": "full",
         ])
         XCTAssertFalse(isError, text)
         var d = try XCTUnwrap(obj as? [String: Any], text)
@@ -227,7 +227,7 @@ final class IssueRemoteTests: XCTestCase {
         XCTAssertEqual(d["createdBy"] as? String, "tim", "署名是登入的人(core ISS-36)")
         XCTAssertEqual(app.issues.first?.id, "ISS-1")
 
-        (obj, text, isError) = try await call(mcp, "issue_update", ["id": "iss-1", "comment": "再看一次", "status": "closed", "add_labels": ["播放率"]])
+        (obj, text, isError) = try await call(mcp, "issue_update", ["id": "iss-1", "comment": "再看一次", "status": "closed", "add_labels": ["播放率"], "return": "full"])
         XCTAssertFalse(isError, text)
         d = try XCTUnwrap(obj as? [String: Any], text)
         XCTAssertEqual(d["status"] as? String, "closed")

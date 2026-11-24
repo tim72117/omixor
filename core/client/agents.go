@@ -119,6 +119,12 @@ func (c *Client) RequeueTask(org, id string) (*model.AgentTask, error) {
 	return &t, c.Do("POST", c.agentTasks(org)+"/"+esc(id)+"/requeue", map[string]any{}, &t)
 }
 
+// ReplyTask 回覆需要協助的任務(記成備註、退回待領取)
+func (c *Client) ReplyTask(org, id, text string) (*model.AgentTask, error) {
+	var t model.AgentTask
+	return &t, c.Do("POST", c.agentTasks(org)+"/"+esc(id)+"/reply", map[string]any{"text": text}, &t)
+}
+
 // RunRoutine 立刻替角色排一筆例行任務(author 是署名,只有伺服器管理員的有效)
 func (c *Client) RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error) {
 	var t model.AgentTask

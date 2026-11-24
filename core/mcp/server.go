@@ -18,8 +18,6 @@ import (
 	"omixor-core/httperr"
 )
 
-var SupportedVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
-
 // ToolError 工具執行失敗:回 isError = true 的結果(不是 JSON-RPC 錯誤),同 Swift 的 MCPToolError
 type ToolError struct {
 	Message string
@@ -93,6 +91,8 @@ type Hooks struct {
 	Client func(name string)
 	// Tool tools/call 驗證過工具名稱、執行前呼叫
 	Tool func(name string)
+	// Done tools/call 處理完後呼叫(含被 Guard 拒絕的):err 是工具或 Guard 的錯誤,成功為 nil(稽核用,不能改結果)
+	Done func(name string, err error)
 	// Allow 不是 nil 時只開放它回傳 true 的工具:tools/list 只列這些,
 	// tools/call 其他工具回「沒有這個工具」(角色端點的白名單用)
 	Allow func(name string) bool
@@ -108,6 +108,8 @@ type Hooks struct {
 	// Deny 不是 nil 時:tools/call 一個「存在、但被 Allow 擋掉」的工具,它回傳非空字串就以 isError 結果回這句話
 	// (而不是「沒有這個工具」;唯讀授權用:「此連線是唯讀授權」)
 	Deny func(name string) string
+	// DenyCode 不是 nil 時:Deny 的結果附上這個機器碼(Data["code"],穩定、給程式判斷);回空字串 = 不附
+	DenyCode func(name string) string
 	// Resources 這個端點提供的 MCP 資源(MCP Apps 的 ui:// 畫面):有的話 initialize 會宣告 resources 能力,resources/list、resources/read 回它們
 	Resources []Resource
 }
@@ -327,6 +329,22 @@ func (s *Server) Handle(data []byte, h Hooks) []byte {
 }
 
 func (s *Server) message(obj any, h Hooks) map[string]any {
+	resp := s.dispatch(obj, h)
+	if resp == nil {
+		return nil
+	}
+	if msg, ok := obj.(map[string]any); ok {
+		if params, _ := msg["params"].(map[string]any); params != nil {
+			if _, modern := modernMeta(params); modern {
+				method, _ := msg["method"].(string)
+				s.decorateModern(method, resp)
+			}
+		}
+	}
+	return resp
+}
+
+func (s *Server) dispatch(obj any, h Hooks) map[string]any {
 	msg, ok := obj.(map[string]any)
 	method, hasMethod := msg["method"].(string)
 	if !ok || !hasMethod {
@@ -349,12 +367,29 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 			defer end()
 		}
 	}
+	// 2026-07-28 request (stateless): validated before dispatch; legacy requests are untouched
+	meta, modern := modernMeta(params)
+	if modern {
+		if e := validateModern(meta); e != nil {
+			return errorResponseData(id, e)
+		}
+		if method == "initialize" { // that revision has no handshake
+			return errorResponse(id, -32601, "Method not found: initialize (protocol "+ModernVersion+" has no handshake; use server/discover)")
+		}
+		if info, ok := meta[MetaClientInfoKey].(map[string]any); ok && h.Client != nil {
+			if name, ok := info["name"].(string); ok {
+				h.Client(name)
+			}
+		}
+	}
 
 	switch method {
+	case "server/discover":
+		return result(id, s.discover(&h))
 	case "initialize":
 		requested, _ := params["protocolVersion"].(string)
-		version := SupportedVersions[0]
-		if slices.Contains(SupportedVersions, requested) {
+		version := LegacyVersions[0]
+		if slices.Contains(LegacyVersions, requested) {
 			version = requested
 		}
 		if info, ok := params["clientInfo"].(map[string]any); ok {
@@ -365,12 +400,7 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		r := map[string]any{}
 		maps.Copy(r, s.initInfo)
 		if len(h.Resources) > 0 { // 宣告 resources 能力(複製一份,不改共用的 initInfo)
-			caps := map[string]any{}
-			if c, ok := s.initInfo["capabilities"].(map[string]any); ok {
-				maps.Copy(caps, c)
-			}
-			caps["resources"] = map[string]any{"listChanged": false, "subscribe": false}
-			r["capabilities"] = caps
+			r["capabilities"] = s.capabilities(&h)
 		}
 		r["protocolVersion"] = version
 		return result(id, r)
@@ -399,7 +429,13 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		name = LegacyToolName(name, s.toolNames)
 		if slices.Contains(s.toolNames, name) && h.Allow != nil && !h.Allow(name) && h.Deny != nil {
 			if msg := h.Deny(name); msg != "" {
-				return result(id, toolFailure(name, ToolError{Message: msg, Status: 403}))
+				te := ToolError{Message: msg, Status: 403}
+				if h.DenyCode != nil {
+					if code := h.DenyCode(name); code != "" {
+						te.Data = map[string]any{"code": code}
+					}
+				}
+				return result(id, toolFailure(name, te))
 			}
 		}
 		if !slices.Contains(s.toolNames, name) || (h.Allow != nil && !h.Allow(name)) {
@@ -419,6 +455,9 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 		}
 		if h.Guard != nil {
 			if err := h.Guard(name, args); err != nil {
+				if h.Done != nil {
+					h.Done(name, err)
+				}
 				return result(id, toolFailure(name, err))
 			}
 		}
@@ -426,6 +465,9 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 			h.Tool(name)
 		}
 		out, err := s.run(name, args, callCtx, &h)
+		if h.Done != nil {
+			h.Done(name, err)
+		}
 		if err != nil {
 			return result(id, toolFailure(name, err))
 		}
@@ -447,6 +489,9 @@ func (s *Server) message(obj any, h Hooks) map[string]any {
 			if r.URI == uri {
 				return result(id, map[string]any{"contents": []any{r.content()}})
 			}
+		}
+		if modern { // 2026-07-28: invalid params with the uri, never -32002
+			return errorResponseData(id, &rpcError{-32602, "Resource not found: " + uri, map[string]any{"uri": uri}})
 		}
 		return errorResponse(id, -32002, "找不到資源:"+uri)
 	case "prompts/list":

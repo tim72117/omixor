@@ -262,18 +262,63 @@ type OAuthAuthChecked struct {
 	Account     bool   // 帳號層級:token 不綁組織,每次工具呼叫由統一入口以即時成員資格決定能用哪些組織
 	Scope       string // 預設授予的 scope(永遠是 mcp:read);要不要升級成讀寫由使用者在同意畫面選,見 WriteRequested 與 ApproveOAuthScope
 	// WriteRequested 客戶端的 scope 參數有要求 mcp:write(同意畫面才會提供「讀寫」選項;沒要求時選讀寫的表單一律被拒)
+	// 要求 mcp:admin 也算要求寫入(admin 隱含 write)
 	WriteRequested bool
+	// AdminRequested 客戶端的 scope 參數有要求 mcp:admin,而且是帳號層級授權(同意畫面才會提供「組織管理員」選項;組織層級授權不支援 admin,忽略)
+	AdminRequested bool
 }
 
-// requestedWrite scope 參數(空白分隔)有沒有要求 mcp:write;不認得的 scope 忽略
-func requestedWrite(scope string) bool { return hasScope(scope, model.OAuthScopeWrite) }
+// OAuth 授權等級(同意畫面的 grant 欄位;scope 越高包含越低的)
+const (
+	OAuthGrantRead  = "read"
+	OAuthGrantWrite = "write"
+	OAuthGrantAdmin = "admin"
+)
 
-// normalizeScope 授予的 scope 字串:有 mcp:write → "mcp:read mcp:write",否則 "mcp:read"(其他一律不給)
+// requestedWrite scope 參數(空白分隔)有沒有要求 mcp:write(或隱含它的 mcp:admin);不認得的 scope 忽略
+func requestedWrite(scope string) bool {
+	return hasScope(scope, model.OAuthScopeWrite) || hasScope(scope, model.OAuthScopeAdmin)
+}
+
+// normalizeScope 授予的 scope 字串:有 mcp:admin → "mcp:read mcp:write mcp:admin";有 mcp:write → "mcp:read mcp:write";否則 "mcp:read"(其他一律不給)
 func normalizeScope(scope string) string {
-	if hasScope(scope, model.OAuthScopeWrite) {
+	switch {
+	case hasScope(scope, model.OAuthScopeAdmin):
+		return scopeOfGrant(OAuthGrantAdmin)
+	case hasScope(scope, model.OAuthScopeWrite):
+		return scopeOfGrant(OAuthGrantWrite)
+	}
+	return scopeOfGrant(OAuthGrantRead)
+}
+
+// scopeOfGrant 授權等級對應的 scope 字串(不認得的等級 = 唯讀)
+func scopeOfGrant(grant string) string {
+	switch grant {
+	case OAuthGrantAdmin:
+		return model.OAuthScopeRead + " " + model.OAuthScopeWrite + " " + model.OAuthScopeAdmin
+	case OAuthGrantWrite:
 		return model.OAuthScopeRead + " " + model.OAuthScopeWrite
 	}
 	return model.OAuthScopeRead
+}
+
+// grantOfBool 舊的 grantWrite 布林對應的授權等級
+func grantOfBool(grantWrite bool) string {
+	if grantWrite {
+		return OAuthGrantWrite
+	}
+	return OAuthGrantRead
+}
+
+// scopeLevel scope 字串的等級:0 唯讀、1 讀寫、2 組織管理員
+func scopeLevel(scope string) int {
+	switch {
+	case hasScope(scope, model.OAuthScopeAdmin):
+		return 2
+	case hasScope(scope, model.OAuthScopeWrite):
+		return 1
+	}
+	return 0
 }
 
 // CheckOAuthAuthorize 驗證授權請求;client_id 或 redirect_uri 不可信的錯誤帶 NoRedirect
@@ -311,7 +356,7 @@ func (s *Service) CheckOAuthAuthorize(r OAuthAuthRequest) (*OAuthAuthChecked, er
 		return nil, bad("invalid_target", "resource 必須是這個伺服器的 MCP 網址(統一入口 /mcp,或組織 MCP 網址 /mcp/org/{組織})")
 	}
 	return &OAuthAuthChecked{Client: cl, RedirectURI: r.RedirectURI, Resource: r.Resources[0], Org: r.Org, Account: r.Account, Scope: model.OAuthScopeRead,
-		WriteRequested: requestedWrite(r.Scope)}, nil
+		WriteRequested: requestedWrite(r.Scope), AdminRequested: r.Account && hasScope(r.Scope, model.OAuthScopeAdmin)}, nil
 }
 
 // purgeOAuth 清掉過期超過一天的列(最多每分鐘一次)
@@ -343,12 +388,15 @@ func (s *Service) NewOAuthCSRF(c *OAuthAuthChecked, challenge, ip string) (strin
 	return raw, err
 }
 
-// csrfScope CSRF token 綁定的 scope 範圍:客戶端有要求寫入 = 讀寫,否則唯讀
+// csrfScope CSRF token 綁定的 scope 範圍:客戶端有要求管理員 = 管理員,有要求寫入 = 讀寫,否則唯讀
 func csrfScope(c *OAuthAuthChecked) string {
-	if c.WriteRequested {
-		return model.OAuthScopeRead + " " + model.OAuthScopeWrite
+	switch {
+	case c.AdminRequested:
+		return scopeOfGrant(OAuthGrantAdmin)
+	case c.WriteRequested:
+		return scopeOfGrant(OAuthGrantWrite)
 	}
-	return model.OAuthScopeRead
+	return scopeOfGrant(OAuthGrantRead)
 }
 
 // VerifyOAuthCSRF 驗證並用掉 CSRF token(要是同一個請求的:同 client、resource、redirect_uri、code_challenge、scope 範圍;沒過期、沒用過)
@@ -391,7 +439,14 @@ func (s *Service) ApproveOAuth(c *OAuthAuthChecked, challenge, pairCode, ip stri
 // 讀寫授權不認伺服器管理員的萬能權限:組織層級授權要是該組織的成員(帳號層級每次呼叫即時檢查成員資格)。
 // 配對碼用過就失效(成功才消耗;和 ClaimPairCode 同一套規則)。失敗一律 ErrOAuthPairInvalid(頻率限制、鎖定另外回 429)
 func (s *Service) ApproveOAuthScope(c *OAuthAuthChecked, challenge, pairCode, ip string, grantWrite bool) (string, error) {
-	return s.approveOAuth(c, challenge, grantWrite, func() (*model.User, map[string]any, error) {
+	return s.ApproveOAuthGrant(c, challenge, pairCode, ip, grantOfBool(grantWrite))
+}
+
+// ApproveOAuthGrant 同 ApproveOAuthScope,授權等級用 OAuthGrantRead / Write / Admin(不認得的 = 唯讀)。
+// 管理員(OAuthGrantAdmin)的條件:客戶端有要求 mcp:admin 且是帳號層級授權(否則 400 invalid_scope,配對碼不消耗);
+// 證明身分之後,使用者要是至少一個組織的管理員(目前的成員資格),否則 403 access_denied(ErrOAuthNotOrgAdmin 的訊息)
+func (s *Service) ApproveOAuthGrant(c *OAuthAuthChecked, challenge, pairCode, ip, grant string) (string, error) {
+	return s.approveOAuth(c, challenge, grant, func() (*model.User, map[string]any, error) {
 		if locked, left := s.oauthLocked(); locked {
 			return nil, nil, oauthLockedErr(left)
 		}
@@ -417,20 +472,29 @@ func (s *Service) ApproveOAuthScope(c *OAuthAuthChecked, challenge, pairCode, ip
 // approveOAuth 簽發授權碼的共同部分(配對碼與 evoleap 登入兩條路共用):prove 負責「證明這個人是誰」(回使用者與要寫進稽核的額外欄位,
 // 例如 pair / via),其餘 — 讀寫授權的檢查、帳號層級 vs 組織成員資格、授權碼 60 秒用一次、FamilyID、稽核 oauth.authorize — 兩條路完全相同。
 // grantWrite 但客戶端沒要求 mcp:write 是偽造的表單:400 invalid_scope,在 prove 之前就擋(配對碼不消耗、不會呼叫 evoleap)
-func (s *Service) approveOAuth(c *OAuthAuthChecked, challenge string, grantWrite bool, prove func() (*model.User, map[string]any, error)) (string, error) {
-	if grantWrite && !c.WriteRequested {
-		return "", oerr(400, "invalid_scope", "這個授權請求沒有要求 mcp:write,不能授予讀寫")
+func (s *Service) approveOAuth(c *OAuthAuthChecked, challenge string, grant string, prove func() (*model.User, map[string]any, error)) (string, error) {
+	if err := checkGrantRequested(c, grant); err != nil {
+		return "", err
 	}
-	scope := model.OAuthScopeRead
-	if grantWrite {
-		scope = model.OAuthScopeRead + " " + model.OAuthScopeWrite
-	}
+	scope := scopeOfGrant(grant)
+	grantWrite := grant == OAuthGrantWrite || grant == OAuthGrantAdmin
 	u, extra, err := prove()
 	if err != nil {
 		return "", err
 	}
 	// 唯讀授權:伺服器管理員照舊(本來就只能讀);讀寫授權:p.ServerAdmin() 對 OAuth 寫入身分是 false,組織層級要真的是成員
-	p := &model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: !grantWrite}
+	p := &model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: !grantWrite, OAuthAdmin: grant == OAuthGrantAdmin}
+	if grant == OAuthGrantAdmin {
+		// 組織管理員授權:使用者目前要是至少一個組織的管理員(用成員資格判斷,不看伺服器管理員的萬能權限);每次工具呼叫還會再即時檢查呼叫的那個組織
+		ok, err := s.isAnyOrgAdmin(u.ID)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			s.Audit(p, "oauth.denied", c.Org, map[string]any{"reason": "not-org-admin", "client": c.Client.ID})
+			return "", ErrOAuthNotOrgAdmin
+		}
+	}
 	if c.Account {
 		// 帳號層級:不綁組織,不需要是任何組織的成員(身分已由配對碼或 evoleap 登入證明);之後每次工具呼叫由統一入口即時驗證成員資格
 	} else if !p.ServerAdmin() {
@@ -464,6 +528,38 @@ func (s *Service) approveOAuth(c *OAuthAuthChecked, challenge string, grantWrite
 	}
 	s.Audit(p, "oauth.authorize", c.Org, detail)
 	return raw, nil
+}
+
+// ErrOAuthNotOrgAdmin 要求組織管理員授權、但使用者不是任何組織的管理員(同意畫面據此停用管理員選項)
+var ErrOAuthNotOrgAdmin = oerrR(403, "access_denied", "你不是任何組織的管理員,不能授予「組織管理員」權限,請改選唯讀或讀寫", "not_org_admin")
+
+// checkGrantRequested 授權等級不能超出客戶端要求的:讀寫要有要求 mcp:write(或 mcp:admin),管理員要有要求 mcp:admin 且是帳號層級;偽造的表單 = 400 invalid_scope
+func checkGrantRequested(c *OAuthAuthChecked, grant string) error {
+	switch grant {
+	case OAuthGrantAdmin:
+		if !c.AdminRequested {
+			return oerr(400, "invalid_scope", "這個授權請求沒有要求 mcp:admin(或不是帳號層級授權),不能授予組織管理員")
+		}
+	case OAuthGrantWrite:
+		if !c.WriteRequested {
+			return oerr(400, "invalid_scope", "這個授權請求沒有要求 mcp:write,不能授予讀寫")
+		}
+	}
+	return nil
+}
+
+// isAnyOrgAdmin 使用者目前是不是至少一個組織的管理員(成員資格,不含伺服器管理員的萬能權限)
+func (s *Service) isAnyOrgAdmin(userID string) (bool, error) {
+	orgs, err := s.Store.OrgsOfUser(userID)
+	if err != nil {
+		return false, err
+	}
+	for _, o := range orgs {
+		if o.MyRole == "admin" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // ---------------- token 端點 ----------------
@@ -509,30 +605,33 @@ func refreshScope(want, granted string) (string, bool) {
 	if len(fields) == 0 {
 		return granted, true
 	}
-	asked := ""
+	asked, level := false, 0
 	for _, x := range fields {
 		switch x {
 		case model.OAuthScopeOffline:
 		case model.OAuthScopeRead:
-			if asked == "" {
-				asked = model.OAuthScopeRead
-			}
+			asked = true
 		case model.OAuthScopeWrite:
-			if !hasScope(granted, model.OAuthScopeWrite) {
+			asked = true
+			if scopeLevel(granted) < 1 {
 				return "", false
 			}
-			asked = model.OAuthScopeRead + " " + model.OAuthScopeWrite
+			level = max(level, 1)
+		case model.OAuthScopeAdmin:
+			asked = true
+			if scopeLevel(granted) < 2 {
+				return "", false
+			}
+			level = 2
 		default:
 			return "", false
 		}
 	}
-	if asked == "" { // 只帶 offline_access:沿用
+	if !asked { // 只帶 offline_access:沿用
 		return granted, true
 	}
-	if hasScope(asked, model.OAuthScopeWrite) {
-		return granted, true
-	}
-	return model.OAuthScopeRead, true
+	// 帶了什麼就縮到那一級(最高的那個);write 隱含 read、admin 隱含 write
+	return scopeOfGrant([]string{OAuthGrantRead, OAuthGrantWrite, OAuthGrantAdmin}[level]), true
 }
 
 func resourceMismatch(sent []string, bound string) bool {
@@ -701,7 +800,8 @@ var ErrOAuthInvalidToken = fail(401, "OAuth 的 access token 無效、已過期�
 // resource 必須與簽發時綁定的字串完全相同:組織 token(/mcp/org/x)不能用在統一入口(/mcp),帳號層級 token(/mcp)也不能用在組織端點。
 // token 的 Org 欄位不是授權依據(帳號層級的 Org 是空字串,不代表「所有組織」):組織存取一律由 MCP 端點以即時成員資格決定。
 // 回傳的身分:scope 只有 mcp:read → ReadOnly(MCP 端點只開放唯讀工具);含 mcp:write → ReadOnly=false 但 Via=ViaOAuth
-// (MCP 端點只開放 ReadOnly ∪ OAuthWriteTools,Principal.ServerAdmin 一律 false,service 層照一般成員檢查)
+// (MCP 端點只開放 ReadOnly ∪ OAuthWriteTools,Principal.ServerAdmin 一律 false,service 層照一般成員檢查);
+// 含 mcp:admin(要同時含 mcp:write,否則視為不認得的組合,只當 mcp:write 以下)→ OAuthAdmin=true,多開 OAuthAdminTools(每次呼叫即時檢查該組織的管理員身分)
 func (s *Service) AuthenticateOAuth(raw, resource string) (*model.Principal, error) {
 	raw = strings.TrimSpace(raw)
 	if !strings.HasPrefix(raw, oauthPrefixAccess) || resource == "" {
@@ -730,7 +830,7 @@ func (s *Service) AuthenticateOAuth(raw, resource string) (*model.Principal, err
 		return nil, err
 	}
 	return &model.Principal{User: *u, Token: model.Token{ID: t.ID, UserID: u.ID, Device: "OAuth", Email: u.Email, CreatedAt: model.Time{Time: t.CreatedAt}},
-		Actor: actor, Via: model.ViaOAuth, ReadOnly: !hasScope(t.Scope, model.OAuthScopeWrite)}, nil
+		Actor: actor, Via: model.ViaOAuth, ReadOnly: !hasScope(t.Scope, model.OAuthScopeWrite), OAuthAdmin: hasScope(t.Scope, model.OAuthScopeAdmin)}, nil
 }
 
 // OAuthAccessState 觀測用:access token 目前的狀態(valid / missing / invalid / expired / revoked / wrong_resource),不寫入、不回身分
@@ -787,4 +887,14 @@ func (s *Service) OAuthAccessWrite(raw string) bool {
 	}
 	t, err := s.Store.OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
 	return err == nil && hasScope(t.Scope, model.OAuthScopeWrite)
+}
+
+// OAuthAccessAdmin 觀測用:access token 是不是有效且帶 mcp:admin(不寫入、不回身分)
+func (s *Service) OAuthAccessAdmin(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, oauthPrefixAccess) {
+		return false
+	}
+	t, err := s.Store.OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
+	return err == nil && hasScope(t.Scope, model.OAuthScopeAdmin)
 }

@@ -127,7 +127,7 @@ MCP 工具(英文說明):`commits_report`(寫)、`commits`(讀)、`issue_commit_
 
 ## 8. 演進路線
 
-1. **phase 1**:資料表、`ReportCommits`、引用解析、`issues(id)` 顯示、MCP 工具、CLI `commits sync`、文件。
+1. **phase 1**:資料表、`ReportCommits`、引用解析、`issues(id)` 顯示、MCP 工具、CLI `commits sync`、文件(`docs/commits.md`)。**phase 1 不補舊歷史(no backfill,2026-11-24 決定)**:`commits sync` 第一次只送目前 HEAD 當基準點,之後只送新的 commit;同步位置對不上(改寫歷史、不同 clone)時也只送 HEAD 重設基準點,一次最多 500 筆;沒有 backfill 旗標。
 2. **phase 1.5**:Mac App / console 的「同步 commits」與 Issue 畫面顯示。
 3. **phase 2**:webhook(push、PR 合併、tag),repos 表存簽章密鑰與預設分支;`verified`;「fixes 且已進預設分支 → 提示關閉(不自動關閉)」。
 4. **之後**:PR / MR、CI 結果與 commit 的關聯;Issue 與 Issue 的連結(另開,不併進這個機制);rebase 後連結改指向新 sha。
@@ -151,7 +151,7 @@ MCP 工具(英文說明):`commits_report`(寫)、`commits`(讀)、`issue_commit_
 
 ### 實作時另外做的決定(phase 1)
 
-- **三張表**(結構步驟 2 `commits`,`store/schema_commits.go`):`omixor_commits`(主鍵 org, repo, sha)、`omixor_issue_commits`(主鍵 org, issue_id, repo, sha;issue_id 內部 id,外鍵 cascade 到 `ops_issues`、`(org, repo, sha)` 外鍵到 commits)、`omixor_repo_sync`(主鍵 org, repo);都有 org 外鍵 cascade。`reported_by`、`linked_by` 存 actor id 字串,**不設外鍵**(不擋 actor 的退役)。
+- **三張表**(結構步驟 2 `commits`,`store/schema_commits.go`):`omixor_commits`(主鍵 org, repo, sha)、`omixor_issue_commits`(主鍵 org, issue_id, repo, sha;issue_id 內部 id,外鍵 cascade 到 `omixor_issues`、`(org, repo, sha)` 外鍵到 commits)、`omixor_repo_sync`(主鍵 org, repo);都有 org 外鍵 cascade。`reported_by`、`linked_by` 存 actor id 字串,**不設外鍵**(不擋 actor 的退役)。
 - **一對 (issue, commit) 只有一條連結**:自動連結不蓋手動的,只把 auto 的 `mentions` 升成 `fixes`(不降級);手動連結覆蓋種類與說明。取消自動連結後,之後同一個 sha 再被回報,自動連結會重新建立。
 - **重送同一個 sha**:只補空欄位(裸參照被真正回報補齊,`created` 不算新建),`verified` 只升不降;連結仍會依這次送來的訊息重新解析。
 - **`unmatched`** 只列「代號是 ISS 或呼叫者看得到的專案代號、但組織裡沒有這張 Issue」的字串(可能打錯);其他像 key 的字串(UTF-8、SHA-256、CVE-2024-1234)一律忽略,不連結也不列。`linked` 只列這次呼叫新建或升級的連結。
@@ -159,3 +159,4 @@ MCP 工具(英文說明):`commits_report`(寫)、`commits`(讀)、`issue_commit_
 - **`repo_sync`**:`last_sha` = 這批裡最新的(authored_at → committed_at → 回報時間);補更舊的歷史時 `last_sha` 不倒退;`last_at` 是這次回報的時間。
 - **遮罩**用 `core/redact`(從 report_problem 抽出,`report_problem` 的行為不變);commit 文字用 `SecretsKeepGitIDs`:獨立的 40 / 64 位十六進位(`This reverts commit <sha>`)不遮,其餘規則完全一樣。
 - **權限**:回報、查詢、同步位置、列連結 = 組織成員(人);手動連結與取消 = 同 `issue_update`(Issue 要看得到)。
+- **CLI `commits sync` 不補舊歷史**(2026-11-24 決定,phase 1):沒有同步位置只送 HEAD 一筆當基準點;有同步位置送 `<位置>..HEAD`(每批 ≤100、一次 ≤500);位置不在本機或不是祖先 → 只送 HEAD 並警告。用法見 `docs/commits.md`。

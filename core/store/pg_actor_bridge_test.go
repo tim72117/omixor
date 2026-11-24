@@ -18,26 +18,26 @@ func TestNullIDHelpers(t *testing.T) {
 	mkOrgs(t, p, "o")
 	c := context.Background()
 	// 寫:空字串 → NULL;讀:NULL → ""
-	pgExec(t, p, `insert into ops_issues (org, id, number, pos, title, status, priority, created_by, created_at, updated_at, assignee, deleted_by)
+	pgExec(t, p, `insert into omixor_issues (org, id, number, pos, title, status, priority, created_by, created_at, updated_at, assignee, deleted_by)
 		values ('o', 'a', 1, 1, 't', 'open', 'normal', 'sys_omixor', now(), now(), $1, $2)`, IDOrNil(""), NullID(""))
 	var as, del NullID
-	chk(t, p.pool.QueryRow(c, `select assignee, deleted_by from ops_issues where id = 'a'`).Scan(&as, &del))
+	chk(t, p.pool.QueryRow(c, `select assignee, deleted_by from omixor_issues where id = 'a'`).Scan(&as, &del))
 	if as != "" || del != "" || as.String() != "" {
 		t.Fatal("NULL 讀成空字串", as, del)
 	}
 	var n int
-	chk(t, p.pool.QueryRow(c, `select count(*) from ops_issues where assignee is null and deleted_by is null`).Scan(&n))
+	chk(t, p.pool.QueryRow(c, `select count(*) from omixor_issues where assignee is null and deleted_by is null`).Scan(&n))
 	if n != 1 {
 		t.Fatal("寫入的空字串要是 NULL", n)
 	}
-	pgExec(t, p, `update ops_issues set assignee = $1, deleted_by = $2 where id = 'a'`, IDOrNil("sys_chain"), NullID("sys_routine"))
-	chk(t, p.pool.QueryRow(c, `select assignee, deleted_by from ops_issues where id = 'a'`).Scan(&as, &del))
+	pgExec(t, p, `update omixor_issues set assignee = $1, deleted_by = $2 where id = 'a'`, IDOrNil("sys_chain"), NullID("sys_routine"))
+	chk(t, p.pool.QueryRow(c, `select assignee, deleted_by from omixor_issues where id = 'a'`).Scan(&as, &del))
 	if as != "sys_chain" || del != "sys_routine" {
 		t.Fatal("有值原樣", as, del)
 	}
 	// 外鍵:不存在的 actor id、空字串(非 NULL)都被擋
 	for _, v := range []any{"not-an-actor", ""} {
-		if _, err := p.pool.Exec(c, `update ops_issues set assignee = $1 where id = 'a'`, v); err == nil {
+		if _, err := p.pool.Exec(c, `update omixor_issues set assignee = $1 where id = 'a'`, v); err == nil {
 			t.Fatalf("外鍵要擋 %q", v)
 		}
 	}
@@ -60,33 +60,33 @@ func TestBridgeRoundTripAndResolve(t *testing.T) {
 	chk(t, p.SaveAgent("o", model.Agent{ID: "dev", Name: "Dev", Active: true, CreatedAt: model.Now()}))
 	w := p.newWho(context.Background())
 	// 空字串:可為 NULL 的欄位 → nil;NOT NULL 的欄位 → sys_legacy_unknown
-	if v, err := w.col("ops_issues.assignee", "o", "  "); err != nil || v != nil {
+	if v, err := w.col("omixor_issues.assignee", "o", "  "); err != nil || v != nil {
 		t.Fatal("空白 → NULL", v, err)
 	}
-	if v, err := w.col("ops_issues.created_by", "o", ""); err != nil || v != "sys_legacy_unknown" {
+	if v, err := w.col("omixor_issues.created_by", "o", ""); err != nil || v != "sys_legacy_unknown" {
 		t.Fatal("NOT NULL 欄位的空字串 → sys_legacy_unknown", v, err)
 	}
 	// 同一個字串永遠同一個 actor;已經是 actor id 的就是自己
-	a1, _ := w.col("ops_issues.created_by", "o", "冒名")
-	a2, _ := p.newWho(context.Background()).col("ops_issues.deleted_by", "o", "冒名")
+	a1, _ := w.col("omixor_issues.created_by", "o", "冒名")
+	a2, _ := p.newWho(context.Background()).col("omixor_issues.deleted_by", "o", "冒名")
 	if a1 != a2 || !strings.HasPrefix(a1.(string), "sys_legacy_") {
 		t.Fatal("同字串同 actor", a1, a2)
 	}
-	if v, _ := w.col("ops_issues.created_by", "o", a1.(string)); v != a1 {
+	if v, _ := w.col("omixor_issues.created_by", "o", a1.(string)); v != a1 {
 		t.Fatal("actor id 對到自己", v)
 	}
 	// 登記過的使用者(email 大小寫不同)對到同一個 actor;角色對到角色 actor
-	ua, _ := w.col("ops_issues.created_by", "o", "A@X.com")
-	ub, _ := w.col("ops_issues.created_by", "o", "user:a@x.com")
+	ua, _ := w.col("omixor_issues.created_by", "o", "A@X.com")
+	ub, _ := w.col("omixor_issues.created_by", "o", "user:a@x.com")
 	if ua != ub {
 		t.Fatal("同一個使用者", ua, ub)
 	}
 	g, _ := p.GetAgent("o", "dev")
-	if v, _ := w.col("ops_issues.assignee", "o", "dev"); v != g.ActorID {
+	if v, _ := w.col("omixor_issues.assignee", "o", "dev"); v != g.ActorID {
 		t.Fatal("assignee 純角色 id 對到角色 actor", v, g.ActorID)
 	}
 	// 欄位 key 不認得
-	if _, err := w.col("ops_issues.nope", "o", "x"); err == nil {
+	if _, err := w.col("omixor_issues.nope", "o", "x"); err == nil {
 		t.Fatal("不認得的欄位要錯")
 	}
 	// store 方法本身不再展開舊字串(一般路徑已拆掉):寫 actor id、讀回 actor id;空的 assignee 讀回空字串

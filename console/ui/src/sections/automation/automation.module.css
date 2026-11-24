@@ -52,10 +52,9 @@
 .headMain { flex: 1 1 220px; min-width: 0; }
 .avatarBox { flex: none; display: inline-flex; }
 .shrink2 { flex-shrink: 2; }
-/* 全域 .select / .textarea 有 min-width / min-height,要提高權重才蓋得過 */
+/* 全域 .select 有 min-width,要提高權重才蓋得過 */
 :global(.select).minW100 { min-width: 100px; }
 :global(.select).minW120 { min-width: 120px; }
-:global(.textarea).minH140 { min-height: 140px; }
 .taskItem { padding: 4px 0; border-bottom: 1px solid var(--line); }
 .indent { padding-left: 24px; }
 .resultBox { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--green) 8%, transparent); }
@@ -171,3 +170,10 @@
 .runningBox { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--blue) 8%, transparent); }
 .output { white-space: pre-wrap; user-select: text; max-height: 120px; overflow-y: auto; }
 .recordRow { padding: 5px 0; border-bottom: 1px solid var(--line); }
+.runLog { padding: 6px 0 8px 22px; border-bottom: 1px solid var(--line); }
+
+/* 角色卡住的問題(TaskQuestion)與回覆框(NeedsHelp) */
+.questionBox { padding: 8px 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--orange) 8%, transparent); }
+.needsCard { padding: 12px 0; border-bottom: 1px solid var(--line); }
+/* 需要處理頁籤:從別處跳來要看的那一張 */
+.focused { border-radius: var(--r-lg); background: color-mix(in srgb, var(--orange) 6%, transparent); outline: 1px solid var(--orange); }

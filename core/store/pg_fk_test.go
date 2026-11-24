@@ -109,7 +109,7 @@ func TestPGFKDeleteRules(t *testing.T) {
 	}
 
 	// 2. 刪 Issue → 頻道的 issue_id 變 NULL(org 不能變 NULL:用 set null (issue_id))
-	pgExec(t, p, `delete from ops_issues where org = 'o'`)
+	pgExec(t, p, `delete from omixor_issues where org = 'o'`)
 	if n := pgCount(t, p, `select count(*) from omixor_channels where org = 'o' and issue_id is null`); n != 1 {
 		t.Fatal("頻道的 issue_id 要 NULL、頻道還在", n)
 	}
@@ -173,7 +173,7 @@ func TestPGFKDeleteRules(t *testing.T) {
 	// (omixor_org_members 本來就沒有 cascade,刪組織要先清成員;DeleteOrg 照舊手動清單,見 DeleteOrg)
 	// 角色 → 任務是 restrict,和組織 cascade 並存:同一個語句裡一起刪不會被 restrict 擋
 	pgExec(t, p, `delete from omixor_orgs where id = 'o'`)
-	for _, tb := range []string{"ops_issues", "omixor_agents", "omixor_agent_tasks", "omixor_agent_credentials", "omixor_docs", "omixor_projects",
+	for _, tb := range []string{"omixor_issues", "omixor_agents", "omixor_agent_tasks", "omixor_agent_credentials", "omixor_docs", "omixor_projects",
 		"omixor_cabinet_layouts", "omixor_cabinet_sections", "omixor_cabinet_tabs", "omixor_channels", "omixor_channel_messages", "omixor_channel_reads"} {
 		if n := pgCount(t, p, `select count(*) from `+tb+` where org = 'o'`); n != 0 {
 			t.Fatal("刪組織要連", tb, n)

@@ -22,14 +22,14 @@ struct MarkdownEditor: View {
             TextEditor(text: $text)
                 .font(monospaced ? .system(size: 13, design: .monospaced) : .body)
                 .focused($focused)
+                .scrollContentBackground(.hidden)
                 .frame(minHeight: minHeight)
                 .overlay(alignment: .topLeading) {
                     if text.isEmpty && !placeholder.isEmpty {
                         Text(placeholder).foregroundStyle(.tertiary).padding(.leading, 5).allowsHitTesting(false)
                     }
                 }
-                .overlay(RoundedRectangle(cornerRadius: 6)
-                    .stroke(over ? Color.accentColor : Color.secondary.opacity(0.25), style: StrokeStyle(lineWidth: over ? 2 : 1, dash: over ? [5] : [])))
+                .inputBox(active: over || focused)
                 .onDrop(of: [.fileURL, .image], isTargeted: $over) { providers in
                     dropped(providers)
                 }

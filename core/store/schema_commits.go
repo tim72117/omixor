@@ -2,6 +2,7 @@ package store
 
 // schema_commits.go commits 三張表(ISS-69,設計見 docs/design-commits.md)的結構:全新資料庫(pgSchema 末尾)與
 // 結構異動步驟 2(schema_steps.go 的 commits)用同一段 SQL,所以兩條路徑建出的結構一定一致。
+// 步驟 2 在 Issue 表還叫 ops_issues 的資料庫上執行(步驟 3 才改名),所以步驟 2 的 SQL 要把 omixor_issues 換回舊名(schema_steps.go 的 commitsStepSQL)。
 // 全部冪等(create … if not exists、外鍵先 drop constraint if exists 再加),只新增表與索引,不動既有的表。
 //
 //	omixor_commits        commit 的 metadata(主鍵 (org, repo, sha);repo 是 model.CommitRepoKey 正規化後的字串(保留 github:/gitlab: 前綴),沒有 repos 表;
@@ -64,7 +65,7 @@ alter table omixor_issue_commits add constraint fk_omixor_issue_commits_org fore
 alter table omixor_repo_sync drop constraint if exists fk_omixor_repo_sync_org;
 alter table omixor_repo_sync add constraint fk_omixor_repo_sync_org foreign key (org) references omixor_orgs (id) on delete cascade;
 alter table omixor_issue_commits drop constraint if exists omixor_issue_commits_org_issue_id_fkey;
-alter table omixor_issue_commits add constraint omixor_issue_commits_org_issue_id_fkey foreign key (org, issue_id) references ops_issues(org, id) on update cascade on delete cascade;
+alter table omixor_issue_commits add constraint omixor_issue_commits_org_issue_id_fkey foreign key (org, issue_id) references omixor_issues(org, id) on update cascade on delete cascade;
 alter table omixor_issue_commits drop constraint if exists omixor_issue_commits_org_repo_sha_fkey;
 alter table omixor_issue_commits add constraint omixor_issue_commits_org_repo_sha_fkey foreign key (org, repo, sha) references omixor_commits(org, repo, sha) on update cascade on delete cascade;
 `

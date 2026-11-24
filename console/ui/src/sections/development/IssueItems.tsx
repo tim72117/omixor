@@ -1,5 +1,6 @@
 // Issue 詳情的「子項」區塊:清單、前置與卡住資訊、可展開的 files / 驗收標準 / 完成證據,以及領取、回報完成 / 卡住、放回、取消。
 // 資料與操作都走 MCP 工具(issueItemsApi.ts);權限與可見性由後端判斷,失敗時直接顯示後端的錯誤訊息。
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { useState } from "react";
 import { useConfirm } from "../../components/Confirm";
 import { Disclosure } from "../../components/Disclosure";
@@ -128,7 +129,7 @@ function DoneForm({ busy, onSubmit, onCancel }: { busy: boolean; onSubmit: (evid
   const [note, setNote] = useState("");
   return (
     <div className={"col " + s.form}>
-      <textarea className="textarea" placeholder="完成證據(必填):做了什麼、commit、測試結果、沒驗證到的部分" value={evidence} onChange={(e) => setEvidence(e.target.value)} />
+      <AutoTextarea ariaLabel="完成證據" minRows={3} placeholder="完成證據(必填):做了什麼、commit、測試結果、沒驗證到的部分" value={evidence} onChange={setEvidence} />
       <input className="input" placeholder="備註(選填,會留在 Issue 的系統留言)" value={note} onChange={(e) => setNote(e.target.value)} />
       <div className={s.formBtns}>
         <button className="btn primary" disabled={busy || !evidence.trim()} onClick={() => onSubmit(evidence.trim(), note.trim())}>回報完成</button>
@@ -144,7 +145,7 @@ function BlockedForm({ busy, onSubmit, onCancel }: { busy: boolean; onSubmit: (r
   const [waitFor, setWaitFor] = useState("");
   return (
     <div className={"col " + s.form}>
-      <textarea className="textarea" placeholder="卡住的原因(必填)" value={reason} onChange={(e) => setReason(e.target.value)} />
+      <AutoTextarea ariaLabel="卡住的原因" placeholder="卡住的原因(必填)" value={reason} onChange={setReason} />
       <select className="select" value={kind} onChange={(e) => setKind(e.target.value as ItemWaitKind | "")}>
         <option value="">等待對象:不指定</option>
         {(Object.keys(ITEM_WAIT_LABEL) as ItemWaitKind[]).map((k) => <option key={k} value={k}>{ITEM_WAIT_LABEL[k]}</option>)}

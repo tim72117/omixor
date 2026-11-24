@@ -1,4 +1,5 @@
 // 事件管理:事件列表 + 詳情、值班、統計(Swift 的 IncidentsView、IncListPane、IncDeclareSheet)
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { useEffect, useMemo, useState } from "react";
 import { tool, useRun, useView } from "../../api";
 import { ActorAvatar } from "../../components/Avatar";
@@ -237,7 +238,7 @@ function DeclareSheet({ open, onClose, onCreated }: { open: boolean; onClose: ()
           {dir.people.map((p) => <option key={p.id} value={p.id}>{p.name}({p.role})</option>)}
         </select>
       </label>
-      <label className={fieldClass}><span>影響範圍</span><textarea className="input" rows={3} value={impact} placeholder="哪些使用者、什麼功能受影響" onChange={(e) => setImpact(e.target.value)} /></label>
+      <label className={fieldClass}><span>影響範圍</span><AutoTextarea minRows={3} value={impact} placeholder="哪些使用者、什麼功能受影響" onChange={setImpact} /></label>
       <div className={fieldClass}>
         <span>受影響的服務</span>
         {services.length === 0 ? <span className="muted">沒有可選的服務</span> : (

@@ -203,6 +203,11 @@ final class FakeOmixorServer: URLProtocol {
                     notes.append(["id": "n\(notes.count + 1)", "author": "程式設計師", "text": n, "at": Self.now])
                     Self.tasks[i]["notes"] = notes
                 }
+            case "reply":
+                var notes = Self.tasks[i]["notes"] as? [[String: Any]] ?? []
+                notes.append(["id": "n\(notes.count + 1)", "author": "我", "text": body["text"] as? String ?? "", "at": Self.now])
+                Self.tasks[i]["notes"] = notes
+                Self.tasks[i]["status"] = "queued"
             case "cancel": Self.tasks[i]["status"] = "canceled"
             case "requeue": Self.tasks[i]["status"] = "queued"; Self.tasks[i].removeValue(forKey: "lockedUntil")
             default: return fail(404, "?")
@@ -352,6 +357,25 @@ final class AgentRemoteTests: XCTestCase {
         XCTAssertNil(store.update("T-1") { $0.status = .done }, "遠端模式不能直接改狀態")
     }
 
+    /// 回覆需要協助的任務:一次請求記成備註並退回待領取;需要處理的判斷與問題文字跟著狀態走
+    func testReplyBlockedTask() async throws {
+        let app = remoteApp()
+        let store = try XCTUnwrap(app.agentStore)
+        _ = try XCTUnwrap(store.assign(to: "programmer", title: "寫測試", links: [], by: "tim"))
+        _ = try store.claimWithCredential(agent: "programmer", task: "T-1")
+        let blocked = try XCTUnwrap(try store.report("T-1", status: .blocked, result: nil, note: "要選哪個方案?", links: nil))
+        XCTAssertTrue(blocked.needsHelp)
+        XCTAssertEqual(blocked.blockQuestion, "要選哪個方案?", "沒有結果就用最後一則備註")
+
+        let replied = try await store.replyAsync("T-1", text: "選 A")
+        XCTAssertEqual(FakeOmixorServer.requests.last?.path, "/api/orgs/omixor/agent-tasks/T-1/reply")
+        XCTAssertEqual(FakeOmixorServer.requests.last?.body["text"] as? String, "選 A")
+        XCTAssertEqual(replied?.status, .queued)
+        XCTAssertEqual(replied?.notes.last?.text, "選 A")
+        XCTAssertEqual(replied?.needsHelp, false)
+        XCTAssertEqual("1\n2\n3".excerpt(lines: 2), "1\n2")
+    }
+
     /// 角色的新增、修改、刪除送到伺服器
     func testAgentUpsertAndDelete() throws {
         let app = remoteApp()
@@ -414,7 +438,7 @@ final class AgentRemoteTests: XCTestCase {
         app.startIssues()
         try agents.save(agent: Agent(id: "programmer", name: "工程師", role: "寫程式", symbol: "hammer", color: "blue", instructions: "寫程式"))
         let mcp = MCPHandler(app: app)
-        var (obj, text, err) = try await call(mcp, "issue_create", ["title": "要處理的", "assignee": "programmer"])
+        var (obj, text, err) = try await call(mcp, "issue_create", ["title": "要處理的", "assignee": "programmer", "return": "full"])
         XCTAssertFalse(err, text)
         XCTAssertEqual((obj as? [String: Any])?["assignee"] as? String, "programmer")
 

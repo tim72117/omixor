@@ -11,7 +11,7 @@ import (
 const testDBPrefix = "omixor_t_"
 
 // attachRequiredTables 已遷移完成的資料庫一定有的表(結構指紋的最低門檻)
-var attachRequiredTables = []string{"omixor_orgs", "ops_issues", "omixor_agents", "omixor_seq"}
+var attachRequiredTables = []string{"omixor_orgs", "omixor_issues", "omixor_agents", "omixor_seq"}
 
 // checkAttachDB 資料庫名稱要是測試資料庫,且必要的表都在;否則回錯誤(純函式,方便測)
 func checkAttachDB(dbName string, tables map[string]bool) error {

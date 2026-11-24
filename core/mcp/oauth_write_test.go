@@ -125,6 +125,11 @@ func TestOAuthWriteForbiddenToolsDenied(t *testing.T) {
 			t.Fatalf("測試漏了禁止清單的 %s", name)
 		}
 	}
+	for name := range model.OAuthAdminTools {
+		if _, ok := forbidden[name]; !ok {
+			t.Fatalf("測試漏了管理員工具 %s(讀寫授權不能用)", name)
+		}
+	}
 	for _, ep := range []struct {
 		name string
 		h    http.Handler
@@ -139,7 +144,11 @@ func TestOAuthWriteForbiddenToolsDenied(t *testing.T) {
 				a["org"] = ep.org
 			}
 			r := callRes(t, ep.h, tool, a)
-			if !r.isErr || !strings.Contains(r.all(), mcp.OAuthNotAvailableMessage) {
+			wantMsg := mcp.OAuthNotAvailableMessage
+			if mcp.OAuthAdminTools[tool] && ep.org != "" { // 組織結構工具:讀寫授權得到「需要 mcp:admin」(帶機器碼),其餘是「OAuth 不開放」
+				wantMsg = mcp.OAuthAdminRequiredMessage
+			}
+			if !r.isErr || !strings.Contains(r.all(), wantMsg) {
 				t.Fatalf("%s %s 要被擋:%v", ep.name, tool, r.all())
 			}
 		}
@@ -166,7 +175,7 @@ func TestOAuthWriteToolList(t *testing.T) {
 	for name, h := range map[string]http.Handler{"統一入口": u.writeUnified(boss), "管理端點": u.writeAdmin(boss, "lab")} {
 		got := toolNames(t, h)
 		for n := range got {
-			if !mcp.ReadOnlyTools[n] && !mcp.OAuthWriteTools[n] {
+			if !mcp.ReadOnlyTools[n] && !mcp.OAuthWriteTools[n] || mcp.OAuthAdminTools[n] {
 				t.Errorf("%s 列出了不該有的工具 %s", name, n)
 			}
 		}
@@ -250,7 +259,7 @@ func TestOAuthWriteMembershipAndServerAdmin(t *testing.T) {
 	if r := callRes(t, rw, "schema_check", map[string]any{}); !r.isErr {
 		t.Fatal("schema_check 是伺服器管理員專屬,OAuth 寫入身分不能做", r.all())
 	}
-	if r := callRes(t, rw, "agent_upsert", map[string]any{"org": "other", "id": "x", "name": "x"}); !r.isErr || !strings.Contains(r.all(), mcp.OAuthNotAvailableMessage) {
+	if r := callRes(t, rw, "agent_upsert", map[string]any{"org": "other", "id": "x", "name": "x"}); !r.isErr || !strings.Contains(r.all(), mcp.OAuthAdminRequiredMessage) {
 		t.Fatal(r.all())
 	}
 	// 對照:同一個管理員用 omx_ 登入照舊有全部組織;唯讀的 OAuth 不變

@@ -1445,6 +1445,51 @@
     ]
   },
   {
+    "name": "omixor_issue_comments",
+    "columns": [
+      {
+        "name": "at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "author",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "issue_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "text",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "issue_id",
+      "pos"
+    ]
+  },
+  {
     "name": "omixor_issue_commits",
     "columns": [
       {
@@ -1675,6 +1720,130 @@
     "primaryKey": [
       "org",
       "key"
+    ]
+  },
+  {
+    "name": "omixor_issues",
+    "columns": [
+      {
+        "name": "assignee",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "body",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "closed_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "created_by",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "deleted_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "deleted_by",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "key",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "labels",
+        "type": "_text",
+        "nullable": false
+      },
+      {
+        "name": "link",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "number",
+        "type": "integer",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "pos",
+        "type": "bigint",
+        "nullable": false
+      },
+      {
+        "name": "priority",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "project",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "project_ref",
+        "type": "text",
+        "nullable": true
+      },
+      {
+        "name": "repo",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "source",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "version",
+        "type": "integer",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "id"
     ]
   },
   {
@@ -2338,175 +2507,6 @@
       }
     ],
     "primaryKey": [
-      "id"
-    ]
-  },
-  {
-    "name": "ops_issue_comments",
-    "columns": [
-      {
-        "name": "at",
-        "type": "timestamp with time zone",
-        "nullable": false
-      },
-      {
-        "name": "author",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "id",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "issue_id",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "org",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "pos",
-        "type": "integer",
-        "nullable": false
-      },
-      {
-        "name": "text",
-        "type": "text",
-        "nullable": false
-      }
-    ],
-    "primaryKey": [
-      "org",
-      "issue_id",
-      "pos"
-    ]
-  },
-  {
-    "name": "ops_issues",
-    "columns": [
-      {
-        "name": "assignee",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "body",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "closed_at",
-        "type": "timestamp with time zone",
-        "nullable": true
-      },
-      {
-        "name": "created_at",
-        "type": "timestamp with time zone",
-        "nullable": false
-      },
-      {
-        "name": "created_by",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "deleted_at",
-        "type": "timestamp with time zone",
-        "nullable": true
-      },
-      {
-        "name": "deleted_by",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "id",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "key",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "labels",
-        "type": "_text",
-        "nullable": false
-      },
-      {
-        "name": "link",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "number",
-        "type": "integer",
-        "nullable": false
-      },
-      {
-        "name": "org",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "pos",
-        "type": "bigint",
-        "nullable": false
-      },
-      {
-        "name": "priority",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "project",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "project_ref",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "repo",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "status",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "updated_at",
-        "type": "timestamp with time zone",
-        "nullable": false
-      },
-      {
-        "name": "version",
-        "type": "integer",
-        "nullable": false
-      }
-    ],
-    "primaryKey": [
-      "org",
       "id"
     ]
   }

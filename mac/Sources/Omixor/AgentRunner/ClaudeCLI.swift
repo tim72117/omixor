@@ -13,7 +13,12 @@ struct ClaudeRunOptions {
     var allowedTools: [String] = []        // 不用詢問就能執行的工具
     var mcpConfigFile: URL?                // --mcp-config 的檔案(內含角色憑證:權限 600,用完刪掉;不放命令列,免得 ps 看得到)
     var workdir: URL?                      // 工作目錄(沒給就用暫存資料夾)
+    var env: [String: String] = [:]        // 額外的環境變數(例如 ClaudeCLI.waitForMCPEnv)
+    /// 執行中輪詢:回傳非 nil 就立刻結束 CLI 並以這段文字當錯誤(例如 init 時 MCP 不能用)
+    var abortReason: (@Sendable () -> String?)?
     var timeout: TimeInterval = 30 * 60
+    /// 每一行解析好的 stream-json 物件(執行日誌用;測試的假 Claude 也從這裡送事件)
+    var eventSink: (@Sendable ([String: Any]) -> Void)?
 }
 
 struct ClaudeRunResult {
@@ -35,6 +40,13 @@ enum ClaudeCLI {
         candidates += ["/opt/homebrew/bin/claude", "/usr/local/bin/claude", "\(home)/.local/bin/claude", "\(home)/.claude/local/claude"]
         for dir in (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":") { candidates.append("\(dir)/claude") }
         return candidates.first { fm.isExecutableFile(atPath: $0) }.map { URL(fileURLWithPath: $0) }
+    }
+
+    /// 讓 -p 模式在第一輪前等 MCP 伺服器連線完成(最多 timeoutMs 毫秒)。新版 CLI 的 -p 預設完全非同步連線,
+    /// 第一輪可能還沒有任何 mcp 工具;MCP_CONNECTION_NONBLOCKING=false 才會等,上限由 MCP_CONNECT_TIMEOUT_MS 決定(CLI 預設 5000)。
+    /// 舊版 CLI 不認得這兩個變數,會忽略。對應 core/claude 的 WaitForMCPEnv
+    static func waitForMCPEnv(timeoutMs: Int) -> [String: String] {
+        ["MCP_CONNECTION_NONBLOCKING": "false", "MCP_CONNECT_TIMEOUT_MS": String(timeoutMs)]
     }
 
     /// 組出 CLI 參數(不含執行檔)
@@ -62,6 +74,7 @@ enum ClaudeCLI {
         env["ANTHROPIC_API_KEY"] = nil
         env["ANTHROPIC_AUTH_TOKEN"] = nil
         if env["PATH"].map({ !$0.contains("/opt/homebrew/bin") }) ?? true { env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (env["PATH"] ?? "") }
+        env.merge(o.env) { _, new in new }
         p.environment = env
         let dir = o.workdir ?? FileManager.default.temporaryDirectory.appendingPathComponent("omixor-agent-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -97,6 +110,7 @@ enum ClaudeCLI {
         }
         @Sendable func handle(_ line: Data) {
             guard let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return }
+            o.eventSink?(obj)
             switch obj["type"] as? String {
             case "assistant":
                 box.lock.lock(); box.turns += 1; box.lock.unlock()
@@ -130,6 +144,7 @@ enum ClaudeCLI {
         do {
             while p.isRunning {
                 try Task.checkCancellation()
+                if let why = o.abortReason?() { throw CabinetError(why) }
                 if Date() > deadline { p.terminate(); throw CabinetError("Claude 執行超過 \(Int(o.timeout / 60)) 分鐘,已停止") }
                 try await Task.sleep(for: .milliseconds(300))
             }

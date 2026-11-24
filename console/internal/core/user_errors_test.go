@@ -72,12 +72,12 @@ func TestFacingKeepsKnownUserErrors(t *testing.T) {
 
 func TestFacingPrefix(t *testing.T) {
 	lg := captureHttperrLog(t)
-	err := facingPrefix("jira_import", "Issue 沒有存起來:", errors.New(`pq: relation "ops_issues" does not exist (SQLSTATE 42P01)`))
+	err := facingPrefix("jira_import", "Issue 沒有存起來:", errors.New(`pq: relation "omixor_issues" does not exist (SQLSTATE 42P01)`))
 	in := httperr.Classify(err)
-	if !strings.HasPrefix(in.Msg, "Issue 沒有存起來:") || strings.Contains(in.Msg, "ops_issues") || strings.Contains(in.Msg, "SQLSTATE") {
+	if !strings.HasPrefix(in.Msg, "Issue 沒有存起來:") || strings.Contains(in.Msg, "omixor_issues") || strings.Contains(in.Msg, "SQLSTATE") {
 		t.Fatalf("%+v", in)
 	}
-	if !strings.Contains(lg.String(), "ops_issues") {
+	if !strings.Contains(lg.String(), "omixor_issues") {
 		t.Error("原文要進 log")
 	}
 	// 驗證類(service.Error)保留狀態碼

@@ -7,12 +7,12 @@ import (
 )
 
 // 範例資料分組織:
-//   - 預設組織(default)用 templates/seed/ 的範例資料(資料庫模式是 ops_state 裡存的)
+//   - 預設組織(default)用 templates/seed/ 的範例資料(資料庫模式是 omixor_state 裡存的)
 //   - 其他組織從空的開始,不帶任何範例資料
 //   - 切換組織時把目前組織的資料收起來、換成目標組織的;各組織的變更分開保留
 //   - 動態牆(activity)也分組織:新的動態帶 org 欄位(預設組織不帶)
-// 資料庫模式:預設組織的 ops_state 名稱照舊(people、services…),其他組織是 "<組織 id>/<集合>";
-// ops_activity 依 item->>'org' 分(沒有 org 的屬於預設組織)。
+// 資料庫模式:預設組織的 omixor_state 名稱照舊(people、services…),其他組織是 "<組織 id>/<集合>";
+// omixor_activity 依 item->>'org' 分(沒有 org 的屬於預設組織)。
 
 type mockData struct {
 	C      map[string][]map[string]any
@@ -37,7 +37,7 @@ func (a *App) mockSt() *mockState {
 // mockOrg a.C 目前屬於哪個組織(呼叫時要拿著 Mu)
 func (a *App) mockOrg() string { return a.mockSt().org }
 
-// mockStateKey ops_state 的名稱
+// mockStateKey omixor_state 的名稱
 func mockStateKey(org, name string) string {
 	if org == "" || org == DefaultOrgID {
 		return name
@@ -45,7 +45,7 @@ func mockStateKey(org, name string) string {
 	return org + "/" + name
 }
 
-// activityOrg ops_activity 的 org 欄位值(預設組織是空字串)
+// activityOrg omixor_activity 的 org 欄位值(預設組織是空字串)
 func activityOrg(org string) string {
 	if org == DefaultOrgID {
 		return ""
@@ -98,7 +98,7 @@ func (a *App) dropMock(org string) {
 	pgGo(func() {
 		ctx, cancel := pgCtx()
 		defer cancel()
-		if _, err := pgExec(ctx, `delete from ops_state where name like $1`, escapeLike(org)+"/%"); err != nil {
+		if _, err := pgExec(ctx, `delete from omixor_state where name like $1`, escapeLike(org)+"/%"); err != nil {
 			log.Printf("刪除組織 %s 的範例資料失敗:%v", org, err)
 		}
 	})
@@ -135,7 +135,7 @@ func flushMockAsync(org string, d *mockData) {
 func loadMockPG(org string, d *mockData) {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	rows, err := pgQuery(ctx, `select name, data::text from ops_state where name like $1`, escapeLike(org)+"/%")
+	rows, err := pgQuery(ctx, `select name, data::text from omixor_state where name like $1`, escapeLike(org)+"/%")
 	if err != nil {
 		log.Printf("讀組織 %s 的範例資料失敗:%v", org, err)
 		return
@@ -171,7 +171,7 @@ func loadMockPG(org string, d *mockData) {
 	rows.Close()
 
 	// 這個組織的動態牆(最新的 activityKeep 筆)
-	arows, err := pgQuery(ctx, `select item::text from ops_activity where item->>'org' = $1 order by at desc, seq desc limit $2`, org, activityKeep)
+	arows, err := pgQuery(ctx, `select item::text from omixor_activity where item->>'org' = $1 order by at desc, seq desc limit $2`, org, activityKeep)
 	if err != nil {
 		log.Printf("讀組織 %s 的動態失敗:%v", org, err)
 		return

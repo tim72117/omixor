@@ -387,6 +387,14 @@ func TestActions(t *testing.T) {
 	if x.Status != "queued" || x.CompletedAt != nil {
 		t.Fatalf("重新排入:%+v", x)
 	}
+	// 回覆需要協助:待領取的任務不能回覆、空白回覆也不行(畫面看得懂的 UserError)
+	for _, text := range []string{"答覆", "  "} {
+		_, err = Action(a, "agent_task_reply", map[string]any{"id": task.ID, "text": text})
+		var ue UserError
+		if !errors.As(err, &ue) {
+			t.Fatalf("回覆要被拒絕並回 UserError(%q):%v", text, err)
+		}
+	}
 	// 刪角色:名下有任務 → 409(StatusError,帶 code 與各狀態的任務數,畫面據此開轉移視窗)
 	_, err = Action(a, "agent_delete", map[string]any{"id": g.ID})
 	var se StatusError

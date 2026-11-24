@@ -1,5 +1,6 @@
 // 右側事件詳情:頁首、狀態步驟、影響、AI 摘要、時間軸、受影響的服務、相關告警、後續工作、檢討報告
 // (Swift 的 IncDetailView、IncTimeline、IncPostmortem)
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { action, tool, useRun } from "../../api";
 import { ActorAvatar, ActorLabel } from "../../components/Avatar";
@@ -284,8 +285,8 @@ function Timeline({ inc }: { inc: Incident }) {
       )}
       <div className={"row gap8 " + css.composer}>
         <ActorAvatar actor={{ kind: "person", id: dir.me }} size={24} />
-        <textarea className={"input grow " + css.note} rows={1} value={draft}
-          placeholder="新增備註,例如目前處置或觀察…(⌘↩ 送出)" onChange={(e) => setDraft(e.target.value)}
+        <AutoTextarea className="grow" ariaLabel="新增備註" minRows={1} value={draft}
+          placeholder="新增備註,例如目前處置或觀察…(⌘↩ 送出)" onChange={setDraft}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }} />
         <button className="btn primary" disabled={!draft.trim() || busy} onClick={submit}><Icon name="paperplane.fill" size={12} />送出</button>
       </div>

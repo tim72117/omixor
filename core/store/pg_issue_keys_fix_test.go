@@ -136,11 +136,11 @@ func TestPGImportKeyLeadingZero(t *testing.T) {
 	if !errors.As(err, &ie) || ie.Code != 400 {
 		t.Fatal("前導零要 400", err)
 	}
-	if n := pgCount(t, p, `select count(*) from ops_issues`); n != 0 {
+	if n := pgCount(t, p, `select count(*) from omixor_issues`); n != 0 {
 		t.Fatal("整批不寫入", n)
 	}
 	// 組織裡已經有寫法不同的 ISS-05(舊資料,number = 5):匯入 ISS-5 撞號碼 → 409
-	pgExec(t, p, `insert into ops_issues (org, id, number, pos, title, status, priority, created_by, created_at, updated_at, key)
+	pgExec(t, p, `insert into omixor_issues (org, id, number, pos, title, status, priority, created_by, created_at, updated_at, key)
 		values ('o', '0190aaaa-0000-7000-8000-000000000001', 5, 1, 't', 'open', 'normal', 'sys_omixor', now(), now(), 'ISS-05')`)
 	_, err = p.MergeIssues("o", []model.Issue{mk("ISS-5")}, false)
 	if !errors.As(err, &ie) || ie.Code != 409 {
@@ -171,10 +171,10 @@ func TestPGIssueRefUUIDUsesIndex(t *testing.T) {
 	if _, err := tx.Exec(c, `set local enable_seqscan = off`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(c, `drop index ops_issues_org_pos`); err != nil {
+	if _, err := tx.Exec(c, `drop index omixor_issues_org_pos`); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := tx.Query(c, `explain select id from ops_issues where org = $1 and id = `+issueRef(2), "o", i.ID)
+	rows, err := tx.Query(c, `explain select id from omixor_issues where org = $1 and id = `+issueRef(2), "o", i.ID)
 	chk(t, err)
 	var plan []string
 	for rows.Next() {
@@ -184,7 +184,7 @@ func TestPGIssueRefUUIDUsesIndex(t *testing.T) {
 	}
 	rows.Close()
 	all := strings.Join(plan, "\n")
-	if !strings.Contains(all, "ops_issues_pkey") || !strings.Contains(all, "AND (id = ") || strings.Contains(all, "lower(id)") {
+	if !strings.Contains(all, "omixor_issues_pkey") || !strings.Contains(all, "AND (id = ") || strings.Contains(all, "lower(id)") {
 		t.Fatal("要走主鍵索引:\n" + all)
 	}
 }

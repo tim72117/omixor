@@ -232,6 +232,14 @@ struct AgentTask: Codable, Hashable, Identifiable {
     }
 }
 
+extension String {
+    /// 摺起時顯示的開頭:最多 lines 行、chars 字(沒有超過就原樣回傳)
+    func excerpt(lines: Int = 6, chars: Int = 400) -> String {
+        let out = split(separator: "\n", omittingEmptySubsequences: false).prefix(lines).joined(separator: "\n")
+        return out.count > chars ? String(out.prefix(chars)) : out
+    }
+}
+
 extension AgentTask {
     // 手寫解碼:伺服器(core)沒有 routineId、links/notes 可能是 null、未知的狀態或優先度不要讓整份讀不出來
     init(from decoder: Decoder) throws {
@@ -253,6 +261,15 @@ extension AgentTask {
         notes = c.lossyArray(AgentTaskNote.self, .notes)
         lockedUntil = c.lossyOptional(Date.self, .lockedUntil)
         claimedBy = c.lossyOptional(String.self, .claimedBy)
+    }
+
+    /// 需要人處理:角色回報了 blocked(側邊欄徽章、需要協助頁、派發頁的原因都用這個條件)
+    var needsHelp: Bool { status == .blocked }
+
+    /// 角色的問題:回報 blocked 時寫的結果(通常最完整);沒有就用最後一則過程記錄
+    var blockQuestion: String {
+        if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return result }
+        return notes.last?.text ?? ""
     }
 
     /// 租約文字(進行中且有鎖定時間才有),例如「鎖定到 11:50」
@@ -523,22 +540,22 @@ final class AgentStore {
         } catch { remoteFailed(error); return nil }
     }
 
-    /// 同 requeue,但請求在背景跑(畫面按鈕用;不擋主執行緒)
-    func requeueAsync(_ id: String) async -> AgentTask? {
+    /// 同 cancel,但請求在背景跑(畫面按鈕用;不擋主執行緒)
+    func cancelAsync(_ id: String) async -> AgentTask? {
         let org = app.currentOrgId, r = remote
         do {
-            let t = try await r.run { try $0.requeueTask(org: org, id: id) }
+            let t = try await r.run { try $0.cancelTask(org: org, id: id) }
             remoteError = nil
             if app.currentOrgId == org { merge(t) }
             return t
         } catch { remoteFailed(error); return nil }
     }
 
-    /// 在任務留備註(回報的 note,狀態不變);請求在背景跑(畫面按鈕用;不擋主執行緒)
-    func reportAsync(_ id: String, note: String) async throws -> AgentTask? {
+    /// 人回覆需要協助的任務:回覆記成以本人署名的備註、任務退回待領取(要組織管理員);請求在背景跑(畫面按鈕用;不擋主執行緒)
+    func replyAsync(_ id: String, text: String) async throws -> AgentTask? {
         let org = app.currentOrgId, r = remote
         do {
-            let t = try await r.run { try $0.reportTask(org: org, id: id, status: nil, result: nil, note: note, links: nil) }
+            let t = try await r.run { try $0.replyTask(org: org, id: id, text: text) }
             remoteError = nil
             if app.currentOrgId == org { merge(t) }
             return t

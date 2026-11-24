@@ -14,6 +14,9 @@ const (
 	// OAuthScopeWrite 受限寫入的 scope(隱含 mcp:read):只開放 OAuthWriteTools 那組協作工具、不是伺服器管理員(Principal.ServerAdmin 對它一律 false);
 	// 客戶端要求、使用者在同意畫面明確選「讀寫」才會授予,永遠不會自動升級
 	OAuthScopeWrite = "mcp:write"
+	// OAuthScopeAdmin 組織管理員的 scope(隱含 mcp:write、mcp:read):多開 OAuthAdminTools(組織結構工具);只有帳號層級授權(統一入口 /mcp)、
+	// 而且使用者是至少一個組織的管理員才能授予;每次呼叫仍要即時是呼叫那個 org 的管理員。永遠不是伺服器管理員,也不發角色憑證
+	OAuthScopeAdmin = "mcp:admin"
 	// OAuthScopeOffline 只用來宣告「可以拿 refresh token」;不會出現在授予的 scope 裡
 	OAuthScopeOffline = "offline_access"
 )

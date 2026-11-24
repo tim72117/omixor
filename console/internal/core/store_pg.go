@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,16 +25,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"omixor-core/config"
+	"omixor-core/store"
 )
 
-// PostgreSQL 存放處(設了 OMIXOR_DATABASE_URL 才用)。
+// PostgreSQL 存放處(設了 OMIXOR_DATABASE_URL 才用;本機模式一定要有,組織、Issue 等資料都在核心的表)。
 //
-//	ops_documents  原本的 JSON 檔(orgs.json、orgs/<組織>/issues.json…),path 是相對資料夾的路徑
-//	ops_secrets    連線 token、client secret、LDAP 服務帳號密碼;用 OMIXOR_SECRET_KEY 以 AES-256-GCM 加密
-//	ops_sessions   網頁登入的 session(只存 token 的 SHA-256)
-//	ops_activity   動態牆(全部歷史)
-//	ops_state      範例資料的變更(告警、事件、工作項目…;Swift 版是重開就重置)
-//	ops_issues     Issue(與 ops_issue_comments;見 store_pg_issues.go,不放在 ops_documents)
+//	omixor_documents  這台機器的設定 JSON 檔(mode.json、orgs.json 的目前組織、connections.json…),path 是相對資料夾的路徑
+//	omixor_secrets    連線 token、client secret、LDAP 服務帳號密碼;用 OMIXOR_SECRET_KEY 以 AES-256-GCM 加密
+//	omixor_sessions   網頁登入的 session(只存 token 的 SHA-256)
+//	omixor_activity   動態牆(全部歷史)
+//	omixor_state      範例資料的變更(告警、事件、工作項目…;Swift 版是重開就重置)
+//	omixor_issues     Issue(與 omixor_issue_comments;見 store_pg_issues.go,不放在 omixor_documents)
 //
 // 這個版本只支援一台 omixor-web 連同一個資料庫(畫面即時通知與記憶體裡的狀態不跨主機)。
 
@@ -117,37 +119,37 @@ var errPGClosed = errors.New("資料庫連線已關閉")
 func DB() *pgxpool.Pool { return pgPool() }
 
 const pgSchema = `
-create table if not exists ops_documents (
+create table if not exists omixor_documents (
 	path text primary key,
 	data jsonb not null,
 	updated_at timestamptz not null default now()
 );
-create table if not exists ops_secrets (
+create table if not exists omixor_secrets (
 	account text primary key,
 	nonce bytea not null,
 	ciphertext bytea not null,
 	updated_at timestamptz not null default now()
 );
-create table if not exists ops_sessions (
+create table if not exists omixor_sessions (
 	token_hash text primary key,
 	user_json jsonb not null,
 	expires_at timestamptz not null,
 	created_at timestamptz not null default now()
 );
-create index if not exists ops_sessions_expires on ops_sessions (expires_at);
-create table if not exists ops_activity (
+create index if not exists omixor_sessions_expires on omixor_sessions (expires_at);
+create table if not exists omixor_activity (
 	seq bigserial primary key,
 	id text not null unique,
 	at timestamptz not null,
 	item jsonb not null
 );
-create index if not exists ops_activity_at on ops_activity (at desc);
-create table if not exists ops_state (
+create index if not exists omixor_activity_at on omixor_activity (at desc);
+create table if not exists omixor_state (
 	name text primary key,
 	data jsonb not null,
 	updated_at timestamptz not null default now()
 );
-create table if not exists ops_files (
+create table if not exists omixor_files (
 	path text primary key,
 	data bytea not null,
 	created_at timestamptz not null default now()
@@ -156,6 +158,79 @@ create table if not exists ops_files (
 
 // pgExtraSchema 其他檔案登記的表(Issue 的表由核心 core/store/pg.go 建,不在這裡)
 var pgExtraSchema []string
+
+// pgLegacyRenames 舊版(ops_ 前綴)的資料表與其索引、序號、主鍵,改成 omixor_ 前綴的清單。
+// kind 是 alter 的關鍵字;主鍵、唯一約束背後的索引用 index(改索引名會連約束名一起改),bigserial 的序號用 sequence。
+// 新名字要和下面 pgSchema 全新建出來的一樣。
+var pgLegacyRenames = []struct{ kind, old, new string }{
+	{"table", "ops_documents", "omixor_documents"},
+	{"table", "ops_secrets", "omixor_secrets"},
+	{"table", "ops_sessions", "omixor_sessions"},
+	{"table", "ops_activity", "omixor_activity"},
+	{"table", "ops_state", "omixor_state"},
+	{"table", "ops_files", "omixor_files"},
+	{"index", "ops_documents_pkey", "omixor_documents_pkey"},
+	{"index", "ops_secrets_pkey", "omixor_secrets_pkey"},
+	{"index", "ops_sessions_pkey", "omixor_sessions_pkey"},
+	{"index", "ops_sessions_expires", "omixor_sessions_expires"},
+	{"index", "ops_activity_pkey", "omixor_activity_pkey"},
+	{"index", "ops_activity_id_key", "omixor_activity_id_key"},
+	{"index", "ops_activity_at", "omixor_activity_at"},
+	{"sequence", "ops_activity_seq_seq", "omixor_activity_seq_seq"},
+	{"index", "ops_state_pkey", "omixor_state_pkey"},
+	{"index", "ops_files_pkey", "omixor_files_pkey"},
+}
+
+// pgRenameLegacySQL 把 pgLegacyRenames 組成一個 DO 區塊(一句 = 一個交易,要嘛全改要嘛都不改):
+// 舊名存在且新名不存在才改;舊名不存在(全新資料庫、已經改過)略過;新舊同時存在就報錯,不覆蓋(例如改名後又跑過舊版程式)。冪等
+var pgRenameLegacySQL = func() string {
+	var b strings.Builder
+	b.WriteString("do $rename$ begin\n")
+	for _, r := range pgLegacyRenames {
+		fmt.Fprintf(&b, `  if to_regclass('%[2]s') is not null then
+    if to_regclass('%[3]s') is not null then raise exception 'cannot rename %[2]s to %[3]s: both exist (resolve manually)'; end if;
+    alter %[1]s %[2]s rename to %[3]s;
+  end if;
+`, r.kind, r.old, r.new)
+	}
+	b.WriteString("end $rename$;")
+	return b.String()
+}()
+
+// pgExecer 連線池與單一連線都有的 Exec
+type pgExecer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// createTableRe 從建表語句取出表名(登記給核心 schema_check 的名單由建表語句派生,不會與實際建的表脫節)
+var createTableRe = regexp.MustCompile(`(?i)create table if not exists (\w+)`)
+
+// pgTableNames 這些建表語句建出的表名
+func pgTableNames(schemas ...string) []string {
+	var names []string
+	for _, sc := range schemas {
+		for _, m := range createTableRe.FindAllStringSubmatch(sc, -1) {
+			names = append(names, m[1])
+		}
+	}
+	return names
+}
+
+// ensurePGSchema 先把舊版 ops_ 開頭的表改名(有舊表才動),再 create if not exists 建缺的表
+func ensurePGSchema(ctx context.Context, q pgExecer) error {
+	if _, err := q.Exec(ctx, pgRenameLegacySQL); err != nil {
+		return fmt.Errorf("舊資料表改名失敗:%w", err)
+	}
+	schemas := append([]string{pgSchema}, pgExtraSchema...)
+	for _, sc := range schemas {
+		if _, err := q.Exec(ctx, sc); err != nil {
+			return fmt.Errorf("建表失敗:%w", err)
+		}
+	}
+	// 這些表與核心共用資料庫,告訴核心的 schema_check 它們不是遺留表
+	store.RegisterExtraTables(pgTableNames(schemas...)...)
+	return nil
+}
 
 // OpenDB 連上資料庫、建表,並把存放處與密鑰都改到資料庫。key 是 base64 的 32 bytes(OMIXOR_SECRET_KEY)。
 func OpenDB(url, key string) error {
@@ -173,11 +248,9 @@ func OpenDB(url, key string) error {
 		pool.Close()
 		return fmt.Errorf("連不到資料庫:%w", err)
 	}
-	for _, sc := range append([]string{pgSchema}, pgExtraSchema...) {
-		if _, err := pool.Exec(ctx, sc); err != nil {
-			pool.Close()
-			return fmt.Errorf("建表失敗:%w", err)
-		}
+	if err := ensurePGSchema(ctx, pool); err != nil {
+		pool.Close()
+		return err
 	}
 	pgKey = k
 	pgPoolPtr.Store(pool)
@@ -214,13 +287,11 @@ func pgCtx() (context.Context, context.CancelFunc) {
 
 type pgBackend struct{}
 
-func (pgBackend) Name() string { return "postgres" }
-
 func (pgBackend) Read(key string) ([]byte, error) {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var b []byte
-	err := pgQueryRow(ctx, `select data::text from ops_documents where path = $1`, key).Scan(&b)
+	err := pgQueryRow(ctx, `select data::text from omixor_documents where path = $1`, key).Scan(&b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fs.ErrNotExist
 	}
@@ -233,7 +304,7 @@ func (pgBackend) Write(key string, data []byte) error {
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgExec(ctx, `insert into ops_documents (path, data, updated_at) values ($1, $2::jsonb, now())
+	_, err := pgExec(ctx, `insert into omixor_documents (path, data, updated_at) values ($1, $2::jsonb, now())
 		on conflict (path) do update set data = excluded.data, updated_at = now()`, key, string(data))
 	if err != nil {
 		log.Printf("存 %s 失敗:%v", key, err)
@@ -245,31 +316,21 @@ func (pgBackend) Exists(key string) bool {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var n int
-	_ = pgQueryRow(ctx, `select count(*) from ops_documents where path = $1`, key).Scan(&n)
+	_ = pgQueryRow(ctx, `select count(*) from omixor_documents where path = $1`, key).Scan(&n)
 	return n > 0
 }
 
 func (pgBackend) Rename(oldKey, newKey string) error {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgExec(ctx, `update ops_documents set path = $2, updated_at = now() where path = $1`, oldKey, newKey)
-	return err
-}
-
-func (pgBackend) MoveDir(oldPrefix, newPrefix string) error {
-	ctx, cancel := pgCtx()
-	defer cancel()
-	old := strings.TrimSuffix(oldPrefix, "/") + "/"
-	nw := strings.TrimSuffix(newPrefix, "/") + "/"
-	_, err := pgExec(ctx, `update ops_documents set path = $2 || substr(path, length($1) + 1), updated_at = now()
-		where starts_with(path, $1)`, old, nw)
+	_, err := pgExec(ctx, `update omixor_documents set path = $2, updated_at = now() where path = $1`, oldKey, newKey)
 	return err
 }
 
 func (pgBackend) RemoveDir(prefix string) error {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgExec(ctx, `delete from ops_documents where starts_with(path, $1)`, strings.TrimSuffix(prefix, "/")+"/")
+	_, err := pgExec(ctx, `delete from omixor_documents where starts_with(path, $1)`, strings.TrimSuffix(prefix, "/")+"/")
 	return err
 }
 
@@ -277,7 +338,7 @@ func (pgBackend) DirExists(prefix string) bool {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var n int
-	_ = pgQueryRow(ctx, `select count(*) from ops_documents where starts_with(path, $1)`, strings.TrimSuffix(prefix, "/")+"/").Scan(&n)
+	_ = pgQueryRow(ctx, `select count(*) from omixor_documents where starts_with(path, $1)`, strings.TrimSuffix(prefix, "/")+"/").Scan(&n)
 	return n > 0
 }
 
@@ -345,7 +406,7 @@ func (pgVault) Get(account string) ([]byte, bool) {
 	ctx, cancel := pgCtx()
 	defer cancel()
 	var nonce, ct []byte
-	if err := pgQueryRow(ctx, `select nonce, ciphertext from ops_secrets where account = $1`, account).Scan(&nonce, &ct); err != nil {
+	if err := pgQueryRow(ctx, `select nonce, ciphertext from omixor_secrets where account = $1`, account).Scan(&nonce, &ct); err != nil {
 		return nil, false
 	}
 	pt, err := secretOpen(account, nonce, ct)
@@ -363,7 +424,7 @@ func (pgVault) Set(account string, data []byte) error {
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err = pgExec(ctx, `insert into ops_secrets (account, nonce, ciphertext, updated_at) values ($1, $2, $3, now())
+	_, err = pgExec(ctx, `insert into omixor_secrets (account, nonce, ciphertext, updated_at) values ($1, $2, $3, now())
 		on conflict (account) do update set nonce = excluded.nonce, ciphertext = excluded.ciphertext, updated_at = now()`, account, nonce, ct)
 	return err
 }
@@ -371,7 +432,7 @@ func (pgVault) Set(account string, data []byte) error {
 func (pgVault) Delete(account string) error {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgExec(ctx, `delete from ops_secrets where account = $1`, account)
+	_, err := pgExec(ctx, `delete from omixor_secrets where account = $1`, account)
 	return err
 }
 
@@ -418,7 +479,7 @@ func tokenHash(tok string) string {
 func SessionPut(tok string, user any, expires time.Time) error {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, err := pgExec(ctx, `insert into ops_sessions (token_hash, user_json, expires_at) values ($1, $2, $3)
+	_, err := pgExec(ctx, `insert into omixor_sessions (token_hash, user_json, expires_at) values ($1, $2, $3)
 		on conflict (token_hash) do update set user_json = excluded.user_json, expires_at = excluded.expires_at`,
 		tokenHash(tok), string(Marshal(user)), expires)
 	return err
@@ -429,7 +490,7 @@ func SessionGet(tok string, user any) (time.Time, bool) {
 	defer cancel()
 	var b []byte
 	var exp time.Time
-	if err := pgQueryRow(ctx, `select user_json::text, expires_at from ops_sessions where token_hash = $1`, tokenHash(tok)).Scan(&b, &exp); err != nil {
+	if err := pgQueryRow(ctx, `select user_json::text, expires_at from omixor_sessions where token_hash = $1`, tokenHash(tok)).Scan(&b, &exp); err != nil {
 		return time.Time{}, false
 	}
 	if json.Unmarshal(b, user) != nil {
@@ -441,14 +502,14 @@ func SessionGet(tok string, user any) (time.Time, bool) {
 func SessionDelete(tok string) {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, _ = pgExec(ctx, `delete from ops_sessions where token_hash = $1`, tokenHash(tok))
+	_, _ = pgExec(ctx, `delete from omixor_sessions where token_hash = $1`, tokenHash(tok))
 }
 
 // SessionClear 刪掉全部 session(認證設定改了,所有人要重新登入);順便清過期的
 func SessionClear() {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, _ = pgExec(ctx, `delete from ops_sessions`)
+	_, _ = pgExec(ctx, `delete from omixor_sessions`)
 }
 
 func sessionSweep() {
@@ -458,14 +519,14 @@ func sessionSweep() {
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	_, _ = pool.Exec(ctx, `delete from ops_sessions where expires_at < now()`)
+	_, _ = pool.Exec(ctx, `delete from omixor_sessions where expires_at < now()`)
 }
 
 // MARK: 動態牆與範例資料的變更
 
 const activityKeep = 1000
 
-// mockCollections 範例資料裡要存進 ops_state 的集合(動態牆另外存)
+// mockCollections 範例資料裡要存進 omixor_state 的集合(動態牆另外存)
 var mockCollections = []string{"people", "services", "servers", "repos", "pull_requests", "work_items", "pipeline_runs",
 	"deployments", "alerts", "alert_rules", "logs", "dashboards", "incidents", "on_call", "automations",
 	"automation_runs", "approvals", "integrations"}
@@ -481,7 +542,7 @@ var pgSt = &pgState{dirty: map[string]bool{}}
 func (a *App) loadPersisted() {
 	ctx, cancel := pgCtx()
 	defer cancel()
-	rows, err := pgQuery(ctx, `select name, data::text from ops_state`)
+	rows, err := pgQuery(ctx, `select name, data::text from omixor_state`)
 	if err != nil {
 		log.Printf("讀範例資料失敗:%v", err)
 		return
@@ -519,7 +580,7 @@ func (a *App) loadPersisted() {
 	}
 
 	// 動態牆:最新的 activityKeep 筆
-	arows, err := pgQuery(ctx, `select item::text from ops_activity where coalesce(item->>'org', '') = '' order by at desc, seq desc limit $1`, activityKeep)
+	arows, err := pgQuery(ctx, `select item::text from omixor_activity where coalesce(item->>'org', '') = '' order by at desc, seq desc limit $1`, activityKeep)
 	if err == nil {
 		var items []map[string]any
 		for arows.Next() {
@@ -551,7 +612,7 @@ func activityInsert(item map[string]any) {
 	}
 	ctx, cancel := pgCtx()
 	defer cancel()
-	if _, err := pgExec(ctx, `insert into ops_activity (id, at, item) values ($1, $2, $3::jsonb) on conflict (id) do nothing`,
+	if _, err := pgExec(ctx, `insert into omixor_activity (id, at, item) values ($1, $2, $3::jsonb) on conflict (id) do nothing`,
 		id, at, string(Marshal(item))); err != nil && !errors.Is(err, errPGClosed) {
 		log.Printf("存動態失敗:%v", err)
 	}
@@ -611,7 +672,7 @@ func (a *App) saveDirty() {
 	}
 }
 
-// pgWriteState 寫入 ops_state(key 已含組織前綴);資料庫已關閉回 errPGClosed,寫入失敗會記 log 並回最後一個錯誤
+// pgWriteState 寫入 omixor_state(key 已含組織前綴);資料庫已關閉回 errPGClosed,寫入失敗會記 log 並回最後一個錯誤
 func pgWriteState(data map[string][]byte) error {
 	if len(data) == 0 {
 		return nil
@@ -624,7 +685,7 @@ func pgWriteState(data map[string][]byte) error {
 	defer cancel()
 	var last error
 	for n, b := range data {
-		if _, err := pool.Exec(ctx, `insert into ops_state (name, data, updated_at) values ($1, $2::jsonb, now())
+		if _, err := pool.Exec(ctx, `insert into omixor_state (name, data, updated_at) values ($1, $2::jsonb, now())
 			on conflict (name) do update set data = excluded.data, updated_at = now()`, n, string(b)); err != nil {
 			log.Printf("存範例資料 %s 失敗:%v", n, err)
 			last = err
@@ -657,7 +718,7 @@ func ActivityHistory(a *App, before time.Time, limit int) []map[string]any {
 	a.Mu.Unlock()
 	ctx, cancel := pgCtx()
 	defer cancel()
-	rows, err := pgQuery(ctx, `select item::text from ops_activity where at < $1 and coalesce(item->>'org', '') = $3 order by at desc, seq desc limit $2`, before, limit, org)
+	rows, err := pgQuery(ctx, `select item::text from omixor_activity where at < $1 and coalesce(item->>'org', '') = $3 order by at desc, seq desc limit $2`, before, limit, org)
 	if err != nil {
 		return nil
 	}
@@ -766,11 +827,9 @@ func OpenIssueDB(url string) error {
 		pool.Close()
 		return fmt.Errorf("連不到資料庫:%w", err)
 	}
-	for _, sc := range append([]string{pgSchema}, pgExtraSchema...) {
-		if _, err := pool.Exec(ctx, sc); err != nil {
-			pool.Close()
-			return fmt.Errorf("建表失敗:%w", err)
-		}
+	if err := ensurePGSchema(ctx, pool); err != nil {
+		pool.Close()
+		return err
 	}
 	pgPoolPtr.Store(pool)
 	return nil

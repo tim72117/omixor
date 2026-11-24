@@ -9,7 +9,8 @@
 // me 是目前登入者的 id;讀到前是空字串(ready 為 false),不再假設成 "tim"。
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useView } from "../api";
-import { guardedNavigate, useFeatures } from "../features";
+import { useFeatures } from "../features";
+import { guardedNavigate } from "./nav";
 import type { Agent, Automation, Person, Repository, Service } from "../models";
 import type { Actor, Nav, SectionId } from "../types";
 

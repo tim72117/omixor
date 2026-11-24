@@ -135,7 +135,7 @@ private struct AccountFooter: View {
             }
             if remote != nil || !OmixorMode.servers.isEmpty {
                 Button { Task { await app.omixorLogout() } } label: {
-                    Label("登出", systemImage: "power").font(.caption)
+                    Label("登出", systemImage: "rectangle.portrait.and.arrow.right").font(.caption)
                 }
                 .buttonStyle(.borderless)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -215,6 +215,13 @@ struct MainToolbar: ToolbarContent {
                     ForEach(TimeRange.allCases) { Text($0.label).tag($0) }
                 }
                 .help("時間範圍")
+            }
+        }
+        ToolbarItem(placement: .navigation) {
+            // 有導覽歷史才顯示(同網頁的「← 返回」);⌘[ 在 OmixorApp 的選單
+            if app.navHistory.canGoBack {
+                Button { app.goBack() } label: { Label("返回", systemImage: "chevron.backward") }
+                    .help("返回上一頁(⌘[)")
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {

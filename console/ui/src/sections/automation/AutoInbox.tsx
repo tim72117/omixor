@@ -1,6 +1,7 @@
 // 待核准收件匣:AI 準備好的動作,等人決定(Swift 的 AutoInboxView)
 import { useEffect, useState } from "react";
 import { action, useRun } from "../../api";
+import { AutoTextarea } from "../../components/AutoTextarea";
 import { Card, cardClass } from "../../components/Card";
 import { CodeBlock } from "../../components/CodeBlock";
 import { EmptyState } from "../../components/EmptyState";
@@ -164,7 +165,7 @@ function EditSheet({ open, req, onClose, onApprove, busy }: { open: boolean; req
         <RiskBadge risk={req.risk} />
       </div>
       <span className="muted">調整 AI 準備的指令。核准後會照你修改的版本執行,並記錄在動態牆。</span>
-      <textarea className="textarea" value={cmd} onChange={(e) => setCmd(e.target.value)} />
+      <AutoTextarea monospace minRows={3} maxRows={10} value={cmd} onChange={setCmd} />
       <div className="row gap8">
         {changed ? <><Pill text="已修改" color="orange" icon="pencil" /><button className="btn link" onClick={() => setCmd(req.action)}>還原 AI 版本</button></> : <span className="caption muted">尚未修改</span>}
       </div>

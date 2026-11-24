@@ -554,6 +554,18 @@ func (o AgentOps) RequeueTask(org, id string) (*model.AgentTask, error) {
 	return t, err
 }
 
+func (o AgentOps) ReplyTask(org, id, text string) (*model.AgentTask, error) {
+	b, err := o.be()
+	if err != nil {
+		return nil, err
+	}
+	t, err := b.ReplyTask(org, id, text)
+	if err == nil {
+		o.done(org)
+	}
+	return t, err
+}
+
 func (o AgentOps) RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error) {
 	b, err := o.be()
 	if err != nil {
@@ -724,6 +736,11 @@ func init() {
 	})
 	RegisterAction("agent_task_requeue", func(a *App, args map[string]any) (any, error) {
 		t, err := a.AgentOps().RequeueTask(a.currentOrgNow(), agentArg(args, "id"))
+		return t, agentUserErr(err)
+	})
+	// 人回覆需要協助的任務:{id, text};回覆記成備註(本人署名)、任務退回待領取,角色下次領取就看得到
+	RegisterAction("agent_task_reply", func(a *App, args map[string]any) (any, error) {
+		t, err := a.AgentOps().ReplyTask(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "text"))
 		return t, agentUserErr(err)
 	})
 	RegisterAction("agent_routine_run", func(a *App, args map[string]any) (any, error) {
