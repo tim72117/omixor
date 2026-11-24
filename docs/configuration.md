@@ -30,6 +30,7 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `K_SERVICE` |  | 字串 |  |  |  | server | Cloud Run 自動帶入的服務名稱(不是 omixor 專用名稱);有值就表示跑在 Cloud Run,OMIXOR_TRUSTED_PROXY_HOPS 預設 1 |
 | `PORT` |  | 整數(1–65535) | `8080` |  |  | server | Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴) |
 | `EVOLEAP_URL` |  | 網址(http/https) | `https://evoleap.io` |  |  | server | evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名) |
+| `OMIXOR_OAUTH_EVOLEAP_LOGIN` |  | 布林 | `true` |  |  | server | OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。設 false 關掉,同意畫面只剩配對碼 |
 
 ## LDAP 登入(omixor-server)
 
@@ -73,7 +74,7 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `OMIXOR_SERVER_TOKEN` | `OPS_ISSUE_SERVER_TOKEN` | 字串 |  |  | 是 | web | 遠端模式連 OMIXOR_SERVER 用的固定 token(沒設就用存著的登入、401 時走 evoleap 換) |
 | `OMIXOR_SERVERS` |  | 字串 |  |  | 是 | web | 可以連的遠端 omixor 清單:JSON 陣列,或指向 JSON 檔的路徑(內容可能含 token,視為機密) |
 | `OMIXOR_EVOLEAP` |  | 網址(http/https) | 內建的 evoleap 連線 |  |  | web | 遠端模式登入用的 evoleap 網址 |
-| `OMIXOR_EVOLEAP_CONSOLE` |  | 網址(http/https) |  |  |  | web | evoleap 核准頁網址(沒設用 evoleap 回傳的) |
+| `OMIXOR_EVOLEAP_CONSOLE` |  | 網址(http/https) |  |  |  | server、web | evoleap 核准頁網址(沒設就用 evoleap 的網址)。伺服器用它把 OAuth 同意畫面的「用 evoleap 登入並允許」導去 <網址>/login/cli?id=… |
 | `OMIXOR_NO_TIMERS` | `OPS_NO_TIMERS` | 布林 |  |  |  | web | 不開背景計時器(例行任務、輪詢;測試用) |
 | `OMIXOR_NO_BROWSER` | `OPS_NO_BROWSER` | 旗標(有設就算) |  |  |  | web | 啟動時不自動開瀏覽器(Docker 映像預設開著)。有設就不開:任何非空值都算,包含 0、false |
 | `OMIXOR_CONSOLE_DATA_DIR` | `OPS_DATA_DIR` | 路徑 | ~/Library/Application Support/omixor-console(依系統) |  |  | web、mcp | 資料夾(範例資料、設定、auth.json 等);測試一律指到暫存資料夾 |

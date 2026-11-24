@@ -68,6 +68,8 @@ var (
 		Doc: "Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴)"})
 	EvoleapURL = add(&Var{Name: "EVOLEAP_URL", Kind: URL, Default: "https://evoleap.io", Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server),
 		Doc: "evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)"})
+	OAuthEvoleapLogin = add(&Var{Name: "OMIXOR_OAUTH_EVOLEAP_LOGIN", Kind: Bool, Default: "true", Group: GroupServer, Programs: progs(Server),
+		Doc: "OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。設 false 關掉,同意畫面只剩配對碼"})
 )
 
 // ---- LDAP(omixor-server;完整的檢查在 core/ldapauth,設了 OMIXOR_LDAP_URL 才啟用) ----
@@ -139,8 +141,8 @@ var (
 		Doc: "可以連的遠端 omixor 清單:JSON 陣列,或指向 JSON 檔的路徑(內容可能含 token,視為機密)"})
 	Evoleap = add(&Var{Name: "OMIXOR_EVOLEAP", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupWeb, Programs: progs(Web),
 		DefaultDoc: "內建的 evoleap 連線", Doc: "遠端模式登入用的 evoleap 網址"})
-	EvoleapConsole = add(&Var{Name: "OMIXOR_EVOLEAP_CONSOLE", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupWeb, Programs: progs(Web),
-		Doc: "evoleap 核准頁網址(沒設用 evoleap 回傳的)"})
+	EvoleapConsole = add(&Var{Name: "OMIXOR_EVOLEAP_CONSOLE", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupWeb, Programs: progs(Server, Web),
+		Doc: "evoleap 核准頁網址(沒設就用 evoleap 的網址)。伺服器用它把 OAuth 同意畫面的「用 evoleap 登入並允許」導去 <網址>/login/cli?id=…"})
 	NoTimers = add(&Var{Name: "OMIXOR_NO_TIMERS", Legacy: []string{"OPS_NO_TIMERS"}, Kind: Bool, Group: GroupWeb, Programs: progs(Web),
 		Doc: "不開背景計時器(例行任務、輪詢;測試用)"})
 	NoBrowser = add(&Var{Name: "OMIXOR_NO_BROWSER", Legacy: []string{"OPS_NO_BROWSER"}, Kind: Flag, Group: GroupWeb, Programs: progs(Web),

@@ -1,14 +1,19 @@
 // Package oauth 是 omixor 的 OAuth 2.1 授權伺服器 HTTP 層:讓 Claude 自訂 connector 登入 MCP 端點,授權永遠是唯讀。
 // resource 有兩種:組織 MCP 端點 <public>/mcp/org/{org}(綁單一組織),和統一入口 <public>/mcp(帳號層級:不綁組織,
-// 每次工具呼叫由統一入口用即時成員資格決定能用哪些組織;同意畫面不選組織,身分由配對碼證明)。
-// 規則(配對碼證明身分、PKCE、refresh 輪替、唯讀)在 service/oauth.go,存放在 omixor_oauth_*(core/store/pg_oauth.go);這裡只做 HTTP:
+// 每次工具呼叫由統一入口用即時成員資格決定能用哪些組織;同意畫面不選組織)。
+// 同意畫面證明身分有兩種:主要是「用 evoleap 登入並允許」(瀏覽器登入 evoleap,見下面 /oauth/evoleap/callback;伺服器沒有 evoleap 或被關掉就不顯示),
+// 備援是一次性的配對碼(本機伺服器常沒有 evoleap)。
+// 規則(證明身分、PKCE、refresh 輪替、唯讀)在 service/oauth.go,存放在 omixor_oauth_*(core/store/pg_oauth.go);這裡只做 HTTP:
 //
 //	GET  /.well-known/oauth-protected-resource/mcp/org/{org}   RFC 9728:這個組織 MCP 端點的 resource 與授權伺服器(/.well-known/oauth-protected-resource 是沒有路徑的備援)
 //	GET  /.well-known/oauth-protected-resource/mcp             RFC 9728:統一入口 /mcp(帳號層級唯讀授權)
 //	GET  /.well-known/oauth-authorization-server/oauth         RFC 8414:授權伺服器 metadata(/oauth/.well-known/openid-configuration 同內容)
 //	POST /oauth/register                                       RFC 7591 動態註冊(JSON ≤ 16 KB;redirect_uri 只收 Claude 的 callback(含桌面版 claude://claude.ai/mcp-auth-callback/sdk)與本機 /callback)
-//	GET  /oauth/authorize                                      同意畫面:要輸入「配對碼」(在已登入的 omixor 的 手機配對 產生)
-//	POST /oauth/authorize                                      送出同意:驗證 CSRF 與配對碼,成功 303 導回 redirect_uri?code=…&state=…
+//	GET  /oauth/authorize                                      同意畫面:主要按鈕「用 evoleap 登入並允許」(有設 evoleap 才有);備援是輸入「配對碼」(在已登入的 omixor 的 手機配對 產生)
+//	POST /oauth/authorize                                      送出同意:驗證 CSRF;配對碼成功 303 導回 redirect_uri?code=…&state=…;via=evoleap 則重驗授權請求、
+//	                                                           登記一筆登入交易、設綁定瀏覽器的 cookie(omixor_oauth_evo,HttpOnly、SameSite=Lax、Path=/oauth)並 303 導去 evoleap 核准頁
+//	GET  /oauth/evoleap/callback                               evoleap 核准後導回(?id=&code=):核對 cookie、交易單一用途(10 分鐘)、向 evoleap 換 token 對上 omixor 使用者後
+//	                                                           立刻撤銷 evoleap token,簽發授權碼並 303 導回客戶端的 redirect_uri;任何不符一律同一個通用錯誤頁
 //	POST /oauth/token                                          authorization_code(PKCE S256)、refresh_token(輪替);只收 application/x-www-form-urlencoded
 //	GET  /oauth/consent.css                                    同意畫面的樣式(CSP 不允許行內樣式,所以獨立一個檔)
 //
@@ -91,6 +96,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /oauth/register", obs(h.register))
 	mux.Handle("GET /oauth/authorize", obs(h.authorizeGet))
 	mux.Handle("POST /oauth/authorize", obs(h.authorizePost))
+	mux.Handle("GET /oauth/evoleap/callback", obs(h.evoleapCallback))
 	mux.Handle("POST /oauth/token", obs(h.token))
 	mux.HandleFunc("GET /oauth/consent.css", h.css) // 靜態樣式,不記 log
 }
@@ -297,6 +303,8 @@ fieldset{border:0;margin:12px 0;padding:0}
 .opt input{margin-right:8px}
 .opt.w{border-color:var(--er)}
 .warn{color:var(--er);font-weight:600;margin:6px 0 0}
+button.wide{width:100%;flex:none;margin:6px 0}
+details{margin:14px 0}summary{cursor:pointer;color:var(--fg2)}
 .opt ul{margin:6px 0 0 18px;padding:0;font-size:14px;color:var(--fg2)}`
 
 func (h *Handler) css(w http.ResponseWriter, r *http.Request) {
@@ -340,10 +348,17 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <input type="hidden" name="state" value="{{.State}}">
 <input type="hidden" name="scope" value="{{.RequestedScope}}">
 <input type="hidden" name="resource" value="{{.Resource}}">
+{{if .Evoleap}}<button class="p wide" type="submit" name="via" value="evoleap">用 evoleap 登入並允許</button>
+<p class="note">會前往 evoleap 登入(Google),完成後自動回到這裡並授權;不需要配對碼。</p>
+<details{{if .PairOpen}} open{{end}}><summary>改用配對碼</summary>
 <label for="pc">配對碼(在已登入的 omixor 的「手機配對」產生,5 分鐘內有效、只能用一次)</label>
+<input id="pc" type="text" name="pairing_code" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="16" placeholder="XXXX-XXXX">
+<div class="row"><button class="p" type="submit" name="action" value="allow">用配對碼允許</button></div></details>
+<div class="row"><button type="submit" name="action" value="deny">拒絕</button></div>
+{{else}}<label for="pc">配對碼(在已登入的 omixor 的「手機配對」產生,5 分鐘內有效、只能用一次)</label>
 <input id="pc" type="text" name="pairing_code" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="16" placeholder="XXXX-XXXX" autofocus>
 <div class="row"><button type="submit" name="action" value="deny">拒絕</button><button class="p" type="submit" name="action" value="allow">允許</button></div>
-</form>{{end}}
+{{end}}</form>{{end}}
 </main></body></html>
 `))
 
@@ -353,6 +368,7 @@ type consentView struct {
 	CSRF, ClientID, RedirectURI, Challenge, State, Resource string
 	RequestedScope                                          string
 	Account, WriteRequested                                 bool
+	Evoleap, PairOpen                                       bool // Evoleap:提供 evoleap 登入按鈕;PairOpen:配對碼區預設展開(剛輸錯)
 }
 
 func pageHeaders(w http.ResponseWriter, formAction string) {
@@ -381,11 +397,16 @@ func (h *Handler) renderConsent(w http.ResponseWriter, status int, c *service.OA
 	if u, err := url.Parse(c.RedirectURI); err == nil {
 		host, origin = u.Host, u.Scheme+"://"+u.Host
 	}
-	pageHeaders(w, origin)
+	evo := h.Svc.OAuthEvoleapEnabled()
+	fa := origin
+	if co := h.Svc.OAuthEvoleapConsoleOrigin(); co != "" && co != origin { // 按 evoleap 按鈕後表單會 303 導去 evoleap 核准頁,form-action 也要允許那個來源
+		fa += " " + co
+	}
+	pageHeaders(w, fa)
 	w.WriteHeader(status)
 	_ = consentTmpl.Execute(w, consentView{Title: "授權確認", Error: errMsg, ClientName: c.Client.Name, RedirectHost: host, Org: c.Org, Scope: c.Scope, Account: c.Account, WriteRequested: c.WriteRequested,
 		CSRF: csrf, ClientID: c.Client.ID, RedirectURI: c.RedirectURI, Challenge: req.CodeChallenge, State: req.State, Resource: c.Resource,
-		RequestedScope: req.Scope})
+		RequestedScope: req.Scope, Evoleap: evo, PairOpen: errMsg != ""})
 }
 
 func (h *Handler) authRequest(get func(string) string, all func(string) []string) service.OAuthAuthRequest {
@@ -501,6 +522,11 @@ func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
 	// 只有表單明確送 grant=write 才是讀寫(其他值、沒送都是唯讀);客戶端沒有要求 mcp:write 卻送 grant=write 由 service 拒絕(invalid_scope)
 	grantWrite := f.Get("grant") == "write"
 	d["grant_write"] = grantWrite
+	// 「用 evoleap 登入並允許」:沒填配對碼才走這條(在配對碼欄按 Enter 時瀏覽器會用第一個送出鈕,也就是 evoleap 鈕;有填配對碼就當配對碼)
+	if f.Get("via") == "evoleap" && strings.TrimSpace(f.Get("pairing_code")) == "" {
+		h.startEvoleap(w, r, f, chk, req, grantWrite, d)
+		return
+	}
 	code, err := h.Svc.ApproveOAuthScope(chk, req.CodeChallenge, f.Get("pairing_code"), service.ClientIP(r), grantWrite)
 	if err != nil {
 		var oe *service.OAuthError
@@ -535,4 +561,78 @@ func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
 	}
 	d["pairing_result"] = "ok"
 	redirectTo(w, chk.RedirectURI, "code", code, "state", req.State)
+}
+
+// ---------------- evoleap 登入 ----------------
+
+const evoCookie = "omixor_oauth_evo"
+
+func (h *Handler) evoCallbackURL() string { return h.Public + "/oauth/evoleap/callback" }
+
+func (h *Handler) evoCookie(value string, maxAge int) *http.Cookie {
+	return &http.Cookie{Name: evoCookie, Value: value, Path: "/oauth", MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Secure: strings.HasPrefix(h.Public, "https://")}
+}
+
+// startEvoleap 授權請求與 CSRF 已經驗證過:開始 evoleap 登入,設綁定瀏覽器的 cookie,303 導去 evoleap 核准頁
+func (h *Handler) startEvoleap(w http.ResponseWriter, r *http.Request, f url.Values, chk *service.OAuthAuthChecked, req service.OAuthAuthRequest, grantWrite bool, d map[string]any) {
+	d["via"] = "evoleap"
+	loginURL, binding, err := h.Svc.StartOAuthEvoleap(chk, req.CodeChallenge, req.State, h.evoCallbackURL(), grantWrite)
+	if err != nil {
+		var oe *service.OAuthError
+		if !errors.As(err, &oe) {
+			h.renderFatal(w, 500, "伺服器錯誤,請稍後再試")
+			return
+		}
+		d["error"], d["pairing_result"] = oe.Code, oe.Reason
+		if oe.Reason == "evoleap_unavailable" { // 連不到 evoleap:CSRF 已用掉,發新的重新顯示同意畫面(可改用配對碼)
+			csrf, cerr := h.Svc.NewOAuthCSRF(chk, req.CodeChallenge, service.ClientIP(r))
+			if cerr != nil {
+				h.renderFatal(w, 429, "太頻繁,請稍後再試")
+				return
+			}
+			h.renderConsent(w, oe.Status, chk, req, csrf, oe.Desc)
+			return
+		}
+		h.renderFatal(w, oe.Status, oe.Desc)
+		return
+	}
+	d["pairing_result"] = "evoleap_started"
+	http.SetCookie(w, h.evoCookie(binding, int(service.OAuthEvoleapTTL.Seconds())))
+	w.Header().Set("Location", loginURL)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.WriteHeader(303)
+}
+
+// evoleapCallback evoleap 核准後導回:成功 303 導回客戶端 redirect_uri?code=…&state=…;
+// 轉址還不可信時(id 不認得、cookie 不對、逾時、重放…)一律同一個通用錯誤頁;之後的失敗導回 redirect_uri?error=…
+func (h *Handler) evoleapCallback(w http.ResponseWriter, r *http.Request) {
+	d := detail(r)
+	d["via"] = "evoleap"
+	q := r.URL.Query()
+	d["id_present"], d["code_present"] = q.Get("id") != "", q.Get("code") != ""
+	binding := ""
+	if c, err := r.Cookie(evoCookie); err == nil {
+		binding = c.Value
+	}
+	d["cookie_present"] = binding != ""
+	http.SetCookie(w, h.evoCookie("", -1)) // 綁定密鑰只用一次
+	res, err := h.Svc.CompleteOAuthEvoleap(q.Get("id"), q.Get("code"), binding)
+	if err != nil {
+		var oe *service.OAuthError
+		if !errors.As(err, &oe) {
+			h.renderFatal(w, 500, "伺服器錯誤,請稍後再試")
+			return
+		}
+		d["error"], d["pairing_result"] = oe.Code, oe.Reason
+		if res != nil && res.RedirectURI != "" && !oe.NoRedirect {
+			redirectTo(w, res.RedirectURI, "error", oe.Code, "error_description", oe.Desc, "state", res.State)
+			return
+		}
+		h.renderFatal(w, oe.Status, oe.Desc)
+		return
+	}
+	d["pairing_result"] = "ok"
+	redirectTo(w, res.RedirectURI, "code", res.Code, "state", res.State)
 }

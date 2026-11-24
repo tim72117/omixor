@@ -35,7 +35,7 @@
 //	                               或 OAuth 的 access token(omo_…,預設唯讀,可選受限寫入,見下面 /oauth;只開放唯讀工具(讀寫另加 OAuthWriteTools),帶 MCP Apps 畫面 ui://omixor/flowchart、ui://omixor/items)
 //	/oauth/…、/.well-known/…       OAuth 2.1 授權伺服器(Claude 自訂 connector 用):/oauth/register、/oauth/authorize、/oauth/token、/oauth/consent.css,
 //	                               metadata 在 /.well-known/oauth-protected-resource/mcp(統一入口)、/.well-known/oauth-protected-resource/mcp/org/{org}、/.well-known/oauth-authorization-server/oauth;
-//	                               要設 OMIXOR_PUBLIC_URL 才掛;使用者在同意畫面輸入「手機配對」產生的配對碼證明身分(core/oauth、core/service/oauth.go)
+//	                               要設 OMIXOR_PUBLIC_URL 才掛;使用者在同意畫面按「用 evoleap 登入並允許」(瀏覽器登入,回呼 /oauth/evoleap/callback)或輸入「手機配對」產生的配對碼證明身分(core/oauth、core/service/oauth.go)
 package server
 
 import (
@@ -181,8 +181,9 @@ func Run() {
 	if err != nil {
 		log.Fatalf("PostgreSQL:%v", cfg.Redact(err.Error()))
 	}
-	svc := &service.Service{Store: st, Evoleap: cfg.Str(config.EvoleapURL),
-		Bootstrap: cfg.Str(config.AdminBootstrapEmail), TTL: time.Duration(cfg.Int(config.TokenDays)) * 24 * time.Hour}
+	svc := &service.Service{Store: st, Evoleap: cfg.Str(config.EvoleapURL), EvoleapConsole: cfg.Str(config.EvoleapConsole),
+		OAuthEvoleapOff: !cfg.Bool(config.OAuthEvoleapLogin),
+		Bootstrap:       cfg.Str(config.AdminBootstrapEmail), TTL: time.Duration(cfg.Int(config.TokenDays)) * 24 * time.Hour}
 	if h := cfg.Float(config.AgentCredHours); h > 0 {
 		svc.AgentCredTTL = time.Duration(h * float64(time.Hour))
 	}

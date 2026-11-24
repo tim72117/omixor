@@ -391,6 +391,33 @@ func (s *Service) ApproveOAuth(c *OAuthAuthChecked, challenge, pairCode, ip stri
 // 讀寫授權不認伺服器管理員的萬能權限:組織層級授權要是該組織的成員(帳號層級每次呼叫即時檢查成員資格)。
 // 配對碼用過就失效(成功才消耗;和 ClaimPairCode 同一套規則)。失敗一律 ErrOAuthPairInvalid(頻率限制、鎖定另外回 429)
 func (s *Service) ApproveOAuthScope(c *OAuthAuthChecked, challenge, pairCode, ip string, grantWrite bool) (string, error) {
+	return s.approveOAuth(c, challenge, grantWrite, func() (*model.User, map[string]any, error) {
+		if locked, left := s.oauthLocked(); locked {
+			return nil, nil, oauthLockedErr(left)
+		}
+		pt, u, err := s.redeemPair(pairCode, ip)
+		if err != nil {
+			if Code(err) == 429 {
+				return nil, nil, oerrR(429, "temporarily_unavailable", "嘗試太頻繁,請一分鐘後再試", "locked")
+			}
+			if Code(err) == 401 {
+				s.oauthFailed()
+				return nil, nil, ErrOAuthPairInvalid
+			}
+			if err == errPairDisabled && u != nil { // 配對碼沒被消耗
+				s.Audit(&model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: true}, "oauth.denied", c.Org, map[string]any{"reason": "disabled", "client": c.Client.ID})
+				return nil, nil, oerrR(403, "access_denied", "這個帳號已停用", "disabled")
+			}
+			return nil, nil, err
+		}
+		return u, map[string]any{"pair": pt.ID, "via": "pair"}, nil
+	})
+}
+
+// approveOAuth 簽發授權碼的共同部分(配對碼與 evoleap 登入兩條路共用):prove 負責「證明這個人是誰」(回使用者與要寫進稽核的額外欄位,
+// 例如 pair / via),其餘 — 讀寫授權的檢查、帳號層級 vs 組織成員資格、授權碼 60 秒用一次、FamilyID、稽核 oauth.authorize — 兩條路完全相同。
+// grantWrite 但客戶端沒要求 mcp:write 是偽造的表單:400 invalid_scope,在 prove 之前就擋(配對碼不消耗、不會呼叫 evoleap)
+func (s *Service) approveOAuth(c *OAuthAuthChecked, challenge string, grantWrite bool, prove func() (*model.User, map[string]any, error)) (string, error) {
 	if grantWrite && !c.WriteRequested {
 		return "", oerr(400, "invalid_scope", "這個授權請求沒有要求 mcp:write,不能授予讀寫")
 	}
@@ -398,28 +425,14 @@ func (s *Service) ApproveOAuthScope(c *OAuthAuthChecked, challenge, pairCode, ip
 	if grantWrite {
 		scope = model.OAuthScopeRead + " " + model.OAuthScopeWrite
 	}
-	if locked, left := s.oauthLocked(); locked {
-		return "", oauthLockedErr(left)
-	}
-	pt, u, err := s.redeemPair(pairCode, ip)
+	u, extra, err := prove()
 	if err != nil {
-		if Code(err) == 429 {
-			return "", oerrR(429, "temporarily_unavailable", "嘗試太頻繁,請一分鐘後再試", "locked")
-		}
-		if Code(err) == 401 {
-			s.oauthFailed()
-			return "", ErrOAuthPairInvalid
-		}
-		if err == errPairDisabled && u != nil { // 配對碼沒被消耗
-			s.Audit(&model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: true}, "oauth.denied", c.Org, map[string]any{"reason": "disabled", "client": c.Client.ID})
-			return "", oerrR(403, "access_denied", "這個帳號已停用", "disabled")
-		}
 		return "", err
 	}
 	// 唯讀授權:伺服器管理員照舊(本來就只能讀);讀寫授權:p.ServerAdmin() 對 OAuth 寫入身分是 false,組織層級要真的是成員
 	p := &model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: !grantWrite}
 	if c.Account {
-		// 帳號層級:不綁組織,不需要是任何組織的成員(身分已由配對碼證明);之後每次工具呼叫由統一入口即時驗證成員資格
+		// 帳號層級:不綁組織,不需要是任何組織的成員(身分已由配對碼或 evoleap 登入證明);之後每次工具呼叫由統一入口即時驗證成員資格
 	} else if !p.ServerAdmin() {
 		if _, err := s.Store.MemberRole(c.Org, u.ID); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -442,7 +455,10 @@ func (s *Service) ApproveOAuthScope(c *OAuthAuthChecked, challenge, pairCode, ip
 	if err != nil {
 		return "", err
 	}
-	detail := map[string]any{"client": c.Client.ID, "clientName": c.Client.Name, "pair": pt.ID, "scope": scope}
+	detail := map[string]any{"client": c.Client.ID, "clientName": c.Client.Name, "scope": scope}
+	for k, v := range extra {
+		detail[k] = v
+	}
 	if c.Account {
 		detail["level"] = "account"
 	}

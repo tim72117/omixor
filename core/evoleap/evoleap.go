@@ -56,27 +56,54 @@ func post(u string, body any, token string) (map[string]any, error) {
 	return out, nil
 }
 
-// Login 回傳 evoleap 的 CLI token。base 是 evoleap API 網址;console 是核准頁網址(本機開發前端另一個埠時用,一般給 "")
-func Login(base, console string, timeout time.Duration) (string, error) {
-	base = strings.TrimRight(base, "/")
+// Start 登記回呼網址、取得這一次核准登入的 id(POST /api/cli-auth/start)。redirect 是核准後 evoleap 要導回的網址(帶 id 與 code);
+// 瀏覽器要開 ConsoleLoginURL(console, id)。omixor 伺服器的 OAuth 同意畫面用它(redirect 是 <對外網址>/oauth/evoleap/callback)
+func Start(base, redirect, name string) (string, error) {
+	start, err := post(strings.TrimRight(base, "/")+"/api/cli-auth/start", map[string]any{"redirect_uri": redirect, "name": name}, "")
+	if err != nil {
+		return "", err
+	}
+	id, _ := start["id"].(string)
+	if id == "" {
+		return "", errors.New("evoleap 沒有回傳登入 id")
+	}
+	return id, nil
+}
+
+// ConsoleLoginURL 核准頁網址:瀏覽器開這個網址,登入並核准後 evoleap 導回 Start 登記的 redirect。console 空字串 = 用 base
+func ConsoleLoginURL(base, console, id string) string {
 	if console == "" {
 		console = base
 	}
+	return strings.TrimRight(console, "/") + "/login/cli?id=" + url.QueryEscape(id)
+}
+
+// Exchange 用核准後導回帶的 id 與 code 換 evoleap token(POST /api/cli-auth/exchange);用完要 Logout 撤銷
+func Exchange(base, id, code string) (string, error) {
+	ex, err := post(strings.TrimRight(base, "/")+"/api/cli-auth/exchange", map[string]any{"id": id, "code": code}, "")
+	if err != nil {
+		return "", err
+	}
+	tok, _ := ex["token"].(string)
+	if tok == "" {
+		return "", errors.New("換不到 token")
+	}
+	return tok, nil
+}
+
+// Login 回傳 evoleap 的 CLI token。base 是 evoleap API 網址;console 是核准頁網址(本機開發前端另一個埠時用,一般給 "")
+func Login(base, console string, timeout time.Duration) (string, error) {
+	base = strings.TrimRight(base, "/")
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", err
 	}
 	redirect := fmt.Sprintf("http://%s/callback", ln.Addr().String())
 	host, _ := os.Hostname()
-	start, err := post(base+"/api/cli-auth/start", map[string]any{"redirect_uri": redirect, "name": "omixor CLI(" + strings.TrimSuffix(host, ".local") + ")"}, "")
+	id, err := Start(base, redirect, "omixor CLI("+strings.TrimSuffix(host, ".local")+")")
 	if err != nil {
 		ln.Close()
 		return "", err
-	}
-	id, _ := start["id"].(string)
-	if id == "" {
-		ln.Close()
-		return "", errors.New("evoleap 沒有回傳登入 id")
 	}
 	got := make(chan string, 1)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -98,22 +125,14 @@ func Login(base, console string, timeout time.Duration) (string, error) {
 		_ = srv.Shutdown(ctx)
 		cancel()
 	}()
-	OpenBrowser(console + "/login/cli?id=" + url.QueryEscape(id))
+	OpenBrowser(ConsoleLoginURL(base, console, id))
 	var code string
 	select {
 	case code = <-got:
 	case <-time.After(timeout):
 		return "", errors.New("等待核准逾時")
 	}
-	ex, err := post(base+"/api/cli-auth/exchange", map[string]any{"id": id, "code": code}, "")
-	if err != nil {
-		return "", err
-	}
-	tok, _ := ex["token"].(string)
-	if tok == "" {
-		return "", errors.New("換不到 token")
-	}
-	return tok, nil
+	return Exchange(base, id, code)
 }
 
 // Logout 撤銷 evoleap CLI token

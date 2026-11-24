@@ -63,7 +63,8 @@ LDAP 變數的完整說明在 [`../docs/configuration.md`](../docs/configuration
 | `GET /.well-known/oauth-authorization-server/oauth`、`GET /oauth/.well-known/openid-configuration` | RFC 8414:issuer `<網址>/oauth`、PKCE 只有 S256、公開用戶端(`token_endpoint_auth_method=none`)、`authorization_code` + `refresh_token` |
 | `POST /oauth/register` | RFC 7591 動態註冊(JSON、≤16 KB)。`redirect_uris` 只收 `https://claude.ai/api/mcp/auth_callback`、`https://claude.com/api/mcp/auth_callback`、`claude://claude.ai/mcp-auth-callback/sdk`(桌面版 / Agent SDK,只收完全相同的字串)、本機 `http://127.0.0.1\|localhost[:埠]/callback`;用戶端上限 200(滿了先淘汰「註冊超過 1 小時、沒人完成授權」的,仍滿 429);每個來源每分鐘 5 次、全服務 30 次 |
 | `GET /oauth/authorize` | 同意畫面(中文、手機版、深色模式):要有註冊過的 `client_id`、完全相同的 `redirect_uri`、`code_challenge` + `S256`、`resource` = 該組織的 MCP 網址;每次載入一個 CSRF token(只存雜湊,15 分鐘,用一次) |
-| `POST /oauth/authorize` | 使用者輸入**配對碼**(已登入的 omixor「手機配對」產生;規則同 `ClaimPairCode`:5 分鐘、一次性、只存雜湊,但**不發登入 token**)。成功 303 導回 `redirect_uri?code=…&state=…`(授權碼 60 秒、用一次);配對碼錯一律同一句話,累計 10 次失敗全服務鎖 10 分鐘;帳號停用或不是該組織成員拒絕 |
+| `POST /oauth/authorize` | 證明身分有兩種:**「用 evoleap 登入並允許」(主要;表單 `via=evoleap`)**,或輸入**配對碼**(備援,收在「改用配對碼」;已登入的 omixor「手機配對」產生;規則同 `ClaimPairCode`:5 分鐘、一次性、只存雜湊,但**不發登入 token**)。配對碼成功 303 導回 `redirect_uri?code=…&state=…`(授權碼 60 秒、用一次);配對碼錯一律同一句話,累計 10 次失敗全服務鎖 10 分鐘;帳號停用或不是該組織成員拒絕。evoleap 那條:重驗授權請求與 CSRF 後向 evoleap 登記回呼、設綁定瀏覽器的 cookie `omixor_oauth_evo`(HttpOnly、SameSite=Lax、Path=/oauth)並 303 到 evoleap 核准頁 |
+| `GET /oauth/evoleap/callback` | evoleap 核准後導回(`?id=&code=`):核對 cookie 綁定密鑰、登入交易 10 分鐘單一用途,向 evoleap 換 token 對上 omixor 使用者後立刻撤銷該 token(成功失敗都撤銷),簽發授權碼並 303 導回客戶端;id 不認得、cookie 不對、逾時、重放一律同一個通用錯誤頁。沒有 evoleap(沒設 `EVOLEAP_URL`)或 `OMIXOR_OAUTH_EVOLEAP_LOGIN=false` 時同意畫面只有配對碼。`OMIXOR_EVOLEAP_CONSOLE` 可指定核准頁網址(預設同 evoleap 網址) |
 | `POST /oauth/token` | 只收 `application/x-www-form-urlencoded`(其他 415)。`authorization_code`(PKCE 常數時間比對、code 用一次、redirect_uri 與 resource 要相同;重用 code 會撤銷它換出的 token)、`refresh_token`(每次輪替,舊的重用 → `invalid_grant` 並撤銷整個家族)。access token `omo_…` 600 秒、refresh 30 天,scope 只有 `mcp:read` |
 | `GET /oauth/consent.css` | 同意畫面樣式(CSP 不允許行內樣式) |
 
@@ -75,7 +76,7 @@ LDAP 變數的完整說明在 [`../docs/configuration.md`](../docs/configuration
 - `/mcp/org/{org}` 沒帶 token:401,`WWW-Authenticate: Bearer realm="omixor", resource_metadata="<網址>/.well-known/oauth-protected-resource/mcp/org/{org}"`;OAuth token 過期、撤銷或不是這個組織的:再加 `error="invalid_token"`。
 - **MCP Apps**:管理端點的 `flowchart_render`、`issue_items` 在 tools/list 帶 `_meta.ui.resourceUri`(`ui://omixor/flowchart`、`ui://omixor/items`),`resources/list`、`resources/read` 回 `text/html;profile=mcp-app`。
   畫面是 `../core/mcp/ui/*.html`(手寫、自包含、不載入外部來源,`go:embed`,Go 編譯不需要 node);協定的 View 端不靠 `@modelcontextprotocol/ext-apps`,直接手寫,已用 `tools/mcp-apps-pilot/harness`(真正的 AppBridge)驗證過能初始化、收結果、回報高度、切換深淺色。要改畫面就直接改 HTML(兩個檔的 COMMON 區塊要一致,`TestUIViewsCommonBlock`)。
-- 在 Claude 設定:自訂 connector 網址 `<網址>/mcp/org/<組織 id>`,驗證選自動註冊(不填 client id);跳出同意畫面後輸入在 omixor「手機配對」產生的配對碼。
+- 在 Claude 設定:自訂 connector 網址 `<網址>/mcp/org/<組織 id>`,驗證選自動註冊(不填 client id);跳出同意畫面後按「用 evoleap 登入並允許」(瀏覽器登入);沒有 evoleap 的伺服器改輸入在 omixor「手機配對」產生的配對碼。
 
 部署:`.github/workflows/deploy-server.yml`(`core/**`、`server/**` 或 `site/**` 有變動就部署)。
 測試:`.github/workflows/test.yml`(每次 push 與 pull_request,core/server/web 各跑 `go build`、`go vet`、`go test`)。

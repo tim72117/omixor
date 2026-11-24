@@ -24,6 +24,10 @@ const (
 	OAuthKindCode    = "code"    // 授權碼(60 秒、用一次)
 	OAuthKindAccess  = "access"  // access token(10 分鐘)
 	OAuthKindRefresh = "refresh" // refresh token(30 天、每次換新、用過的不能再用)
+
+	// OAuthKindEvoleapLogin 同意畫面「用 evoleap 登入並允許」的登入交易(10 分鐘、用一次)。資料表的 kind 檢查約束只允許上面四種,
+	// 為了不動結構,這種列存成 csrf 種類,靠雜湊的命名空間(oauth:evoleap:<evoleap id>)和真正的 CSRF token 分開(欄位用法見 service/oauth_evoleap.go)
+	OAuthKindEvoleapLogin = OAuthKindCSRF
 )
 
 // OAuthClient 動態註冊(RFC 7591)的用戶端
