@@ -165,7 +165,9 @@ final class MCPHandler {
                                           // Issue 接受與放回(issue_update 旁的 Admin 工具)、資料庫結構檢核(core/model/tools.go 的 CoreTools)
                                           "issue_accept", "schema_check",
                                           // 回報 MCP 使用問題(core/mcp/tools_report.go;存成 mcp-feedback Issue)
-                                          "report_problem"]
+                                          "report_problem",
+                                          // commit 匯入與 Issue 連結(core/mcp/tools_commits.go)
+                                          "commits", "commits_report", "issue_commit_link", "issue_commit_unlink"]
     // MARK: - 範例資料工具與功能開關
 
     /// 集合 → 所屬的範例功能(core/model/features.go 的 key)。沒列的(people、incidents、activity、integrations)不擋:

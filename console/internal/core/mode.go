@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -558,6 +559,10 @@ type AccountView struct {
 	Features []string `json:"features"`
 }
 
+// ConsoleFeatures console 自己登記的功能代號(由 internal/mcp 在 init 設定:有登記對應工具才宣告,例如 issue_decision_withdraw、issue_decision_reopen);
+// account view 併進 Features。core 不能 import mcp,所以用掛鉤
+var ConsoleFeatures func() []string
+
 func (a *App) accountView() AccountView {
 	m := currentMode()
 	v := AccountView{Mode: m.Mode, Server: m.Server, LocalStorage: "files", Servers: ConfiguredServers(), Gate: gateOpen()}
@@ -584,6 +589,13 @@ func (a *App) accountView() AccountView {
 		v.Error = errText
 		if e := a.issueConnErr(); e != "" && v.Error == "" { // 畫面函式已拿著 Mu;使用者操作的錯誤(409…)不算連線錯誤
 			v.Error = e
+		}
+	}
+	if ConsoleFeatures != nil { // console 自己的工具(不是核心的功能):有登記就宣告,不用等遠端的 /api/version
+		for _, f := range ConsoleFeatures() {
+			if !slices.Contains(v.Features, f) {
+				v.Features = append(v.Features, f)
+			}
 		}
 	}
 	return v

@@ -55,6 +55,7 @@
 //	POST /api/orgs/{org}/issues/{id}/delete    丟進垃圾桶(軟刪除;組織成員)
 //	GET  /api/orgs/{org}/issues/export         整份(組織管理員;?deleted=1 連垃圾桶裡的一起,帶 deletedAt)
 //	POST /api/orgs/{org}/issues/import         {issues} 第一次搬資料用(組織管理員;已經有 Issue 就拒絕)
+//	commits 與 Issue 的連結(回報、查詢、同步位置、手動連結):路由與格式見 commits.go
 //
 //	GET  /api/orgs/{org}/agents                虛擬角色(成員;角色憑證只看到自己)
 //	POST /api/orgs/{org}/agents                {id?, name, role, instructions, active, symbol, color, docAccess, routines} 新增或修改(組織管理員;沒給 active 視為 true)
@@ -510,6 +511,7 @@ func (a *API) Handler() http.Handler {
 	a.incidentRoutes(mux)
 	a.decisionRoutes(mux)
 	a.issueItemRoutes(mux)
+	a.commitRoutes(mux) // commits 與 Issue 的連結(commits.go)
 	a.moduleRoutes(mux) // 選用模組(modules.go;例如 GitHub、GitLab 設定)
 	a.mcpRoutes(mux)
 	a.systemRoutes(mux)

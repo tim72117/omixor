@@ -305,6 +305,32 @@ type Store interface {
 	// DeleteIssueItem 刪除(別的子項對它的依賴清成空);不存在 ErrNotFound。序號不重用
 	DeleteIssueItem(org, id string) error
 
+	// commits 與 Issue 的連結(ISS-69;依組織分,DeleteOrg 一併刪除;見 model/commit.go;方法在 pg_commit.go)。
+	// repo 一律是 model.CommitRepoKey 正規化後的字串、sha 是 40 位小寫十六進位(呼叫端 service 先驗證與整理)。
+	// UpsertCommits 冪等地寫入一批 commit(一個交易):新的插入;已存在的只補空欄位(裸參照被真正的回報補齊),verified 只升不降;
+	// 回傳這批裡「新插入」的筆數
+	UpsertCommits(org string, list []model.Commit) (created int, err error)
+	// EnsureCommitRef 確保 (repo, sha) 有一列(手動連結一個沒回報過的 sha):沒有就插入 subject 空字串、source manual 的裸參照,已存在不動
+	EnsureCommitRef(org string, c model.Commit) error
+	GetCommit(org, repo, sha string) (*model.Commit, error)
+	// QueryCommits 依條件查(新的在前:authored_at,沒有就 reported_at),total 是符合條件的總數(不受 Limit 影響)
+	QueryCommits(org string, q CommitQuery) ([]model.Commit, int, error)
+	// LinkIssueCommit 建立 Issue 與 commit 的連結(commit 要已存在,否則 ErrBadRef;Issue 不存在 ErrBadRef)。冪等:
+	// 手動(origin manual)覆蓋已有連結的種類、說明與署名;自動(auto)不蓋手動的,只把 auto 的 mentions 升成 fixes。回傳連結有沒有變動
+	LinkIssueCommit(org string, l model.IssueCommit) (changed bool, err error)
+	// UnlinkIssueCommit 移除連結;沒有這個連結回 ErrNotFound
+	UnlinkIssueCommit(org, issueID, repo, sha string) error
+	// ListIssueCommits 一張 Issue 的連結(連結新的在前,最多 limit 筆;limit <= 0 = 全部),total 是連結總數。Issue 欄位是內部 id
+	ListIssueCommits(org, issueID string, limit int) ([]model.IssueCommitView, int, error)
+	// ListCommitLinks 一批 commit(同一個 repo)被哪些 Issue 連結(sha → 連結;沒有連結的不在 map 裡)
+	ListCommitLinks(org, repo string, shas []string) (map[string][]model.IssueCommit, error)
+	// FindCommitRepos 這個組織裡已存的、路徑(去掉 github:/gitlab: 前綴後)等於 path 的 repo key(最多三個:沒前綴、github:、gitlab:;已排序)。path 要是小寫、無前綴
+	FindCommitRepos(org, path string) ([]string, error)
+	// IssueCommitStats 一張 Issue 目前的連結數(Total)、其中裸參照數(Bare:commit 的 subject 是空字串)、以及 (repo, sha) 這條連結是否已存在(Linked)
+	IssueCommitStats(org, issueID, repo, sha string) (IssueCommitStats, error)
+	GetRepoSync(org, repo string) (*model.RepoSync, error) // 沒有回 ErrNotFound
+	PutRepoSync(org string, s model.RepoSync) error        // 整列取代
+
 	// 組織設定文件(通用):選用模組(core/module)存自己的組織層設定用,一個組織每種 kind 一份,例如 GitHub、GitLab 模組的
 	// kind = github、gitlab。依組織分;DeleteOrg 一併刪除。Get 沒存過回 ErrNotFound;Save 整份取代。
 	// kind 是保留字(mcp,外部 MCP 登記用專屬方法)或空白時回錯誤。方法在 *_integration.go(見 OrgDoc)
@@ -331,4 +357,19 @@ type Store interface {
 	// TransferAgentTasks 把一個角色名下的任務轉給另一個角色(同一個原子區塊;規則見 transfer.go)。
 	// 刪角色前要先轉移:omixor_agent_tasks.agent_id 對角色是 restrict,名下還有任務(任何狀態)時 DeleteAgent 回 ErrInUse
 	TransferAgentTasks(org string, o AgentTransfer) (AgentTransferResult, error)
+}
+
+// IssueCommitStats IssueCommitStats 的結果
+type IssueCommitStats struct {
+	Total, Bare int
+	Linked      bool
+}
+
+// CommitQuery QueryCommits 的條件(零值 = 不篩)
+type CommitQuery struct {
+	Repo      string // 正規化的 repo key
+	SHAPrefix string // 小寫十六進位前綴(service 要求至少 7 碼)
+	Query     string // 空白分隔的每個字都要出現在 subject 或 body(不分大小寫)
+	Issue     string // Issue 內部 id:只要連結到這張 Issue 的 commit
+	Limit     int    // 預設 20、最多 model.CommitQueryMaxLimit
 }

@@ -23,6 +23,7 @@ import { JiraImport } from "./JiraImport";
 import { IssueEditForm, NewIssue } from "./IssueForm";
 import { IssueTrash } from "./IssueTrash";
 import { IssueItems } from "./IssueItems";
+import { IssueDecisionSummary } from "./IssueDecisionSummary";
 import { IssueAcceptButton, IssueAcceptedPill } from "./IssueAccept";
 import { itemsCountText } from "./itemModel";
 import { resolveIssueRef, updateIssue, useIsOrgAdmin, useProjects } from "./issueApi";
@@ -246,6 +247,7 @@ function IssueDetail({ issue }: { issue: Issue }) {
       {editing ? (
         <IssueEditForm issue={issue} onClose={() => setEditing(false)} />
       ) : issue.body ? <MarkdownText source={issue.body} /> : <div className="muted">沒有內文</div>}
+      {!editing && <IssueDecisionSummary issueKey={issueKey(issue)} />}
       {!editing && <IssueItems issueKey={issueKey(issue)} quietError={(issue.itemsTotal ?? 0) === 0} />}
       {(issue.comments?.length > 0 || !editing) && (
         <div className={"col " + s.comments}>

@@ -1,0 +1,22 @@
+/* 開發 › 待決定 */
+.side { width: 360px; }
+.detail { padding: 20px; gap: 16px; max-width: 820px; }
+.titleRow { display: flex; align-items: baseline; min-width: 0; flex-wrap: wrap; flex: 1 1 280px; gap: 8px; }
+.title { user-select: text; min-width: 0; overflow-wrap: anywhere; }
+.id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-lg); white-space: nowrap; }
+.ops { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srcLink { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.option { padding: 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--fg) 5%, transparent); gap: 4px; min-width: 0; }
+.optionPicked { outline: 2px solid color-mix(in srgb, var(--green) 55%, transparent); outline-offset: -2px; }
+.optionRow { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.optionLabel { overflow-wrap: anywhere; }
+.answer { padding: 12px; border-radius: var(--r-lg); border: 1px solid var(--line); gap: 8px; }
+.answerNote { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.form { padding: 12px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--bg2); gap: 10px; }
+.optEdit { display: flex; gap: 6px; align-items: center; }
+.optEdit input[type="text"], .optEdit .input { min-width: 0; }
+.note { min-height: 64px; font-family: inherit; }
+.body { min-height: 120px; }
+.summaryBar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.optCount { margin-left: 6px; }

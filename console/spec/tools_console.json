@@ -71,5 +71,53 @@
     },
     "name": "office_state",
     "title": "虛擬辦公室:狀態"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Withdraw a pending decision / help request"
+    },
+    "description": "Withdraws a decision or help request that is still open (status=open). Allowed for the creator or an organization admin; anyone else gets 403, and an item that is not open gets 409. The withdrawn item stays visible with status=withdrawn. Console-only tool, forwarded to the core's POST /api/orgs/{org}/decisions/{id}/withdraw. Returns the updated item.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "DEC-n",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "issue_decision_withdraw",
+    "title": "Withdraw a pending decision / help request"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Reopen a handled decision / help request"
+    },
+    "description": "Reopens a decision or help request that has already been handled (status=decided): the answer, note and evidence are cleared and it is open again, and a comment is written on the source issue. Allowed for an organization admin or the original handler; anyone else gets 403, and an item that is not decided gets 409. Humans only (agent credentials are rejected). Console-only tool, forwarded to the core's POST /api/orgs/{org}/decisions/{id}/reopen. Returns the updated item.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "DEC-n",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "issue_decision_reopen",
+    "title": "Reopen a handled decision / help request"
   }
 ]

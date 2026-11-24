@@ -370,6 +370,20 @@ var authzProbes = map[string]func(e *authzEnv, p *model.Principal) error{
 	},
 	"issue.item.delete": func(e *authzEnv, p *model.Principal) error { return e.svc.DeleteItem(p, "o1", e.issue, e.item) },
 
+	// commits 與 Issue 的連結(ISS-69):一般成員都放行,只探測外部人、角色憑證(phase 1 角色一律 403)
+	"commit.report": func(e *authzEnv, p *model.Principal) error {
+		_, err := e.svc.ReportCommits(p, "o1", service.CommitReport{Repo: "a/b", Commits: []service.CommitInput{{SHA: strings.Repeat("a", 40), Subject: "x"}}})
+		return err
+	},
+	"commit.read": func(e *authzEnv, p *model.Principal) error {
+		_, err := e.svc.QueryCommits(p, "o1", service.CommitQueryInput{})
+		return err
+	},
+	"issue.commit.read": func(e *authzEnv, p *model.Principal) error { return ign(e.svc.ListIssueCommits(p, "o1", e.issue, 10)) },
+	"issue.commit.link": func(e *authzEnv, p *model.Principal) error {
+		return ign(e.svc.LinkIssueCommit(p, "o1", e.issue, service.CommitLinkInput{Repo: "a/b", SHA: strings.Repeat("a", 40)}))
+	},
+
 	"mcp.gateway.read": func(e *authzEnv, p *model.Principal) error { return ign(e.svc.GetMCP(p, "o1")) },
 	"mcp.gateway.save": func(e *authzEnv, p *model.Principal) error {
 		return ign(e.svc.SaveMCPServer(p, "o1", service.MCPServerInput{ID: "s1", Name: str("伺服器")}))

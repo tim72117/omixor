@@ -171,6 +171,15 @@ type Backend interface {
 	CancelIssueItem(org, issue, item string) (*model.IssueItem, error)
 	PromoteIssueItem(org, issue, item string, in service.ItemPromoteInput) (*service.ItemPromoteResult, error)
 
+	// commits 與 Issue 的連結(ISS-69;權限與可見性同 service/commits.go:只有人,角色身分 403;commit 組織成員都看得到,連結依 Issue 可見性)。實作在 commits.go
+	ReportCommits(org string, in service.CommitReport) (*service.CommitReportResult, error)
+	QueryCommits(org string, in service.CommitQueryInput) (*service.CommitQueryResult, error)
+	GetRepoSync(org, repo string) (*service.CommitSyncView, error)
+	// ListIssueCommits 一張 Issue 連結的 commits(最近連結的在前;limit <= 0 用 10)
+	ListIssueCommits(org, issue string, limit int) (*service.IssueCommits, error)
+	LinkIssueCommit(org, issue string, in service.CommitLinkInput) (*model.IssueCommitView, error)
+	UnlinkIssueCommit(org, issue string, in service.CommitUnlinkInput) error
+
 	// 組織的 GitHub、GitLab 設定搬到選用模組 core/modules/integrations(它自己的 Backend 介面與 Local / Remote 實作,見 module.go)
 
 	// 組織的系統設定(功能開關;權限同 service/system.go:成員讀、組織管理員改)。實作在 system.go

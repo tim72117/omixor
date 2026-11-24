@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"omixor-core/model"
+	"omixor-core/redact"
 	"omixor-core/service"
 )
 
@@ -24,7 +25,7 @@ const (
 	reportUAMax       = 200
 	reportFPErrChars  = 200
 	reportRawMax      = 100000 // 單一欄位原文超過這個長度先截斷再處理(避免巨大輸入)
-	reportMasked      = "[masked]"
+	reportMasked      = redact.Masked
 	reportNotProvided = "_not provided_"
 )
 
@@ -66,39 +67,10 @@ type connDiagnoser interface{ ConnDiagnostics() *ConnDiag }
 // ConnDiagnostics 實作 connDiagnoser
 func (s *Session) ConnDiagnostics() *ConnDiag { return s.Diag }
 
-var (
-	reAuthHeader = regexp.MustCompile(`(?i)\bauthorization\s*:[^\r\n]*`)
-	reBearer     = regexp.MustCompile(`(?i)\bbearer\s+[^\s"'<>]+`)
-	reDBURL      = regexp.MustCompile(`(?i)\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|amqp)://[^\s"'<>]+`)
-	reOmxToken   = regexp.MustCompile(`\b(?:omx|omo)_[A-Za-z0-9_\-.]+`)
-	reCookie     = regexp.MustCompile(`(?i)\b(set-cookie|cookie)\s*:[^\r\n]*`)
-	reKeyValue   = regexp.MustCompile(`(?i)(["']?\b(?:password|passwd|pwd|secret|client_secret|token|access_token|refresh_token|id_token|api_key|apikey|api-key|private_key|session|sessionid|auth|signature)\b["']?[ \t]*[:=][ \t]*)("[^"\r\n]*"|'[^'\r\n]*'|[^\s&"',;]+)`)
-	rePrefixTok  = regexp.MustCompile(`\b(?:eyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}|(?:gh[pous]_|github_pat_|sk_live_|sk_test_)[A-Za-z0-9_]{8,}|sk-[A-Za-z0-9_\-]{16,}|AKIA[0-9A-Z]{16}|AIza[A-Za-z0-9_\-]{35}|xox[abprs]-[A-Za-z0-9\-]{8,})`)
-	reLongBlob   = regexp.MustCompile(`[A-Za-z0-9+/=_\-]{40,}`)
-	reDigits     = regexp.MustCompile(`[0-9]+`)
-)
+var reDigits = regexp.MustCompile(`[0-9]+`)
 
-// maskSecrets 遮蔽看起來像機密的片段:Authorization 標頭整行、Bearer <...>、資料庫連線網址(postgres:// 等)、omx_ / omo_ 開頭的 token、
-// Cookie / Set-Cookie 標頭整行、password / token / secret 等 key=value(只遮值,保留 key)、常見 token 前綴(ghp_、sk-、AKIA、AIza、xox、JWT 等)、
-// 40 字元以上的 base64 / 十六進位長字串。oc_ 開頭的 client id 保留
-func maskSecrets(s string) string {
-	s = reAuthHeader.ReplaceAllString(s, "Authorization: "+reportMasked)
-	s = reBearer.ReplaceAllString(s, "Bearer "+reportMasked)
-	s = reDBURL.ReplaceAllString(s, reportMasked)
-	s = reOmxToken.ReplaceAllString(s, reportMasked)
-	s = reCookie.ReplaceAllString(s, "${1}: "+reportMasked)
-	s = reKeyValue.ReplaceAllStringFunc(s, func(m string) string {
-		sub := reKeyValue.FindStringSubmatch(m)
-		q := ""
-		if v := sub[2]; v != "" && (v[0] == '"' || v[0] == '\'') {
-			q = v[:1]
-		}
-		return sub[1] + q + reportMasked + q
-	})
-	s = rePrefixTok.ReplaceAllString(s, reportMasked)
-	s = reLongBlob.ReplaceAllString(s, reportMasked)
-	return s
-}
+// maskSecrets 遮蔽看起來像機密的片段(規則在 core/redact,和 commits 回報共用)
+func maskSecrets(s string) string { return redact.Secrets(s) }
 
 // stripControl 移除控制字元;multiline = true 時保留換行與 tab(\r 去掉),否則所有空白(含換行)壓成單一空格
 func stripControl(s string, multiline bool) string {

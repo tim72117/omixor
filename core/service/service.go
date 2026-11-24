@@ -122,6 +122,7 @@ type Service struct {
 	// OAuthRegPerIP、OAuthRegTotal OAuth 動態註冊(POST /oauth/register)每分鐘的來源上限、整個服務上限(0 = 5、30);見 oauth.go
 	OAuthRegPerIP, OAuthRegTotal int
 	oauth                        oauthState
+	commitQuota                  quotaWindow // commits 回報與連結的每使用者每小時配額(見 commits.go)
 	logins                       loginLimits // 配對、LDAP、evoleap 各自的限額(見 ratelimit.go)
 }
 

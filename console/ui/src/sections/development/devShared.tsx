@@ -9,16 +9,18 @@ import { now, t } from "../../lib/format";
 import { CHECK, WORK_TYPE, type CheckKey, type PullRequest, type Repository, type WorkItem, type WorkTypeKey } from "../../models";
 import css from "./devShared.module.css";
 import type { IssueFilters } from "./issueFilters";
+import type { DecisionFilters } from "./decisionModel";
 
 // Repositories(功能 development.repos,選用模組 integrations):GitHub 與 GitLab 追蹤中的 repo 一起列;
 // 原本的 GitHub、GitLab 分頁已併進來(舊連結的 focusId "github" / "gitlab" 改開 Repositories)
-export type DevTab = "overview" | "board" | "issues" | "pulls" | "repos";
+export type DevTab = "overview" | "board" | "issues" | "pulls" | "repos" | "decisions";
 export const DEV_TABS: { id: DevTab; label: string; icon: string }[] = [
   { id: "overview", label: "概覽", icon: "chart.bar.xaxis" },
   { id: "board", label: "看板", icon: "rectangle.split.3x1" },
   { id: "issues", label: "Issue", icon: "exclamationmark.bubble" },
   { id: "pulls", label: "Pull Requests", icon: "arrow.triangle.pull" },
   { id: "repos", label: "Repositories", icon: "shippingbox" },
+  { id: "decisions", label: "待決定", icon: "questionmark.bubble" },
 ];
 
 export type DevModel = {
@@ -34,6 +36,10 @@ export type DevModel = {
   showRepo: (id?: string) => void;
   /** 看板與 Issue 分頁共用的篩選(切換分頁時保留;status 只有 Issue 分頁用) */
   issueFilters: IssueFilters; setIssueFilters: (patch: Partial<IssueFilters>) => void;
+  /** 待決定分頁的篩選與選中的 DEC 編號;showDecisions 打開分頁並只看某張 Issue 的(Issue 詳情的決定摘要用) */
+  decisionFilters: DecisionFilters; setDecisionFilters: (patch: Partial<DecisionFilters>) => void;
+  selectedDecision?: string; setSelectedDecision: (id?: string) => void;
+  showDecisions: (issueKey: string) => void;
 };
 export const DevCtx = createContext<DevModel | null>(null);
 export const useDev = () => useContext(DevCtx)!;

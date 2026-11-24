@@ -72,7 +72,6 @@ func TestOAuthWriteAllowedToolsWriteToRightOrg(t *testing.T) {
 				{"issue_decision_add", map[string]any{"issue": id, "title": "選哪個?", "kind": "help"}},
 				{"doc_save", map[string]any{"title": "OAuth文件-" + ep.name, "section": "docs", "body": "內容"}},
 				{"channel_create", map[string]any{"name": "oauth-" + strings.ReplaceAll(ep.name, "端點", "ep"), "title": "頻道"}},
-				{"agent_task_create", map[string]any{"assign_to": "cto", "title": "任務-" + ep.name}},
 			} {
 				if r := callRes(t, h, c.tool, ep.org(c.args)); r.isErr {
 					t.Fatalf("%s 在白名單內要能寫入:%v", c.tool, r.all())
@@ -108,6 +107,7 @@ func TestOAuthWriteForbiddenToolsDenied(t *testing.T) {
 		"chain_save":          {"nodes": []any{}},
 		"project_save":        {"id": "evil", "name": "不該建立"},
 		"cabinet_layout_save": {},
+		"agent_task_create":   {"assign_to": "cto", "title": "不該排任務"},
 		"agent_task_claim":    {"id": "T-1"},
 		"issue_item_claim":    {"id": "ISS-1.1"},
 		"agent_task_transfer": {"from": "a", "to": "b"},
@@ -116,6 +116,9 @@ func TestOAuthWriteForbiddenToolsDenied(t *testing.T) {
 		"channel_messages":    {"channel": "x"},
 		"agent_context":       {},
 		"wireframe_render":    {},
+		"commits_report":      {"repo": "a/b", "commits": []any{map[string]any{"sha": strings.Repeat("a", 40), "subject": "不該寫入"}}},
+		"issue_commit_link":   {"issue": "ISS-1", "repo": "a/b", "sha": strings.Repeat("a", 40)},
+		"issue_commit_unlink": {"issue": "ISS-1", "repo": "a/b", "sha": strings.Repeat("a", 40)},
 	}
 	for name := range model.OAuthForbiddenTools {
 		if _, ok := forbidden[name]; !ok {

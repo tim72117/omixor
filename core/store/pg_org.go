@@ -73,6 +73,9 @@ func (p *PG) DeleteOrg(id string) error {
 	}
 	defer tx.Rollback(c)
 	for _, q := range []string{
+		`delete from omixor_issue_commits where org = $1`,
+		`delete from omixor_commits where org = $1`,
+		`delete from omixor_repo_sync where org = $1`,
 		`delete from omixor_decisions where org = $1`,
 		`delete from omixor_issue_items where org = $1`,
 		`delete from ops_issues where org = $1`, // 留言跟著刪(on delete cascade)

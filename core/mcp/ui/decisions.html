@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>待決定畫面</title>
+<style>
+/* COMMON-CSS-BEGIN */
+:root{--bg:var(--color-background-primary,#fff);--fg:var(--color-text-primary,#1f2328);--fg2:var(--color-text-secondary,#656d76);--bd:var(--color-border-primary,#d0d7de);--bg2:var(--color-background-secondary,#f6f8fa);--font:var(--font-sans,system-ui,-apple-system,"Noto Sans TC",sans-serif);--fs:var(--font-text-md-size,14px);--fss:var(--font-text-sm-size,12px);--r:var(--border-radius-md,8px);color-scheme:light dark}
+:root[data-theme=dark]{--bg:var(--color-background-primary,#1c1c1e);--fg:var(--color-text-primary,#f0f0f0);--fg2:var(--color-text-secondary,#a0a0a8);--bd:var(--color-border-primary,#3a3a3e);--bg2:var(--color-background-secondary,#2a2a2e)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:var(--color-background-primary,#1c1c1e);--fg:var(--color-text-primary,#f0f0f0);--fg2:var(--color-text-secondary,#a0a0a8);--bd:var(--color-border-primary,#3a3a3e);--bg2:var(--color-background-secondary,#2a2a2e)}}
+html,body{margin:0;background:transparent;color:var(--fg);font:var(--fs)/1.45 var(--font)}
+#root{padding:10px 12px;box-sizing:border-box}
+.title,.head{font-weight:600;margin-bottom:8px}
+.svg svg{display:block;margin:0 auto;max-width:100%;height:auto;color:var(--fg)}
+.row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--bd)}
+.main{flex:1;min-width:0}.t{word-break:break-word}
+.meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:3px;font-size:var(--fss);color:var(--fg2)}
+.chip{padding:1px 8px;border-radius:999px;border:1px solid var(--bd);font-size:var(--fss);color:var(--fg)}
+.s-done{background:rgba(46,160,67,.18)}.s-doing{background:rgba(56,139,253,.18)}.s-blocked{background:rgba(248,81,73,.18)}.s-todo,.s-canceled{background:var(--bg2)}
+.warn{margin-top:8px;font-size:var(--fss);color:var(--fg2)}.err{color:#f85149}
+/* COMMON-CSS-END */
+.sec{font-weight:600;margin:12px 0 2px}.sec:first-of-type{margin-top:0}
+.s-open{background:rgba(210,153,34,.2)}.s-decided{background:rgba(46,160,67,.18)}.s-withdrawn{background:var(--bg2)}
+.txt{white-space:pre-wrap;word-break:break-word}.clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.opts{margin:4px 0 0;padding-left:20px;font-size:var(--fss)}.opts .rec{font-weight:600}.opts .d{color:var(--fg2)}
+.ans{margin-top:4px;font-size:var(--fss)}.ans b{font-weight:600}
+.btn{background:none;border:0;padding:0;font:inherit;font-size:var(--fss);color:var(--fg2);text-decoration:underline;cursor:pointer}
+</style></head>
+<body><div id="root">載入中…</div>
+<script>
+(function () {
+"use strict";
+/* COMMON-JS-BEGIN */
+// ---- 共用:MCP Apps 的 View 端(postMessage 上的 JSON-RPC)。不依賴任何外部程式庫。唯讀:只顯示工具結果,不呼叫任何工具 ----
+var root = document.getElementById("root");
+var pending = {}, nextId = 1, onResult = function () {};
+function post(m) { m.jsonrpc = "2.0"; window.parent.postMessage(m, "*"); }
+function request(method, params) {
+  return new Promise(function (resolve, reject) {
+    var id = nextId++;
+    pending[id] = { resolve: resolve, reject: reject };
+    post({ id: id, method: method, params: params });
+  });
+}
+function notify(method, params) { post({ method: method, params: params }); }
+function applyCtx(ctx) {
+  if (!ctx) return;
+  var el = document.documentElement;
+  if (ctx.theme === "light" || ctx.theme === "dark") { el.setAttribute("data-theme", ctx.theme); el.style.colorScheme = ctx.theme; }
+  var v = ctx.styles && ctx.styles.variables;
+  if (v) Object.keys(v).forEach(function (k) { if (k.indexOf("--") === 0 && typeof v[k] === "string") el.style.setProperty(k, v[k]); });
+  var f = ctx.styles && ctx.styles.css && ctx.styles.css.fonts;
+  if (typeof f === "string" && f) {
+    var st = document.getElementById("host-fonts");
+    if (!st) { st = document.createElement("style"); st.id = "host-fonts"; document.head.appendChild(st); }
+    st.textContent = f;
+  }
+}
+var lastH = 0;
+function reportSize() {
+  var h = Math.ceil(document.documentElement.getBoundingClientRect().height);
+  if (h && h !== lastH) { lastH = h; notify("ui/notifications/size-changed", { width: Math.ceil(window.innerWidth), height: h }); }
+}
+window.addEventListener("message", function (ev) {
+  if (ev.source !== window.parent) return;
+  var m = ev.data;
+  if (!m || m.jsonrpc !== "2.0") return;
+  if (m.method === undefined) { // 回應
+    var p = pending[m.id];
+    if (!p) return;
+    delete pending[m.id];
+    if (m.error) p.reject(m.error); else p.resolve(m.result);
+    return;
+  }
+  switch (m.method) {
+    case "ui/notifications/tool-result": onResult(m.params); setTimeout(reportSize, 0); break;
+    case "ui/notifications/host-context-changed": applyCtx(m.params); setTimeout(reportSize, 0); break;
+    case "ui/resource-teardown": if (m.id !== undefined) post({ id: m.id, result: {} }); break;
+    default: // 其他通知忽略;不認得的請求回「沒有這個方法」
+      if (m.id !== undefined) post({ id: m.id, error: { code: -32601, message: "Method not found" } });
+  }
+});
+function dataOf(r) {
+  if (r && r.structuredContent) return r.structuredContent;
+  var t = r && r.content && r.content.filter(function (c) { return c.type === "text"; })[0];
+  if (!t) return null;
+  try { return JSON.parse(t.text); } catch (e) { return null; }
+}
+function errText(r) {
+  var t = r && r.content && r.content.filter(function (c) { return c.type === "text"; })[0];
+  return (t && t.text) || "發生錯誤";
+}
+function start(name, handler) {
+  onResult = function (r) {
+    if (r && r.isError) { root.innerHTML = ""; var d = document.createElement("div"); d.className = "err"; d.textContent = errText(r); root.appendChild(d); return; }
+    handler(dataOf(r));
+    reportSize();
+  };
+  if (typeof ResizeObserver === "function") new ResizeObserver(reportSize).observe(document.documentElement);
+  request("ui/initialize", { appInfo: { name: name, version: "0.1.0" }, appCapabilities: {}, protocolVersion: "2026-01-26" })
+    .then(function (res) { applyCtx(res && res.hostContext); notify("ui/notifications/initialized", {}); reportSize(); })
+    .catch(function () { root.textContent = "（無法連上宿主）"; });
+}
+/* COMMON-JS-END */
+// ---- decisions:顯示 issue_decisions 回傳的待決定 / 需要協助(唯讀)----
+var STATUS = { open: "待處理", decided: "已處理", withdrawn: "已撤回" };
+var KINDS = [["decision", "待決定"], ["help", "需要協助"]];
+var CLIP = 140;
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function str(v) { return typeof v === "string" ? v : typeof v === "number" ? String(v) : ""; }
+function actor(a, fallback) {
+  if (a && typeof a === "object") return str(a.name) || str(a.handle) || str(fallback);
+  return str(fallback);
+}
+function when(v) {
+  var s = str(v);
+  if (!s) return "";
+  var t = Date.parse(s);
+  if (isNaN(t)) return s;
+  var diff = Math.round((Date.now() - t) / 60000);
+  if (diff >= 0 && diff < 60) return diff <= 1 ? "剛剛" : diff + " 分鐘前";
+  if (diff >= 60 && diff < 1440) return Math.floor(diff / 60) + " 小時前";
+  if (diff >= 1440 && diff < 43200) return Math.floor(diff / 1440) + " 天前";
+  return s.slice(0, 10);
+}
+// 長文字:超過 CLIP 字先收合,附「展開 / 收合」
+function longText(text, cls) {
+  var wrap = el("div", cls || "");
+  var p = el("div", "txt", text);
+  wrap.appendChild(p);
+  if (text.length > CLIP || text.split("\n").length > 3) {
+    p.className += " clip";
+    var b = el("button", "btn", "展開");
+    b.type = "button";
+    b.addEventListener("click", function () {
+      var c = p.className.indexOf("clip") >= 0;
+      p.className = c ? "txt" : "txt clip";
+      b.textContent = c ? "收合" : "展開";
+      setTimeout(reportSize, 0);
+    });
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+function answerText(d) {
+  var a = str(d.answer);
+  if (!a) return "";
+  var opt = Array.isArray(d.options) ? d.options.filter(function (o) { return o && o.id === a; })[0] : null;
+  var label = a === "done" ? "已完成" : a === "declined" ? "婉拒" : a === "other" ? "其他" : opt && str(opt.label) ? opt.label : a;
+  var parts = [label];
+  if (str(d.answerNote)) parts.push(d.answerNote);
+  if (str(d.evidence)) parts.push("證據:" + d.evidence);
+  return parts.join(" — ");
+}
+function row(d) {
+  var r = el("div", "row");
+  var main = el("div", "main");
+  var st = str(d.status);
+  var t = el("div", "t");
+  t.appendChild(el("b", "", str(d.id) || "DEC-?"));
+  t.appendChild(document.createTextNode(" " + (str(d.title) || "(沒有標題)")));
+  main.appendChild(t);
+  var meta = el("div", "meta");
+  if (st) meta.appendChild(el("span", "chip s-" + st.replace(/[^a-z]/g, ""), STATUS[st] || st));
+  if (str(d.sourceIssue)) meta.appendChild(el("span", "chip", "來源 " + d.sourceIssue));
+  var by = actor(d.createdByActor, d.createdBy);
+  var at = when(d.createdAt);
+  if (by || at) meta.appendChild(el("span", "", (by ? by + " 提出" : "提出") + (at ? " · " + at : "")));
+  main.appendChild(meta);
+  if (str(d.body)) main.appendChild(longText(d.body, "ans"));
+  if (Array.isArray(d.options) && d.options.length) {
+    var ol = el("ol", "opts");
+    d.options.forEach(function (o) {
+      if (o == null) return;
+      var li = el("li", o.recommended ? "rec" : "");
+      var label = typeof o === "string" ? o : str(o.label) || str(o.id);
+      li.appendChild(document.createTextNode(label + (o.recommended ? "(建議)" : "")));
+      if (o && str(o.description)) li.appendChild(el("span", "d", " — " + o.description));
+      ol.appendChild(li);
+    });
+    main.appendChild(ol);
+  }
+  var ans = answerText(d);
+  if (ans) {
+    var a = el("div", "ans");
+    a.appendChild(el("b", "", "回覆:"));
+    a.appendChild(document.createTextNode(ans));
+    var dby = actor(d.decidedByActor, d.decidedBy), dat = when(d.decidedAt);
+    if (dby || dat) a.appendChild(el("span", "d", "(" + [dby, dat].filter(Boolean).join(" · ") + ")"));
+    main.appendChild(a);
+  }
+  r.appendChild(main);
+  return r;
+}
+start("omixor-decisions", function (d) {
+  root.innerHTML = "";
+  var list = d && Array.isArray(d.decisions) ? d.decisions : d && typeof d.id === "string" ? [d] : null;
+  if (!list) { root.textContent = "（沒有資料）"; return; }
+  list = list.filter(function (x) { return x && typeof x === "object"; });
+  var pend = list.filter(function (x) { return x.status === "open"; }).length;
+  var total = typeof d.total === "number" ? d.total : list.length;
+  root.appendChild(el("div", "head", "待處理 " + pend + " 筆" + (total !== list.length ? "(共 " + total + " 筆,顯示 " + list.length + ")" : "")));
+  if (!list.length) { root.appendChild(el("div", "warn", "目前沒有待處理的項目")); return; }
+  KINDS.concat([["", "其他"]]).forEach(function (k) {
+    var rows = list.filter(function (x) { var kk = x.kind === "decision" || x.kind === "help" ? x.kind : ""; return kk === k[0]; });
+    if (!rows.length) return;
+    root.appendChild(el("div", "sec", k[1] + "(" + rows.length + ")"));
+    rows.forEach(function (x) { root.appendChild(row(x)); });
+  });
+});
+})();
+</script></body></html>

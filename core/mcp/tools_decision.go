@@ -80,6 +80,9 @@ func decisionJSON(e Env, d model.Decision) any {
 	return m
 }
 
+// DecisionJSON 給 console 自己登記的工具(issue_decision_withdraw、issue_decision_reopen)用:輸出格式和 issue_decision_answer 一樣
+func DecisionJSON(e Env, d model.Decision) any { return decisionJSON(e, d) }
+
 // parseOptions 選項:物件 {label, description, recommended, id},或只給字串(當 label)
 func parseOptions(raw any) ([]model.DecisionOption, error) {
 	list, ok := raw.([]any)

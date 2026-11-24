@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -44,37 +45,39 @@ func maxVersion(t *testing.T, pool *pgxpool.Pool) int {
 // (a) 步驟套用一次、版本被記錄;重跑是 no-op(步驟的 SQL 沒有 if not exists,真的再跑一次會失敗)
 func TestRunStepsAppliesOnce(t *testing.T) {
 	pool, _ := stepDB(t)
-	steps := []schemaStep{{2, "add_zz_once", `create table zz_once (id int); alter table omixor_org_system add column if not exists zz_col text`}}
+	b := knownSchemaVersion(schemaSteps) // 全新資料庫已記錄所有真正的步驟;測試用的步驟接在後面
+	steps := []schemaStep{{b + 1, "add_zz_once", `create table zz_once (id int); alter table omixor_org_system add column if not exists zz_col text`}}
 	c := context.Background()
 	chk(t, runSteps(c, pool, steps))
-	if !tableExists(t, pool, "zz_once") || maxVersion(t, pool) != 2 {
+	if !tableExists(t, pool, "zz_once") || maxVersion(t, pool) != b+1 {
 		t.Fatalf("步驟沒套用或沒記版本:max=%d", maxVersion(t, pool))
 	}
 	if n := scanInt(t, pool, `select count(*) from information_schema.columns where table_name = 'omixor_org_system' and column_name = 'zz_col'`); n != 1 {
 		t.Fatalf("欄位沒加:%d", n)
 	}
-	if n := scanInt(t, pool, `select count(*) from omixor_schema_version where version = 2 and name = 'add_zz_once'`); n != 1 {
+	if n := scanInt(t, pool, `select count(*) from omixor_schema_version where version = $1 and name = 'add_zz_once'`, b+1); n != 1 {
 		t.Fatalf("版本記錄不對:%d", n)
 	}
 	chk(t, runSteps(c, pool, steps)) // 已經做過:略過,不會因為 create table 重複而失敗
-	if n := scanInt(t, pool, `select count(*) from omixor_schema_version`); n != 2 {
-		t.Fatalf("重跑後版本記錄數應仍是 2(baseline + 步驟):%d", n)
+	if n := scanInt(t, pool, `select count(*) from omixor_schema_version`); n != b+1 {
+		t.Fatalf("重跑後版本記錄數應仍是 %d(baseline + 所有步驟):%d", b+1, n)
 	}
 }
 
 // (b) 失敗的步驟:該步驟的交易回滾、不寫記錄、錯誤含版本與名稱;之前成功的步驟保留
 func TestRunStepsFailureRollsBack(t *testing.T) {
 	pool, _ := stepDB(t)
+	b := knownSchemaVersion(schemaSteps)
 	steps := []schemaStep{
-		{2, "ok_step", `create table zz_ok (id int)`},
-		{3, "bad_step", `create table zz_bad (id int); select 1/0`},
-		{4, "after_bad", `create table zz_after (id int)`},
+		{b + 1, "ok_step", `create table zz_ok (id int)`},
+		{b + 2, "bad_step", `create table zz_bad (id int); select 1/0`},
+		{b + 3, "after_bad", `create table zz_after (id int)`},
 	}
 	err := runSteps(context.Background(), pool, steps)
-	if err == nil || !strings.Contains(err.Error(), "3") || !strings.Contains(err.Error(), "bad_step") {
+	if err == nil || !strings.Contains(err.Error(), strconv.Itoa(b+2)) || !strings.Contains(err.Error(), "bad_step") {
 		t.Fatalf("錯誤要含步驟版本與名稱:%v", err)
 	}
-	if !tableExists(t, pool, "zz_ok") || maxVersion(t, pool) != 2 {
+	if !tableExists(t, pool, "zz_ok") || maxVersion(t, pool) != b+1 {
 		t.Fatalf("之前成功的步驟要保留:max=%d", maxVersion(t, pool))
 	}
 	if tableExists(t, pool, "zz_bad") {
@@ -83,7 +86,7 @@ func TestRunStepsFailureRollsBack(t *testing.T) {
 	if tableExists(t, pool, "zz_after") {
 		t.Error("失敗之後的步驟不該執行")
 	}
-	if n := scanInt(t, pool, `select count(*) from omixor_schema_version where version >= 3`); n != 0 {
+	if n := scanInt(t, pool, `select count(*) from omixor_schema_version where version >= $1`, b+2); n != 0 {
 		t.Errorf("失敗的步驟不該寫版本記錄:%d", n)
 	}
 }
@@ -94,9 +97,10 @@ func TestRunStepsConcurrent(t *testing.T) {
 	pool2, err := pgxpool.New(context.Background(), url)
 	chk(t, err)
 	t.Cleanup(pool2.Close)
+	b := knownSchemaVersion(schemaSteps)
 	steps := []schemaStep{
-		{2, "count_a", `create table if not exists zz_cnt (n int); insert into zz_cnt values (1); select pg_sleep(0.5)`},
-		{3, "count_b", `insert into zz_cnt values (2)`},
+		{b + 1, "count_a", `create table if not exists zz_cnt (n int); insert into zz_cnt values (1); select pg_sleep(0.5)`},
+		{b + 2, "count_b", `insert into zz_cnt values (2)`},
 	}
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
@@ -114,21 +118,23 @@ func TestRunStepsConcurrent(t *testing.T) {
 	if n := scanInt(t, pool1, `select count(*) from zz_cnt`); n != 2 {
 		t.Fatalf("步驟應各套用一次(共 2 列),實際 %d 列", n)
 	}
-	if n := scanInt(t, pool1, `select count(*) from omixor_schema_version`); n != 3 {
-		t.Fatalf("版本記錄應有 baseline + 2 步驟:%d", n)
+	if n := scanInt(t, pool1, `select count(*) from omixor_schema_version`); n != b+2 {
+		t.Fatalf("版本記錄應有 baseline + 所有步驟 + 2 個測試步驟(共 %d 筆):%d", b+2, n)
 	}
 }
 
 // (d) 資料庫版本比程式已知的新(部署回滾):不報錯、不動資料庫
 func TestRunStepsDatabaseNewerThanProgram(t *testing.T) {
 	pool, _ := stepDB(t)
-	_, err := pool.Exec(context.Background(), `insert into omixor_schema_version (version, name) values (9, 'future')`)
+	b := knownSchemaVersion(schemaSteps)
+	before := scanInt(t, pool, `select count(*) from omixor_schema_version`)
+	_, err := pool.Exec(context.Background(), `insert into omixor_schema_version (version, name) values (99, 'future')`)
 	chk(t, err)
-	chk(t, runSteps(context.Background(), pool, []schemaStep{{2, "old_known", `create table zz_future (id int)`}}))
+	chk(t, runSteps(context.Background(), pool, []schemaStep{{b + 1, "old_known", `create table zz_future (id int)`}}))
 	if tableExists(t, pool, "zz_future") {
 		t.Error("資料庫版本較新時不該執行步驟")
 	}
-	if maxVersion(t, pool) != 9 || scanInt(t, pool, `select count(*) from omixor_schema_version`) != 2 {
+	if maxVersion(t, pool) != 99 || scanInt(t, pool, `select count(*) from omixor_schema_version`) != before+1 {
 		t.Error("不該改動版本記錄")
 	}
 }

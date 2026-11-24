@@ -50,8 +50,11 @@ type schemaStep struct {
 	SQL     string // 冪等、向後相容的 DDL;可以有多個語句,在同一個交易裡執行
 }
 
-// schemaSteps 依版本遞增排列。目前沒有步驟(baseline 之後還沒有結構異動)
-var schemaSteps = []schemaStep{}
+// schemaSteps 依版本遞增排列。步驟 2 是 commits(ISS-69)
+var schemaSteps = []schemaStep{
+	// 2:commits(ISS-69)。新增三張表、索引與外鍵,SQL 和全新安裝共用(schema_commits.go)
+	{Version: 2, Name: "commits", SQL: commitsSchemaSQL},
+}
 
 // knownSchemaVersion 程式已知的最大版本 = max(baseline, 步驟版本)
 func knownSchemaVersion(steps []schemaStep) int {

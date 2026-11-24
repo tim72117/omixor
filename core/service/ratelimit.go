@@ -49,6 +49,75 @@ func (s *Service) allowLogin(w *rateWindow, ip string) bool {
 	return w.allow(s.now(), limitKey(ip), per, total)
 }
 
+// quotaWindow 固定視窗的配額(每個鍵自己的視窗,從第一次使用起算 win);用在每個使用者每小時的上限。
+// 表有上限:滿了先丟過期的,還是滿就淘汰最舊的一成(灌一堆不同的使用者鍵洗不掉別人的計數:使用者 id 要先通過登入驗證才會有鍵)
+type quotaWindow struct {
+	mu sync.Mutex
+	m  map[string]failEntry
+}
+
+// quotaReq 一項要扣的配額:key 的這一輪用量加 n 不能超過 max
+type quotaReq struct {
+	key    string
+	n, max int
+}
+
+// take 同時檢查並扣掉所有項目(有任何一項超過就一項都不扣)。超過回 (false, 最早要等多久)
+func (q *quotaWindow) take(now time.Time, win time.Duration, reqs ...quotaReq) (bool, time.Duration) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.m == nil {
+		q.m = map[string]failEntry{}
+	}
+	cur := func(k string) failEntry {
+		e, ok := q.m[k]
+		if !ok || now.Sub(e.since) >= win {
+			return failEntry{since: now}
+		}
+		return e
+	}
+	for _, r := range reqs {
+		if e := cur(r.key); e.n+r.n > r.max {
+			return false, e.since.Add(win).Sub(now)
+		}
+	}
+	for _, r := range reqs {
+		if _, ok := q.m[r.key]; !ok {
+			q.makeRoom(now, win)
+		}
+		e := cur(r.key)
+		e.n += r.n
+		q.m[r.key] = e
+	}
+	return true, 0
+}
+
+func (q *quotaWindow) makeRoom(now time.Time, win time.Duration) {
+	if len(q.m) < defaultFailCap {
+		return
+	}
+	for k, e := range q.m {
+		if now.Sub(e.since) >= win {
+			delete(q.m, k)
+		}
+	}
+	if len(q.m) < defaultFailCap {
+		return
+	}
+	type kv struct {
+		k string
+		t time.Time
+	}
+	all := make([]kv, 0, len(q.m))
+	for k, e := range q.m {
+		all = append(all, kv{k, e.since})
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
+	for _, x := range all[:defaultFailCap/10] {
+		delete(q.m, x.k)
+	}
+}
+
 const defaultFailCap = 10000
 
 // failEntry 一個鍵這一輪的失敗次數;since 是這一輪開始的時間

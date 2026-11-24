@@ -42,6 +42,7 @@ package store
 //	omixor_issue_items                            Issue 子項(主鍵 (org, id) = uuidv7;(org, issue_id, seq) 唯一,seq 由 omixor_seq 的 item:<issueID> scope 發;
 //	                                               assignee、claimed_by、created_by 是 actor id(fk_issue_items_*,見 fkSpecs);depends_on 自參照、issue_id cascade、promoted_issue_id set null 在建表時就有;
 //	                                               新表直接是最終結構;task_id 是 omixor_agent_tasks.id 的字串參照,不設外鍵;規則在 service/issue_items.go)
+//	omixor_commits、omixor_issue_commits、omixor_repo_sync   commits 與 Issue 的連結(ISS-69;定義與說明在 schema_commits.go,新資料庫與結構步驟 2 共用同一段 SQL)
 //	omixor_seq                                    Issue、任務、文件、頻道、事件、待決定、頻道訊息(scope msg:<頻道 id>)最後發出去的號碼(主鍵 (org, scope);見 pg_seq.go)
 //	omixor_org_chains                             組織鏈(主鍵 org;邊在 omixor_org_chain_edges;edges(jsonb)、split_at 是舊格式遺留,不再寫,下一版 drop;見 pg_channel_children.go)
 //	omixor_channels                               訊息頻道(主鍵 (org, id) = CH-<n>;成員在 omixor_channel_members(舊 members jsonb 已不再寫,見 pg_channel_children.go);issue_id 沒綁是 NULL,同組織的 issue_id 不重複)
@@ -677,4 +678,4 @@ alter table omixor_project_repos add constraint omixor_project_repos_org_project
 alter table omixor_users add constraint fk_users_actor foreign key (actor_id, kind) references omixor_actors(id, kind) on delete restrict;
 alter table omixor_tokens add constraint omixor_tokens_user_id_fkey foreign key (user_id) references omixor_users(id);
 alter table ops_issue_comments add constraint ops_issue_comments_org_issue_id_fkey foreign key (org, issue_id) references ops_issues(org, id) on update cascade on delete cascade;
-` + schemaVersionDDL
+` + commitsSchemaSQL + schemaVersionDDL

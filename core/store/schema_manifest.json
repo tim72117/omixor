@@ -923,6 +923,91 @@
     ]
   },
   {
+    "name": "omixor_commits",
+    "columns": [
+      {
+        "name": "author_name",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "authored_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "body",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "branch",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "committed_at",
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "parents",
+        "type": "_text",
+        "nullable": false
+      },
+      {
+        "name": "repo",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "reported_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "reported_by",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "sha",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "source",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "subject",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "url",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "verified",
+        "type": "boolean",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "repo",
+      "sha"
+    ]
+  },
+  {
     "name": "omixor_decisions",
     "columns": [
       {
@@ -1357,6 +1442,62 @@
     "primaryKey": [
       "org",
       "id"
+    ]
+  },
+  {
+    "name": "omixor_issue_commits",
+    "columns": [
+      {
+        "name": "issue_id",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "kind",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "linked_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "linked_by",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "note",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "origin",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "repo",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "sha",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "issue_id",
+      "repo",
+      "sha"
     ]
   },
   {
@@ -1983,6 +2124,40 @@
     "primaryKey": [
       "org",
       "id"
+    ]
+  },
+  {
+    "name": "omixor_repo_sync",
+    "columns": [
+      {
+        "name": "last_at",
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      {
+        "name": "last_sha",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "last_source",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "org",
+        "type": "text",
+        "nullable": false
+      },
+      {
+        "name": "repo",
+        "type": "text",
+        "nullable": false
+      }
+    ],
+    "primaryKey": [
+      "org",
+      "repo"
     ]
   },
   {

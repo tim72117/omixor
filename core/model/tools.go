@@ -39,6 +39,11 @@ var CoreTools = []CoreTool{
 	{Name: "issue_update", Title: "更新 Issue", Group: "Issue", Admin: true, Agent: true},
 	{Name: "issue_accept", Title: "接受或放回 Issue", Group: "Issue", Admin: true, Agent: true},
 
+	{Name: "commits", Title: "查 commit", Group: "Commit", Admin: true, ReadOnly: true},
+	{Name: "commits_report", Title: "回報 commit", Group: "Commit", Admin: true},
+	{Name: "issue_commit_link", Title: "連結 Issue 與 commit", Group: "Commit", Admin: true},
+	{Name: "issue_commit_unlink", Title: "取消 Issue 與 commit 的連結", Group: "Commit", Admin: true},
+
 	{Name: "agents", Title: "列出虛擬角色", Group: "角色與任務", Admin: true, ReadOnly: true},
 	{Name: "agent_context", Title: "角色能讀取的資訊", Group: "角色與任務", Admin: true, Agent: true},
 	{Name: "agent_tasks", Title: "查角色任務", Group: "角色與任務", Admin: true, Agent: true, ReadOnly: true},
@@ -122,11 +127,12 @@ var OAuthWriteTools = map[string]bool{
 	"issue_item_add": true, "issue_item_update": true, "issue_item_report": true, "issue_item_promote": true,
 	"doc_save":       true,
 	"channel_create": true, "channel_post": true,
-	"agent_task_create": true, "agent_task_report": true,
+	"agent_task_report": true,
 }
 
 // OAuthForbiddenTools 明確不開放給 OAuth(含 mcp:write)的 Admin 工具與原因(只是紀錄與測試用;開放與否以 OAuthWriteTools 為準)
 var OAuthForbiddenTools = map[string]string{
+	"agent_task_create":   "排任務給角色(角色會用自己的憑證執行),OAuth 授權不能讓用戶端替角色排工作,僅限 omx_ 使用者 token(ISS-60)",
 	"agent_task_claim":    "會簽發角色憑證(可用該角色身分工作),OAuth 不發憑證",
 	"issue_item_claim":    "負責人是角色時會自動建立任務並簽發角色憑證",
 	"agent_upsert":        "角色與組織結構管理",
@@ -136,6 +142,9 @@ var OAuthForbiddenTools = map[string]string{
 	"cabinet_layout_save": "文件櫃結構管理",
 	"incident_declare":    "事件管理,先不開放",
 	"incident_update":     "事件管理,先不開放",
+	"commits_report":      "寫入 commit 資料(任何成員都能說謊,僅限 omx_ 使用者 token;ISS-69 phase 1),先不開放",
+	"issue_commit_link":   "手動連結 Issue 與 commit(僅限 omx_ 使用者 token;ISS-69 phase 1),先不開放",
+	"issue_commit_unlink": "取消 Issue 與 commit 的連結(僅限 omx_ 使用者 token;ISS-69 phase 1),先不開放",
 	"agent_context":       "角色的完整設定與文件內容,未登記為唯讀,先不開放",
 	"channel_messages":    "讀了會標記已讀(有寫入副作用),先不開放",
 	"wireframe_render":    "未登記為唯讀(可存檔),先不開放",

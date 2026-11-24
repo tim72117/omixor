@@ -52,7 +52,7 @@ var unifiedInstructions = "This is omixor's unified MCP entry point: one connect
 	"Every result also carries _meta[\"omixor/server\"] ({name, origin, version, env}) identifying which server answered. " +
 	"When connected with an OAuth grant, the connection is account-level and each call is checked against your current organization membership. " +
 	"By default an OAuth grant is read-only (scope mcp:read): only read tools are available. If you explicitly granted read-write (scope mcp:write), a limited set of collaboration write tools is also available " +
-	"(issue_create, report_problem, issue_update, issue_accept, issue_decision_add, issue_decision_answer, issue_decision_to_issue, issue_item_add, issue_item_update, issue_item_report, issue_item_promote, doc_save, channel_create, channel_post, agent_task_create, agent_task_report), " +
+	"(issue_create, report_problem, issue_update, issue_accept, issue_decision_add, issue_decision_answer, issue_decision_to_issue, issue_item_add, issue_item_update, issue_item_report, issue_item_promote, doc_save, channel_create, channel_post, agent_task_report), " +
 	"with your own organization permissions and never server-administrator powers. Everything else (claiming tasks or credentials, managing agents, the org chain, projects, the cabinet layout, incidents) requires an omx_ user token. " +
 	"issue_create, issue_update and issue_accept return a compact receipt by default (key, id, status, version, updatedAt, changed, comment_id when a comment was added); pass return=\"full\" to get the whole issue with body and comments. " +
 	"issues(id) returns only the 5 most recent comments by default (use comments_limit / comments_before to page)." +

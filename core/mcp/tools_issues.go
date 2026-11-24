@@ -355,6 +355,7 @@ func RegisterIssueTools(s *Server) {
 				return nil, terr(err)
 			}
 			out, _ := issueJSON(e, *i).(map[string]any)
+			attachIssueCommits(bk, org, *id, out) // commits(最近連結的 10 筆)與 commits_total;角色端點(被拒)與後端不支援時沒有這兩個欄位
 			return paginateComments(c, i.Comments, out)
 		}
 		status := "open"

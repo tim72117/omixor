@@ -217,6 +217,7 @@ func TestAuthzToolMarksMatchCoreTools(t *testing.T) {
 var toolAgentKnownDiff = map[string]string{
 	"agents":           "ListAgents/GetAgent 允許角色憑證看自己,MCP agents 只開管理端點(agent_context 取代)",
 	"chain":            "GetChain 允許角色憑證,MCP chain 只開管理端點(agent_context 帶上下游)",
+	"report_problem":   "走 CreateIssue(同 issue_create,角色憑證可以),MCP 的 report_problem 只開管理端點(ISS-68)",
 	"incidents":        "R-4:REST/service 對角色憑證開放事件,MCP 不開",
 	"incident_declare": "R-4",
 	"incident_update":  "R-4",

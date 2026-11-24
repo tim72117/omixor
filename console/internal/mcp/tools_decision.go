@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"omixor-core/backend"
+	coremcp "omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-web/internal/core"
@@ -76,4 +77,45 @@ func (b appBackend) DecisionSummaries(org string) (map[string]model.DecisionSumm
 		return nil, err
 	}
 	return be.DecisionSummaries(org)
+}
+
+// 撤回、重新開啟:console 自己的工具(規格在 spec/tools_console.json,核心的 MCP 端點沒有),轉發給核心的
+// POST …/decisions/{id}/withdraw、reopen。權限由核心判斷(撤回:建立者或組織管理員、只有 open;重新開啟:組織管理員或原處理人、只有 decided;
+// 不符回 403 / 409,看不到的回找不到)。畫面用 account view 的 features 裡有沒有這兩個名稱決定按鈕能不能按,名稱見 DecisionFeatures。
+func init() { core.ConsoleFeatures = DecisionFeatures }
+
+func init() {
+	Register("issue_decision_withdraw", func(c *Call) (any, error) {
+		return decisionTransition(c, func(b appBackend, org, id string) (*model.Decision, error) { return b.WithdrawDecision(org, id) })
+	})
+	Register("issue_decision_reopen", func(c *Call) (any, error) {
+		return decisionTransition(c, func(b appBackend, org, id string) (*model.Decision, error) { return b.ReopenDecision(org, id) })
+	})
+}
+
+// DecisionFeatures 這個 console 登記了的決定工具;account view 把它們併進 features(工具有登記才宣告,畫面才會開放對應按鈕)
+func DecisionFeatures() []string {
+	out := []string{}
+	for _, n := range []string{"issue_decision_withdraw", "issue_decision_reopen"} {
+		if HasTool(n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func decisionTransition(c *Call, do func(appBackend, string, string) (*model.Decision, error)) (any, error) {
+	id, err := c.Args.Require("id")
+	if err != nil {
+		return nil, err
+	}
+	x := &callCtx{App: c.App, Actor: c.Actor}
+	d, err := do(appBackend{a: c.App}, x.Org(), id)
+	if err != nil {
+		if backend.NotFound(err) {
+			return nil, Errorf("找不到 %s", id)
+		}
+		return nil, ToolErr(err)
+	}
+	return coremcp.DecisionJSON(x, *d), nil
 }

@@ -15,6 +15,8 @@ import { DevIssuesTab, type Issue } from "./DevIssuesTab";
 import { findIssue, KEY_RE, UUID_RE } from "./issueModel";
 import { resolveIssueRef } from "./issueApi";
 import { ISSUE_FILTERS_DEFAULT, type IssueFilters } from "./issueFilters";
+import { DevDecisionsTab } from "./DevDecisionsTab";
+import { DECISION_FILTERS_DEFAULT, type DecisionFilters } from "./decisionModel";
 import { DevPullRequestsTab } from "./DevPullRequestsTab";
 import { DevReposTab } from "./DevReposTab";
 import { useFeatures, useFeatureTabs } from "../../features";
@@ -29,7 +31,7 @@ function Development({ focusId, clearFocus }: SectionProps) {
   // 分頁依系統設定;選的分頁關了就顯示第一個開著的。Repositories 的 key(development.repos)是選用模組 integrations 登記的:
   // 後端沒編進模組時清單沒有這個 key → 不顯示
   const flags = useFeatures();
-  const tabs = useFeatureTabs(DEV_TABS.map((d) => d.id), rawTab, setRawTab, (t) => `development.${t}`);
+  const tabs = useFeatureTabs(DEV_TABS.map((d) => d.id), rawTab, setRawTab, (t) => (t === "decisions" ? undefined : `development.${t}`)); // 待決定分頁沒有功能開關,永遠顯示
   const tab = tabs.shown, setTab = tabs.select;
   const [selectedPR, setSelectedPR] = useState<number>();
   const [prRepoFilter, setPrRepoFilter] = useState<string>();
@@ -37,6 +39,8 @@ function Development({ focusId, clearFocus }: SectionProps) {
   const [selectedIssue, setSelectedIssue] = useState<string>();
   const [selectedRepo, setSelectedRepo] = useState<string>();
   const [issueFilters, setIssueFiltersState] = useState<IssueFilters>(ISSUE_FILTERS_DEFAULT);
+  const [decisionFilters, setDecisionFiltersState] = useState<DecisionFilters>(DECISION_FILTERS_DEFAULT);
+  const [selectedDecision, setSelectedDecision] = useState<string>();
   const [prs, , prsReady] = useList<PullRequest>("pull_requests");
   const [issues, , issuesReady] = useList<Issue>("issues");
   const [work, , workReady] = useList<WorkItem>("work_items");
@@ -46,6 +50,9 @@ function Development({ focusId, clearFocus }: SectionProps) {
     tab, setTab, selectedPR, setSelectedPR, prRepoFilter, setPrRepoFilter, highlightedItem, setHighlightedItem, selectedIssue, setSelectedIssue,
     selectedRepo, setSelectedRepo,
     issueFilters, setIssueFilters: (patch) => setIssueFiltersState((f) => ({ ...f, ...patch })),
+    decisionFilters, setDecisionFilters: (patch) => setDecisionFiltersState((f) => ({ ...f, ...patch })),
+    selectedDecision, setSelectedDecision,
+    showDecisions: (issueKey) => { setDecisionFiltersState({ ...DECISION_FILTERS_DEFAULT, status: "all", issue: issueKey }); setSelectedDecision(undefined); setTab("decisions"); },
     showIssue: (id) => { setSelectedIssue(id); setTab("issues"); },
     showPR: (id) => { setSelectedPR(id); setTab("pulls"); },
     showRepoPRs: (repo) => { setPrRepoFilter(repo); setSelectedPR(undefined); setTab("pulls"); },
@@ -88,6 +95,7 @@ function Development({ focusId, clearFocus }: SectionProps) {
           {tab === "issues" && <DevIssuesTab />}
           {tab === "pulls" && <DevPullRequestsTab />}
           {tab === "repos" && <DevReposTab />}
+          {tab === "decisions" && <DevDecisionsTab />}
         </div>
       </div>
     </DevCtx.Provider>

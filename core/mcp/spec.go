@@ -271,6 +271,7 @@ func CoreToolDefs() []any {
 	defs = append(defs, IncidentToolDefs()...)
 	defs = append(defs, DecisionToolDefs()...)
 	defs = append(defs, ItemToolDefs()...)
+	defs = append(defs, CommitToolDefs()...)
 	defs = append(defs, WireframeToolDefs()...)
 	return append(defs, FlowchartToolDefs()...)
 }
@@ -302,6 +303,7 @@ func NewCoreServer(instructions string) *Server {
 	RegisterIncidentTools(s)
 	RegisterDecisionTools(s)
 	RegisterItemTools(s)
+	RegisterCommitTools(s)
 	RegisterWireframeTools(s)
 	RegisterFlowchartTools(s)
 	return s
