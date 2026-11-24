@@ -76,6 +76,9 @@ func (s *Service) CreatePairCode(p *model.Principal) (*PairCode, error) {
 	if IsPairToken(p.Token) {
 		return nil, fail(403, "配對碼不能拿來登入")
 	}
+	if p.Via == model.ViaOAuth { // OAuth 連線(含 mcp:write)不能產生配對碼:否則可以自己再授權、換出登入 token
+		return nil, fail(403, "OAuth 連線不能產生配對碼")
+	}
 	now := s.mt()
 	code := newPairCode()
 	exp := model.Time{Time: now.Add(PairTTL)}

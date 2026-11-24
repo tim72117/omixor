@@ -1,9 +1,12 @@
-// Package oauth 是 omixor 的 OAuth 2.1 授權伺服器 HTTP 層:讓 Claude 自訂 connector 登入組織的 MCP 端點(/mcp/org/{org}),授權永遠是唯讀。
+// Package oauth 是 omixor 的 OAuth 2.1 授權伺服器 HTTP 層:讓 Claude 自訂 connector 登入 MCP 端點,授權永遠是唯讀。
+// resource 有兩種:組織 MCP 端點 <public>/mcp/org/{org}(綁單一組織),和統一入口 <public>/mcp(帳號層級:不綁組織,
+// 每次工具呼叫由統一入口用即時成員資格決定能用哪些組織;同意畫面不選組織,身分由配對碼證明)。
 // 規則(配對碼證明身分、PKCE、refresh 輪替、唯讀)在 service/oauth.go,存放在 omixor_oauth_*(core/store/pg_oauth.go);這裡只做 HTTP:
 //
 //	GET  /.well-known/oauth-protected-resource/mcp/org/{org}   RFC 9728:這個組織 MCP 端點的 resource 與授權伺服器(/.well-known/oauth-protected-resource 是沒有路徑的備援)
+//	GET  /.well-known/oauth-protected-resource/mcp             RFC 9728:統一入口 /mcp(帳號層級唯讀授權)
 //	GET  /.well-known/oauth-authorization-server/oauth         RFC 8414:授權伺服器 metadata(/oauth/.well-known/openid-configuration 同內容)
-//	POST /oauth/register                                       RFC 7591 動態註冊(JSON ≤ 16 KB;redirect_uri 只收 Claude 的 callback 與本機 /callback)
+//	POST /oauth/register                                       RFC 7591 動態註冊(JSON ≤ 16 KB;redirect_uri 只收 Claude 的 callback(含桌面版 claude://claude.ai/mcp-auth-callback/sdk)與本機 /callback)
 //	GET  /oauth/authorize                                      同意畫面:要輸入「配對碼」(在已登入的 omixor 的 手機配對 產生)
 //	POST /oauth/authorize                                      送出同意:驗證 CSRF 與配對碼,成功 303 導回 redirect_uri?code=…&state=…
 //	POST /oauth/token                                          authorization_code(PKCE S256)、refresh_token(輪替);只收 application/x-www-form-urlencoded
@@ -47,6 +50,14 @@ func (h *Handler) Issuer() string { return h.Public + "/oauth" }
 // MCPURL 組織 MCP 端點的網址(也是 OAuth 的 resource)
 func (h *Handler) MCPURL(org string) string { return h.Public + "/mcp/org/" + org }
 
+// UnifiedURL 統一入口的網址(也是帳號層級授權的 OAuth resource)
+func (h *Handler) UnifiedURL() string { return h.Public + "/mcp" }
+
+// UnifiedResourceMetadataURL 統一入口的 Protected Resource Metadata 網址
+func (h *Handler) UnifiedResourceMetadataURL() string {
+	return h.Public + "/.well-known/oauth-protected-resource/mcp"
+}
+
 // ResourceMetadataURL 組織 MCP 端點的 Protected Resource Metadata 網址
 func (h *Handler) ResourceMetadataURL(org string) string {
 	return h.Public + "/.well-known/oauth-protected-resource/mcp/org/" + org
@@ -61,10 +72,19 @@ func (h *Handler) orgOfResource(resource string) string {
 	return org
 }
 
+// resourceOf resource(RFC 8707)→ 授權範圍:組織 MCP 網址回組織 id;統一入口網址回 account=true;其他都不認得(org 空、account false)
+func (h *Handler) resourceOf(resource string) (org string, account bool) {
+	if resource == h.UnifiedURL() {
+		return "", true
+	}
+	return h.orgOfResource(resource), false
+}
+
 // Mount 把路由掛到 mux
 func (h *Handler) Mount(mux *http.ServeMux) {
 	obs := func(f http.HandlerFunc) http.Handler { return h.observe(f, nil, nil) }
 	mux.Handle("GET /.well-known/oauth-protected-resource/mcp/org/{org}", obs(h.protectedResource))
+	mux.Handle("GET /.well-known/oauth-protected-resource/mcp", obs(h.protectedResourceUnified))
 	mux.Handle("GET /.well-known/oauth-protected-resource", obs(h.protectedResource))
 	mux.Handle("GET /.well-known/oauth-authorization-server/oauth", obs(h.serverMetadata))
 	mux.Handle("GET /oauth/.well-known/openid-configuration", obs(h.serverMetadata))
@@ -88,6 +108,16 @@ func writeJSON(w http.ResponseWriter, status int, v any, extra ...string) {
 
 // ---------------- metadata ----------------
 
+func (h *Handler) protectedResourceUnified(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{
+		"resource":                 h.UnifiedURL(),
+		"authorization_servers":    []string{h.Issuer()},
+		"scopes_supported":         []string{model.OAuthScopeRead, model.OAuthScopeWrite},
+		"bearer_methods_supported": []string{"header"},
+		"resource_name":            "omixor",
+	})
+}
+
 func (h *Handler) protectedResource(w http.ResponseWriter, r *http.Request) {
 	resource := h.Public // 沒有路徑的備援:沒有組織可以指,只給伺服器本身
 	if org := r.PathValue("org"); org != "" {
@@ -100,7 +130,7 @@ func (h *Handler) protectedResource(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"resource":                 resource,
 		"authorization_servers":    []string{h.Issuer()},
-		"scopes_supported":         []string{model.OAuthScopeRead},
+		"scopes_supported":         []string{model.OAuthScopeRead, model.OAuthScopeWrite},
 		"bearer_methods_supported": []string{"header"},
 		"resource_name":            "omixor",
 	})
@@ -118,7 +148,7 @@ func (h *Handler) serverMetadata(w http.ResponseWriter, r *http.Request) {
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
-		"scopes_supported":                      []string{model.OAuthScopeRead, model.OAuthScopeOffline},
+		"scopes_supported":                      []string{model.OAuthScopeRead, model.OAuthScopeWrite, model.OAuthScopeOffline},
 	})
 }
 
@@ -261,7 +291,13 @@ label{display:block;margin-top:14px}
 input[type=text]{width:100%;padding:12px;font-size:20px;letter-spacing:.12em;text-transform:uppercase;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--fg);margin:6px 0 14px}
 .row{display:flex;gap:10px}
 button{flex:1;font:inherit;padding:12px;border-radius:8px;border:1px solid var(--bd);background:var(--bg2);color:var(--fg);cursor:pointer}
-button.p{background:var(--ac);border-color:var(--ac);color:#fff}`
+button.p{background:var(--ac);border-color:var(--ac);color:#fff}
+fieldset{border:0;margin:12px 0;padding:0}
+.opt{display:block;border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin:8px 0;cursor:pointer}
+.opt input{margin-right:8px}
+.opt.w{border-color:var(--er)}
+.warn{color:var(--er);font-weight:600;margin:6px 0 0}
+.opt ul{margin:6px 0 0 18px;padding:0;font-size:14px;color:var(--fg2)}`
 
 func (h *Handler) css(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
@@ -276,13 +312,23 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <body><main>
 {{if .Fatal}}<h1>無法授權</h1><p>{{.Fatal}}</p>{{else}}
 <h1>授權連線確認</h1>
-<p class="note">有一個應用程式想用唯讀的方式連到你的 omixor。若你不是剛剛自己在 Claude 新增這個 connector,請按「拒絕」。</p>
+{{if .WriteRequested}}{{if .Account}}<p class="note">有一個應用程式想連到你帳號能存取的所有組織(之後你加入或退出組織,範圍會跟著變)。你可以只授予唯讀,或明確選擇讀寫(見下方,預設唯讀)。若你不是剛剛自己新增這個連線,請按「拒絕」。</p>{{else}}<p class="note">有一個應用程式想連到你的 omixor。你可以只授予唯讀,或明確選擇讀寫(見下方,預設唯讀)。若你不是剛剛自己在 Claude 新增這個 connector,請按「拒絕」。</p>{{end}}
+{{else}}{{if .Account}}<p class="note">授權這個應用程式以唯讀方式讀取你帳號能存取的所有組織(之後你加入或退出組織,可讀取的範圍會跟著變)。若你不是剛剛自己新增這個連線,請按「拒絕」。</p>{{else}}<p class="note">有一個應用程式想用唯讀的方式連到你的 omixor。若你不是剛剛自己在 Claude 新增這個 connector,請按「拒絕」。</p>{{end}}{{end}}
 <div class="box"><dl>
 <dt>應用程式名稱(對方自行申報,未經驗證)</dt><dd>{{.ClientName}}</dd>
 <dt>授權完成後會回到</dt><dd>{{.RedirectHost}}</dd>
-<dt>組織</dt><dd>{{.Org}}</dd>
-<dt>要求的權限</dt><dd>{{.Scope}}(只能讀取,不能修改任何資料)</dd>
+{{if .Account}}<dt>範圍</dt><dd>你帳號能存取的所有組織(包含之後加入的組織)</dd>{{else}}<dt>組織</dt><dd>{{.Org}}</dd>{{end}}
+{{if not .WriteRequested}}<dt>要求的權限</dt><dd>{{.Scope}}(只能讀取,不能修改任何資料)</dd>{{end}}
 </dl></div>
+{{if .WriteRequested}}<fieldset><legend>這個應用程式要求「讀寫」權限,請選擇要授予的權限(預設只授予唯讀)</legend>
+<label class="opt"><input type="radio" name="grant" value="read" checked><strong>唯讀(建議)</strong><br><span class="note">{{.Scope}}:只能讀取,不能修改任何資料。</span></label>
+<label class="opt w"><input type="radio" name="grant" value="write"><strong>讀寫(進階)</strong>
+<p class="warn">這個應用程式將能以你的身分修改資料。</p>
+<span class="note">可寫入的只有協作類工具,權限仍受你在組織裡的角色限制:</span>
+<ul><li>建立、更新、接受或放回 Issue</li><li>提出與處理待決定、需要協助,由待決定開出 Issue</li><li>新增、修改、回報 Issue 子項,把子項提升為 Issue</li><li>存文件到文件櫃</li><li>建立對話頻道、在頻道發訊息</li><li>指派任務給角色、回報任務</li></ul>
+<span class="note">不能做:管理角色、組織鏈、專案與文件櫃結構、事件、領取角色憑證、伺服器管理員的操作(即使你是伺服器管理員也一樣),也不能管理 token 或使用者。</span><br>
+<span class="note">撤銷:目前沒有自助的撤銷畫面。退出該組織,或請伺服器管理員停用你的帳號,會立刻失效;存取權杖 10 分鐘到期,續期權杖最久 30 天。</span></label>
+</fieldset>{{end}}
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
 <form method="post" action="/oauth/authorize" autocomplete="off">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -306,6 +352,7 @@ type consentView struct {
 	ClientName, RedirectHost, Org, Scope                    string
 	CSRF, ClientID, RedirectURI, Challenge, State, Resource string
 	RequestedScope                                          string
+	Account, WriteRequested                                 bool
 }
 
 func pageHeaders(w http.ResponseWriter, formAction string) {
@@ -336,7 +383,7 @@ func (h *Handler) renderConsent(w http.ResponseWriter, status int, c *service.OA
 	}
 	pageHeaders(w, origin)
 	w.WriteHeader(status)
-	_ = consentTmpl.Execute(w, consentView{Title: "授權確認", Error: errMsg, ClientName: c.Client.Name, RedirectHost: host, Org: c.Org, Scope: c.Scope,
+	_ = consentTmpl.Execute(w, consentView{Title: "授權確認", Error: errMsg, ClientName: c.Client.Name, RedirectHost: host, Org: c.Org, Scope: c.Scope, Account: c.Account, WriteRequested: c.WriteRequested,
 		CSRF: csrf, ClientID: c.Client.ID, RedirectURI: c.RedirectURI, Challenge: req.CodeChallenge, State: req.State, Resource: c.Resource,
 		RequestedScope: req.Scope})
 }
@@ -348,7 +395,7 @@ func (h *Handler) authRequest(get func(string) string, all func(string) []string
 		State: get("state"), Scope: get("scope"), Resources: all("resource"),
 	}
 	if len(req.Resources) == 1 {
-		req.Org = h.orgOfResource(req.Resources[0])
+		req.Org, req.Account = h.resourceOf(req.Resources[0])
 	}
 	return req
 }
@@ -403,7 +450,7 @@ func (h *Handler) authorizeGet(w http.ResponseWriter, r *http.Request) {
 		h.authError(w, r, req, err)
 		return
 	}
-	csrf, err := h.Svc.NewOAuthCSRF(chk.Client.ID, service.ClientIP(r))
+	csrf, err := h.Svc.NewOAuthCSRF(chk, req.CodeChallenge, service.ClientIP(r))
 	if err != nil {
 		var oe *service.OAuthError
 		if errors.As(err, &oe) {
@@ -439,8 +486,8 @@ func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
 		h.authError(w, r, req, err)
 		return
 	}
-	// CSRF:這一次載入的 token,只能用一次(驗證失敗不導回,請使用者重新開始)
-	if !h.Svc.VerifyOAuthCSRF(f.Get("csrf"), chk.Client.ID) {
+	// CSRF:這一次載入的 token,綁定這一次授權請求(client、resource、redirect_uri、code_challenge、要求的 scope 範圍),只能用一次(驗證失敗不導回,請使用者重新開始)
+	if !h.Svc.VerifyOAuthCSRF(f.Get("csrf"), chk, req.CodeChallenge) {
 		d["pairing_result"] = "bad_csrf"
 		h.renderFatal(w, 403, "這個頁面已失效(逾時或重複送出),請回到 Claude 重新開始連線")
 		return
@@ -451,7 +498,10 @@ func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
 		redirectTo(w, chk.RedirectURI, "error", "access_denied", "error_description", "使用者拒絕授權", "state", req.State)
 		return
 	}
-	code, err := h.Svc.ApproveOAuth(chk, req.CodeChallenge, f.Get("pairing_code"), service.ClientIP(r))
+	// 只有表單明確送 grant=write 才是讀寫(其他值、沒送都是唯讀);客戶端沒有要求 mcp:write 卻送 grant=write 由 service 拒絕(invalid_scope)
+	grantWrite := f.Get("grant") == "write"
+	d["grant_write"] = grantWrite
+	code, err := h.Svc.ApproveOAuthScope(chk, req.CodeChallenge, f.Get("pairing_code"), service.ClientIP(r), grantWrite)
 	if err != nil {
 		var oe *service.OAuthError
 		if !errors.As(err, &oe) {
@@ -465,9 +515,11 @@ func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
 			d["pairing_result"] = "wrong"
 		case oe.Reason != "":
 			d["pairing_result"] = oe.Reason
+		case oe.Code == "invalid_scope":
+			d["pairing_result"] = "bad_scope"
 		}
 		if oe == service.ErrOAuthPairInvalid {
-			csrf, cerr := h.Svc.NewOAuthCSRF(chk.Client.ID, service.ClientIP(r))
+			csrf, cerr := h.Svc.NewOAuthCSRF(chk, req.CodeChallenge, service.ClientIP(r))
 			if cerr != nil {
 				h.renderFatal(w, 429, "太頻繁,請稍後再試")
 				return

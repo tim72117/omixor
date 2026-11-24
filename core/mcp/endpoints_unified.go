@@ -20,13 +20,17 @@ import (
 // OrgFreeTools 統一入口上不需要 org 的工具(帳號層級):orgs 列可用組織、schema_check 檢核資料庫結構(伺服器管理員)
 var OrgFreeTools = map[string]bool{"orgs": true, "schema_check": true}
 
-// UnifiedOAuthMessage 統一入口收到 OAuth access token(omo_)時的說明
-const UnifiedOAuthMessage = "統一入口 /mcp 暫不支援 OAuth 授權(第一階段只收 omixor 使用者 token omx_…);OAuth 請改用 /mcp/org/{org}"
+// UnifiedUnauthorizedMessage 統一入口 401 的說明(給 LLM / 用戶端看,英文)
+const UnifiedUnauthorizedMessage = "A bearer token is required: an omx_ user token or an OAuth access token."
 
 // UnifiedEndpointConfig 統一入口的設定
 type UnifiedEndpointConfig struct {
 	// Resolve 認證這個請求,回傳這次連線的 Backend(沒有組織:組織每次呼叫自己帶)。錯誤處理同 AdminEndpointConfig.Resolve
+	// 帶 omx_ 使用者 token 或 OAuth access token(omo_,帳號層級;唯讀 = Backend 的 ReadOnly() 為 true,讀寫 = OAuthWrite() 為 true)都由它認證。
+	// 錯誤是 *service.Error 且狀態碼 403、404、429 時照該狀態碼回應,其他一律 401(帶 WWW-Authenticate)
 	Resolve func(r *http.Request) (backend.Backend, error)
+	// ResourceMetadata 統一入口的 OAuth Protected Resource Metadata 網址(RFC 9728);非空時 401 的 WWW-Authenticate 帶 resource_metadata。空 = 不帶(沒有啟用 OAuth)
+	ResourceMetadata string
 	// AgentEndpoint 角色端點的網址(領取任務時告訴呼叫端);空字串不附
 	AgentEndpoint string
 	// Tools 額外的工具(一律視為需要 org)
@@ -36,7 +40,11 @@ type UnifiedEndpointConfig struct {
 
 var unifiedInstructions = "這是 omixor 的 MCP 統一入口:一個連線可以操作你帳號下所有組織,沒有預設組織。" +
 	"除了 orgs 之外,每一次工具呼叫都必須帶 org 參數(組織 id),讀取與寫入都一樣;先用 orgs 看你能用的組織。" +
-	"The result carries the organization actually used in its _meta field, under the key omixor/org." +
+	"The result carries the organization actually used in its _meta field, under the key omixor/org. " +
+	"When connected with an OAuth grant, the connection is account-level and each call is checked against your current organization membership. " +
+	"By default an OAuth grant is read-only (scope mcp:read): only read tools are available. If you explicitly granted read-write (scope mcp:write), a limited set of collaboration write tools is also available " +
+	"(issue_create, issue_update, issue_accept, issue_decision_add, issue_decision_answer, issue_decision_to_issue, issue_item_add, issue_item_update, issue_item_report, issue_item_promote, doc_save, channel_create, channel_post, agent_task_create, agent_task_report), " +
+	"with your own organization permissions and never server-administrator powers. Everything else (claiming tasks or credentials, managing agents, the org chain, projects, the cabinet layout, incidents) requires an omx_ user token." +
 	strings.Replace(adminInstructions, "操作目前組織的", "操作 org 參數指定組織的", 1)
 
 // orgDenied 缺 org、org 不合法、不存在、不是成員都用同一句(不洩漏組織存不存在),並列出呼叫者可用的組織
@@ -143,7 +151,7 @@ func WithOrgParam(defs []any) []any {
 	return out
 }
 
-// UnifiedEndpoint 統一入口的 http.Handler(雲端掛在 /mcp,用 omixor 使用者 token 認證;OAuth 的 omo_ 一律 403)
+// UnifiedEndpoint 統一入口的 http.Handler(雲端掛在 /mcp:omixor 使用者 token(omx_)認證,或 OAuth access token(omo_,帳號層級;預設唯讀只開放 ReadOnlyTools,使用者明確授權 mcp:write 才再開放 OAuthWriteTools))
 func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 	ins := cfg.Instructions
 	if ins == "" {
@@ -163,20 +171,17 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 	}
 	uiResources := UIResources()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if tok, _ := BearerToken(r); strings.HasPrefix(tok, model.OAuthTokenPrefix) {
-			text(w, 403, UnifiedOAuthMessage)
-			return
-		}
 		bk, err := cfg.Resolve(r)
 		if err != nil {
 			if c := service.Code(err); c == 403 || c == 404 || c == 429 {
 				http.Error(w, httperr.Report("mcp 統一入口解析身分", err).Msg, c)
 				return
 			}
-			unauthorized(w, "omixor")
+			// 帶了 OAuth 的 access token(omo_)卻被拒(過期、撤銷、綁的不是 /mcp):error="invalid_token",用戶端會去 refresh 或重新授權
+			tok, _ := BearerToken(r)
+			unauthorizedBody(w, "omixor", cfg.ResourceMetadata, strings.HasPrefix(tok, model.OAuthTokenPrefix), UnifiedUnauthorizedMessage)
 			return
 		}
-		// OAuth read-only grants are handled in phase 2; share a helper with AdminEndpoint then.
 		// ListOrgs is looked up at most once per HTTP request (this bk) and dropped with it; never shared across requests or users.
 		oc := &orgCache{b: bk}
 		hooks := Hooks{
@@ -208,6 +213,8 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 			},
 			Guard:     RejectIdentityAgent,
 			Resources: uiResources}
+		// OAuth(唯讀):和 AdminEndpoint 同一套限制;組織仍由每次呼叫的 org 參數與即時成員資格決定(CallCtx),token 本身不帶組織
+		hooks = restrictOAuth(hooks, bk)
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})
 }

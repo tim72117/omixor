@@ -2,15 +2,18 @@ package model
 
 import "time"
 
-// OAuth(讓 Claude 自訂 connector 用 OAuth 2.1 連組織的 MCP 端點;唯讀授權)用到的資料。
+// OAuth(讓 Claude 自訂 connector 用 OAuth 2.1 連組織的 MCP 端點;預設唯讀,使用者明確選擇才可寫入受限白名單)用到的資料。
 // 存放在獨立的資料表(omixor_oauth_clients、omixor_oauth_tokens),和使用者 token(omx_)完全分開。
 
 // OAuth 一些固定值
 const (
 	// OAuthTokenPrefix OAuth access / refresh token 的前綴(使用者 token 是 omx_)
 	OAuthTokenPrefix = "omo_"
-	// OAuthScopeRead 唯讀 MCP 的 scope(目前唯一會授予的 scope)
+	// OAuthScopeRead 唯讀 MCP 的 scope(預設授予的 scope)
 	OAuthScopeRead = "mcp:read"
+	// OAuthScopeWrite 受限寫入的 scope(隱含 mcp:read):只開放 OAuthWriteTools 那組協作工具、不是伺服器管理員(Principal.ServerAdmin 對它一律 false);
+	// 客戶端要求、使用者在同意畫面明確選「讀寫」才會授予,永遠不會自動升級
+	OAuthScopeWrite = "mcp:write"
 	// OAuthScopeOffline 只用來宣告「可以拿 refresh token」;不會出現在授予的 scope 裡
 	OAuthScopeOffline = "offline_access"
 )

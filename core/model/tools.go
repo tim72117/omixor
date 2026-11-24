@@ -111,3 +111,31 @@ func CoreToolSet(keep func(CoreTool) bool) map[string]bool {
 	}
 	return out
 }
+
+// OAuthWriteTools OAuth 寫入授權(scope mcp:write)額外開放的工具:只有協作類寫入,明確列在這裡(不是「所有非唯讀」);
+// 實際可用 = ReadOnly ∪ OAuthWriteTools,而且 service 層照既有授權表檢查(成員角色、受限專案),OAuth 不繞過任何一項,也不是伺服器管理員(Principal.ServerAdmin)。
+// 新增 Admin 工具時必須分類:ReadOnly、這裡、或 OAuthForbiddenTools(model 的測試會檢查)
+var OAuthWriteTools = map[string]bool{
+	"issue_create": true, "issue_update": true, "issue_accept": true,
+	"issue_decision_add": true, "issue_decision_answer": true, "issue_decision_to_issue": true,
+	"issue_item_add": true, "issue_item_update": true, "issue_item_report": true, "issue_item_promote": true,
+	"doc_save":       true,
+	"channel_create": true, "channel_post": true,
+	"agent_task_create": true, "agent_task_report": true,
+}
+
+// OAuthForbiddenTools 明確不開放給 OAuth(含 mcp:write)的 Admin 工具與原因(只是紀錄與測試用;開放與否以 OAuthWriteTools 為準)
+var OAuthForbiddenTools = map[string]string{
+	"agent_task_claim":    "會簽發角色憑證(可用該角色身分工作),OAuth 不發憑證",
+	"issue_item_claim":    "負責人是角色時會自動建立任務並簽發角色憑證",
+	"agent_upsert":        "角色與組織結構管理",
+	"agent_task_transfer": "轉移角色任務(角色與任務歸屬管理),先不開放",
+	"chain_save":          "組織鏈(組織結構)管理",
+	"project_save":        "專案與專案成員、可見性管理",
+	"cabinet_layout_save": "文件櫃結構管理",
+	"incident_declare":    "事件管理,先不開放",
+	"incident_update":     "事件管理,先不開放",
+	"agent_context":       "角色的完整設定與文件內容,未登記為唯讀,先不開放",
+	"channel_messages":    "讀了會標記已讀(有寫入副作用),先不開放",
+	"wireframe_render":    "未登記為唯讀(可存檔),先不開放",
+}

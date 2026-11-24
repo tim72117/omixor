@@ -19,6 +19,9 @@ var _ Backend = (*Local)(nil)
 // ReadOnly 這個連線是唯讀授權(OAuth 的 mcp:read):MCP 端點只開放唯讀工具(見 mcp.AdminEndpoint)
 func (l *Local) ReadOnly() bool { return l.P != nil && l.P.ReadOnly }
 
+// OAuthWrite 這個連線是有 mcp:write 的 OAuth 授權:MCP 端點開放唯讀工具加上 OAuthWriteTools(見 mcp.restrictOAuthWrite);不是伺服器管理員(Principal.ServerAdmin)
+func (l *Local) OAuthWrite() bool { return l.P != nil && l.P.OAuthWrite() }
+
 func (l *Local) ensureOrg(org string) {
 	if !l.EnsureOrg {
 		return

@@ -69,3 +69,6 @@ server/omixor-server
 # 本機 MCP 連線設定(含讀本機憑證的腳本),不進版控
 .mcp.json
 .claude/omixor-local-mcp-headers.sh
+.claude/omixor-cloud-mcp-headers.sh
+.claude/settings.local.json
+.claude/worktrees/

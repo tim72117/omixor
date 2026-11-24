@@ -80,3 +80,72 @@ func readOnlyGuard(name string, args map[string]any) error {
 	}
 	return nil
 }
+
+// OAuthWriteTools OAuth 寫入授權(mcp:write)額外開放的協作寫入工具(明確的白名單,見 model.OAuthWriteTools):可用 = ReadOnlyTools ∪ OAuthWriteTools
+var OAuthWriteTools = model.OAuthWriteTools
+
+// OAuthNotAvailableMessage 有 mcp:write 的 OAuth 連線呼叫了白名單外的工具時的訊息(給 LLM 看,英文)
+const OAuthNotAvailableMessage = "This tool is not available over OAuth. Use an omx_ user token for it."
+
+// isReadOnlyBackend 這個連線是唯讀授權(OAuth 的 mcp:read)嗎(Backend 實作 ReadOnly() bool,例如 backend.Local)
+func isReadOnlyBackend(bk any) bool {
+	b, ok := bk.(interface{ ReadOnly() bool })
+	return ok && b.ReadOnly()
+}
+
+// isOAuthWriteBackend 這個連線是有 mcp:write 的 OAuth 授權嗎(Backend 實作 OAuthWrite() bool,例如 backend.Local)
+func isOAuthWriteBackend(bk any) bool {
+	b, ok := bk.(interface{ OAuthWrite() bool })
+	return ok && b.OAuthWrite()
+}
+
+// restrictOAuth 依連線的 OAuth scope 套上限制(AdminEndpoint 與 UnifiedEndpoint 共用,兩邊行為一致);不是 OAuth 連線(omx_)原樣回傳:
+//   - 唯讀(mcp:read):restrictReadOnly
+//   - 讀寫(mcp:write):restrictOAuthWrite
+func restrictOAuth(h Hooks, bk any) Hooks {
+	switch {
+	case isReadOnlyBackend(bk):
+		return restrictReadOnly(h)
+	case isOAuthWriteBackend(bk):
+		return restrictOAuthWrite(h)
+	}
+	return h
+}
+
+// restrictReadOnly 唯讀授權(OAuth)的限制:
+// 只開放登記為 ReadOnly 的核心工具(額外掛上來的工具也不開放);被擋掉的工具回 ReadOnlyMessage;呼叫前再過 readOnlyGuard(例如 flowchart_render 不能 save)。
+// 原本的 Allow / Guard 仍然先生效(兩者都通過才放行)
+func restrictReadOnly(h Hooks) Hooks {
+	allow, guard := h.Allow, h.Guard
+	h.Allow = func(name string) bool { return ReadOnlyTools[name] && (allow == nil || allow(name)) }
+	h.Guard = func(name string, args map[string]any) error {
+		if guard != nil {
+			if err := guard(name, args); err != nil {
+				return err
+			}
+		}
+		return readOnlyGuard(name, args)
+	}
+	h.Deny = func(string) string { return ReadOnlyMessage }
+	return h
+}
+
+// restrictOAuthWrite 讀寫授權(mcp:write)的限制:開放 ReadOnlyTools ∪ OAuthWriteTools(額外掛上來的工具也不開放);其他工具回 OAuthNotAvailableMessage;
+// readOnlyGuard 照舊套用(flowchart_render 仍不能 save:要存文件請用 doc_save)。原本的 Allow / Guard 仍然先生效。
+// 身分的權限上限不在這裡:Principal.ServerAdmin 對這個身分是 false,寫入走 service 的授權表
+func restrictOAuthWrite(h Hooks) Hooks {
+	allow, guard := h.Allow, h.Guard
+	h.Allow = func(name string) bool {
+		return (ReadOnlyTools[name] || OAuthWriteTools[name]) && (allow == nil || allow(name))
+	}
+	h.Guard = func(name string, args map[string]any) error {
+		if guard != nil {
+			if err := guard(name, args); err != nil {
+				return err
+			}
+		}
+		return readOnlyGuard(name, args)
+	}
+	h.Deny = func(string) string { return OAuthNotAvailableMessage }
+	return h
+}

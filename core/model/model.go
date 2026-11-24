@@ -295,7 +295,8 @@ type Principal struct {
 	Actor ActorRef
 	// Via 身分的來源,見 Via* 常數;空 = 沒標(舊路徑)
 	Via string
-	// ReadOnly 唯讀授權(OAuth 的 mcp:read):MCP 端點只開放登記為 ReadOnly 的工具(model.CoreTool.ReadOnly),REST 一律拒絕
+	// ReadOnly 唯讀授權(OAuth 的 mcp:read):MCP 端點只開放登記為 ReadOnly 的工具(model.CoreTool.ReadOnly),REST 一律拒絕。
+	// Via 是 ViaOAuth 且 ReadOnly 為 false = 有 mcp:write(受限寫入):MCP 端點只開放 ReadOnly ∪ OAuthWriteTools,而且不是伺服器管理員(見 ServerAdmin)
 	ReadOnly bool
 }
 
@@ -305,8 +306,15 @@ const (
 	ViaPair            = "pair"             // 配對碼換來的 token(手機)
 	ViaMCP             = "mcp"              // MCP 端點
 	ViaLocal           = "local"            // 本機模式(單機、不經登入)
-	ViaOAuth           = "oauth"            // OAuth access token(Claude 自訂 connector;唯讀)
+	ViaOAuth           = "oauth"            // OAuth access token(Claude 自訂 connector;預設唯讀,mcp:write 是受限寫入)
 	ViaAgentCredential = "agent-credential" // 角色憑證(agentId + secret)或執行者代角色
 )
 
-func (p Principal) ServerAdmin() bool { return p.User.Role == "admin" && !p.User.Disabled }
+// OAuthWrite 這是有 mcp:write 的 OAuth 身分(受限寫入;不是伺服器管理員,只能用 OAuthWriteTools)
+func (p Principal) OAuthWrite() bool { return p.Via == ViaOAuth && !p.ReadOnly }
+
+// ServerAdmin 伺服器管理員。OAuth 的寫入身分(OAuthWrite)一律不是:就算登入的使用者是伺服器管理員,OAuth 連線以一般成員的權限運作
+// (沒有跨組織的萬能權限、不能代別人署名、不能取代留言、不能做伺服器管理操作)。唯讀的 OAuth 身分不受影響(本來就只能讀)
+func (p Principal) ServerAdmin() bool {
+	return p.User.Role == "admin" && !p.User.Disabled && !p.OAuthWrite()
+}

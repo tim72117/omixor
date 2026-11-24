@@ -9,7 +9,7 @@ import (
 	"omixor-core/service"
 )
 
-// 統一入口 /mcp 的路由與認證(走 HandlerWith,和 OAuth 一起掛):omx_ 使用者 token + org 參數;omo_ 一律拒絕;舊的 /mcp/org/{org} 不變
+// 統一入口 /mcp 的路由與認證(走 HandlerWith,和 OAuth 一起掛):omx_ 使用者 token + org 參數;舊的 /mcp/org/{org} 不變
 func TestUnifiedMCPRoute(t *testing.T) {
 	o := newOAHTTP(t)
 	post := func(path, body string, hdr ...string) *httptest.ResponseRecorder {
@@ -27,9 +27,9 @@ func TestUnifiedMCPRoute(t *testing.T) {
 	if w := post("/mcp", call(`{"org":"o"}`), "Authorization", "Bearer omx_nope"); w.Code != 401 {
 		t.Fatal(w.Code)
 	}
-	// OAuth token(格式上是 omo_):403,說明改用 /mcp/org/{org}
-	if w := post("/mcp", call(`{"org":"o"}`), "Authorization", "Bearer omo_whatever"); w.Code != 403 || !strings.Contains(w.Body.String(), "/mcp/org/{org}") {
-		t.Fatal(w.Code, w.Body.String())
+	// 亂的 omo_(OAuth 有啟用):401 invalid_token(統一入口收 OAuth,見 mcp_unified_oauth_test.go)
+	if w := post("/mcp", call(`{"org":"o"}`), "Authorization", "Bearer omo_whatever"); w.Code != 401 || !strings.Contains(w.Header().Get("WWW-Authenticate"), `error="invalid_token"`) {
+		t.Fatal(w.Code, w.Header(), w.Body.String())
 	}
 	// 帶 org:成功,結果的 _meta 附 org
 	w := post("/mcp", call(`{"org":"o"}`), auth...)

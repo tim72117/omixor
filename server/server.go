@@ -27,12 +27,14 @@
 //	/api/…                         核心 HTTP API(core/api)
 //	/mcp/agent                     角色端點:Authorization: Bearer <agentId>:<secret>(領取任務時發的憑證),白名單工具(含文件櫃,依角色的 docAccess)
 //	/mcp/worker/{org}              執行者專用 MCP(只有 dispatch_queue/claim/status/release):認證同 /mcp/org/{org}
-//	/mcp                           統一入口 MCP(第一階段):Authorization: Bearer omx_…;每次工具呼叫用 org 參數指定組織(必填,沒有預設組織),
-//	                               每次驗證呼叫者是該組織成員;OAuth 的 omo_ 一律 403(OAuth 請用 /mcp/org/{org})
+//	/mcp                           統一入口 MCP:Authorization: Bearer omx_…(使用者 token,可讀寫);每次工具呼叫用 org 參數指定組織(必填,沒有預設組織),
+//	                               每次驗證呼叫者是該組織成員(即時成員資格)。也收 OAuth 的 access token(omo_…):帳號層級、預設唯讀(resource=<public>/mcp,
+//	                               不綁組織,只開放唯讀工具;使用者在同意畫面明確選讀寫才多開 OAuthWriteTools 協作寫入,且不是伺服器管理員);沒設 OMIXOR_PUBLIC_URL 時沒有 OAuth,omo_ 回 403;
+//	                               metadata 在 /.well-known/oauth-protected-resource/mcp
 //	/mcp/org/{org}                 管理用 MCP(組織 {org} 的 Issue、角色、任務、文件櫃):Authorization: Bearer omx_…(omixor token),權限同該使用者;
-//	                               或 OAuth 的 access token(omo_…,唯讀,見下面 /oauth;只開放唯讀工具,帶 MCP Apps 畫面 ui://omixor/flowchart、ui://omixor/items)
+//	                               或 OAuth 的 access token(omo_…,預設唯讀,可選受限寫入,見下面 /oauth;只開放唯讀工具(讀寫另加 OAuthWriteTools),帶 MCP Apps 畫面 ui://omixor/flowchart、ui://omixor/items)
 //	/oauth/…、/.well-known/…       OAuth 2.1 授權伺服器(Claude 自訂 connector 用):/oauth/register、/oauth/authorize、/oauth/token、/oauth/consent.css,
-//	                               metadata 在 /.well-known/oauth-protected-resource/mcp/org/{org}、/.well-known/oauth-authorization-server/oauth;
+//	                               metadata 在 /.well-known/oauth-protected-resource/mcp(統一入口)、/.well-known/oauth-protected-resource/mcp/org/{org}、/.well-known/oauth-authorization-server/oauth;
 //	                               要設 OMIXOR_PUBLIC_URL 才掛;使用者在同意畫面輸入「手機配對」產生的配對碼證明身分(core/oauth、core/service/oauth.go)
 package server
 
@@ -78,7 +80,7 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 		agentURL = public + "/mcp/agent"
 	}
 	mux.Handle("/mcp/agent", mcp.AgentEndpoint(mcp.AgentEndpointConfig{Svc: svc}))
-	// OAuth(Claude 自訂 connector 唯讀連 /mcp/org/{org}):需要對外網址(issuer、resource 都由它推導),沒設就不掛
+	// OAuth(Claude 自訂 connector 唯讀連 /mcp 或 /mcp/org/{org}):需要對外網址(issuer、resource 都由它推導),沒設就不掛
 	var oa *oauth.Handler
 	if public != "" {
 		oa = oauth.New(svc, public)
@@ -114,18 +116,38 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 	} else {
 		mux.Handle("/mcp/org/{org}", adminMCP)
 	}
-	// 統一入口:單一連線,組織由每次呼叫的 org 參數指定(不做預設組織);只收 omx_ 使用者 token,omo_ 在 core/mcp 先擋掉
-	mux.Handle("/mcp", mcp.UnifiedEndpoint(mcp.UnifiedEndpointConfig{
-		AgentEndpoint: agentURL,
+	// 統一入口:單一連線,組織由每次呼叫的 org 參數指定(不做預設組織)。認證:omx_ 使用者 token(權限同該使用者),
+	// 或 OAuth access token(omo_,帳號層級、唯讀:綁定 resource=<public>/mcp,只開放唯讀工具;組織仍由每次呼叫即時驗證成員資格)。
+	// 沒設對外網址(oa == nil)時沒有 OAuth:omo_ 回 403 說明
+	unifiedRM := ""
+	if oa != nil {
+		unifiedRM = oa.UnifiedResourceMetadataURL()
+	}
+	var unified http.Handler = mcp.UnifiedEndpoint(mcp.UnifiedEndpointConfig{
+		AgentEndpoint:    agentURL,
+		ResourceMetadata: unifiedRM,
 		Resolve: func(r *http.Request) (backend.Backend, error) {
 			tok, _ := mcp.BearerToken(r)
-			p, err := svc.Authenticate(tok)
+			var p *model.Principal
+			var err error
+			if strings.HasPrefix(tok, model.OAuthTokenPrefix) {
+				if oa == nil {
+					return nil, &service.Error{Code: 403, Msg: "OAuth is not enabled on this server (OMIXOR_PUBLIC_URL is not set); use an omx_ user token."}
+				}
+				p, err = svc.AuthenticateOAuth(tok, oa.UnifiedURL()) // 只收綁定「統一入口網址」的;組織 token(/mcp/org/{org})不能用在這裡
+			} else {
+				p, err = svc.Authenticate(tok)
+			}
 			if err != nil {
 				return nil, err
 			}
 			return &backend.Local{Svc: svc, P: p}, nil
 		},
-	}))
+	})
+	if oa != nil {
+		unified = oa.ObserveMCP(unified) // 觀測 log:同 /mcp/org/{org}
+	}
+	mux.Handle("/mcp", unified)
 	// 執行者端點:給領取任務的 LLM 用,只有 dispatch_ 四個工具;認證同管理端點
 	mux.Handle("/mcp/worker/{org}", mcp.WorkerEndpoint(mcp.WorkerEndpointConfig{
 		AgentEndpoint: agentURL,

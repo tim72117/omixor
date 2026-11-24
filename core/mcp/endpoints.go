@@ -25,6 +25,11 @@ func unauthorized(w http.ResponseWriter, realm string) { unauthorizedWith(w, rea
 
 // unauthorizedWith 401:resourceMetadata 非空時帶 resource_metadata(RFC 9728,讓 OAuth 用戶端找到授權伺服器);invalidToken 帶 error="invalid_token"(RFC 6750)
 func unauthorizedWith(w http.ResponseWriter, realm, resourceMetadata string, invalidToken bool) {
+	unauthorizedBody(w, realm, resourceMetadata, invalidToken, "Unauthorized")
+}
+
+// unauthorizedBody 同 unauthorizedWith,回應內容是 body
+func unauthorizedBody(w http.ResponseWriter, realm, resourceMetadata string, invalidToken bool, body string) {
 	ch := `Bearer realm="` + realm + `"`
 	if resourceMetadata != "" {
 		ch += `, resource_metadata="` + resourceMetadata + `"`
@@ -37,7 +42,7 @@ func unauthorizedWith(w http.ResponseWriter, realm, resourceMetadata string, inv
 	w.Header().Set("Connection", "close")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(401)
-	_, _ = w.Write([]byte("Unauthorized"))
+	_, _ = w.Write([]byte(body))
 }
 
 // ================= 角色端點 =================
@@ -276,15 +281,11 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 			return
 		}
 		sess := &Session{B: bk, OrgID: org, Endpoint: cfg.AgentEndpoint}
-		// 唯讀授權(OAuth):只開放登記為 ReadOnly 的核心工具,額外掛上來的工具也不開放;其他一律「此連線是唯讀授權」
-		ro := false
-		if b, ok := bk.(interface{ ReadOnly() bool }); ok {
-			ro = b.ReadOnly()
-		}
+		// OAuth 授權:唯讀(mcp:read)只開放登記為 ReadOnly 的核心工具、其他一律「此連線是唯讀授權」(restrictReadOnly);讀寫(mcp:write)再多開 OAuthWriteTools(restrictOAuthWrite);額外掛上來的工具都不開放
 		hooks := Hooks{Ctx: sess,
 			// 人類端點不列 HumanHiddenTools(agent_task_delegate)
 			Allow: func(name string) bool {
-				return allow[name] && !HumanHiddenTools[name] && (!ro || ReadOnlyTools[name])
+				return allow[name] && !HumanHiddenTools[name]
 			},
 			// 人類端點不能指定角色身分(署名、文件權限):規格不列 agent 參數,帶 agent 回 400,不執行;flowchart_render、issue_items 帶 MCP Apps 畫面
 			Defs: func(defs []any) []any { return WithUIMeta(WithoutIdentityAgent(defs)) },
@@ -292,18 +293,10 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 				if err := rejectOtherOrg(args, org); err != nil {
 					return err
 				}
-				if err := RejectIdentityAgent(name, args); err != nil {
-					return err
-				}
-				if ro {
-					return readOnlyGuard(name, args)
-				}
-				return nil
+				return RejectIdentityAgent(name, args)
 			},
 			Resources: uiResources}
-		if ro {
-			hooks.Deny = func(string) string { return ReadOnlyMessage }
-		}
+		hooks = restrictOAuth(hooks, bk)
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})
 }

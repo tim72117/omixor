@@ -209,7 +209,7 @@ func TestOAuthMetadata(t *testing.T) {
 			m["token_endpoint"] != tPublic+"/oauth/token" || m["registration_endpoint"] != tPublic+"/oauth/register" ||
 			list("response_types_supported") != `["code"]` || list("grant_types_supported") != `["authorization_code","refresh_token"]` ||
 			list("code_challenge_methods_supported") != `["S256"]` || list("token_endpoint_auth_methods_supported") != `["none"]` ||
-			list("scopes_supported") != `["mcp:read","offline_access"]` {
+			list("scopes_supported") != `["mcp:read","mcp:write","offline_access"]` {
 			t.Fatal(path, w.Body.String())
 		}
 		if _, ok := m["client_id_metadata_document_supported"]; ok {

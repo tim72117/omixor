@@ -97,7 +97,7 @@ var AuthzOps = []AuthzOp{
 		Note: "只作用於呼叫者自己的 token;沒有授權檢查,角色憑證到不了(端點只收 omx_ token)"},
 	{ID: "auth.pair.create", Group: "登入", Scope: "self", Level: LvAuthenticated, Agent: AgentNo, Caps: []AuthzCap{CapSelfOnly},
 		Methods: []string{"CreatePairCode"}, Routes: []string{"POST /api/auth/pair [a]"},
-		Note: "自我檢查:拒絕 nil、角色身分、空 user id、配對碼 token;只能替自己產生"},
+		Note: "自我檢查:拒絕 nil、角色身分、空 user id、配對碼 token、OAuth 連線(Via=oauth,含 mcp:write);只能替自己產生"},
 
 	// ===== 伺服器層 =====
 	{ID: "org.list", Group: "組織與成員", Scope: "server", Level: LvAuthenticated, Agent: AgentNo,

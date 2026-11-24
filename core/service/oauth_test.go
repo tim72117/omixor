@@ -109,11 +109,11 @@ func TestOAuthPairCodeToToken(t *testing.T) {
 	}
 	pc := e.pair()
 	chk := e.check(cl, "o")
-	csrf, err := e.svc.NewOAuthCSRF(cl.ID, "2.2.2.2")
-	if err != nil || !e.svc.VerifyOAuthCSRF(csrf, cl.ID) {
+	csrf, err := e.svc.NewOAuthCSRF(chk, oaChallenge(oaVerifier), "2.2.2.2")
+	if err != nil || !e.svc.VerifyOAuthCSRF(csrf, chk, oaChallenge(oaVerifier)) {
 		t.Fatal("CSRF 要通過一次", err)
 	}
-	if e.svc.VerifyOAuthCSRF(csrf, cl.ID) {
+	if e.svc.VerifyOAuthCSRF(csrf, chk, oaChallenge(oaVerifier)) {
 		t.Fatal("CSRF 只能用一次")
 	}
 	code, err := e.svc.ApproveOAuth(chk, oaChallenge(oaVerifier), strings.ToLower(pc[:4])+"-"+pc[4:], "2.2.2.2") // 不分大小寫、可帶 -

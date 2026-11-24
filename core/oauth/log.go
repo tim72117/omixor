@@ -171,7 +171,7 @@ func headerNames(r *http.Request) []string {
 	return out
 }
 
-// ObserveMCP 包 /mcp/org/{org}:只記沒帶 token(missing)或帶 OAuth access token(omo_…)的請求,omixor 使用者 token(omx_)不記。
+// ObserveMCP 包 /mcp/org/{org} 與統一入口 /mcp(沒有 org 路徑參數 = 統一入口,resource 是 <public>/mcp):只記沒帶 token(missing)或帶 OAuth access token(omo_…)的請求,omixor 使用者 token(omx_)不記。
 // 欄位:rpc(JSON-RPC method;tools/call 附工具名,不記參數)、token_state、resources/read 的 uri
 func (h *Handler) ObserveMCP(next http.Handler) http.Handler {
 	return h.observe(next, func(r *http.Request, d map[string]any) bool {
@@ -180,7 +180,12 @@ func (h *Handler) ObserveMCP(next http.Handler) http.Handler {
 		if tok != "" && !strings.HasPrefix(tok, "omo_") {
 			return false
 		}
-		d["token_state"] = h.Svc.OAuthAccessState(tok, h.MCPURL(r.PathValue("org")))
+		resource := h.UnifiedURL()
+		if org := r.PathValue("org"); org != "" {
+			resource = h.MCPURL(org)
+		}
+		d["token_state"] = h.Svc.OAuthAccessState(tok, resource)
+		d["_write"] = h.Svc.OAuthAccessWrite(tok)
 		if r.Method == http.MethodPost && r.Body != nil {
 			b, _ := io.ReadAll(io.LimitReader(r.Body, mcp.MaxBody+1))
 			r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(b), r.Body)) // 還給後面的 handler,行為不變
@@ -195,11 +200,19 @@ func (h *Handler) ObserveMCP(next http.Handler) http.Handler {
 	}, func(rec *recorder, d map[string]any) {
 		calls, _ := d["_calls"].([]string)
 		delete(d, "_calls")
+		write, _ := d["_write"].(bool)
+		delete(d, "_write")
 		if d["token_state"] != "valid" {
 			return
 		}
 		for _, name := range calls {
-			if !mcp.ReadOnlyTools[name] || strings.Contains(rec.head.String(), mcp.ReadOnlyMessage) {
+			switch {
+			case write: // mcp:write:唯讀工具與 OAuthWriteTools 之外、或回了「不開放」訊息 = 被擋
+				if !(mcp.ReadOnlyTools[name] || mcp.OAuthWriteTools[name]) || strings.Contains(rec.head.String(), mcp.OAuthNotAvailableMessage) {
+					d["token_state"] = "tool_denied"
+					return
+				}
+			case !mcp.ReadOnlyTools[name] || strings.Contains(rec.head.String(), mcp.ReadOnlyMessage):
 				d["token_state"] = "read_only_denied"
 				return
 			}

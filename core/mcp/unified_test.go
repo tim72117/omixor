@@ -303,26 +303,6 @@ func TestUnifiedMemberAbilityStillEnforced(t *testing.T) {
 	}
 }
 
-func TestUnifiedRejectsOAuthToken(t *testing.T) {
-	u := newUni(t)
-	called := false
-	h := mcp.UnifiedEndpoint(mcp.UnifiedEndpointConfig{Resolve: func(*http.Request) (backend.Backend, error) {
-		called = true
-		return &backend.Local{Svc: u.svc, P: u.boss}, nil
-	}})
-	w := rpcPost(h, rpcReq(1, "orgs", map[string]any{}), "Bearer omo_abc")
-	if w.Code != 403 || !strings.Contains(w.Body.String(), "/mcp/org/{org}") || called {
-		t.Fatal(w.Code, w.Body.String(), called)
-	}
-	// 認證失敗:401
-	bad := mcp.UnifiedEndpoint(mcp.UnifiedEndpointConfig{Resolve: func(*http.Request) (backend.Backend, error) {
-		return nil, http.ErrNoCookie
-	}})
-	if w := rpcPost(bad, rpcReq(1, "orgs", nil), "Bearer omx_x"); w.Code != 401 {
-		t.Fatal(w.Code)
-	}
-}
-
 func TestOldEndpointUnchangedAndRejectsOtherOrg(t *testing.T) {
 	u := newUni(t)
 	// 沒帶、帶相同的 org 都可以(結果沒有額外的 org 區塊,orgs 仍標 current)
