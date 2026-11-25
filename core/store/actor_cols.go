@@ -1,4 +1,4 @@
-// actor_cols.go 「誰」欄位的 NULL 安全讀寫輔助(ISS-36 C-2 共用地基;契約見 ACTOR_CONTRACT.md 第 3 節)
+// actor_cols.go 「誰」欄位的 NULL 安全讀寫輔助(ISS-36 C-2 共用地基;契約見 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》 第 3 節)
 //
 // 可以為 NULL 的 actor 欄位(Issue 的 assignee、deleted_by、文件作者、任務的建立者與領取者…,欄位清單見 identity_fields.go:ActorColumns 的 Nullable)
 // 沒有「誰」時是 NULL,不是空字串(外鍵不接受空字串)。領域 store 檔直接用 string 掃描會在 NULL 時失敗,所以:

@@ -3,7 +3,7 @@ package model
 // 家庭助理的模擬情境:樣板資料的一部分。套用樣板時勾「帶入模擬情境」,會在「家庭」頻道寫入示範對話,
 // 並建立對應的示範任務(完成、需要協助等狀態與回報、依組織鏈的委派與回報),讓使用者在對話、派發、需要協助的畫面
 // 看到家庭助理實際運作的樣子。全部是假的對話,標題與訊息都標「模擬」,不含任何真實個資。
-// 說明版見同目錄的 orgtemplates_family_scenarios.md。
+// 說明版見omixor 文件櫃 DOC-20《core/model/orgtemplates_family_scenarios.md》。
 
 // ScenarioTag 模擬資料的標記(任務標題、訊息開頭)
 const ScenarioTag = "模擬"

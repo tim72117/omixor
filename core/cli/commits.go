@@ -18,7 +18,7 @@ import (
 	"omixor-core/service"
 )
 
-// omixor commits sync:把「目前這個 git repo 的新 commit」讀進 omixor(ISS-69,設計見 docs/design-commits.md、用法見 docs/commits.md)。
+// omixor commits sync:把「目前這個 git repo 的新 commit」讀進 omixor(ISS-69,設計見 omixor 文件櫃 DOC-27《docs/design-commits.md》、用法見 omixor 文件櫃 DOC-24《docs/commits.md》)。
 // 只送 commit metadata(sha、訊息、作者、時間、分支、父 commit),不送 diff 與檔案。
 //
 //	omixor commits sync [--repo github:owner/name] [--org default] [--source cli|ci] [--dry-run] [--json]

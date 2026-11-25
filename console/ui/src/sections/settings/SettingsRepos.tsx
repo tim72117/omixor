@@ -2,7 +2,7 @@
 // 資料在 開發進度 › Repositories(兩個平台的 repo 一起列,只看資料:PR/MR、Actions/Pipeline);那裡沒設定好時用「前往設定」
 // 跳到這裡(focusId "repos"),這裡用「前往 開發進度 › Repositories」跳回去(focusId "repos")。
 // GitHub 的設定元件在這個檔;GitLab 的在 gitlab/gitlabSettings.tsx(GitLab 只有 web 版)。
-// 資料:view github、view gitlab;動作:github_ensure_connection、github_add_repo、github_remove_repo、gitlab_*、connection_*(見 docs/PORTING.md)。
+// 資料:view github、view gitlab;動作:github_ensure_connection、github_add_repo、github_remove_repo、gitlab_*、connection_*(見 omixor 文件櫃 DOC-32《console/docs/PORTING.md》)。
 import { useState } from "react";
 import { action, useRun, useView } from "../../api";
 import { Banner } from "../../components/Callout";

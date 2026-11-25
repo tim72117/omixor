@@ -1,7 +1,7 @@
 // GitHub 的資料型別、狀態樣式與詳情元件(Actions 執行的 jobs / 步驟 / 失敗紀錄、PR 的檢查與變更檔案)。只讀。
 // 原本是開發進度 › GitHub 分頁(Swift 的 DevGitHubTab.swift);GitHub 分頁已併進 開發進度 › Repositories(DevReposTab.tsx),
 // 這裡只留給 Repositories 的 repo 詳情與 設定 › 程式碼倉庫 用的部分。
-// 資料:view github;動作:github_jobs、github_job_log、github_pull(見 docs/PORTING.md)。
+// 資料:view github;動作:github_jobs、github_job_log、github_pull(見 omixor 文件櫃 DOC-32《console/docs/PORTING.md》)。
 import { useEffect, useState } from "react";
 import { action } from "../../api";
 import { Banner } from "../../components/Callout";

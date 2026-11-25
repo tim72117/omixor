@@ -13,7 +13,7 @@ import (
 //	Action assistant_briefing {section}           → AssistBriefingResult(目前狀況卡片 + 建議問題)
 //	Action assistant_ask      {section, question} → AssistReplyResult(回答文字 + 動作按鈕)
 //
-// section 沒給時用目前導覽的頁面(a.Nav.Section)。格式寫在 docs/PORTING.md 的 Action 表。
+// section 沒給時用目前導覽的頁面(a.Nav.Section)。格式寫在 omixor 文件櫃 DOC-32《console/docs/PORTING.md》 的 Action 表。
 
 // AssistBriefLine 「目前狀況」卡片的一行;color 是 Swift 的顏色名稱(green、orange、red、blue、purple、indigo、teal、gray、secondary)
 type AssistBriefLine struct {

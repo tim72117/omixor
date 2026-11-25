@@ -148,7 +148,7 @@ omixor 呼叫外部服務都透過「連線」:每個連線是一個網址加上
 
 每個角色有職責、角色設定(給 AI 的說明)與例行任務,存在 `agents.json`。omixor 不自己跑 AI:任務(人在畫面上指派、例行任務到時間自動排,或 AI 用 `agent_task_create` 指派)排著等領取;在 Claude Code 貼上「複製給 Claude Code」的那段話,AI 就會以角色身分用 `agent_task_claim` 領取、照角色設定做,用 `agent_task_report` 回報過程與結果,需要人決定時標成「需要協助」。角色可在畫面上按「新增角色」,或請 AI 用 `agent_upsert` 隨時新增或修改。預設角色:訪客分析師、旁白製作、Issue 整理員、課程開發、行銷。
 
-AI 自動化另有「需要處理」「執行日誌」分頁(對應 console 的同名頁籤,說明見 [docs/release-notes-2026-11.md](../docs/release-notes-2026-11.md));返回上一頁用 ⌘[。
+AI 自動化另有「需要處理」「執行日誌」分頁(對應 console 的同名頁籤,說明見 omixor 文件櫃 DOC-28《docs/release-notes-2026-11.md》);返回上一頁用 ⌘[。
 
 ## 組織(側邊欄最上方 / 設定 › 組織)
 

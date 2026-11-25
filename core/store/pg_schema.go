@@ -54,7 +54,7 @@ package store
 //	omixor_server_features                        系統層的功能設定(整台伺服器一列,主鍵 id 固定是 'server';有改過的開關存在 features jsonb,方法在 pg_system.go)
 //
 // 「誰」欄位(22 個:created_by、author、assignee、member、from_actor/to_actor、commander、updated_by、事件的 actor、稽核的 actor…)存 actor id
-// (text,可否 NULL 見 identity_fields.go:ActorColumns),外鍵(references omixor_actors(id))在 fkSpecs(pg_fk.go)。欄位契約見 ACTOR_CONTRACT.md。
+// (text,可否 NULL 見 identity_fields.go:ActorColumns),外鍵(references omixor_actors(id))在 fkSpecs(pg_fk.go)。欄位契約見 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》。
 //
 // 外鍵與刪除規則(角色→任務 restrict、頻道→Issue set null、各表的 org cascade 等)是 fkSpecs 的 fk_* 外鍵,建表之後才加(omixor_actors 等被參照的表要先在);
 // 其餘外鍵與唯一、檢查約束就在這份建表語句裡。頻道的 issue_id 沒綁是 NULL、文件與區塊的 project 另有產生欄位 project_ref,細節見 pg_fk.go 檔頭

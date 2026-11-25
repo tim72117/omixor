@@ -29,7 +29,7 @@ make build      # 先 npm run build 建畫面,再把它包進 Go 執行檔
 | `omixor_activity` | 動態牆全部歷史(畫面載入最新 1000 筆,`activity_history` 查更早的) |
 | `omixor_state` | 範例資料的變更(告警、事件、工作項目、部署…),每 10 秒與結束前存 |
 
-舊版的表叫 `ops_` 開頭(`ops_documents`…);啟動時(`ensurePGSchema`)若發現舊表,連同索引、序號、主鍵一起改成 `omixor_` 開頭、資料保留,再建缺的表。新舊同時存在(改名後又跑過舊版程式)會報錯、不覆蓋,細節與回滾見 `docs/design-schema-rename.md`。
+舊版的表叫 `ops_` 開頭(`ops_documents`…);啟動時(`ensurePGSchema`)若發現舊表,連同索引、序號、主鍵一起改成 `omixor_` 開頭、資料保留,再建缺的表。新舊同時存在(改名後又跑過舊版程式)會報錯、不覆蓋,細節與回滾見 omixor 文件櫃 DOC-25《docs/design-schema-rename.md》。
 
 用 Docker 開(含 PostgreSQL):
 
@@ -135,7 +135,7 @@ claude --dangerously-load-development-channels server:omixor-tasks
 - 授權一定要寫在 `CLAUDE.md`(或啟動時的第一則訊息):頻道事件在 Claude Code 裡不算使用者指令,光靠頻道的說明它會停下來問。
 - 第一次啟動會問要不要啟用 MCP 伺服器與開發頻道,都選同意。工作階段要一直開著才收得到;只能在終端機用,桌面 app 的 Code 分頁不支援 channels。
 - **自動/手動**:每個角色有「自動執行」開關(console 的執行者),關著時待領取的任務不會被自動領走,每筆任務有「開始執行」按鈕(一次只跑一筆);領任務前會先檢查 claude 是否已登入。
-- **執行日誌**:每次執行的工具呼叫、伺服器確認、遮蔽結果都記下來,每個組織保留最近 50 筆(`reportedBy` 為 `role` 或 `runner`);畫面在「需要處理」(被擋住等人回覆的任務)與「執行日誌」兩個頁籤。細節見 [docs/release-notes-2026-11.md](../docs/release-notes-2026-11.md)。
+- **執行日誌**:每次執行的工具呼叫、伺服器確認、遮蔽結果都記下來,每個組織保留最近 50 筆(`reportedBy` 為 `role` 或 `runner`);畫面在「需要處理」(被擋住等人回覆的任務)與「執行日誌」兩個頁籤。細節見 omixor 文件櫃 DOC-28《docs/release-notes-2026-11.md》。
 - 頻道跟著 console 目前的組織(每次查詢重讀):console 晚開、中途換組織都跟得上,換組織時會先送一則新組織的待領清單。
 
 ## 3D 虛擬辦公室(/office/)
@@ -178,11 +178,11 @@ repo 最外層的 `office3d/`(three.js 檢視器)由 console 的畫面連接埠�
 - 範本(文件櫃結構、示範資料、文件轉換器)在 repo 最外層的 `../templates/`,預設不載入;要用就設 `OMIXOR_TEMPLATES=1`(或指定資料夾),執行時才從磁碟讀,不編進執行檔。示範資料載入時時間平移到現在。細節見 `../templates/README.md`。
 - 傳輸同 Swift 版:只聽 127.0.0.1、POST /mcp、通知回 202、GET/DELETE 回 405、帶非本機 Origin 回 403、不接受 chunked、body 上限 4 MB、Connection: close。
   (Go 版比 Swift 版多一道驗證:要 Bearer 權杖,見上面「MCP 驗證」;Swift 版沒有。)
-- `conformance/`:同一串呼叫送給兩個版本比對回應(見 `docs/PORTING.md`)。
+- `conformance/`:同一串呼叫送給兩個版本比對回應(見 omixor 文件櫃 DOC-32《console/docs/PORTING.md》)。
 
 ## 程式結構
 
-見 `docs/PORTING.md`。
+見 omixor 文件櫃 DOC-32《console/docs/PORTING.md》。
 
 選用模組(編譯時決定,見 `internal/core/modules.go`):`cmd/omixor-web/modules.go` 用 `import _` 列出要編進去的模組,
 `go build -tags omixor_minimal ./cmd/omixor-web` 只有核心。目前有 `internal/modules/integrations`(GitHub、GitLab:

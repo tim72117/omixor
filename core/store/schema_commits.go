@@ -1,6 +1,6 @@
 package store
 
-// schema_commits.go commits 三張表(ISS-69,設計見 docs/design-commits.md)的結構:全新資料庫(pgSchema 末尾)與
+// schema_commits.go commits 三張表(ISS-69,設計見 omixor 文件櫃 DOC-27《docs/design-commits.md》)的結構:全新資料庫(pgSchema 末尾)與
 // 結構異動步驟 2(schema_steps.go 的 commits)用同一段 SQL,所以兩條路徑建出的結構一定一致。
 // 步驟 2 在 Issue 表還叫 ops_issues 的資料庫上執行(步驟 3 才改名),所以步驟 2 的 SQL 要把 omixor_issues 換回舊名(schema_steps.go 的 commitsStepSQL)。
 // 全部冪等(create … if not exists、外鍵先 drop constraint if exists 再加),只新增表與索引,不動既有的表。

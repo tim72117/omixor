@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// commits(ISS-69,設計見 docs/design-commits.md):repo 的 commit metadata 讀進 omixor,並和 Issue 連結。
+// commits(ISS-69,設計見 omixor 文件櫃 DOC-27《docs/design-commits.md》):repo 的 commit metadata 讀進 omixor,並和 Issue 連結。
 // 只存 metadata(sha、訊息、作者、時間、分支),不存 diff 與檔案內容。repo 的識別就是 RepoKey 正規化後的字串(沒有 repos 表)。
 // 規則(驗證、遮罩、引用解析、權限)在 service/commits.go,存取在 store 的 *Commit 方法。
 

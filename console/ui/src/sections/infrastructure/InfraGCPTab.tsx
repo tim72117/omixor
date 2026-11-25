@@ -1,5 +1,5 @@
 // 伺服器與服務 › GCP:真實的 Cloud Run 服務、Job、錯誤日誌與指標。只讀。Swift 的 InfraGCPTab.swift。
-// 資料:view gcp;動作:gcp_* 與 connection_*(見 docs/PORTING.md)。
+// 資料:view gcp;動作:gcp_* 與 connection_*(見 omixor 文件櫃 DOC-32《console/docs/PORTING.md》)。
 import { useEffect, useState } from "react";
 import { Bar as RBar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { action, useRun, useView } from "../../api";

@@ -6,7 +6,7 @@ package store
 // mcp / routine / chain、本機身分…;規範化規則在 model/principal.go:PrincipalNode、PrincipalKind、AssigneeNode、ActorNode)。
 // 身分登記層(omixor_principals + <欄位>_ref 產生欄位 + 外鍵)不部署,改為直接進 actor 欄位;這份清單記錄全部的「誰」欄位(舊字串的寬鬆解析器與外鍵清單用)。
 // 注意:IdentityFields / ActorColumns 描述的是舊字串寫法與最終結構欄位的對應;最終結構裡存在的是 ActorColumn.Target 欄位
-// (InPlace 同名;Rename、Copy 是新欄位名),舊的 Column(from_node、to_node、actor_kind、actor_id、user_id)不存在。欄位契約見 ACTOR_CONTRACT.md。
+// (InPlace 同名;Rename、Copy 是新欄位名),舊的 Column(from_node、to_node、actor_kind、actor_id、user_id)不存在。欄位契約見 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》。
 //
 // 不含 omixor_server_features.updated_by(表沒有 org;服務層仍會寫它)。
 

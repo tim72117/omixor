@@ -1,6 +1,6 @@
 package storetest
 
-// 測試用的固定 actor(ISS-36 C-2 共用地基;契約見 core/store/ACTOR_CONTRACT.md 第 7 節)。
+// 測試用的固定 actor(ISS-36 C-2 共用地基;契約見 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》 第 7 節)。
 // 「誰」欄位現在存 actor id、外鍵指向 omixor_actors,測試不能再隨手寫一個 email 字串進 store:用這裡的函式取得真的 actor 的 id。
 // 全部走 store.Store 介面(PG 與批次裡的交易都行),測試資料庫回收時會一併清掉這些 actor。
 

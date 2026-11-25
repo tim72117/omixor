@@ -1,5 +1,5 @@
 // actor_input.go 寫入端用:把 API / MCP / CLI 輸入的「誰」解析成 actor id 的共用輔助(ISS-36 C-2 共用地基;規格見雲端 DOC-13 §3.2、D9,
-// 契約見 store/ACTOR_CONTRACT.md 第 6 節)
+// 契約見 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》 第 6 節)
 //
 // 各工作包把輸入欄位(author、as、assignee、commander、reportTo、頻道成員、組織鏈節點、範本建立者…)接進來時,都走這裡,不要自己拼字串:
 //

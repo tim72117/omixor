@@ -2,7 +2,7 @@ package model
 
 import "strings"
 
-// ---- actor id → 相容字串(ISS-36 C-2;契約見 core/store/ACTOR_CONTRACT.md,DOC-13 §3.5)----
+// ---- actor id → 相容字串(ISS-36 C-2;契約見 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》,DOC-13 §3.5)----
 //
 // 「誰」欄位在資料庫與服務層內部是 actor id;對外(API、MCP、舊用戶端)過渡期仍輸出舊格式的字串,
 // 同時輸出新的 actor 物件。格式依欄位而不同(舊的寫法本來就不一致),這裡是唯一的對照規則(service.Names、present.go 用)。

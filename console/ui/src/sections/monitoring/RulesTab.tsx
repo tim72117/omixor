@@ -48,7 +48,7 @@ export function RulesTab({ highlightedId, setHighlightedId }: { highlightedId?: 
     if (highlightedId) window.setTimeout(() => document.getElementById("rule-" + highlightedId)?.scrollIntoView({ block: "center" }), 100);
   }, [highlightedId]);
 
-  // 啟用開關:PORTING.md 還沒有這個 action,用 alert_rule_toggle {id, enabled}(後端未完成時顯示錯誤)
+  // 啟用開關:omixor 文件櫃 DOC-32《console/docs/PORTING.md》 還沒有這個 action,用 alert_rule_toggle {id, enabled}(後端未完成時顯示錯誤)
   const setEnabled = (r: AlertRule, on: boolean) => { if (r.enabled !== on) run(() => action("alert_rule_toggle", { id: r.id, enabled: on })); };
 
   const q = query.trim().toLowerCase();

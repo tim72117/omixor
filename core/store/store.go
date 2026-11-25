@@ -109,7 +109,7 @@ type Store interface {
 	BackfillAgentOwners() (int, error)
 
 	// ResolveLegacy 寬鬆解析器:把一個舊的「誰」字串(email、user:<email>、agent:<id>、mcp、任意字串…)對到 actor id,缺的 actor 與別名會建立;
-	// 空字串回 ""(NULL)。冪等:同一個字串永遠同一個 actor(過渡橋與匯入用,見 pg_actor_legacy.go、ACTOR_CONTRACT.md)
+	// 空字串回 ""(NULL)。冪等:同一個字串永遠同一個 actor(過渡橋與匯入用,見 pg_actor_legacy.go、omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》)
 	ResolveLegacy(org, raw string) (string, error)
 	// UserInfoByActorIDs 使用者 actor id → 使用者列的 id 與 email(沒有使用者列的不在結果裡);service/present.go 輸出相容字串用
 	UserInfoByActorIDs(ids []string) (map[string]UserInfo, error)

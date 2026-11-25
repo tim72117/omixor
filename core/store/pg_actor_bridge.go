@@ -1,4 +1,4 @@
-// pg_actor_bridge.go 「誰」欄位的過渡橋(ISS-36 C-2 共用地基;契約見 ACTOR_CONTRACT.md)
+// pg_actor_bridge.go 「誰」欄位的過渡橋(ISS-36 C-2 共用地基;契約見 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》)
 //
 // 22 個「誰」的欄位在資料庫裡是 actor id(外鍵指向 omixor_actors)。匯入檔等舊格式入口帶的是舊字串(email、user:<email>、agent:<id>、mcp…),
 // 這一層把它轉成 actor id:

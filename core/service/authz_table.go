@@ -4,7 +4,7 @@ package service
 //
 // 這張表只是「現況的描述」,不是執行授權的地方:service 方法照舊用 orgRole / needOrgAdmin / needServerAdmin / viewer / docViewer /
 // channelActor 等輔助函式自己檢查(第 3 階段才會收斂成單一 Authorize,並讓這張表成為唯一來源)。表的內容都是讀實作確認過的;
-// 表與實作不一致時,不改行為,把差異登記在 authz_table_test.go 的已知差異白名單與 docs/authorization.md「不一致與漏檢」。
+// 表與實作不一致時,不改行為,把差異登記在 authz_table_test.go 的已知差異白名單與 omixor 文件櫃 DOC-35《docs/authorization.md》「不一致與漏檢」。
 //
 // 守門測試(authz_table_test.go):
 //   (a) 掃 core/service 所有帶 *model.Principal 的公開方法,每個都要出現在某個 Op.Methods,或在 AuthzExempt 寫明原因;

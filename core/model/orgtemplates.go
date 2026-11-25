@@ -9,7 +9,7 @@ package model
 //	Channels:訊息頻道;成員寫 TemplateCreator 或角色 id(同名頻道已存在就略過)
 //	Section:文件櫃要新增的區塊(已存在就略過);Docs 放在這個區塊(同區塊同標題已存在就略過)
 //
-// 目前是框架:角色的 instructions 是簡短版,細節之後再補;情境模擬見 orgtemplates_family_scenarios.md。
+// 目前是框架:角色的 instructions 是簡短版,細節之後再補;情境模擬見 omixor 文件櫃 DOC-20《core/model/orgtemplates_family_scenarios.md》。
 
 // TemplateCreator 樣板裡代表「套用樣板的人」的節點(套用時換成 user:<email>)
 const TemplateCreator = "creator"

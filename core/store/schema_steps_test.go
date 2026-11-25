@@ -183,7 +183,7 @@ func TestRetryLock(t *testing.T) {
 
 // stepRuleWhitelist 破例名單:步驟版本 → 原因。要允許 drop、rename、改型別的步驟,必須在這裡加一筆並寫原因(且確認舊版程式仍相容)
 var stepRuleWhitelist = map[int]string{
-	3: "Issue 表改名(ops_issues → omixor_issues);上一版程式會壞,部署必須停掉舊實例再啟動(docs/design-schema-rename.md)",
+	3: "Issue 表改名(ops_issues → omixor_issues);上一版程式會壞,部署必須停掉舊實例再啟動(omixor 文件櫃 DOC-25《docs/design-schema-rename.md》)",
 }
 
 // (e) 步驟清單的守門:版本嚴格遞增且連續、從 2 開始、名稱與 SQL 非空、禁止 drop / rename / alter column ... type

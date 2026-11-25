@@ -536,7 +536,7 @@ func TestAuthzProbesMatchTable(t *testing.T) {
 	}
 }
 
-// 已確認仍存在的漏檢(docs/authorization.md §4.2):這個測試「確認它們現在還在」,不改行為。
+// 已確認仍存在的漏檢(omixor 文件櫃 DOC-35《docs/authorization.md》 §4.2):這個測試「確認它們現在還在」,不改行為。
 // 第 2 階段補上某一項後,對應的斷言會失敗,屆時把這一項改成「被拒」的正向測試並從文件的漏檢清單移除。
 func TestAuthzKnownGapsStillPresent(t *testing.T) {
 	e := newAuthzEnv(t)

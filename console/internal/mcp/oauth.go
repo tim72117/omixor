@@ -111,7 +111,7 @@ func publicURL(cfg *config.Config) string { return strings.TrimRight(cfg.Str(con
 // newOAuthHandler OAuth 連接埠的路由。整個連接埠先過 Host 白名單(對外網址的主機名稱與本機名稱;不符 403,擋 DNS rebinding)
 func newOAuthHandler(app *core.App, svc *service.Service, cfg *config.Config) http.Handler {
 	public := publicURL(cfg)
-	// 證明身分只有 evoleap:配對碼是 console 自己產生的,兌換出來會是本機管理員 omixor-console,所以不提供(見 docs/authorization.md)
+	// 證明身分只有 evoleap:配對碼是 console 自己產生的,兌換出來會是本機管理員 omixor-console,所以不提供(見 omixor 文件櫃 DOC-35《docs/authorization.md》)
 	oa := oauth.NewWith(oauth.Config{Svc: svc, Public: public, Providers: []oauth.IdentityProvider{&oauth.EvoleapProvider{Svc: svc, Public: public}}})
 	mux := http.NewServeMux()
 	oa.Mount(mux)

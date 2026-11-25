@@ -12,7 +12,7 @@ import "strings"
 // 全新資料庫(pgSchema)一開始就是新名字,這個步驟只在舊資料庫上動作;步驟 2(commits)在舊資料庫上仍指向 ops_issues,所以要用 commitsStepSQL。
 //
 // 不向後相容(破例,見 schema_steps_test.go 的 stepRuleWhitelist):這一步之後,上一版程式(查 ops_issues)會壞。
-// 部署要先停掉所有舊實例再啟動新版,不能滾動部署;回滾步驟見 docs/design-schema-rename.md。
+// 部署要先停掉所有舊實例再啟動新版,不能滾動部署;回滾步驟見 omixor 文件櫃 DOC-25《docs/design-schema-rename.md》。
 
 // legacyIssuesTable 改名前 Issue 表的名字(步驟 2 在還沒改名的資料庫上執行時要用)
 const legacyIssuesTable = "ops_issues"

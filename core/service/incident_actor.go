@@ -4,7 +4,7 @@ package service
 // 內部(store、本檔以外的 incident.go 流程)一律是 actor id;輸出出口(presentIncident)才轉回舊格式:
 //   commander、createdBy → 相容字串(人 = email、角色 = agent:<handle>、系統 = 舊名稱,model.LegacyFree)
 //   時間軸 actor → 舊的 {kind, id}(使用者 = person/<email>、角色 = ai/<handle>、系統 = system)
-// 規格:雲端 DOC-13 §1.4 #16~#18、§3.4 第 5、6 列、§3.5;契約 store/ACTOR_CONTRACT.md。
+// 規格:雲端 DOC-13 §1.4 #16~#18、§3.4 第 5、6 列、§3.5;契約 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》。
 
 import (
 	"strings"

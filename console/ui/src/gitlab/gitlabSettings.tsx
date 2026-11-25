@@ -1,6 +1,6 @@
 // GitLab 的設定元件(設定 › 程式碼倉庫 用):伺服器網址與 CA 憑證、登入流程(OAuth 應用程式或個人存取權杖)、登出、追蹤的專案。
 // 從原本的 GitLab 分頁搬出來;資料在 開發進度 › Repositories(只看資料)。
-// 資料:view gitlab;動作:gitlab_settings、gitlab_ensure_connection、gitlab_add_project、gitlab_remove_project、connection_*(見 docs/PORTING.md)。
+// 資料:view gitlab;動作:gitlab_settings、gitlab_ensure_connection、gitlab_add_project、gitlab_remove_project、connection_*(見 omixor 文件櫃 DOC-32《console/docs/PORTING.md》)。
 import { useState } from "react";
 import { action, useRun } from "../api";
 import { Banner } from "../components/Callout";

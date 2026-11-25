@@ -32,7 +32,7 @@
 //	omixor items show|claim|release|unblock|cancel|delete <子項>   claim 負責人是角色時會印出一次性憑證
 //	omixor items report <子項> todo|doing|blocked|done [--evidence 證據] [--note 備註] [--reason 原因] [--wait-kind user_decision|item|external --wait-for 對象]
 //	omixor items block <子項> <原因> | promote <子項> [--priority high] [--labels a,b] | update <子項> [新標題] [--acceptance …]
-//	omixor commits sync [--repo github:owner/name] [--org default] [--source cli|ci] [--dry-run] [--json]   把目前 git repo 的新 commit 讀進 omixor(第一次只送 HEAD 當基準點,不補舊歷史;見 docs/commits.md)
+//	omixor commits sync [--repo github:owner/name] [--org default] [--source cli|ci] [--dry-run] [--json]   把目前 git repo 的新 commit 讀進 omixor(第一次只送 HEAD 當基準點,不補舊歷史;見 omixor 文件櫃 DOC-24《docs/commits.md》)
 //	omixor channel [--org default] [--agent 角色] [--interval 30s] [--auto]   任務通知頻道(stdio MCP,給 Claude Code 的 channels;見 core/mcp/channel.go)
 //	omixor agents import [--org default] <agents.json>   第一次搬資料用:角色與任務(格式同 app 的 agents.json);伺服器上已經有角色或任務就會拒絕
 //

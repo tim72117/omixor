@@ -15,7 +15,7 @@ import (
 	"omixor-core/store"
 )
 
-// commits 與 Issue 的連結(ISS-69,設計見 docs/design-commits.md;資料模型 model/commit.go、存取 store 的 *Commit 方法)。規則:
+// commits 與 Issue 的連結(ISS-69,設計見 omixor 文件櫃 DOC-27《docs/design-commits.md》;資料模型 model/commit.go、存取 store 的 *Commit 方法)。規則:
 //
 //	回報(ReportCommits):組織成員(人);角色憑證 403(phase 1 角色不寫 commits)。一次一個 repo、最多 100 筆;sha 要是 40 位十六進位;
 //	  subject、body、branch、author 去控制字元並遮蔽機密(core/redact,同 report_problem;獨立的 git 物件 id 不遮);冪等(重送不重複、verified 只升不降)

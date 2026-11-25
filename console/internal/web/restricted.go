@@ -18,7 +18,7 @@ import (
 //     restricted 的專案本身)拿掉;單筆就是受限專案的回 404;引數指到受限專案(project 參數)回 404,和不存在一樣
 //   - 問不到哪些專案受限(核心連不上)時,對這些人一律當作「專案都不能看」:帶 project 的物件全部拿掉
 //
-// 限制(見 docs/authorization.md):這是輸出層的篩選,不是授權。由 Issue、文件衍生的聚合(badges 的數字、issue_repos 的候選、助理摘要、
+// 限制(見 omixor 文件櫃 DOC-35《docs/authorization.md》):這是輸出層的篩選,不是授權。由 Issue、文件衍生的聚合(badges 的數字、issue_repos 的候選、助理摘要、
 // 動態牆、頻道與任務的畫面)沒有逐一篩選;要真正依成員篩選,console 需要用每位使用者自己的身分呼叫核心(還沒做)。
 
 // restrictedSetFor 這個請求要擋掉的受限專案 id;nil, false = 不必擋(管理員、沒有受限專案)。

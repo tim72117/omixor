@@ -1,7 +1,7 @@
 // GitLab(公司自架)的資料型別、狀態樣式與詳情元件(Pipeline 的 jobs / stage / 失敗原因與紀錄、MR 的 head pipeline、核准與變更檔案)。只讀。
 // 原本是開發進度 › GitLab 分頁(Swift 版沒有);已併進 開發進度 › Repositories(sections/development/DevReposTab.tsx),
 // 這裡只留給 Repositories 的 repo 詳情與 設定 › 程式碼倉庫(./gitlabSettings)用的部分。
-// 資料:view gitlab;動作:gitlab_jobs、gitlab_job_log、gitlab_mr(見 docs/PORTING.md)。
+// 資料:view gitlab;動作:gitlab_jobs、gitlab_job_log、gitlab_mr(見 omixor 文件櫃 DOC-32《console/docs/PORTING.md》)。
 import { useEffect, useState } from "react";
 import { action } from "../api";
 import { Banner } from "../components/Callout";

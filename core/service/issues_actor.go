@@ -1,6 +1,6 @@
 package service
 
-// issues_actor.go Issue、留言、文件的「誰」欄位(ISS-36 C-2a;契約見 store/ACTOR_CONTRACT.md)
+// issues_actor.go Issue、留言、文件的「誰」欄位(ISS-36 C-2a;契約見 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》)
 //
 // store 與服務層內部:Issue.CreatedBy / Assignee / DeletedBy、Comment.Author、CabinetDoc.Author 都是 actor id。
 // 匯出方法的回傳值在出口用 present 轉成相容字串(人 = email、角色 = agent:<handle>、系統 = 舊名稱;assignee 是角色 handle),

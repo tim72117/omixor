@@ -1,4 +1,4 @@
-// present.go actor id → 相容輸出(ISS-36 C-2 共用地基;規格見雲端 DOC-13 §3.5,契約見 store/ACTOR_CONTRACT.md 第 5 節)
+// present.go actor id → 相容輸出(ISS-36 C-2 共用地基;規格見雲端 DOC-13 §3.5,契約見 omixor 文件櫃 DOC-34《core/store/ACTOR_CONTRACT.md》 第 5 節)
 //
 // store 與服務層內部的「誰」欄位是 actor id。對外(API、MCP、console 後端、舊用戶端)過渡期同時輸出:
 //   - 相容字串:舊格式不變(人 = email、角色 = agent:<handle>、系統 = 舊名稱…;格式依欄位,model.LegacyForm)
