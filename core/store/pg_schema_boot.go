@@ -16,10 +16,10 @@ import (
 
 // pg_schema_boot.go 啟動時的結構建立與版本化的結構異動(bootstrapSchema、runSteps)。步驟清單與新增程序見 schema_steps.go。
 //
-// 三種情況:
+// 三種情況(空或非空只看核心表,規則見 schema_core.go;宿主程式自己的 omixor_ 表不算):
 //   - 空資料庫:一個交易建完整的最終結構(pgSchema、fkSpecs 的外鍵、固定的系統 actor),並寫入版本記錄:
 //     baseline(版本 1)與 schemaSteps 的所有版本(全新安裝已經是最終結構,不執行步驟)。
-//   - 已有 omixor 表、沒有版本表(導入版本表之前的資料庫):建版本表、蓋上 baseline(版本 1),再依版本執行步驟。
+//   - 已有核心表、沒有版本表(導入版本表之前的資料庫):建版本表、蓋上 baseline(版本 1),再依版本執行步驟。
 //   - 有版本表:讀出目前最大版本,依序執行版本更大的步驟。每個步驟自己一個交易,成功才寫版本記錄。
 //
 // 並行:所有會寫結構的交易先拿 advisory lock(schemaLockKey),拿到後重新讀狀態,所以多個實例同時啟動只會有一個動手。
@@ -54,24 +54,6 @@ type rowQ interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// omixorTableCount 目前 schema 裡有幾張 omixor 的表(omixor_*)
-func omixorTableCount(c context.Context, q schemaQ) (int, error) {
-	rows, err := q.Query(c, `select count(distinct table_name) from information_schema.columns where table_schema = current_schema()
-		and table_name like 'omixor\_%'`)
-	if err != nil {
-		return 0, fmt.Errorf("查資料庫結構失敗:%w", err)
-	}
-	defer rows.Close()
-	var n int
-	if rows.Next() {
-		if err := rows.Scan(&n); err != nil {
-			return 0, err
-		}
-	}
-	rows.Close()
-	return n, rows.Err()
-}
-
 // currentSchemaVersion 目前資料庫記錄的最大版本;exists = 有沒有版本表(沒有表或表是空的,版本是 0)
 func currentSchemaVersion(c context.Context, q rowQ) (version int, exists bool, err error) {
 	if err := q.QueryRow(c, `select to_regclass($1) is not null`, schemaVersionTable).Scan(&exists); err != nil {
@@ -88,11 +70,11 @@ func currentSchemaVersion(c context.Context, q rowQ) (version int, exists bool, 
 
 // bootstrapSchema 見檔頭
 func bootstrapSchema(parent context.Context, pool *pgxpool.Pool) error {
-	n, err := omixorTableCount(parent, pool)
+	empty, err := coreSchemaEmpty(parent, pool)
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+	if empty {
 		created, err := createFreshSchema(parent, pool)
 		if err != nil {
 			return err
@@ -139,12 +121,14 @@ func createFreshSchema(c context.Context, pool *pgxpool.Pool) (created bool, err
 	if err := lockSchema(c, tx, "0"); err != nil {
 		return false, err
 	}
-	n, err := omixorTableCount(c, tx)
-	if err != nil {
+	empty, err := coreSchemaEmpty(c, tx)
+	if err != nil || !empty {
 		return false, err
 	}
-	if n > 0 {
-		return false, nil
+	if v, _, err := currentSchemaVersion(c, tx); err != nil {
+		return false, err
+	} else if v > 0 {
+		warnf("版本表記錄版本 %d,但沒有任何核心資料表(先前啟動失敗留下的?),建立完整結構", v)
 	}
 	if _, err := tx.Exec(c, pgSchema); err != nil {
 		return false, fmt.Errorf("建表失敗:%w", err)
@@ -175,7 +159,7 @@ func recordVersion(c context.Context, q execQ, version int, name string) error {
 	return nil
 }
 
-// stampBaseline 已有 omixor 表、但還沒有版本記錄(導入版本表之前的資料庫):在鎖下補建版本表並蓋上 baseline(版本 1)
+// stampBaseline 已有核心表、但還沒有版本記錄(導入版本表之前的資料庫):在鎖下補建版本表並蓋上 baseline(版本 1)
 func stampBaseline(c context.Context, pool *pgxpool.Pool) error {
 	if v, exists, err := currentSchemaVersion(c, pool); err != nil || (exists && v > 0) {
 		return err
