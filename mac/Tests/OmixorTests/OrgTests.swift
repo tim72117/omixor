@@ -18,6 +18,13 @@ final class OrgTests: XCTestCase {
         try? FileManager.default.removeItem(at: dataDir)
     }
 
+    /// 全新安裝:預設組織叫 omixor,不匯入研發基地的結構
+    func testFreshInstallDefaultOrg() {
+        let idx = OrgFiles.loadIndex()
+        XCTAssertEqual(idx.orgs.map(\.name), ["omixor"])
+        XCTAssertNil(LocalCoreImport.bundle(orgDir: OrgFiles.dir(OrgFiles.defaultId))["cabinetLayout"])
+    }
+
     func testLegacyFilesMoveIntoDefaultOrg() throws {
         let issue = #"[{"id":"ISS-7","title":"舊的","createdBy":"tim","status":"open","priority":"normal","labels":[],"source":"","link":"","body":"","comments":[],"createdAt":"2026-11-10T00:00:00Z","updatedAt":"2026-11-10T00:00:00Z"}]"#
         try Data(issue.utf8).write(to: dataDir.appendingPathComponent("issues.json"))

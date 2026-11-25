@@ -573,7 +573,7 @@
       "readOnlyHint": false,
       "title": "Dispatch a narration voice batch"
     },
-    "description": "Hand the shuttle project narration voice generation to omixor: runs npm run voice -- <script> --batch (Gemini Batch API, about half price, up to 24 hours). Returns a job id immediately, no need to wait; omixor polls every few minutes and collects the results automatically (download, convert to mp3, upload to GCS, rewrite the local .voice.json), then a person auditions them in omixor and presses publish. Only one batch runs at a time; the rest are queued. dry_run only lists which segments would be sent, without calling the API or spending money.",
+    "description": "Hand narration voice generation to omixor: runs npm run voice -- <script> --batch in the configured narration project (Gemini Batch API, about half price, up to 24 hours). Requires the narration publishing feature to be enabled and its project path configured. Returns a job id immediately, no need to wait; omixor polls every few minutes and collects the results automatically (download, convert to mp3, upload to GCS, rewrite the local .voice.json), then a person auditions them in omixor and presses publish. Only one batch runs at a time; the rest are queued. dry_run only lists which segments would be sent, without calling the API or spending money.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -590,7 +590,7 @@
           "type": "integer"
         },
         "scripts": {
-          "description": "Script paths under web/src/content/live/, for example launch/2.1.json",
+          "description": "Script paths under web/src/content/live/, for example intro/1.json",
           "items": {
             "type": "string"
           },
@@ -632,12 +632,12 @@
       "readOnlyHint": true,
       "title": "Site visitor statistics"
     },
-    "description": "Read the evoleap site member and visitor statistics (the same data as the admin Members page, GET /api/admin/overview): member count, visitor count, visitor funnel (opened -> loaded -> played; like the admin page it excludes the login gate and ordinary pages), per-course summary, login gate, device / source / load errors, paths entered from the home page, home page dwell time, login page, and recent visit trails without playback. Requires omixor to be signed in to that connection.",
+    "description": "Read website member and visitor statistics from the selected connection (its admin API, GET /api/admin/overview; requires the site visitors feature to be enabled and a website that provides this API): member count, visitor count, visitor funnel (opened -> loaded -> played; like the admin page it excludes the login gate and ordinary pages), per-lesson summary, login gate, device / source / load errors, paths entered from the home page, home page dwell time, login page, and recent visit trails without playback. Requires omixor to be signed in to that connection.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "connection": {
-          "description": "Connection id; default is the one selected on the omixor site visitors page (evoleap)",
+          "description": "Connection id; default is the one selected on the omixor site visitors page",
           "type": "string"
         },
         "range": {
@@ -806,7 +806,7 @@
       "additionalProperties": false,
       "properties": {
         "job": {
-          "description": "Cloud Run Job name, for example shuttle-course-sync",
+          "description": "Cloud Run Job name, for example my-sync-job",
           "type": "string"
         },
         "refresh": {
@@ -814,7 +814,7 @@
           "type": "boolean"
         },
         "service": {
-          "description": "Cloud Run service name, for example shuttle-server",
+          "description": "Cloud Run service name, for example my-service",
           "type": "string"
         }
       },

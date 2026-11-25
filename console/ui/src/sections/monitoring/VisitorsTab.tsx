@@ -1,4 +1,4 @@
-// 監控 › 網站訪客:evoleap 的會員與訪客統計(後台「會員」頁同一份資料),透過連線以管理員身分讀取(Swift 的 MonVisitorsTab)
+// 監控 › 網站訪客:網站的會員與訪客統計(後台「會員」頁同一份資料),透過連線以管理員身分讀取(Swift 的 MonVisitorsTab)
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { action, useView } from "../../api";
@@ -74,13 +74,15 @@ export function VisitorsTab() {
   const o = useOmixor();
   const [cv, cvErr] = useView<ConnectionsView>("connections");
   const [range, setRange] = useState<RangeId>("1d");
-  const [connId, setConnId] = useStored("visitors.connection", "evoleap");
+  const [stored, setConnId] = useStored("visitors.connection", "");
   const [data, setData] = useState<Overview>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [updatedAt, setUpdatedAt] = useState<string>();
   const [loginErr, setLoginErr] = useState<string>();
   const conns = Array.isArray(cv?.connections) ? cv!.connections : [];
+  // 沒選過就是空白;舊版固定預設用 id 是 evoleap 的連線,有這個連線時照舊用它
+  const connId = stored || (conns.some((c) => c.id === "evoleap") ? "evoleap" : "");
   const conn = conns.find((c) => c.id === connId);
   const noConns = !!cv && conns.length === 0; // 新安裝沒有任何連線
   const st = conn ? cv?.states?.[conn.id] : undefined;
@@ -122,7 +124,7 @@ export function VisitorsTab() {
       <div className="page-inner">
         <div className="row gap12 wrap">
           <select className="select" value={connId} onChange={(e) => { setConnId(e.target.value); setData(undefined); }}>
-            {!conn && <option value={connId}>{connId}</option>}
+            {!conn && <option value={connId}>{connId || "選擇連線…"}</option>}
             {conns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           {conn && (st?.account ? <Pill text={st.account} color="green" icon="person.crop.circle.badge.checkmark" />

@@ -7,7 +7,7 @@ func TestLocalPersonDefaults(t *testing.T) {
 	t.Setenv("OMIXOR_TEMPLATES", "0")
 	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir())
 	a := &App{Me: LocalIdentity, C: map[string][]map[string]any{}}
-	if n := a.Name(Person(a.Me)); n != localDisplayName() || n == "" {
+	if n := a.MeName(); n != localDisplayName() || n == "" || a.Name(Person(a.Me)) != LocalIdentity {
 		t.Fatalf("顯示名稱:%q", n)
 	}
 	if !samePerson("tim", LocalIdentity) || !samePerson("bob", "bob") || samePerson("tim", "bob") {

@@ -6,7 +6,8 @@ import (
 	"sync"
 )
 
-// 本機使用者的顯示名稱與「是不是同一個人」。身分(id)固定是 LocalIdentity;畫面上的名稱用作業系統的登入帳號。
+// 本機使用者的顯示名稱與「是不是同一個人」。身分(id)固定是 LocalIdentity;「登入身分」顯示作業系統的登入帳號。
+// 資料裡的署名(Issue、文件、MCP 輸出)不換名字,才不會把系統帳號名帶進共用的資料。
 
 // localUnknownName 取不到作業系統帳號(或是容器、服務帳號)時的顯示名稱
 const localUnknownName = "本機使用者"
@@ -18,6 +19,14 @@ var localDisplayName = sync.OnceValue(func() string {
 	}
 	return cleanLocalName(u.Name, u.Username)
 })
+
+// MeName 沒啟用登入時「登入身分」的顯示名稱(呼叫時拿著 Mu)
+func (a *App) MeName() string {
+	if a.Me == LocalIdentity {
+		return localDisplayName()
+	}
+	return a.Name(Person(a.Me))
+}
 
 // cleanLocalName 全名優先,沒有就用帳號(去掉 Windows 的網域);服務帳號不當人名
 func cleanLocalName(full, username string) string {

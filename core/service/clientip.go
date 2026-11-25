@@ -62,6 +62,9 @@ func parseXFFItem(s string) (netip.Addr, bool) {
 	return netip.Addr{}, false
 }
 
+// LimitKey 同 limitKey,給需要在鍵上加前綴的宿主用:要先聚合再加前綴(加了前綴的字串解析不出位址,不會聚合)
+func LimitKey(ip string) string { return limitKey(ip) }
+
 // limitKey 頻率限制與失敗計數用的鍵:IPv6 取 /64 前綴(一般使用者至少拿到 /64,逐一換位址不能繞過限制),IPv4 原樣,
 // IPv4-mapped IPv6 先轉成 IPv4,不是位址的字串原樣回傳。稽核、log、ip_hash 仍用 ClientIP 的真實位址,不要用這個
 func limitKey(ip string) string {

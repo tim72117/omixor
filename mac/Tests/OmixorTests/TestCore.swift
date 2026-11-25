@@ -117,7 +117,7 @@ enum TestCore {
             }
         }
         _ = try r.sendJSON("POST", cfg.url.appendingPathComponent("local/orgs"), ["orgs": [["id": OrgFiles.defaultId, "name": "evoleap"]]])
-        // 同正式第一次啟動:預設組織沒有 cabinet-layout.json 時,文件櫃結構用研發基地的(LocalCoreImport.bundle)
+        // 同舊版預設組織:沒有 cabinet-layout.json 時,文件櫃結構用研發基地的(LocalCoreImport.bundle 的 studioFallback)
         let layout = try JSONSerialization.jsonObject(with: try OrgFiles.encoder().encode(CabinetLayout.evoleapStudio))
         _ = try r.sendJSON("POST", cfg.url.appendingPathComponent("local/import/default"), ["cabinetLayout": layout])
     }

@@ -101,7 +101,7 @@ func TestGitHubViewAndActions(t *testing.T) {
 	if _, err := core.Action(a, "github_add_repo", map[string]any{"repo": "x"}); err == nil {
 		t.Fatal("格式錯誤要擋")
 	}
-	if v := view("connections"); len(v["connections"].([]any)) != 3 {
+	if v := view("connections"); len(v["connections"].([]any)) != 1 {
 		t.Fatalf("多了 GitHub 連線:%v", v)
 	}
 	if out, err := mcp.Run(a, "github", map[string]any{}, core.MCPActor); err != nil && strings.Contains(err.Error(), "沒有編進") {

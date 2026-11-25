@@ -50,12 +50,14 @@ type schemaStep struct {
 	SQL     string // 冪等、向後相容的 DDL;可以有多個語句,在同一個交易裡執行
 }
 
-// schemaSteps 依版本遞增排列。步驟 2 是 commits(ISS-69),步驟 3 是 Issue 表改名
+// schemaSteps 依版本遞增排列。步驟 2 是 commits(ISS-69),步驟 3 是 Issue 表改名,步驟 4 保留既有組織的功能開關
 var schemaSteps = []schemaStep{
 	// 2:commits(ISS-69)。新增三張表、索引與外鍵,SQL 和全新安裝共用(schema_commits.go)
 	{Version: 2, Name: "commits", SQL: commitsStepSQL},
 	// 3:最後兩張舊名的表改成 omixor_ 開頭(ops_issues、ops_issue_comments),連同約束與索引。不向後相容、不能滾動部署(schema_rename_issues.go)
 	{Version: 3, Name: "rename_issues_tables", SQL: renameIssuesSQL},
+	// 4:旁白發佈、網站訪客改成預設關,既有組織補寫「開」(不改結構;schema_keep_features.go)
+	{Version: 4, Name: "keep_voice_visitors_for_existing_orgs", SQL: keepVoiceVisitorsSQL},
 }
 
 // knownSchemaVersion 程式已知的最大版本 = max(baseline, 步驟版本)

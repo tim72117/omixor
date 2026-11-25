@@ -108,3 +108,49 @@ func newJarClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
 	return &http.Client{Jar: jar}
 }
+
+// 啟動後還沒選連接對象:只有能呼叫 mode_set 的管理員看到 gate;非管理員不顯示(不然會卡在選擇畫面)
+func TestGateOnlyForAdmin(t *testing.T) {
+	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir()) // 認證設定存在資料夾:不和別的測試共用
+	bob, alice, _ := adminTestClients(t)
+	gate := func(c *client) any {
+		code, v := c.do("GET", "/api/view/account", nil, nil)
+		if code != 200 {
+			t.Fatalf("account:%d %v", code, v)
+		}
+		return v["gate"]
+	}
+	check := func(when string, admin bool) {
+		t.Helper()
+		if got := gate(alice); got != admin {
+			t.Fatalf("%s:管理員的 gate = %v,要 %v", when, got, admin)
+		}
+		if got := gate(bob); got != false {
+			t.Fatalf("%s:非管理員的 gate = %v,要 false", when, got)
+		}
+	}
+	post := func(c *client, name string, args map[string]any) {
+		t.Helper()
+		if code, out := c.do("POST", "/api/action/"+name, args, nil); code != 200 {
+			t.Fatalf("%s:%d %v", name, code, out)
+		}
+	}
+	post(alice, "gate_reset", map[string]any{})
+	check("還沒選", true)
+	post(alice, "mode_set", map[string]any{"mode": "local"})
+	check("選好了", false)
+	post(alice, "gate_reset", map[string]any{}) // 管理員登出
+	check("管理員登出後", true)
+}
+
+// 不需要登入的本機模式:使用者視為管理員,維持啟動先選
+func TestGateKeptInLocalMode(t *testing.T) {
+	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir())
+	c, _ := newServer(t, nil)
+	if _, out := c.do("POST", "/api/action/gate_reset", map[string]any{}, nil); out["error"] != nil {
+		t.Fatal(out)
+	}
+	if code, v := c.do("GET", "/api/view/account", nil, nil); code != 200 || v["gate"] != true {
+		t.Fatalf("account:%d %v", code, v)
+	}
+}

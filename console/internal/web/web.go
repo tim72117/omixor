@@ -80,7 +80,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			writeJSON(w, 404, map[string]any{"error": "沒有這個 view:" + name})
 			return
 		}
-		if name == "system" || name == "members" {
+		if name == "system" || name == "members" || name == "account" {
 			v = forViewer(name, v, isAdmin(r, app, au))
 		}
 		if set, unk, active := restrictedSetFor(r, app, au, ""); active { // 不是 web 管理員:受限專案的資料拿掉(見 restricted.go)

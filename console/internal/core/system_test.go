@@ -185,7 +185,8 @@ func TestSystemFallbackAndCache(t *testing.T) {
 		if f.Experimental && f.On {
 			t.Fatalf("實驗功能預設要關:%s", f.Key)
 		}
-		if !f.Experimental && !f.On {
+		// 旁白發佈、網站訪客要自己開
+		if !f.Experimental && !f.On && f.Key != "pipelines.voice" && f.Key != "monitoring.visitors" {
 			t.Fatalf("已實作的預設要開:%s", f.Key)
 		}
 	}

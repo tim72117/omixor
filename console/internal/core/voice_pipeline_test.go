@@ -1,6 +1,7 @@
 package core
 
 import (
+	"omixor-core/backend"
 	"encoding/json"
 	"errors"
 	"os"
@@ -225,8 +226,8 @@ func TestVoiceFullFlowSubmitPollCollect(t *testing.T) {
 	if c11.Course == nil || *c11.Course != "launch" || c11.Lesson == nil || *c11.Lesson != "1.1" {
 		t.Fatalf("course/lesson=%v/%v", c11.Course, c11.Lesson)
 	}
-	if c11.Added[0].URL() != "https://storage.googleapis.com/shuttle-voice/launch/aaa.mp3" {
-		t.Fatal(c11.Added[0].URL())
+	if c11.Added[0].URL("my-bucket") != "https://storage.googleapis.com/my-bucket/launch/aaa.mp3" {
+		t.Fatal(c11.Added[0].URL("my-bucket"))
 	}
 	if !c12.IsNew || c12.Course != nil {
 		t.Fatalf("c12=%+v", c12)
@@ -234,6 +235,16 @@ func TestVoiceFullFlowSubmitPollCollect(t *testing.T) {
 	if len(j.FailedClips) != 1 {
 		t.Fatalf("failedClips=%v", j.FailedClips)
 	}
+	// 旁白發佈預設關,徽章要開著才算
+	on := SystemFallback()
+	on.ServerFeatures["pipelines"], on.ServerFeatures["pipelines.voice"] = true, true
+	for i := range on.Features {
+		if k := on.Features[i].Key; k == "pipelines" || k == "pipelines.voice" {
+			on.Features[i].Enabled, on.Features[i].On = true, true
+		}
+	}
+	systemUseBackend(t, func() (backend.Backend, error) { return &sysFakeBackend{view: on}, nil })
+	a.SystemRefresh()
 	b, _ := View(a, "badges")
 	if n, _ := b.(map[string]any)["pipelines"].(float64); n < 1 {
 		t.Fatalf("badges=%v", b)
@@ -664,5 +675,36 @@ func TestVoiceActions(t *testing.T) {
 	}
 	if _, err := Action(a, "voice_settings", map[string]any{"pollMinutes": float64(0)}); err == nil {
 		t.Fatal("0 分鐘應該不行")
+	}
+}
+
+// 新安裝:路徑、連線、bucket 都是空白;沒設定路徑時拒絕送出。用過舊版的(有批次紀錄或專案資料夾)沿用舊的固定值,已填的不動
+func TestVoiceDefaultsBlankAndLegacyKept(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("OMIXOR_SHUTTLE_PATH", "")
+	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir())
+	a := New()
+	p := StartVoice(a, false)
+	a.Mu.Lock()
+	if p.ShuttleRoot() != "" || p.TargetID() != "" || p.Settings.Bucket != "" || p.liveDir() != "" {
+		t.Fatalf("新安裝要是空白:%+v", p.Settings)
+	}
+	if _, err := p.Submit(nil, true, nil, SystemActor); err == nil {
+		t.Fatal("沒設定路徑不能送出")
+	}
+	a.Mu.Unlock()
+
+	if err := os.MkdirAll(filepath.Join(home, "Documents", "shuttle", "web", "src", "content", "live"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir())
+	a2 := New()
+	p2 := StartVoice(a2, false)
+	a2.Mu.Lock()
+	defer a2.Mu.Unlock()
+	if p2.Settings.ShuttlePath != voiceLegacyShuttlePath || p2.TargetID() != voiceLegacyConnection || p2.Settings.Bucket != voiceLegacyBucket {
+		t.Fatalf("舊安裝要沿用:%+v", p2.Settings)
 	}
 }

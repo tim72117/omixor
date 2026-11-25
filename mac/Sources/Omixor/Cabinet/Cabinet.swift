@@ -1,7 +1,7 @@
 import Foundation
 
 // 文件櫃:純文字(Markdown)文件,依組織的文件櫃結構(CabinetLayout:區塊與頁籤,每個組織可以自訂)分類。
-// 預設組織的結構是 evoleap 研發基地(/studio,CabinetLayout.evoleapStudio),照 shuttle 的
+// 新組織的結構是空白(CabinetLayout.blank)。舊版預設組織用 evoleap 研發基地(/studio,CabinetLayout.evoleapStudio),照 shuttle 的
 // web/src/studio/proposal/ProposalLayout.tsx(SECTIONS、LEVELS、DEV、IDEAS、DOCS)與 web/src/studio/articles/registry.ts;
 // evoleap 研發基地改版時要跟著改 evoleapStudio。
 // 資料一律讀寫 core server(遠端 omixor 或本機守護服務,CabinetRemote.swift),每 10 秒重讀一次,別人或角色的修改也看得到。
@@ -46,7 +46,7 @@ struct CabinetSection: Hashable, Identifiable, Codable {
 
 enum CabinetLayout {
     /// 目前組織的結構(切換組織或修改結構時更新)
-    nonisolated(unsafe) static var sections: [CabinetSection] = evoleapStudio
+    nonisolated(unsafe) static var sections: [CabinetSection] = blank
 
     /// 新的空白組織用的結構
     static let blank: [CabinetSection] = [
@@ -54,7 +54,7 @@ enum CabinetLayout {
         CabinetSection(id: "docs", label: "文件"),
     ]
 
-    /// evoleap 研發基地的結構(預設組織)
+    /// evoleap 研發基地的結構(舊版預設組織;結構編輯器的範本)
     static let evoleapStudio: [CabinetSection] = [
         CabinetSection(id: "overview", label: "總覽", path: "/studio"),
         CabinetSection(id: "todo", label: "待辦", path: "/studio/todo"),

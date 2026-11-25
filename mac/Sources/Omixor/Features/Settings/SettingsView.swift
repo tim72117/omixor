@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-// 設定:組織、整合、程式碼倉庫、連線、LINE、團隊與值班、AI 治理、通知、一般。
+// 設定:組織、整合、程式碼倉庫、連線、LINE、團隊、AI 治理、一般。
 // 其他頁用 app.go(.settings, focus: <分頁 rawValue>) 跳到指定分頁,例如開發進度的「前往 設定 › 程式碼倉庫」帶 "repos"。
 // 不在 AppState 裡的偏好設定存在 UserDefaults(@AppStorage),鍵名都以 omixor.settings. 開頭
 // (改名前是 ops.settings.,啟動時由 SettingsKeys.migrateLegacy 搬到新鍵)。
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case orgs, features, integrations, repos, connections, line, team, ai, notifications, general
+    case orgs, features, integrations, repos, connections, line, team, ai, general
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -17,9 +17,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .repos: return "程式碼倉庫"
         case .connections: return "連線"
         case .line: return "LINE"
-        case .team: return "團隊與值班"
+        case .team: return "團隊"
         case .ai: return "AI 治理"
-        case .notifications: return "通知"
         case .general: return "一般"
         }
     }
@@ -33,7 +32,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .line: return "message"
         case .team: return "person.2"
         case .ai: return "sparkles"
-        case .notifications: return "bell.badge"
         case .general: return "gearshape"
         }
     }
@@ -53,6 +51,7 @@ enum SettingsKeys {
     static let pauseInBackground = "omixor.settings.pauseInBackground"
     static let timezone = "omixor.settings.timezone"
     static let use24h = "omixor.settings.use24h"
+    // ai.*:AI 治理頁以前的偏好設定,畫面已拿掉;鍵名留著給改名搬移與「還原預設」清除
     static let aiEnabled = "omixor.settings.ai.enabled"
     static let aiBudget = "omixor.settings.ai.budgetUSD"
     static let aiBudgetAlert = "omixor.settings.ai.budgetAlert"
@@ -121,7 +120,6 @@ struct SettingsView: View {
                 case .line: SettingsLinePane()
                 case .team: SettingsTeamPane()
                 case .ai: SettingsAIGovernancePane()
-                case .notifications: SettingsNotificationsPane()
                 case .general: SettingsGeneralPane()
                 }
             }
@@ -260,7 +258,7 @@ struct SettingsGeneralPane: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("主題、更新頻率、AI 治理上限與預算等設定會回到預設值。")
+            Text("主題、更新頻率等設定會回到預設值。")
         }
     }
 

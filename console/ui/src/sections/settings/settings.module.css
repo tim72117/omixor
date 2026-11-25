@@ -81,18 +81,6 @@ details.nativeDisclosure > summary { cursor: default; font-size: var(--fs-sm); c
 .intIcon.on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .cmd { max-width: 380px; user-select: text; }
 
-/* MARK: - AI 治理 */
-.track { height: 6px; border-radius: var(--r-md); background: color-mix(in srgb, var(--fg) 8%, transparent); }
-.fill { height: 6px; border-radius: var(--r-md); background: var(--green); }
-.fill.fillOrange { background: var(--orange); }
-.fill.fillRed { background: var(--red); }
-
-/* MARK: - 通知 */
-/* 嚴重度 × 管道的勾選表(欄數依 CHANNELS,寫在 inline) */
-.matrix { display: grid; row-gap: 10px; width: 100%; align-items: center; }
-.matrixHead { align-items: center; font-weight: 600; gap: 2px; }
-.matrixSep { grid-column: 1 / -1; height: 1px; background: var(--line); }
-
 /* MARK: - 程式碼倉庫 */
 .copyValue { user-select: text; word-break: break-all; }
 .dangerRed { color: var(--red); }

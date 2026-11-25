@@ -6,8 +6,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { action, useRun, useView } from "../api";
 import { ErrorText } from "../components/ErrorText";
 import { Icon } from "../components/Icon";
+import { logout, useAuth } from "./auth";
 import css from "./auth.module.css";
-import type { Account } from "./ConnectGate";
+import { useCanSwitchTarget, type Account } from "./ConnectGate";
 
 type OrgIndex = { current: string; orgs: { id: string }[] };
 
@@ -28,9 +29,13 @@ function NoOrgs({ acc }: { acc: Account }) {
     run(async () => {
       await action("org_create", { name: name.trim(), symbol: "building.2", color: "blue", switch: true });
     });
-  const leave = (logout: boolean) =>
+  const auth = useAuth();
+  const canSwitch = useCanSwitchTarget();
+  // 不是 web 管理員:連接對象是大家共用的,只能登出自己的 LDAP
+  const leave = (signOut: boolean) =>
     run(async () => {
-      if (logout) await action("remote_logout");
+      if (!canSwitch) return logout();
+      if (signOut) await action("remote_logout");
       await action("gate_reset");
     });
   return (
@@ -63,8 +68,8 @@ function NoOrgs({ acc }: { acc: Account }) {
         )}
         <ErrorText>{error}</ErrorText>
         <div className={"row gap8 " + css.center}>
-          <button className="btn link" disabled={busy} onClick={() => void leave(false)}>換連接對象</button>
-          <button className="btn link" disabled={busy} onClick={() => void leave(true)}>登出</button>
+          {canSwitch && <button className="btn link" disabled={busy} onClick={() => void leave(false)}>換連接對象</button>}
+          {(canSwitch || auth?.mode === "ldap") && <button className="btn link" disabled={busy} onClick={() => void leave(true)}>登出</button>}
         </div>
       </div>
     </div>

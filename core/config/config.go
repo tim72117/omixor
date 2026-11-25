@@ -440,23 +440,10 @@ var rules = []rule{
 		return nil
 	}},
 	{Server, func(c *Config) error {
-		// 設了 GitLab 的其他項目卻沒設 OMIXOR_GITLAB_URL:GitLab 登入不會啟用,多半是漏設
-		if c.IsSet(GitLabURL) {
-			if !c.IsSet(PublicURL) {
-				return fmt.Errorf("設了 OMIXOR_GITLAB_URL,也要設 OMIXOR_PUBLIC_URL(GitLab 的回呼網址由它推導)")
-			}
-			return nil
+		if c.IsSet(GitLabURL) && !c.IsSet(PublicURL) {
+			return fmt.Errorf("設了 OMIXOR_GITLAB_URL,也要設 OMIXOR_PUBLIC_URL(GitLab 的回呼網址由它推導)")
 		}
-		var set []string
-		for _, v := range All {
-			if v.Group == GroupGitLab && v != GitLabURL && c.IsSet(v) {
-				set = append(set, v.Name)
-			}
-		}
-		if len(set) > 0 {
-			return fmt.Errorf("設了 %s,但沒設 OMIXOR_GITLAB_URL,GitLab 登入不會啟用", strings.Join(set, "、"))
-		}
-		return nil
+		return gitLabURLMissing(c)
 	}},
 	{Web, func(c *Config) error {
 		// 兩個都設而連接埠不一樣:OMIXOR_WEB_ADDR 優先,OMIXOR_WEB_PORT 會被忽略,多半是設錯
@@ -468,6 +455,30 @@ var rules = []rule{
 		return nil
 	}},
 	{Web, webOAuthRule},
+	{Web, func(c *Config) error {
+		// console 只有對外 MCP 連接埠的同意畫面用 GitLab 登入:沒開那個連接埠就不檢查
+		if !c.IsSet(OAuthAddr) {
+			return nil
+		}
+		return gitLabURLMissing(c)
+	}},
+}
+
+// gitLabURLMissing 設了 GitLab 的其他項目卻沒設 OMIXOR_GITLAB_URL:GitLab 登入不會啟用,多半是漏設
+func gitLabURLMissing(c *Config) error {
+	if c.IsSet(GitLabURL) {
+		return nil
+	}
+	var set []string
+	for _, v := range All {
+		if v.Group == GroupGitLab && v != GitLabURL && c.IsSet(v) {
+			set = append(set, v.Name)
+		}
+	}
+	if len(set) > 0 {
+		return fmt.Errorf("設了 %s,但沒設 OMIXOR_GITLAB_URL,GitLab 登入不會啟用", strings.Join(set, "、"))
+	}
+	return nil
 }
 
 // webOAuthRule 設了 OMIXOR_OAUTH_ADDR(console 的對外 MCP 連接埠)時的相依:要有對外網址(issuer、resource、evoleap 回呼都由它推導)、

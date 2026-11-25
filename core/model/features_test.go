@@ -33,8 +33,10 @@ func TestFeatureCatalog(t *testing.T) {
 		if f.Experimental && (f.Default || f.ExperimentalNote == "") {
 			t.Fatalf("實驗功能預設關、要有說明:%s", f.Key)
 		}
-		if !f.Experimental && !f.Default {
-			t.Fatalf("已實作的預設開:%s", f.Key)
+		// 要另外接外部系統的功能(旁白發佈、網站訪客)預設關,其他已實作的預設開
+		optIn := f.Key == "pipelines.voice" || f.Key == "monitoring.visitors"
+		if !f.Experimental && f.Default == optIn {
+			t.Fatalf("已實作的預設開(旁白發佈、網站訪客除外):%s", f.Key)
 		}
 		if f.Required && (!f.Default || f.Experimental) {
 			t.Fatalf("必要的預設開:%s", f.Key)

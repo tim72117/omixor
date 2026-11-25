@@ -28,6 +28,8 @@ concurrency:
 
 jobs:
   test:
+    # 這個 workflow 部署到作者自己的 GCP:fork 推 tag 不執行
+    if: github.repository == 'tim72117/omixor'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -65,6 +67,7 @@ jobs:
         working-directory: server
 
   deploy:
+    if: github.repository == 'tim72117/omixor'
     needs: test
     runs-on: ubuntu-latest
     permissions:

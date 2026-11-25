@@ -38,7 +38,7 @@ func (a *App) conns() *connState {
 	if s, ok := a.Ext["connections"].(*connState); ok {
 		return s
 	}
-	s := &connState{States: map[string]*ConnectionState{}, GCP: DefaultGCPSettings(), VisitorsConn: "evoleap"}
+	s := &connState{States: map[string]*ConnectionState{}, GCP: DefaultGCPSettings()}
 	a.Ext["connections"] = s
 	return s
 }
@@ -59,6 +59,7 @@ func connLoad(a *App) {
 		// 沒有存檔(或讀不到):空清單。這裡不寫檔,讀取暫時失敗時才不會蓋掉原本存的連線
 		s.List = []Connection{}
 	}
+	visitorsLoad(a)
 }
 
 func readConnections(path string) ([]Connection, bool) {

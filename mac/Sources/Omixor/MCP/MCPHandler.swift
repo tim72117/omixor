@@ -371,7 +371,7 @@ final class MCPHandler {
     }
 
     static let instructions = """
-    omixor is a macOS app for operating live services. These tools read and write the live data in the app directly; changes show up on screen immediately and are recorded on the activity feed as "MCP client".
+    omixor is a workspace where people and AI agents coordinate work and operate live services. These tools read and write the live data in the app directly; changes show up on screen immediately and are recorded on the activity feed as "MCP client".
     Start with overview to get the big picture, then use list / get for details.
     Approving AI requests, approving deployments, rollbacks, and changing automation autonomy can only be decided by a person in the app; when you need such a change, create an approval request with request_approval and attach the rationale, evidence, and rollback plan.
     GCP (gcp, gcp_logs, gcp_metrics) is read-only: check Cloud Run status, error logs, request volume, and latency; omixor does not deploy, change traffic, or run Jobs.
@@ -379,8 +379,8 @@ final class MCPHandler {
     Issues, virtual roles and tasks, the document cabinet, and connections all belong to the current organization (orgs shows which one); switching organizations can only be done by a person in the app.
     omixor has virtual roles (agents). When the user asks you to work as a role: first use agent_context to get what that role can read, then claim a task with agent_task_claim, follow the returned role settings and task instructions, and report progress and results with agent_task_report; report blocked when a person needs to decide. To write Issues, comments, documents, or channel messages as a role, you must connect to the role endpoint (/mcp/agent) with the role credential returned by agent_task_claim; on this general omixor connection, issue_create, issue_update, and the cabinet and channel tools cannot take an agent argument to sign as a role (it is rejected), and the author is always the signed-in account.
     The document cabinet (cabinet, docs, doc_save) is organized by the current organization's cabinet structure (sections and tabs); a role can only read and write documents within its docAccess scope (decided by the credential on the role endpoint). An organization can be split into projects (projects, project_save); cabinet tools take project (a project id) to read and write that project's cabinet; omitted = no project.
-    When you find a problem worth tracking (for example an anomaly in the site_visitors numbers), save it as an Issue with issue_create; search with issues first to avoid duplicates, and if one exists, add a comment with issue_update.
-    Narration voice (npm run voice in the shuttle project) can be dispatched as a batch with voice_submit: omixor polls periodically and collects the results, then a person auditions them in the app and presses publish. There is no MCP tool for publishing.
+    When you find a problem worth tracking (for example a spike in error logs), save it as an Issue with issue_create; search with issues first to avoid duplicates, and if one exists, add a comment with issue_update.
+    Narration publishing and site visitor statistics are optional features, off by default: they work only after a person enables them in omixor and configures them. When narration publishing is set up, a voice batch can be dispatched with voice_submit: omixor polls periodically and collects the results, then a person auditions them in the app and presses publish (there is no MCP tool for publishing). When site visitor statistics are set up, site_visitors reads them from the selected website connection.
     Message channels (channels, channel_messages, channel_post, channel_create) bring people and roles into one conversation; @-mentioning a role only notifies it and does not queue a task. When working as a role, the mentions field of agent_context lists unread messages that mention it; reading (channel_messages) and replying (channel_post) as a role must be done on the role endpoint.
     Facebook Pages (fb_pages, fb_posts, fb_insights, fb_drafts) are read-only; fb_draft_save can only create or edit drafts (pass agent when writing as a role); publishing and scheduling can only be done by a person in the app under AI Automation > Pages.
     """
@@ -532,9 +532,9 @@ final class MCPHandler {
                  "icon": prop("string", "SF Symbol name, default sparkles"),
              ], required: ["text"]),
         Tool(name: "voice_submit", title: "Dispatch a narration voice batch",
-             description: "Hand the shuttle project narration voice generation to omixor: runs npm run voice -- <script> --batch (Gemini Batch API, about half price, up to 24 hours). Returns a job id immediately, no need to wait; omixor polls every few minutes and collects the results automatically (download, convert to mp3, upload to GCS, rewrite the local .voice.json), then a person auditions them in omixor and presses publish. Only one batch runs at a time; the rest are queued. dry_run only lists which segments would be sent, without calling the API or spending money.",
+             description: "Hand narration voice generation to omixor: runs npm run voice -- <script> --batch in the configured narration project (Gemini Batch API, about half price, up to 24 hours). Requires the narration publishing feature to be enabled and its project path configured. Returns a job id immediately, no need to wait; omixor polls every few minutes and collects the results automatically (download, convert to mp3, upload to GCS, rewrite the local .voice.json), then a person auditions them in omixor and presses publish. Only one batch runs at a time; the rest are queued. dry_run only lists which segments would be sent, without calling the API or spending money.",
              properties: [
-                 "scripts": strings("Script paths under web/src/content/live/, for example launch/2.1.json"),
+                 "scripts": strings("Script paths under web/src/content/live/, for example intro/1.json"),
                  "all": prop("boolean", "All scripts"),
                  "limit": prop("integer", "Send only the first N segments of each script (for trials)"),
                  "dry_run": prop("boolean", "Dry run only, do not submit"),
@@ -543,10 +543,10 @@ final class MCPHandler {
              description: "Check the status of narration voice batches (queued, generating, awaiting publish, published, failed, ...), the list of changed narrations, and the log. Without id, lists the most recent batches.",
              properties: ["id": prop("string", "Job id, for example VJ-3")], required: [], readOnly: true),
         Tool(name: "site_visitors", title: "Site visitor statistics",
-             description: "Read the evoleap site member and visitor statistics (the same data as the admin Members page, GET /api/admin/overview): member count, visitor count, visitor funnel (opened -> loaded -> played; like the admin page it excludes the login gate and ordinary pages), per-course summary, login gate, device / source / load errors, paths entered from the home page, home page dwell time, login page, and recent visit trails without playback. Requires omixor to be signed in to that connection.",
+             description: "Read website member and visitor statistics from the selected connection (its admin API, GET /api/admin/overview; requires the site visitors feature to be enabled and a website that provides this API): member count, visitor count, visitor funnel (opened -> loaded -> played; like the admin page it excludes the login gate and ordinary pages), per-lesson summary, login gate, device / source / load errors, paths entered from the home page, home page dwell time, login page, and recent visit trails without playback. Requires omixor to be signed in to that connection.",
              properties: [
                  "range": prop("string", "Time range, default 1d", enum: ["all", "30m", "12h", "1d", "7d"]),
-                 "connection": prop("string", "Connection id; default is the one selected on the omixor site visitors page (evoleap)"),
+                 "connection": prop("string", "Connection id; default is the one selected on the omixor site visitors page"),
              ], required: [], readOnly: true),
         Tool(name: "server", title: "Server and connection info",
              description: "Current connection info and versions: mode (local / remote), remote server name (without URL), sign-in state (account, role, token expiry) and the current organization, plus the omixor app and remote server versions (version, commit, buildTime). Never shows any secret.",
@@ -597,8 +597,8 @@ final class MCPHandler {
              description: "List the status, current revision, traffic, and URL of Cloud Run services in the GCP project omixor is configured with (for the current organization), plus the latest execution of each Cloud Run Job. With service, also returns its recent revisions; with job, returns its recent executions. Read-only. A person must first sign in under omixor Servers and Services > GCP.",
              properties: [
                  "refresh": prop("boolean", "Re-read first"),
-                 "service": prop("string", "Cloud Run service name, for example shuttle-server"),
-                 "job": prop("string", "Cloud Run Job name, for example shuttle-course-sync"),
+                 "service": prop("string", "Cloud Run service name, for example my-service"),
+                 "job": prop("string", "Cloud Run Job name, for example my-sync-job"),
              ], required: [], readOnly: true),
         Tool(name: "gcp_logs", title: "Query GCP logs",
              description: "Read Cloud Run service or Job logs from Cloud Logging (newest first). By default only ERROR and above from the last 24 hours. Read-only.",

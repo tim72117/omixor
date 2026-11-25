@@ -39,11 +39,19 @@ export function ConnectGate({ children }: { children: ReactNode }) {
   return <Inner key={String(auth?.loggedIn)}>{children}</Inner>;
 }
 
+/** 目前的網頁使用者能不能改連接對象(mode_set 等只有 web 管理員能呼叫;沒啟用 LDAP 時一律可以) */
+export function useCanSwitchTarget() {
+  const auth = useAuth();
+  return auth?.mode !== "ldap" || (auth.loggedIn && !!auth.user?.admin);
+}
+
 function Inner({ children }: { children: ReactNode }) {
   const [acc, err] = useView<Account>("account", ["account"]);
+  const canSwitch = useCanSwitchTarget();
   if (!acc && !err) return <div className={css.loading}>載入中…</div>;
-  // 讀不到(例如還沒登入 LDAP)就先放行,讓既有的登入頁處理
-  if (!acc || !acc.gate) return <>{children}</>;
+  // 讀不到(例如還沒登入 LDAP)就先放行,讓既有的登入頁處理。
+  // 不能改連接對象的人也放行(快取裡可能還是上一個管理員的 gate)
+  if (!acc || !acc.gate || !canSwitch) return <>{children}</>;
   return <Picker acc={acc} />;
 }
 

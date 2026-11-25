@@ -246,7 +246,8 @@ final class LocalCore: @unchecked Sendable {
 
 enum LocalCoreImport {
     /// 組織資料夾裡要匯入的檔案 → 匯入的類別(見 server/local.go 的 AppImport)
-    static func bundle(orgDir d: URL) -> [String: Any] {
+    /// studioFallback:舊版預設組織(沒有結構檔時 App 原本用 evoleap 研發基地的結構)
+    static func bundle(orgDir d: URL, studioFallback: Bool = false) -> [String: Any] {
         func raw(_ name: String) -> Any? {
             guard let data = try? Data(contentsOf: d.appendingPathComponent(name)) else { return nil }
             return try? JSONSerialization.jsonObject(with: data)
@@ -255,10 +256,11 @@ enum LocalCoreImport {
         if let v = raw("issues.json") as? [Any] { out["issues"] = v }
         if let v = raw("agents.json") as? [String: Any] { out["agents"] = v }
         if let v = raw("cabinet.json") as? [Any] { out["docs"] = v }
-        // 結構:沒有檔案時 App 原本用 evoleap 研發基地的結構(Cabinet.load),照舊
+        // 結構:沒有檔案但是舊資料(舊版預設組織,或已經有文件)時,照舊用 evoleap 研發基地的結構;
+        // 全新安裝不匯入結構(core 給空白結構)
         if let v = raw("cabinet-layout.json") as? [Any] {
             out["cabinetLayout"] = v
-        } else if let data = try? OrgFiles.encoder().encode(CabinetLayout.evoleapStudio), let v = try? JSONSerialization.jsonObject(with: data) {
+        } else if studioFallback || out["docs"] != nil, let data = try? OrgFiles.encoder().encode(CabinetLayout.evoleapStudio), let v = try? JSONSerialization.jsonObject(with: data) {
             out["cabinetLayout"] = v
         }
         if let v = raw("org-chain.json") as? [String: Any] { out["chain"] = v }
@@ -282,7 +284,8 @@ enum LocalCoreImport {
         let sectionOf = ["issues": "issues", "agents": "agents", "docs": "cabinet", "cabinetLayout": "cabinet", "chain": "chain", "channels": "channels"]
         for o in orgs {
             let imported = Set((done[o.id] as? [String: Any])?.keys.map { $0 } ?? [])
-            let b = bundle(orgDir: OrgFiles.dir(o.id)).filter { !imported.contains(sectionOf[$0.key] ?? $0.key) }
+            let legacy = o.id == OrgFiles.defaultId && o.name == OrgFiles.legacyDefaultName
+            let b = bundle(orgDir: OrgFiles.dir(o.id), studioFallback: legacy).filter { !imported.contains(sectionOf[$0.key] ?? $0.key) }
             guard !b.isEmpty else { continue }
             do {
                 let res = try r.sendJSON("POST", r.config.url.appendingPathComponent("local/import").appendingPathComponent(o.id), b) as? [String: Any] ?? [:]

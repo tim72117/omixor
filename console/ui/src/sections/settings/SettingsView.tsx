@@ -1,4 +1,4 @@
-// 設定:組織、功能(組織層的功能開關)、認證、整合、程式碼倉庫、連線、團隊與值班、AI 治理、通知、一般(Swift 的 SettingsView)
+// 設定:組織、功能(組織層的功能開關)、認證、整合、程式碼倉庫、連線、團隊、AI 治理、一般(Swift 的 SettingsView)
 // 打開哪個分頁記在 localStorage(PANE_KEY);其他頁用 navigate 帶 focusId = 分頁 id 跳過來,例如開發進度的「前往設定」帶 "repos"。
 import { useEffect } from "react";
 import { action, useView } from "../../api";
@@ -21,17 +21,16 @@ import { SettingsAI } from "./SettingsAI";
 import { SettingsConnections } from "./SettingsConnections";
 import { SettingsFeatures } from "./SettingsFeatures";
 import { SettingsIntegrations } from "./SettingsIntegrations";
-import { SettingsNotifications } from "./SettingsNotifications";
 import { SettingsOrgs } from "./SettingsOrgs";
 import { SettingsRepos } from "./SettingsRepos";
 import { SettingsTeam } from "./SettingsTeam";
 
-export type Pane = "orgs" | "features" | "auth" | "integrations" | "repos" | "connections" | "team" | "ai" | "notifications" | "general";
+export type Pane = "orgs" | "features" | "auth" | "integrations" | "repos" | "connections" | "team" | "ai" | "general";
 const PANES: { id: Pane; title: string; icon: string }[] = [
   { id: "orgs", title: "組織", icon: "building.2" }, { id: "features", title: "功能", icon: "switch.2" }, { id: "auth", title: "認證", icon: "lock" }, { id: "integrations", title: "整合", icon: "puzzlepiece.extension" },
   { id: "repos", title: "程式碼倉庫", icon: "chevron.left.forwardslash.chevron.right" },
-  { id: "connections", title: "連線", icon: "key.horizontal" }, { id: "team", title: "團隊與值班", icon: "person.2" },
-  { id: "ai", title: "AI 治理", icon: "sparkles" }, { id: "notifications", title: "通知", icon: "bell.badge" }, { id: "general", title: "一般", icon: "gearshape" },
+  { id: "connections", title: "連線", icon: "key.horizontal" }, { id: "team", title: "團隊", icon: "person.2" },
+  { id: "ai", title: "AI 治理", icon: "sparkles" }, { id: "general", title: "一般", icon: "gearshape" },
 ];
 export const PANE_KEY = "omixor.settings.pane";
 
@@ -65,7 +64,6 @@ export default function SettingsView({ focusId, clearFocus }: SectionProps) {
         {pane === "connections" && <SettingsConnections />}
         {pane === "team" && <SettingsTeam />}
         {pane === "ai" && <SettingsAI />}
-        {pane === "notifications" && <SettingsNotifications setPane={setPane} />}
         {pane === "general" && <General />}
       </div>
     </div>
@@ -96,7 +94,7 @@ function General() {
   const me = dir.person(dir.me);
   const [self] = useView<{ name?: string }>("me", ["orgs"]); // 不在人員清單時(本機使用者)用它的顯示名稱
   const reset = () => {
-    if (!window.confirm("還原所有本機設定?\n主題、更新頻率、AI 治理上限與預算等設定會回到預設值。")) return;
+    if (!window.confirm("還原所有本機設定?\n主題、更新頻率等設定會回到預設值。")) return;
     Object.keys(localStorage).filter((k) => k.startsWith("omixor.settings.")).forEach((k) => localStorage.removeItem(k));
     location.reload();
   };

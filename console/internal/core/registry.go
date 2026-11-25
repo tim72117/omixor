@@ -84,7 +84,7 @@ func init() {
 		s := a.MCP
 		return map[string]any{"status": s, "url": fmt.Sprintf("http://127.0.0.1:%d/mcp", s.Port)}
 	})
-	RegisterView("me", func(a *App) any { return map[string]any{"id": a.Me, "name": a.Name(Person(a.Me))} })
+	RegisterView("me", func(a *App) any { return map[string]any{"id": a.Me, "name": a.MeName()} })
 	RegisterView("sprint", func(a *App) any { return a.Sprint })
 	for _, c := range []string{"people", "services", "servers", "repos", "pull_requests", "work_items", "pipeline_runs",
 		"deployments", "alerts", "alert_rules", "logs", "dashboards", "incidents", "on_call", "automations",

@@ -386,7 +386,7 @@ struct OverviewOnCallCard: View {
         let current = app.onCall.filter { $0.start <= now && $0.end > now }.sorted { $0.role < $1.role }
         let next = app.onCall.filter { $0.start > now }.sorted { $0.start < $1.start }.first
         Card {
-            OverviewCardHeader(title: "值班", linkTitle: "輪值設定") { app.go(.settings) }
+            OverviewCardHeader(title: "值班")
             if current.isEmpty && next == nil {
                 OverviewInlineEmpty(icon: "person.badge.clock", text: "尚未設定值班輪值")
             } else {

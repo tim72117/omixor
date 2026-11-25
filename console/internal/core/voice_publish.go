@@ -11,7 +11,7 @@ import (
 )
 
 // 發佈旁白(只能由人在畫面上觸發),同 Swift 的 VoicePipeline.publish:
-// PUT /api/admin/scripts/<路徑>[?course=&lesson=] 寫進 evoleap,再 GET /api/scripts/<路徑> 讀回比對。
+// PUT /api/admin/scripts/<路徑>[?course=&lesson=] 寫進發佈目的地,再 GET /api/scripts/<路徑> 讀回比對。
 // Swift 版發佈前會要 Touch ID;網頁版沒有,改由畫面上的確認對話框把關。
 
 // VoiceTarget 發佈目的地(設定 › 連線 裡的一個連線)
@@ -102,6 +102,11 @@ func (p *VoicePipeline) PublishAs(id string, by Actor) {
 		a.Mu.Unlock()
 		return
 	}
+	if p.liveDir() == "" {
+		p.update(id, func(j *VoiceJob) { j.Note(voiceNoPathMessage) })
+		a.Mu.Unlock()
+		return
+	}
 	conn := p.connector()
 	target, ok := p.Target()
 	if !ok {
@@ -182,7 +187,7 @@ func (p *VoicePipeline) PublishAs(id string, by Actor) {
 			j.State = VoicePublished
 			j.PublishedAt = voiceTimePtr(Now().Time)
 			j.PublishedTo = voicePtr(target.Name)
-			j.Note("全部發佈完成。記得把這些 .voice.json commit 進 shuttle 的 repo")
+			j.Note("全部發佈完成。記得把這些 .voice.json commit 進旁白專案的 repo")
 		} else {
 			j.State = VoiceReady
 			j.Note("有檔案發佈失敗,修好後可以再按一次發佈(已成功的不會重送)")

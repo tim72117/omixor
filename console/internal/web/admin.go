@@ -112,9 +112,15 @@ func denyNonAdmin(w http.ResponseWriter, r *http.Request, app *core.App, au *aut
 const readOnlyNotAdmin = "你登入的帳號不是 web 的管理員,只能看目前的設定;要改請找管理員。"
 
 // forViewer 依登入者調整給畫面的資料:功能開關(view「system」與 system_reload / system_save / server_features_save 的結果)
-// 非管理員兩層都不能改(組織層在最上層,系統層在 server)
+// 非管理員兩層都不能改(組織層在最上層,系統層在 server);帳號(view「account」)非管理員不顯示「選擇連接對象」
 func forViewer(name string, out any, admin bool) any {
 	if admin {
+		return out
+	}
+	if name == "account" { // 解除 gate 的 mode_set 只有管理員能呼叫;非管理員直接用目前的連接對象,不然會卡在選擇畫面
+		if m, ok := out.(map[string]any); ok {
+			m["gate"] = false
+		}
 		return out
 	}
 	if name == "members" { // 成員視圖的 canEdit(畫面也拿它決定要不要顯示垃圾桶等管理員按鈕)要和 isAdmin 一致

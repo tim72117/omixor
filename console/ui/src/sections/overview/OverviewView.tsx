@@ -468,7 +468,7 @@ function OnCallCard({ d }: { d: Data }) {
   );
   return (
     <Card>
-      <CardHeader title="值班" linkTitle="輪值設定" onLink={() => o.go("settings")} />
+      <CardHeader title="值班" />
       {current.length === 0 && !next ? <InlineEmpty icon="person.badge.clock" text="尚未設定值班輪值" /> : (
         <>
           {current.map((s) => row(s, `到 ${monthDayTime(s.end)}`))}

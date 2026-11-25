@@ -92,7 +92,12 @@ type VoiceClip struct {
 	Text string `json:"text"`
 }
 
-func (c VoiceClip) URL() string { return "https://storage.googleapis.com/shuttle-voice/" + c.File }
+func (c VoiceClip) URL(bucket string) string {
+	if bucket == "" {
+		return ""
+	}
+	return "https://storage.googleapis.com/" + bucket + "/" + c.File
+}
 
 // VoiceFileChange 收結果後有變動的一份旁白清單(.voice.json)
 type VoiceFileChange struct {

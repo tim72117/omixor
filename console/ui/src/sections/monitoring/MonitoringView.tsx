@@ -14,6 +14,7 @@ import { LogsTab } from "./LogsTab";
 import { RulesTab } from "./RulesTab";
 import { VisitorsTab } from "./VisitorsTab";
 import { useFeatureTabs } from "../../features";
+import { OmixorProvider } from "../../lib/directory";
 
 type MonTab = "alerts" | "dashboards" | "logs" | "rules" | "visitors";
 const TABS: { id: MonTab; title: string; icon: string }[] = [
@@ -82,7 +83,7 @@ export default function MonitoringView({ focusId, clearFocus }: SectionProps) {
         {tab === "dashboards" && <DashboardsTab selectedId={dashId} setSelectedId={setDashId} />}
         {tab === "logs" && <LogsTab />}
         {tab === "rules" && <RulesTab highlightedId={ruleId} setHighlightedId={setRuleId} />}
-        {tab === "visitors" && <VisitorsTab />}
+        {tab === "visitors" && <OmixorProvider><VisitorsTab /></OmixorProvider>}
       </div>
     </div>
   );

@@ -1,14 +1,16 @@
 package core
 
+import "strings"
+
 // 旁白批次給畫面的 View、Action 與徽章(CI/CD › 旁白發佈,同 Swift 的 PipeVoiceTab)。
 //
 //	View   voice_jobs      [VoiceJob](完整內容,含 baseline)
-//	View   voice_settings  {connection, pollMinutes, shuttlePath, target: {id,name,baseURL,production} 或 null, hasToken}
+//	View   voice_settings  {connection, pollMinutes, shuttlePath, bucket, target: {id,name,baseURL,production} 或 null, hasToken}
 //	Action voice_publish   {id}  發佈(只能由人按;等全部送完才回傳)→ VoiceJob
 //	Action voice_cancel    {id}  取消排隊中或失敗的批次 → VoiceJob
 //	Action voice_retry     {id}  立即檢查(Swift 的「立即檢查」按鈕)→ VoiceJob
 //	Action voice_discard   {id}  從清單移除已結束的批次(Go 版才有)→ {}
-//	Action voice_settings  {connection?, pollMinutes?, shuttlePath?} → 同 View voice_settings
+//	Action voice_settings  {connection?, pollMinutes?, shuttlePath?, bucket?} → 同 View voice_settings
 // 送出與試算用 POST /api/tool/voice_submit(dry_run)。
 
 func init() {
@@ -79,7 +81,10 @@ func init() {
 			p.Settings.Connection = s
 		}
 		if s, ok := args["shuttlePath"].(string); ok {
-			p.Settings.ShuttlePath = s
+			p.Settings.ShuttlePath = strings.TrimSpace(s)
+		}
+		if s, ok := args["bucket"].(string); ok {
+			p.Settings.Bucket = strings.TrimSpace(s)
 		}
 		if v, ok := args["pollMinutes"]; ok {
 			n, ok := v.(float64)
@@ -105,7 +110,7 @@ func voiceSettingsView(a *App) any {
 		return nil
 	}
 	out := map[string]any{"connection": p.TargetID(), "pollMinutes": p.PollMinutes(), "shuttlePath": p.ShuttleRoot(),
-		"target": nil, "hasToken": false}
+		"bucket": p.Settings.Bucket, "target": nil, "hasToken": false}
 	if t, ok := p.Target(); ok {
 		out["target"] = map[string]any{"id": t.ID, "name": t.Name, "baseURL": t.BaseURL, "production": t.Production}
 		out["hasToken"] = p.connector().HasTokenCached(a, t.ID)

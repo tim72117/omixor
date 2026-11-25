@@ -40,6 +40,8 @@ enum OrgTemplate: String, CaseIterable, Identifiable {
 /// 組織檔案的位置與搬遷
 enum OrgFiles {
     static let defaultId = "default"
+    /// 舊版把預設組織固定叫這個名字(文件櫃用 CabinetLayout.evoleapStudio);只用來認出既有資料,全新安裝叫 omixor(同 console)
+    static let legacyDefaultName = "evoleap"
     static let perOrgFiles = ["issues.json", "cabinet.json", "cabinet-layout.json", "connections.json", "github.json", "gcp.json"]
 
     /// 跑測試卻沒指定 OMIXOR_APP_DATA_DIR 時用的暫存資料夾:測試絕對不能碰到真正的資料
@@ -87,7 +89,12 @@ enum OrgFiles {
             let src = root.appendingPathComponent(f), dst = target.appendingPathComponent(f)
             if fm.fileExists(atPath: src.path), !fm.fileExists(atPath: dst.path) { try? fm.copyItem(at: src, to: dst) }
         }
-        let idx = OrgIndex(current: defaultId, orgs: [Organization(id: defaultId, name: "evoleap", symbol: "graduationcap", color: "teal")])
+        // 預設組織的資料夾裡已經有舊資料(升級上來的)沿用舊的名稱與圖示;全新安裝是 omixor
+        let legacy = perOrgFiles.contains { fm.fileExists(atPath: target.appendingPathComponent($0).path) }
+        let first = legacy
+            ? Organization(id: defaultId, name: legacyDefaultName, symbol: "graduationcap", color: "teal")
+            : Organization(id: defaultId, name: "omixor", symbol: "building.2", color: "blue")
+        let idx = OrgIndex(current: defaultId, orgs: [first])
         saveIndex(idx)
         return idx
     }

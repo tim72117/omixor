@@ -770,7 +770,7 @@ func TestConnectionViewsAndActions(t *testing.T) {
 		}
 		return v.(map[string]any)
 	}
-	if v := view("connections"); len(v["connections"].([]any)) != 2 {
+	if v := view("connections"); len(v["connections"].([]any)) != 0 {
 		t.Fatalf("%v", v)
 	}
 	// GitHub 的 view、action 屬於選用模組 integrations(測試在 internal/modules/integrations);這裡沒編進模組
@@ -796,7 +796,7 @@ func TestConnectionViewsAndActions(t *testing.T) {
 	if _, err := Action(a, "connection_delete", map[string]any{"id": "payments-api"}); err != nil {
 		t.Fatal(err)
 	}
-	if v := view("connections"); len(v["connections"].([]any)) != 2 {
+	if v := view("connections"); len(v["connections"].([]any)) != 0 {
 		t.Fatalf("%v", v)
 	}
 }

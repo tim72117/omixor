@@ -144,7 +144,7 @@ func newOAuthHandler(app *core.App, svc *service.Service, cfg *config.Config) ht
 		Begin: act.Begin, Tool: act.Tool,
 		Reject: func(p *model.Principal) bool { return core.IsLocalUser(p.User) },
 		// 和本機連接埠的 /mcp/agent 共用同一個 service:失敗次數分開計,遠端猜錯憑證(反向代理後面來源常是 127.0.0.1)不會把本機的角色擋掉
-		AgentSource: func(r *http.Request) string { return "remote:" + service.ClientIP(r) },
+		AgentSource: remoteAgentSource,
 		AgentDone: func(role coremcp.Role, tool string, err error) {
 			app.RoleCallDone(role.Org, role.TaskID, tool, err)
 		},
@@ -154,6 +154,11 @@ func newOAuthHandler(app *core.App, svc *service.Service, cfg *config.Config) ht
 		host = u.Hostname()
 	}
 	return coremcp.HostGuard(host, mux)
+}
+
+// remoteAgentSource 對外連接埠角色端點「驗證失敗次數」的來源鍵:"remote:" + 聚合後的位址(IPv6 取 /64,換位址不能繞過限制)
+func remoteAgentSource(r *http.Request) string {
+	return "remote:" + service.LimitKey(service.ClientIP(r))
 }
 
 // isWriteTool 不是唯讀登記的工具就當會寫入(寫入後要重讀 console 的快取;這個連接埠的工具都是核心的,見 coremcp.ReadOnlyTools)

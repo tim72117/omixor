@@ -1,4 +1,4 @@
-// CI/CD › 旁白發佈:送出旁白語音批次、等它完成、試聽、按下發佈到 evoleap(Swift 的 PipeVoiceTab.swift)。
+// CI/CD › 旁白發佈:送出旁白語音批次、等它完成、試聽、按下發佈到指定的連線(Swift 的 PipeVoiceTab.swift)。
 // 送出/試算走 MCP 工具 voice_submit;發佈只能由人按(action voice_publish)。
 import { useRef, useState } from "react";
 import { action, tool, useView } from "../../api";
@@ -36,8 +36,8 @@ type VoiceJob = {
   error?: string | null; log: { date: string; text: string }[]; changes: VoiceFileChange[]; failedClips: string[]; publishedAt?: string | null; publishedTo?: string | null;
 };
 type ConnView = { connections: Connection[]; states: Record<string, ConnState> };
-/** 旁白設定(發佈目的地、查詢間隔、shuttle 專案路徑);後端沒有這個 view 時顯示 — */
-type VoiceSettings = { connection?: string; pollMinutes?: number; shuttlePath?: string; hasToken?: boolean; target?: { id: string; name: string; baseURL: string; production: boolean } | null };
+/** 旁白設定(發佈目的地、查詢間隔、旁白專案路徑、試聽用的 bucket);路徑與 bucket 預設空白 */
+type VoiceSettings = { connection?: string; pollMinutes?: number; shuttlePath?: string; bucket?: string; hasToken?: boolean; target?: { id: string; name: string; baseURL: string; production: boolean } | null };
 
 function jobTitle(j: VoiceJob) {
   const lim = j.limit ? `(每份前 ${j.limit} 段)` : "";
@@ -55,7 +55,8 @@ export function PipeVoiceTab() {
   const toggle = (c: VoiceClip) => {
     audio.current?.pause();
     if (playing === c.file) { setPlaying(undefined); return; }
-    const a = new Audio("https://storage.googleapis.com/shuttle-voice/" + c.file);
+    if (!settings?.bucket) return;
+    const a = new Audio(`https://storage.googleapis.com/${settings.bucket}/${c.file}`);
     a.onended = () => setPlaying(undefined);
     a.play().catch(() => setPlaying(undefined));
     audio.current = a;
@@ -74,7 +75,7 @@ export function PipeVoiceTab() {
           <Card><div className={css.emptyBox}><EmptyState title="讀不到旁白批次" icon="waveform" message={err} /></div></Card>
         ) : jobs.length === 0 ? (
           <Card><div className={css.emptyBox}><EmptyState title="還沒有旁白批次" icon="waveform" message="在上面送出批次,或讓 AI 透過 MCP 的 voice_submit 分派過來。" /></div></Card>
-        ) : jobs.map((j) => <VoiceJobCard key={j.id} job={j} target={target} loggedIn={!!tstate?.account || !!settings?.hasToken} playing={playing} toggle={toggle} />)}
+        ) : jobs.map((j) => <VoiceJobCard key={j.id} job={j} target={target} loggedIn={!!tstate?.account || !!settings?.hasToken} canPlay={!!settings?.bucket} playing={playing} toggle={toggle} />)}
       </div>
     </div>
   );
@@ -85,7 +86,7 @@ function ConnectionCard({ connections, target, state, settings }: { connections:
   const { run, toastEl } = useAct();
   const poll = settings?.pollMinutes ?? 10;
   return (
-    <Card title="發佈目的地" subtitle="發佈 = 把 .voice.json 寫進 evoleap 的課程資料庫(PUT /api/admin/scripts),線上立即生效,不用重新部署;寫完會用 API 讀回比對">
+    <Card title="發佈目的地" subtitle="發佈 = 把 .voice.json 寫進所選連線的網站(PUT /api/admin/scripts),線上立即生效,不用重新部署;寫完會用 API 讀回比對">
       <div className="row gap12 wrap">
         <select className="select" value={settings?.connection ?? ""} onChange={(e) => run(() => action("voice_settings", { connection: e.target.value }))}>
           {!target && <option value="">—</option>}
@@ -102,7 +103,8 @@ function ConnectionCard({ connections, target, state, settings }: { connections:
       {settings && !target && connections.length === 0 && <div className="caption muted">還沒有連線:按「管理連線…」新增發佈目的地的網址並登入。</div>}
       {state?.error && <div className={"caption row gap4 " + css.warn}><SIcon name="exclamationmark.triangle.fill" size={12} />{state.error}</div>}
       <div className="row gap12 wrap">
-        <span className="row gap6"><span className="muted">shuttle 專案</span><span className={"caption mono " + css.selectable}>{settings?.shuttlePath ?? "—"}</span></span>
+        <TextSetting label="旁白專案路徑" value={settings?.shuttlePath} placeholder="例如 ~/projects/my-site" save={(v) => run(() => action("voice_settings", { shuttlePath: v }))} />
+        <TextSetting label="試聽用 GCS bucket" value={settings?.bucket} placeholder="bucket 名稱" save={(v) => run(() => action("voice_settings", { bucket: v }))} />
         <span className="row gap6">
           <span>每 {poll} 分鐘查一次</span>
           <button className="btn small" disabled={poll <= 1} onClick={() => run(() => action("voice_settings", { pollMinutes: poll - 1 }))}>−</button>
@@ -111,6 +113,18 @@ function ConnectionCard({ connections, target, state, settings }: { connections:
       </div>
       {toastEl}
     </Card>
+  );
+}
+
+/** 一個文字設定:離開欄位或按 Enter 時,有改才存 */
+function TextSetting({ label, value, placeholder, save }: { label: string; value?: string; placeholder: string; save: (v: string) => void }) {
+  const commit = (v: string) => { if (v.trim() !== (value ?? "")) save(v.trim()); };
+  return (
+    <label className="row gap6">
+      <span className="muted">{label}</span>
+      <input key={value ?? ""} className="input mono" defaultValue={value ?? ""} placeholder={placeholder}
+        onBlur={(e) => commit(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+    </label>
   );
 }
 
@@ -161,7 +175,7 @@ function NewBatchCard() {
   );
 }
 
-function VoiceJobCard({ job, target, loggedIn, playing, toggle }: { job: VoiceJob; target?: Connection; loggedIn: boolean; playing?: string; toggle: (c: VoiceClip) => void }) {
+function VoiceJobCard({ job, target, loggedIn, canPlay, playing, toggle }: { job: VoiceJob; target?: Connection; loggedIn: boolean; canPlay: boolean; playing?: string; toggle: (c: VoiceClip) => void }) {
   const o = useOmixor();
   const [dlg, ask] = useConfirm();
   const { run, toastEl } = useAct();
@@ -199,7 +213,7 @@ function VoiceJobCard({ job, target, loggedIn, playing, toggle }: { job: VoiceJo
                 <span className={"row gap8 wrap " + css.summaryRow}>
                   <span className="mono">{ch.path}</span>
                   <Pill text={ch.isNew ? "新檔" : "更新"} color={ch.isNew ? "teal" : "blue"} />
-                  {ch.course && ch.lesson ? <span className="caption muted">{ch.course} / {ch.lesson}</span> : <span className={"caption " + css.warn}>不屬於任何一課(會放進研發基地)</span>}
+                  {ch.course && ch.lesson ? <span className="caption muted">{ch.course} / {ch.lesson}</span> : <span className={"caption " + css.warn}>不屬於任何一課</span>}
                   <span className="caption muted">+{ch.added.length} 段 −{ch.removed} 段 · 共 {ch.clips} 段 {(ch.totalMs / 1000).toFixed(0)} 秒</span>
                   {ch.publish === "ok" ? <Pill text="已發佈" color="green" icon="checkmark" /> : ch.publish ? <span title={ch.publish}><Pill text="失敗" color="red" icon="xmark" /></span> : null}
                 </span>
@@ -207,7 +221,7 @@ function VoiceJobCard({ job, target, loggedIn, playing, toggle }: { job: VoiceJo
               <div className={"col gap4 " + css.clips}>
                 {ch.added.map((clip) => (
                   <div key={clip.file} className="row gap8 caption">
-                    <button className={iconButtonClass.bare} onClick={() => toggle(clip)}><SIcon name={playing === clip.file ? "stop.circle.fill" : "play.circle.fill"} color="var(--accent)" /></button>
+                    <button className={iconButtonClass.bare} disabled={!canPlay} title={canPlay ? undefined : "先填寫試聽用的 GCS bucket"} onClick={() => toggle(clip)}><SIcon name={playing === clip.file ? "stop.circle.fill" : "play.circle.fill"} color="var(--accent)" /></button>
                     <span className={"muted num " + css.clipLen}>{(clip.ms / 1000).toFixed(1)} 秒</span>
                     <span className={css.selectable}>{clip.text}</span>
                   </div>
@@ -232,7 +246,7 @@ function VoiceJobCard({ job, target, loggedIn, playing, toggle }: { job: VoiceJo
             {!loggedIn && <span className="caption muted">要先登入「{target?.name ?? "發佈目的地"}」才能發佈</span>}
             <button className={"btn " + (isProd ? "red" : "primary")} disabled={!loggedIn || job.state === "publishing"} onClick={() => ask({
               title: `發佈到「${target?.name ?? "?"}」?`,
-              message: (isProd ? "這會直接改正式站的課程資料,學員立刻聽到新的旁白。\n" : "") + pending.map((x) => `• ${x.path}` + (x.course ? ` → ${x.course} ${x.lesson ?? ""}` : "(研發基地)")).join("\n"),
+              message: (isProd ? "這會直接改正式站的課程資料,學員立刻聽到新的旁白。\n" : "") + pending.map((x) => `• ${x.path}` + (x.course ? ` → ${x.course} ${x.lesson ?? ""}` : "(不屬於任何一課)")).join("\n"),
               buttons: [{ label: `發佈 ${pending.length} 份旁白清單`, danger: isProd, primary: !isProd, onClick: () => run(() => action("voice_publish", { id: job.id })) }],
             })}>
               {job.state === "publishing" ? <SIcon name="arrow.triangle.2.circlepath" spin size={12} /> : <><SIcon name="paperplane.fill" size={12} />發佈到「{target?.name ?? "?"}」</>}

@@ -6,7 +6,7 @@ import { action, useRun, useView } from "../api";
 import { Icon } from "../components/Icon";
 import css from "./auth.module.css";
 import { logout, useAuth } from "./auth";
-import { useConnect, type Account, type AccountServer } from "./ConnectGate";
+import { useCanSwitchTarget, useConnect, type Account, type AccountServer } from "./ConnectGate";
 import { Dropdown, menuItemClass } from "../components/Menu";
 
 export function AccountBox() {
@@ -16,6 +16,7 @@ export function AccountBox() {
   const [choosing, setChoosing] = useState<AccountServer>(); // 有多種授權的 server:二次選擇
   const { busy, error, pending, connect } = useConnect();
   const out = useRun();
+  const canSwitch = useCanSwitchTarget();
   if (!acc) return null;
   const remote = acc.mode === "remote";
   const ldap = auth?.mode === "ldap" && !!auth.loggedIn;
@@ -36,13 +37,14 @@ export function AccountBox() {
     if (s.auth.length > 1) setChoosing(s);
     else void go("remote", s, s.auth[0]?.id, s.auth[0]?.label ?? s.name);
   };
-  // 登出:遠端先撤銷 token 並切回本機;LDAP 登出;有設定遠端就回到「選擇連接對象」
-  const canLogout = remote || ldap || hasServers;
+  // 登出:遠端先撤銷 token 並切回本機;有設定遠端就回到「選擇連接對象」;最後 LDAP 登出(登出後就不能再呼叫 action)。
+  // 連接對象是大家共用的,只有 web 管理員能動;其他人只登出自己的 LDAP
+  const canLogout = ldap || (canSwitch && (remote || hasServers));
   const doLogout = () =>
     out.run(async () => {
-      if (remote) await action("remote_logout");
+      if (canSwitch && remote) await action("remote_logout");
+      if (canSwitch && (remote || hasServers)) await action("gate_reset");
       if (ldap) await logout();
-      if (remote || hasServers) await action("gate_reset");
       done();
     });
   const err = error ?? out.error ?? (remote ? acc.error : undefined);

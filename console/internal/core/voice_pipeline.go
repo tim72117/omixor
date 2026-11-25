@@ -33,11 +33,14 @@ import (
 // 和 Swift 版的設定(UserDefaults voice.shuttlePath / voice.pollMinutes / voice.connection)對應的是
 // 資料夾根目錄的 voice-settings.json(Go 版自己的檔案)。
 
-// VoiceSettings 旁白設定
+// VoiceSettings 旁白設定(連線、專案路徑、bucket 預設都是空白,要自己設定;舊版的固定預設值見 voice_legacy.go)
 type VoiceSettings struct {
-	Connection  string `json:"connection"`  // 發佈到哪個連線,預設 evoleap
-	PollMinutes int    `json:"pollMinutes"` // 每幾分鐘查一次,預設 10
-	ShuttlePath string `json:"shuttlePath"` // shuttle 專案路徑,預設 ~/Documents/shuttle(OMIXOR_SHUTTLE_PATH 優先)
+	Connection  string `json:"connection"`       // 發佈到哪個連線
+	PollMinutes int    `json:"pollMinutes"`      // 每幾分鐘查一次,預設 10
+	ShuttlePath string `json:"shuttlePath"`      // 旁白專案路徑(OMIXOR_SHUTTLE_PATH 優先)
+	Bucket      string `json:"bucket,omitempty"` // 試聽用的 GCS bucket
+	// LegacyChecked 已經檢查過要不要沿用舊版的固定預設值(只做一次)
+	LegacyChecked bool `json:"legacyChecked,omitempty"`
 }
 
 // VoicePipeline 旁白批次。Jobs 與 Settings 要拿 App.Mu 讀寫。
@@ -109,9 +112,6 @@ func (p *VoicePipeline) ShuttleRoot() string {
 	}
 	s := p.Settings.ShuttlePath
 	home, _ := os.UserHomeDir()
-	if s == "" {
-		s = filepath.Join(home, "Documents", "shuttle")
-	}
 	if s == "~" {
 		s = home
 	} else if strings.HasPrefix(s, "~/") {
@@ -120,13 +120,25 @@ func (p *VoicePipeline) ShuttleRoot() string {
 	return s
 }
 
-func (p *VoicePipeline) webDir() string  { return filepath.Join(p.ShuttleRoot(), "web") }
-func (p *VoicePipeline) liveDir() string { return filepath.Join(p.webDir(), "src", "content", "live") }
+// voiceNoPathMessage 還沒設定旁白專案路徑時的訊息
+const voiceNoPathMessage = "還沒設定旁白專案路徑:到 CI/CD › 旁白發佈 填寫"
+
+// under 專案路徑底下的檔案;沒設定路徑時回空字串(不可以變成相對於目前資料夾的路徑)
+func (p *VoicePipeline) under(parts ...string) string {
+	root := p.ShuttleRoot()
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(append([]string{root}, parts...)...)
+}
+
+func (p *VoicePipeline) webDir() string  { return p.under("web") }
+func (p *VoicePipeline) liveDir() string { return p.under("web", "src", "content", "live") }
 func (p *VoicePipeline) batchFile() string {
-	return filepath.Join(p.webDir(), "recordings", "voice-batch.json")
+	return p.under("web", "recordings", "voice-batch.json")
 }
 func (p *VoicePipeline) seedFile() string {
-	return filepath.Join(p.ShuttleRoot(), "server", "internal", "store", "courses_seed.json")
+	return p.under("server", "internal", "store", "courses_seed.json")
 }
 
 func (p *VoicePipeline) PollMinutes() int {
@@ -136,12 +148,8 @@ func (p *VoicePipeline) PollMinutes() int {
 	return max(1, p.Settings.PollMinutes)
 }
 
-func (p *VoicePipeline) TargetID() string {
-	if p.Settings.Connection == "" {
-		return "evoleap"
-	}
-	return p.Settings.Connection
-}
+// TargetID 發佈目的地的連線 id(空字串 = 還沒設定)
+func (p *VoicePipeline) TargetID() string { return p.Settings.Connection }
 
 func (p *VoicePipeline) pollDelay() time.Duration {
 	return time.Duration(p.PollMinutes()) * time.Minute
@@ -156,6 +164,7 @@ func (p *VoicePipeline) start(timer bool) {
 	a.Mu.Lock()
 	p.loadSettings()
 	p.load()
+	p.keepLegacyDefaults()
 	// 重開 app 時,做到一半的步驟回到可以重試的狀態
 	for i := range p.Jobs {
 		j := &p.Jobs[i]
@@ -319,6 +328,9 @@ func (p *VoicePipeline) CheckNow(id string) {
 }
 
 func (p *VoicePipeline) normalize(scripts []string) ([]string, error) {
+	if p.ShuttleRoot() == "" {
+		return nil, UserError{voiceNoPathMessage}
+	}
 	out := []string{}
 	for _, s0 := range scripts {
 		for _, raw := range strings.FieldsFunc(s0, func(r rune) bool { return r == ' ' || r == ',' || r == '\n' }) {
@@ -361,6 +373,10 @@ func (p *VoicePipeline) npm(args []string) VoiceShellResult {
 	p.app.Mu.Lock()
 	dir, runner := p.webDir(), p.Runner
 	p.app.Mu.Unlock()
+	if dir == "" {
+		// 空的 dir 會在目前資料夾執行指令,直接拒絕
+		return VoiceShellResult{Code: -1, Err: voiceNoPathMessage}
+	}
 	return runner.Run(append([]string{"npm", "run", "--silent", "voice", "--"}, args...), dir)
 }
 
@@ -638,6 +654,9 @@ type voiceManifest struct {
 func (p *VoicePipeline) manifests() []voiceManifest {
 	base := p.liveDir()
 	out := []voiceManifest{}
+	if base == "" {
+		return out
+	}
 	_ = filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil

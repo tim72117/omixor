@@ -124,7 +124,7 @@ func TestSiteMCPToolReadsThroughConnection(t *testing.T) {
 	defer f.Close()
 
 	// 新安裝沒有任何連線:回錯誤,不會當機
-	if msg := extErr(t, a, "site_visitors", nil); msg != "Could not read visitor stats: 找不到連線 evoleap (sign in to the matching connection in omixor)" {
+	if msg := extErr(t, a, "site_visitors", nil); msg != "Could not read visitor stats: 還沒選擇網站訪客用的連線:到 監控 › 網站訪客 選擇,或指定 connection (sign in to the matching connection in omixor)" {
 		t.Fatal(msg)
 	}
 	evo := core.NewConnection("evoleap", "evoleap 正式站", "https://evoleap.io")

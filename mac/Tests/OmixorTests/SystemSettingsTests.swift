@@ -97,12 +97,14 @@ final class SystemSettingsTests: XCTestCase {
         XCTAssertFalse(app.visibleSections.contains(.channels))
         XCTAssertTrue(app.visibleSections.contains(.system) && app.visibleSections.contains(.settings))
 
-        // 分頁全關,頁面也不顯示
+        // 分頁開了頁面才顯示,分頁全關頁面也不顯示
+        try store.set(["monitoring.visitors": true])
+        XCTAssertTrue(app.isVisible(.monitoring))
         try store.set(["monitoring.visitors": false])
         XCTAssertFalse(app.isVisible(.monitoring))
-        // 改回預設
+        // 改回預設(網站訪客預設關)
         try store.set([:], reset: ["monitoring.visitors", "channels"])
-        XCTAssertTrue(app.isVisible(.monitoring) && app.isVisible(.channels))
+        XCTAssertTrue(!app.isVisible(.monitoring) && app.isVisible(.channels))
 
         // 必要的不能關
         XCTAssertThrowsError(try store.set(["system": false]))
@@ -213,7 +215,8 @@ final class SystemSettingsTests: XCTestCase {
         XCTAssertTrue(app.isVisible(.channels))
         XCTAssertFalse(app.isFeatureEnabled("pipelines.runs"))
         XCTAssertFalse(app.isFeatureEnabled("familyAssistant"), "保守預設:原本只有開發版的不開放")
-        XCTAssertTrue(app.isFeatureEnabled("pipelines.voice"), "保守預設,不是剛剛改的")
+        XCTAssertFalse(app.isFeatureEnabled("pipelines.voice"), "保守預設:旁白發佈預設關")
+        XCTAssertTrue(app.isFeatureEnabled("incidents.list"))
         XCTAssertTrue(app.isVisible(.settings) && app.isVisible(.system) && app.isVisible(.overview))
     }
 
@@ -305,7 +308,7 @@ final class SystemSettingsTests: XCTestCase {
         // 保守預設本身
         let fb = FeatureFlags()
         XCTAssertFalse(fb.enabled("familyAssistant") || fb.enabled("mcpGateway") || fb.enabled("monitoring.alerts"))
-        XCTAssertTrue(fb.enabled("channels") && fb.enabled("monitoring") && fb.enabled("automation.runner"))
+        XCTAssertTrue(fb.enabled("channels") && fb.enabled("incidents") && fb.enabled("automation.runner"))
         XCTAssertFalse(FeatureFallback.settings.features.contains { $0.experimental }, "系統層預設不開放實驗功能,組織層不列")
         XCTAssertEqual(FeatureFallback.server.features.count, FeatureFallback.entries.count, "系統層列全部登記的功能")
     }

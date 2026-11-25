@@ -57,7 +57,7 @@ func currentUser(r *http.Request, app *core.App, au *auth.Service) (auth.User, b
 	if au == nil || !au.Enabled() {
 		app.Mu.Lock()
 		defer app.Mu.Unlock()
-		return auth.User{ID: app.Me, Name: app.Name(core.Person(app.Me)), Admin: true}, true
+		return auth.User{ID: app.Me, Name: app.MeName(), Admin: true}, true
 	}
 	if u, ok := ctxUser(r); ok {
 		return u, true

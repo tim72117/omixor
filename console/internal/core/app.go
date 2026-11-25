@@ -212,9 +212,6 @@ func (a *App) Name(actor Actor) string {
 				return n
 			}
 		}
-		if actor.ID == LocalIdentity {
-			return localDisplayName()
-		}
 		return actor.ID
 	case "ai":
 		if _, au := a.Find("automations", actor.ID); au != nil {

@@ -126,6 +126,7 @@ final class VoicePipelineTests: XCTestCase {
         XCTAssertTrue(c12.isNew)
         XCTAssertNil(c12.course)
         XCTAssertEqual(j.failedClips.count, 1)
+        app.features = .allOnForTests  // 旁白發佈預設關,徽章要開著才算
         XCTAssertEqual(app.badge(for: .pipelines).map { $0 >= 1 }, true)
 
         // 存檔:重開 app 讀得回來

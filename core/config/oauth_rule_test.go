@@ -28,6 +28,8 @@ func TestWebOAuthRule(t *testing.T) {
 		{"網址不能帶路徑", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://console.example.com/omixor"}, "不含路徑"},
 		{"evoleap 登入關掉又沒有 GitLab 不行", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_OAUTH_EVOLEAP_LOGIN": "false"}, "OMIXOR_OAUTH_EVOLEAP_LOGIN"},
 		{"有 GitLab 時可以關 evoleap", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_OAUTH_EVOLEAP_LOGIN": "false", "OMIXOR_GITLAB_URL": "https://gitlab.example.com"}, ""},
+		{"設了 GitLab 其他項目卻沒設網址", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_GITLAB_CLIENT_ID": "abc"}, "沒設 OMIXOR_GITLAB_URL"},
+		{"沒開 OAuth 連接埠不檢查 GitLab", map[string]string{"OMIXOR_GITLAB_CLIENT_ID": "abc"}, ""},
 		{"遠端模式不行", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_SERVER": "https://omixor.example.com"}, "遠端模式"},
 	}
 	for _, c := range cases {

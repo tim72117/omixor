@@ -8,7 +8,7 @@ package model
 //	Edition:原本的版本分類(見 edition.go):stable(已實作的真功能)、dev(只有範例資料的實驗功能、還在框架階段的功能);
 //	         沒寫是 stable。現在所有功能都編進去,Edition 只當作「系統層的預設值」:stable 預設系統開、dev 預設系統關
 //	Experimental:還沒真正實作、只有模擬(範例資料)的功能;系統設定裡標「實驗」,預設關(一定是開發版)
-//	Default:組織沒設定過時開不開(已實作的開、實驗的關)
+//	Default:組織沒設定過時開不開(已實作的開、實驗的關;需要特定外部系統配合的功能,如旁白發佈、網站訪客,也預設關)
 //	退場的 key:見 LegacyFeatureKeys(讀舊資料時換成新 key)
 //	Required:永遠開著、不能關(總覽、設定、系統;關掉的功能跳過去時會改去總覽)
 //
@@ -60,7 +60,7 @@ var Features = []Feature{
 	{Key: "pipelines.runs", Parent: "pipelines", Name: "執行紀錄", Description: "Pipeline 執行、重試與取消", Edition: EditionDev, Experimental: true, ExperimentalNote: sampleNote},
 	{Key: "pipelines.deployments", Parent: "pipelines", Name: "部署", Description: "部署進度、核准與回滾", Edition: EditionDev, Experimental: true, ExperimentalNote: sampleNote},
 	{Key: "pipelines.environments", Parent: "pipelines", Name: "環境", Description: "各環境的版本", Edition: EditionDev, Experimental: true, ExperimentalNote: sampleNote},
-	{Key: "pipelines.voice", Parent: "pipelines", Name: "旁白發佈", Description: "shuttle 專案的旁白語音批次(試聽後發佈)", Default: true},
+	{Key: "pipelines.voice", Parent: "pipelines", Name: "旁白發佈", Description: "旁白語音批次(試聽後發佈;需另外設定旁白專案與發佈連線)", Default: false},
 
 	{Key: "infrastructure", Name: "伺服器與服務", Description: "服務、主機與 GCP Cloud Run", Default: true},
 	{Key: "infrastructure.services", Parent: "infrastructure", Name: "服務", Description: "服務健康與版本", Edition: EditionDev, Experimental: true, ExperimentalNote: sampleNote},
@@ -73,7 +73,7 @@ var Features = []Feature{
 	{Key: "monitoring.dashboards", Parent: "monitoring", Name: "儀表板", Description: "指標圖表", Edition: EditionDev, Experimental: true, ExperimentalNote: sampleNote},
 	{Key: "monitoring.logs", Parent: "monitoring", Name: "日誌", Description: "日誌查詢與即時追蹤", Edition: EditionDev, Experimental: true, ExperimentalNote: sampleNote},
 	{Key: "monitoring.rules", Parent: "monitoring", Name: "規則", Description: "告警規則", Edition: EditionDev, Experimental: true, ExperimentalNote: sampleNote},
-	{Key: "monitoring.visitors", Parent: "monitoring", Name: "網站訪客", Description: "evoleap 的會員與訪客統計(透過連線讀取)", Default: true},
+	{Key: "monitoring.visitors", Parent: "monitoring", Name: "網站訪客", Description: "網站的會員與訪客統計(透過連線讀取;需另外設定網站連線)", Default: false},
 
 	{Key: "incidents", Name: "事件", Description: "宣告與處理事件(存在 core)", Default: true},
 	{Key: "incidents.list", Parent: "incidents", Name: "事件", Description: "事件列表、時間軸與檢討", Default: true},

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"path/filepath"
 	"errors"
 	"fmt"
 	"math"
@@ -8,7 +9,7 @@ import (
 	"strings"
 )
 
-// 網站訪客:evoleap 後台的會員與訪客統計(GET /api/admin/overview?range=…),透過「連線」以管理員身分讀取。
+// 網站訪客:網站後台的會員與訪客統計(GET /api/admin/overview?range=…),透過「連線」以管理員身分讀取。
 // 同 Swift 的 Visitors/SiteVisitors.swift。缺欄位、null、型別不符都用預設值(Go 的 nil slice 是 null)。
 
 type SiteCount struct {
@@ -325,16 +326,54 @@ func SiteFmtMs(v int64) string {
 	return fmt.Sprintf("%d 小時 %d 分", m/60, m%60)
 }
 
-// SiteVisitorsConnection 網站訪客用哪個連線(預設 evoleap;拿著鎖)
-func SiteVisitorsConnection(a *App) string { return a.conns().VisitorsConn }
+// 網站訪客用哪個連線:畫面選過的(存在組織資料夾的 visitors.json);沒選過是空白。
+// 舊版固定預設用 id 是 evoleap 的連線,所以沒選過、但有這個連線時照舊用它。
+const siteLegacyConnection = "evoleap"
+
+type siteVisitorsSettings struct {
+	Connection string `json:"connection"`
+}
+
+func (a *App) visitorsFile() string { return filepath.Join(a.DataDir(), "visitors.json") }
+
+// visitorsLoad 讀目前組織選的連線(拿著鎖)
+func visitorsLoad(a *App) {
+	var s siteVisitorsSettings
+	_ = ReadJSON(a.visitorsFile(), &s)
+	a.conns().VisitorsConn = s.Connection
+}
+
+// visitorsChoose 記住畫面或 MCP 選的連線(拿著鎖)
+func visitorsChoose(a *App, id string) {
+	if a.conns().VisitorsConn == id {
+		return
+	}
+	if _, ok := ConnFind(a, id); !ok {
+		return
+	}
+	a.conns().VisitorsConn = id
+	_ = WriteJSON(a.visitorsFile(), siteVisitorsSettings{Connection: id})
+}
+
+// SiteVisitorsConnection 網站訪客用哪個連線(拿著鎖;空字串 = 還沒選)
+func SiteVisitorsConnection(a *App) string {
+	if id := a.conns().VisitorsConn; id != "" {
+		return id
+	}
+	if _, ok := ConnFind(a, siteLegacyConnection); ok {
+		return siteLegacyConnection
+	}
+	return ""
+}
 
 // SiteVisitorsFetch 讀訪客統計;connection 是 nil 時用目前選的連線(不能拿著鎖)
 func SiteVisitorsFetch(a *App, connection *string, rng string) (SiteOverview, error) {
-	a.Mu.Lock()
-	id := a.conns().VisitorsConn
-	a.Mu.Unlock()
+	id := SiteVisitorsConnectionLocked(a)
 	if connection != nil {
 		id = *connection
+	}
+	if id == "" {
+		return SiteOverview{}, connErr("還沒選擇網站訪客用的連線:到 監控 › 網站訪客 選擇,或指定 connection")
 	}
 	obj, err := ConnRequest(a, id, "GET", SiteRangePath(rng), nil)
 	if err != nil {
@@ -360,7 +399,7 @@ func init() {
 		if c, ok := args["connection"].(string); ok && c != "" {
 			conn = &c
 			a.Mu.Lock()
-			a.conns().VisitorsConn = c // 同 Swift:畫面選的連線記起來,MCP 也用這個
+			visitorsChoose(a, c) // 同 Swift:畫面選的連線記起來,MCP 也用這個
 			a.Mu.Unlock()
 		}
 		d, err := SiteVisitorsFetch(a, conn, r)
@@ -381,5 +420,5 @@ func init() {
 func SiteVisitorsConnectionLocked(a *App) string {
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
-	return a.conns().VisitorsConn
+	return SiteVisitorsConnection(a)
 }
