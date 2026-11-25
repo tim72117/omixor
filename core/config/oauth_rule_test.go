@@ -9,7 +9,7 @@ func webCfg(env map[string]string) *Config {
 	return LoadFrom(func(k string) string { return env[k] }, Web)
 }
 
-// console 的 OAuth 連接埠(OMIXOR_OAUTH_ADDR)的相依檢查:沒設的時候什麼都不檢查
+// console 的對外 MCP 連接埠(OMIXOR_OAUTH_ADDR)的相依檢查:沒設的時候什麼都不檢查
 func TestWebOAuthRule(t *testing.T) {
 	const addr = "127.0.0.1:8771"
 	cases := []struct {
@@ -26,7 +26,8 @@ func TestWebOAuthRule(t *testing.T) {
 		{"127.0.0.1 可以用 http", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "http://127.0.0.1:8771"}, ""},
 		{"[::1] 可以用 http", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "http://[::1]:8771"}, ""},
 		{"網址不能帶路徑", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://console.example.com/omixor"}, "不含路徑"},
-		{"evoleap 登入不能關", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_OAUTH_EVOLEAP_LOGIN": "false"}, "OMIXOR_OAUTH_EVOLEAP_LOGIN"},
+		{"evoleap 登入關掉又沒有 GitLab 不行", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_OAUTH_EVOLEAP_LOGIN": "false"}, "OMIXOR_OAUTH_EVOLEAP_LOGIN"},
+		{"有 GitLab 時可以關 evoleap", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_OAUTH_EVOLEAP_LOGIN": "false", "OMIXOR_GITLAB_URL": "https://gitlab.example.com"}, ""},
 		{"遠端模式不行", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_SERVER": "https://omixor.example.com"}, "遠端模式"},
 	}
 	for _, c := range cases {

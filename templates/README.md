@@ -36,5 +36,5 @@ cd .. && go run templates/tools/split-seed/main.go /tmp/seed.json templates/seed
 
 ## 不在這裡的東西
 
-- 連線預設值(evoleap 正式站與本機)留在程式碼:遠端登入要用,不是示範資料。
+- 沒有預設連線,新安裝的連線清單是空的;遠端登入要用的 evoleap 網址取 `EVOLEAP_URL` 的預設值。
 - MCP 規格(`console/spec/tools.json`、`initialize.json`)是協定標準答案,不是範本。

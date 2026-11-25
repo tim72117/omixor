@@ -75,6 +75,7 @@ final class LoginCancelTests: XCTestCase {
     func testConnectionLoginCancel() async throws {
         let app = AppState()
         app.startConnections()
+        seedTestConnections(app)
         let store = try XCTUnwrap(app.connStore)
         var redirect: String?
         Browser.open = { _ in

@@ -4,7 +4,7 @@ import (
 	"omixor-web/internal/core"
 )
 
-// activity 核心端點(角色端點 /mcp/agent、OAuth 連接埠 /mcp)共用的宿主掛勾:
+// activity 核心端點(本機的角色端點 /mcp/agent、對外 MCP 連接埠)共用的宿主掛勾:
 // 每個請求計入 MCP 狀態(請求數、最後請求時間、最後工具),每次「會改資料」的工具處理完後,重讀快取並通知畫面
 // (核心可能多了 Issue、留言、任務狀態、文件;重讀的內容見 core.App.RoleCallFinished)。
 // 重讀掛在每次工具呼叫自己的收尾(Tool 回傳的函式),不用跨請求共用的旗標:並行請求時,先結束的唯讀請求不會洗掉還在跑的寫入請求的標記

@@ -137,6 +137,8 @@ func TestAuthzTableCoversEveryAPIServiceCall(t *testing.T) {
 	}
 	open := map[string]string{ // 未登入入口或不是 service 操作
 		"LoginWithEvoleap": "未登入入口(頻率限制)", "LoginWithLDAP": "未登入入口(頻率限制)", "ClaimPairCode": "未登入入口(配對碼一次性、頻率限制)",
+		"StartGitLabLogin": "未登入入口(頻率限制)", "GitLabLoginRedirect": "未登入入口(交易一次性)", "GitLabLoginCallback": "未登入入口(交易一次性、cookie 綁定)",
+		"LoginWithGitLab": "未登入入口(頻率限制、一次性碼加 PKCE)", "GitLab": "讀設定(cookie 的 Secure),不是 service 操作",
 		"Authenticate": "驗證 token", "AuthenticateAgent": "驗證角色憑證",
 	}
 	for _, p := range pkgs {

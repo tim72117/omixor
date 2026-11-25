@@ -34,6 +34,8 @@ type oaHTTP struct {
 	h   http.Handler
 	now *time.Time
 	p   *model.Principal
+	// consentCookie 像瀏覽器一樣記住同意畫面的綁定 cookie,送出同意時自動帶上
+	consentCookie string
 }
 
 func newOAHTTP(t *testing.T) *oaHTTP {
@@ -63,8 +65,16 @@ func (o *oaHTTP) do(method, path, body string, hdr ...string) *httptest.Response
 	for i := 0; i+1 < len(hdr); i += 2 {
 		r.Header.Set(hdr[i], hdr[i+1])
 	}
+	if strings.HasPrefix(path, "/oauth/authorize") && o.consentCookie != "" && r.Header.Get("Cookie") == "" {
+		r.Header.Set("Cookie", o.consentCookie)
+	}
 	w := httptest.NewRecorder()
 	o.h.ServeHTTP(w, r)
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "omixor_oauth_consent" {
+			o.consentCookie = c.Name + "=" + c.Value
+		}
+	}
 	return w
 }
 

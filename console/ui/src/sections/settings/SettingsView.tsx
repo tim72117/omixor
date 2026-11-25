@@ -94,6 +94,7 @@ function General() {
   const [tz, setTz] = useStored("omixor.settings.timezone", "Asia/Taipei");
   const [h24, setH24] = useStored("omixor.settings.use24h", true);
   const me = dir.person(dir.me);
+  const [self] = useView<{ name?: string }>("me", ["orgs"]); // 不在人員清單時(本機使用者)用它的顯示名稱
   const reset = () => {
     if (!window.confirm("還原所有本機設定?\n主題、更新頻率、AI 治理上限與預算等設定會回到預設值。")) return;
     Object.keys(localStorage).filter((k) => k.startsWith("omixor.settings.")).forEach((k) => localStorage.removeItem(k));
@@ -135,7 +136,7 @@ function General() {
         <Row label="語言"><span className="muted">繁體中文(台灣)</span></Row>
       </Section>
       <Section header="帳號">
-        <Row label="登入身分"><span className="row gap6"><ActorAvatar actor={{ kind: "person", id: dir.me }} size={18} />{me?.name ?? dir.me}</span></Row>
+        <Row label="登入身分"><span className="row gap6"><ActorAvatar actor={{ kind: "person", id: dir.me }} size={18} />{me?.name ?? self?.name ?? dir.me}</span></Row>
         <Row label="角色"><span className="muted">{me?.role ?? "—"}</span></Row>
         <Row label="資料來源"><span className="muted">模擬資料(尚未連接正式 API)</span></Row>
         <Row label="版本"><span className="muted">開發版(Go + React)</span></Row>

@@ -1,6 +1,6 @@
-// 啟動時選擇連接對象:有設定遠端 omixor 時,這次執行第一次打開畫面先選「本機」或某個遠端
+// 啟動時選擇連接對象:這次執行第一次打開畫面先選「本機」或某個遠端
 // (遠端再選授權方式,例如 evoleap);選好才進主畫面(接著照舊走本機的 LDAP 登入或直接進入)。
-// 沒有設定遠端就不會出現。左下角的 AccountBox 之後隨時可以切換,「登出」後也會回到這裡。
+// 沒有設定遠端時只有「本機」可選。左下角的 AccountBox 之後隨時可以切換,「登出」後也會回到這裡。
 import { useEffect, useState, type ReactNode } from "react";
 import { action, useRun, useView } from "../api";
 import { ErrorText } from "../components/ErrorText";

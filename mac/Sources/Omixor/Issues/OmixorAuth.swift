@@ -112,11 +112,11 @@ enum OmixorAuth {
                              device: token?["device"] as? String ?? "", expiresAt: date(token?["expiresAt"] as? String))
     }
 
-    /// 用來證明身分的 evoleap 連線:用 app 裡設定的(可能改過網址),沒有就用預設的正式站
+    /// 用來證明身分的 evoleap 連線:用 app 裡設定的(可能改過網址),沒有就用 Connection.evoleapIdentity
     @MainActor
     static func evoleapConnection(_ app: AppState) -> Connection? {
         app.connections.first { $0.id == IssueServerConfig.evoleapConnection }
-            ?? Connection.defaults.first { $0.id == IssueServerConfig.evoleapConnection }
+            ?? Connection.evoleapIdentity
     }
 
     static var deviceName: String { "omixor app(\(Host.current().localizedName ?? "Mac"))" }

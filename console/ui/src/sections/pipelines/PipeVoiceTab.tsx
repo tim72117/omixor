@@ -99,6 +99,7 @@ function ConnectionCard({ connections, target, state, settings }: { connections:
         <span className="grow" />
         <button className="btn" onClick={() => o.go("settings", "connections")}>管理連線…</button>
       </div>
+      {settings && !target && connections.length === 0 && <div className="caption muted">還沒有連線:按「管理連線…」新增發佈目的地的網址並登入。</div>}
       {state?.error && <div className={"caption row gap4 " + css.warn}><SIcon name="exclamationmark.triangle.fill" size={12} />{state.error}</div>}
       <div className="row gap12 wrap">
         <span className="row gap6"><span className="muted">shuttle 專案</span><span className={"caption mono " + css.selectable}>{settings?.shuttlePath ?? "—"}</span></span>

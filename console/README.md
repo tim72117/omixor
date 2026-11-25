@@ -19,11 +19,13 @@ make build      # 先 npm run build 建畫面,再把它包進 Go 執行檔
 
 ## PostgreSQL 與 Docker
 
-設了 `OMIXOR_DATABASE_URL` 就改存 PostgreSQL(沒設照舊存資料夾裡的 JSON 檔,格式和 Swift 版相同):
+本機模式一定要有 PostgreSQL(`OMIXOR_DATABASE_URL`):組織、Issue、角色與任務、文件櫃、組織鏈、訊息頻道、事件都在核心的資料表,沒設就不能用,不會退回存檔案。遠端模式的這些資料在 omixor server;沒設資料庫時,只有這台機器的設定與狀態存成資料夾裡的 JSON 檔。
+
+除了核心的資料表,console 自己用的有:
 
 | 資料表 | 內容 |
 |---|---|
-| `omixor_documents` | 原本的 JSON 檔(組織、Issue、角色與任務、文件櫃、連線設定、GitHub/GCP/GitLab 設定、認證設定、旁白批次),依路徑存成 jsonb |
+| `omixor_documents` | 這台機器的設定 JSON 檔(模式、目前組織、連線設定、GitHub/GCP/GitLab 設定、認證設定、旁白批次等),依路徑存成 jsonb;組織、Issue 等資料不在這裡 |
 | `omixor_secrets` | 連線 token、client secret、LDAP 服務帳號密碼,用 `OMIXOR_SECRET_KEY` 以 AES-256-GCM 加密(帳號名稱當 AAD) |
 | `omixor_sessions` | 網頁登入的 session(只存 token 的 SHA-256),重開不用重新登入 |
 | `omixor_activity` | 動態牆全部歷史(畫面載入最新 1000 筆,`activity_history` 查更早的) |
@@ -93,22 +95,32 @@ console 的 MCP 連接埠(預設 `127.0.0.1:3765`)**一律要驗證**:`/mcp`、`
 - 目前是**一把共享權杖**:持有者都是同一個身分(本機管理員),寫入的署名仍是 `MCP 用戶端`。每人各一把、署名成本機使用者隨 ISS-36。
 - conformance:`conformance/run_go.sh` 啟動的 Go 版有自己的權杖(存在它的資料夾),`compare.py` 加 `--go-data-dir <資料夾>` 或設 `OMIXOR_CONSOLE_MCP_TOKEN` 帶上。
 
-## 遠端 MCP 用戶端(claude.ai 自訂 connector,OAuth)
+## 遠端 MCP 用戶端(對外 MCP 連接埠:claude.ai、omx_ token、角色憑證)
 
-console 的 MCP 連接埠(3765)只給同一台電腦、用 `omxm_` 權杖;要讓 claude.ai 這類**遠端** MCP 用戶端連進來,另外開一個 OAuth 專用連接埠,登入用和 omixor-server 一樣的 evoleap(不用 LDAP 或本機密碼)。**預設不啟用**,既有的 MCP 連接埠、畫面連接埠、Claude Code 與 omixor-mcp 完全不受影響。
+console 的 MCP 連接埠(3765)只給同一台電腦、用 `omxm_` 權杖;要讓**遠端** MCP 用戶端連進來,另外開一個對外 MCP 連接埠,端點、認證與權限和 omixor server 相同。**預設不啟用**,既有的 MCP 連接埠、畫面連接埠、Claude Code 與 omixor-mcp 完全不受影響。
 
-- **條件**:console 連 PostgreSQL(`OMIXOR_DATABASE_URL` + `OMIXOR_SECRET_KEY`)、不是遠端模式(沒設 `OMIXOR_SERVER`);`OMIXOR_PUBLIC_URL` 是對外的 https 網址(只放網址,不含路徑;`localhost`、`127.0.0.1`、`[::1]` 可用 http,開發用);`OMIXOR_OAUTH_EVOLEAP_LOGIN` 不能是 false。條件不合 console 直接拒絕啟動並說明原因。
-- **環境變數**:`OMIXOR_OAUTH_ADDR`(例如 `127.0.0.1:8771`;設了才啟用)、`OMIXOR_PUBLIC_URL`、`OMIXOR_TRUSTED_PROXY_HOPS`(前面有幾層代理;Tailscale Funnel 是 1)、`EVOLEAP_URL`、`OMIXOR_EVOLEAP_CONSOLE`(多半不用設)。
-- **evoleap 那邊**要登記回呼網址:`<OMIXOR_PUBLIC_URL>/oauth/evoleap/callback`。
-- **誰能登入**:evoleap 帳號要對得上 console 資料庫裡已經有的使用者(管理員先用 email 把人加進組織);對不上就拒絕,不會自動建帳號。
-- **只服務**:`/oauth/*`、`/.well-known/*`、`/mcp`(統一入口,每次呼叫帶 `org`)。沒有 `/mcp/org/{org}`、`/mcp/agent`、`/mcp/worker`,`omxm_` 權杖在這個連接埠無效。
-- **工具**:只有核心的 OAuth 白名單:預設唯讀;同意畫面選「讀寫」才多開協作寫入(建 Issue、留言、文件、頻道訊息…),不是伺服器管理員;寫入署名是登入的那位使用者。console 自己的工具(gcp、github、fb_、voice_、server、範例資料)**不會**出現。
-- **畫面快取**:OAuth 寫入後,console 重讀目前組織的 Issue、角色、文件櫃;寫到別的組織的,切換過去時才讀。
+- **條件**:console 連 PostgreSQL(`OMIXOR_DATABASE_URL` + `OMIXOR_SECRET_KEY`)、不是遠端模式(沒設 `OMIXOR_SERVER`);`OMIXOR_PUBLIC_URL` 是對外的 https 網址(只放網址,不含路徑;`localhost`、`127.0.0.1`、`[::1]` 可用 http,開發用);`OMIXOR_OAUTH_EVOLEAP_LOGIN` 只有啟用 GitLab 時才能設 false。條件不合 console 直接拒絕啟動並說明原因。
+- **環境變數**:`OMIXOR_OAUTH_ADDR`(例如 `127.0.0.1:8771`;設了才啟用)、`OMIXOR_PUBLIC_URL`、`OMIXOR_TRUSTED_PROXY_HOPS`(前面有幾層代理;Tailscale Funnel 是 1)、`EVOLEAP_URL`、`OMIXOR_EVOLEAP_CONSOLE`(多半不用設);要 GitLab 登入再設 `OMIXOR_GITLAB_*`(同 server,見 [docs/configuration.md](../docs/configuration.md);`OMIXOR_GITLAB_LINK_LDAP` 不支援)。
+- **登入回呼**:evoleap 登記 `<OMIXOR_PUBLIC_URL>/oauth/evoleap/callback`;GitLab Application 的 Redirect URI 登記 `<OMIXOR_PUBLIC_URL>/oauth/gitlab/callback`。
+- **端點與認證**(除了 `/oauth/*`、`/.well-known/*` 只有這四個):
+
+  | 端點 | 認證 |
+  |---|---|
+  | `/mcp`(統一入口,每次呼叫帶 `org`) | `omx_` 使用者 token,或綁 `<public>/mcp` 的 OAuth access token |
+  | `/mcp/org/{org}` | `omx_`,或綁這個組織網址的 OAuth access token |
+  | `/mcp/agent` | 角色憑證 `<agentId>:<secret>`(領取任務時拿到,附的網址是 `<public>/mcp/agent`) |
+  | `/mcp/worker/{org}` | `omx_` |
+
+- **誰能登入**:evoleap 帳號要對得上 console 資料庫裡已經有的使用者(管理員先用 email 把人加進組織),對不上就拒絕、不自動建帳號。GitLab 同 server 的規則:通過 email 網域等檢查的新帳號會自動建成一般使用者(要加進組織才看得到東西),開放註冊的 GitLab 一定要設 `OMIXOR_GITLAB_EMAIL_DOMAINS`。**沒有配對碼**。
+- **`omx_` token 從哪來**:console 本機模式**沒有發放 `omx_` 的功能**(沒有 `/api/auth/*`,畫面也沒有)。只有資料庫裡本來就有的(例如和 omixor-server 共用同一個資料庫)才能用,console 也不能列出或撤銷它們。
+- **不開放**:`omxm_` 權杖在這個連接埠無效;本機使用者 `omixor-console`(伺服器管理員)不管用什麼 token 都會被拒;server 的 `/api/*` 一概沒有(所以 `omixor` CLI 不能對這個連接埠登入)。
+- **工具**:全部是核心的工具,權限與 server 相同(OAuth 預設唯讀,同意畫面選「讀寫」才多開協作寫入且不是伺服器管理員;`omx_` 權限同該使用者)。console 自己的工具(gcp、github、fb_、voice_、server、範例資料、office)**不會**出現。寫入署名是登入的那位使用者或角色。
+- **畫面快取**:從這個連接埠寫入後,console 重讀目前組織的 Issue、角色、文件櫃;寫到別的組織的,切換過去時才讀。
 
 用 Tailscale Funnel 在本機試(`<機器>.<tailnet>.ts.net` 換成自己的):
 
 ```sh
-# 1. 只把 OAuth 連接埠發布到公網(8771;不要轉發 3765 或 5191)
+# 1. 只把對外 MCP 連接埠發布到公網(8771;不要轉發 3765 或 5191)
 tailscale funnel --bg 8771
 # 2. 啟動 console(要有 PostgreSQL;Funnel 前面有 1 層代理)
 OMIXOR_DATABASE_URL=postgres://… OMIXOR_SECRET_KEY=$(openssl rand -base64 32) \

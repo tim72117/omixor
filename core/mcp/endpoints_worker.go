@@ -30,6 +30,9 @@ type WorkerEndpointConfig struct {
 	// AgentEndpointFn 同上,但每次請求才決定(例如 web 依本機/遠端模式);有設就優先
 	AgentEndpointFn func() string
 	Instructions    string
+	// Begin、Tool 同 Hooks(宿主統計、處理完重新整理畫面用);nil = 不呼叫
+	Begin func() (end func())
+	Tool  func(name string) (done func())
 }
 
 const workerInstructions = "This is omixor's worker (dispatch) endpoint, for LLMs that claim tasks: " +
@@ -61,7 +64,7 @@ func WorkerEndpoint(cfg WorkerEndpointConfig) http.Handler {
 			ep = cfg.AgentEndpointFn()
 		}
 		sess := &Session{B: bk, OrgID: org, Endpoint: ep, Diag: newConnDiag("worker", nil, nil, r)}
-		hooks := Hooks{Ctx: sess, Allow: func(name string) bool { return WorkerToolAllow[name] }}
+		hooks := Hooks{Ctx: sess, Begin: cfg.Begin, Tool: cfg.Tool, Allow: func(name string) bool { return WorkerToolAllow[name] }}
 		serve(w, r, func(body []byte) []byte { return srv.Handle(body, hooks) })
 	})
 }

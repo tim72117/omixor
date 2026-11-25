@@ -123,6 +123,14 @@ func TestSiteMCPToolReadsThroughConnection(t *testing.T) {
 	})
 	defer f.Close()
 
+	// 新安裝沒有任何連線:回錯誤,不會當機
+	if msg := extErr(t, a, "site_visitors", nil); msg != "Could not read visitor stats: 找不到連線 evoleap (sign in to the matching connection in omixor)" {
+		t.Fatal(msg)
+	}
+	evo := core.NewConnection("evoleap", "evoleap 正式站", "https://evoleap.io")
+	evo.Auth = core.AuthApproval
+	core.ConnUpsert(a, evo)
+
 	// 還沒登入:回錯誤,不會當機
 	if msg := extErr(t, a, "site_visitors", nil); msg != "Could not read visitor stats: HTTP 401:還沒登入「evoleap 正式站」 (sign in to the matching connection in omixor)" {
 		t.Fatal(msg)

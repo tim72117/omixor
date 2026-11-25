@@ -21,7 +21,7 @@ import (
 	"omixor-core/storetest"
 )
 
-// console 的 OAuth 連接埠端到端:假的 evoleap(httptest)+ 測試用 PostgreSQL,不連真的服務
+// console 的對外 MCP 連接埠(OAuth 部分)端到端;四種端點、omx_ 與本機使用者見 remote_port_test.go。假的 evoleap(httptest)+ 測試用 PostgreSQL,不連真的服務
 
 const (
 	oPublic   = "https://console.test"
@@ -60,7 +60,7 @@ func (f *fakeEvoleap) loginAs(id, email string) {
 	f.me.Store(map[string]any{"id": id, "email": email, "name": email, "google": true})
 }
 
-// oauthRig console 的 OAuth 連接埠(newOAuthHandler)加上假 evoleap 與核心 store;組織 o(boss 是成員)、p(other 是成員)
+// oauthRig console 的對外 MCP 連接埠(newOAuthHandler)加上假 evoleap 與核心 store;組織 o(boss 是成員)、p(other 是成員)
 type oauthRig struct {
 	t   *testing.T
 	h   http.Handler
@@ -116,6 +116,12 @@ func (r *oauthRig) json(w *httptest.ResponseRecorder) map[string]any {
 // connect 走完整個授權(註冊用戶端 → 同意畫面 → evoleap 登入 → 回呼 → token),回傳 /mcp 的 access token。
 // grant 是同意畫面選的等級(read / write),scope 是用戶端要求的
 func (r *oauthRig) connect(evoID, email, scope, grant string) string {
+	r.t.Helper()
+	return r.connectTo("/mcp", evoID, email, scope, grant)
+}
+
+// connectTo 同 connect,access token 綁定 path 這個資源(/mcp 或 /mcp/org/{org})
+func (r *oauthRig) connectTo(path, evoID, email, scope, grant string) string {
 	t := r.t
 	t.Helper()
 	r.evo.loginAs(evoID, email)
@@ -127,7 +133,7 @@ func (r *oauthRig) connect(evoID, email, scope, grant string) string {
 	client := r.json(w)["client_id"].(string)
 	sum := sha256.Sum256([]byte(oVerifier))
 	form := url.Values{"client_id": {client}, "redirect_uri": {oCallback}, "response_type": {"code"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])},
-		"code_challenge_method": {"S256"}, "state": {"st"}, "resource": {oPublic + "/mcp"}, "scope": {scope}}
+		"code_challenge_method": {"S256"}, "state": {"st"}, "resource": {oPublic + path}, "scope": {scope}}
 	page := r.do("GET", "/oauth/authorize?"+form.Encode(), "")
 	m := oCSRF.FindStringSubmatch(page.Body.String())
 	if page.Code != 200 || m == nil {
@@ -140,7 +146,14 @@ func (r *oauthRig) connect(evoID, email, scope, grant string) string {
 	form.Set("csrf", m[1])
 	form.Set("via", "evoleap")
 	form.Set("grant", grant)
-	w = r.do("POST", "/oauth/authorize", form.Encode(), "Content-Type", "application/x-www-form-urlencoded")
+	consent := ""
+	for _, c := range page.Result().Cookies() {
+		if c.Name == "omixor_oauth_consent" {
+			consent = c.Name + "=" + c.Value
+		}
+	}
+	// 像瀏覽器一樣:帶同意畫面的 cookie,Origin 是對外網址
+	w = r.do("POST", "/oauth/authorize", form.Encode(), "Content-Type", "application/x-www-form-urlencoded", "Cookie", consent, "Origin", oPublic, "Sec-Fetch-Site", "same-origin")
 	if w.Code != 303 {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -160,7 +173,7 @@ func (r *oauthRig) connect(evoID, email, scope, grant string) string {
 	if code == "" {
 		t.Fatalf("沒拿到授權碼:%s", back)
 	}
-	tok := url.Values{"grant_type": {"authorization_code"}, "client_id": {client}, "code": {code}, "redirect_uri": {oCallback}, "code_verifier": {oVerifier}, "resource": {oPublic + "/mcp"}}
+	tok := url.Values{"grant_type": {"authorization_code"}, "client_id": {client}, "code": {code}, "redirect_uri": {oCallback}, "code_verifier": {oVerifier}, "resource": {oPublic + path}}
 	w = r.do("POST", "/oauth/token", tok.Encode(), "Content-Type", "application/x-www-form-urlencoded")
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
@@ -216,7 +229,7 @@ func TestConsoleOAuthToolsFollowGrant(t *testing.T) {
 	}
 	for _, n := range []string{"gcp", "gcp_logs", "github", "fb_pages", "voice_submit", "server", "overview", "list"} {
 		if read[n] || write[n] {
-			t.Errorf("console 的工具 %s 不該出現在 OAuth 連接埠", n)
+			t.Errorf("console 的工具 %s 不該出現在對外 MCP 連接埠", n)
 		}
 	}
 }
@@ -261,34 +274,35 @@ func TestConsoleOAuthWriteIsSignedByRealUser(t *testing.T) {
 	reqs, last := r.app.MCP.Requests, r.app.MCP.LastTool
 	r.app.Mu.Unlock()
 	if reqs == 0 || last != "issue_create" {
-		t.Fatal("OAuth 連接埠的請求要計入 MCP 狀態:", reqs, last)
+		t.Fatal("對外 MCP 連接埠的請求要計入 MCP 狀態:", reqs, last)
 	}
 }
 
-// 這個連接埠只服務 /oauth、/.well-known、/mcp:其他路徑一律 404,Host 不是對外網址或本機 403
-func TestConsoleOAuthOnlyExposesOAuthAndMCP(t *testing.T) {
+// 這個連接埠只服務 /oauth、/.well-known 與四種 MCP 端點:其他路徑(含 server 的 /api/*)一律 404,Host 不是對外網址或本機 403
+func TestConsoleRemotePortOnlyExposesOAuthAndMCP(t *testing.T) {
 	r := newOAuthRig(t)
-	for _, p := range []string{"/mcp/org/o", "/mcp/agent", "/mcp/worker/o", "/api/orgs", "/", "/api/version"} {
-		if w := r.do("POST", p, `{}`, "Authorization", "Bearer omxm_x"); w.Code != 404 {
+	for _, p := range []string{"/mcp/worker", "/mcp/org", "/mcp/x", "/api/orgs", "/api/version", "/api/auth/pair", "/api/auth/evoleap",
+		"/api/auth/ldap", "/api/auth/gitlab", "/api/auth/gitlab/start", "/api/auth/status", "/api/tool/gcp", "/", "/health", "/office/"} {
+		if w := r.do("POST", p, `{}`, "Authorization", "Bearer omx_x"); w.Code != 404 {
 			t.Errorf("%s 不該存在,實際 %d", p, w.Code)
 		}
 	}
-	// console 的 MCP 權杖(omxm_)在這裡不是有效憑證
-	if w := r.do("POST", "/mcp", `{}`, "Authorization", "Bearer omxm_x"); w.Code != 401 {
-		t.Errorf("omxm_ 要 401,實際 %d", w.Code)
+	for _, p := range []string{"/mcp", "/mcp/org/o"} {
+		w := r.do("GET", "/.well-known/oauth-protected-resource"+p, "")
+		if w.Code != 200 || r.json(w)["resource"] != oPublic+p {
+			t.Fatal(p, w.Code, w.Body.String())
+		}
 	}
-	w := r.do("GET", "/.well-known/oauth-protected-resource/mcp", "")
-	if w.Code != 200 || r.json(w)["resource"] != oPublic+"/mcp" {
-		t.Fatal(w.Code, w.Body.String())
+	for _, p := range []string{"/.well-known/oauth-protected-resource/mcp", "/mcp", "/mcp/org/o", "/mcp/agent", "/mcp/worker/o"} {
+		req := httptest.NewRequest("POST", "http://evil.example"+p, strings.NewReader(`{}`))
+		rec := httptest.NewRecorder()
+		r.h.ServeHTTP(rec, req)
+		if rec.Code != 403 {
+			t.Fatalf("%s:Host 不符要 403,實際 %d", p, rec.Code)
+		}
 	}
-	req := httptest.NewRequest("GET", "http://evil.example/.well-known/oauth-protected-resource/mcp", nil)
+	req := httptest.NewRequest("GET", "http://127.0.0.1:8771/.well-known/oauth-protected-resource/mcp", nil)
 	rec := httptest.NewRecorder()
-	r.h.ServeHTTP(rec, req)
-	if rec.Code != 403 {
-		t.Fatalf("Host 不符要 403,實際 %d", rec.Code)
-	}
-	req = httptest.NewRequest("GET", "http://127.0.0.1:8771/.well-known/oauth-protected-resource/mcp", nil)
-	rec = httptest.NewRecorder()
 	r.h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("本機名稱要放行,實際 %d", rec.Code)
@@ -311,16 +325,17 @@ func TestCheckOAuthRuntime(t *testing.T) {
 	}
 }
 
-// 守門:console 自己的工具(不是核心登記的)不可以進核心的 OAuth 白名單,否則 OAuth 連接埠會把 gcp、fb_、voice_ 等開放給遠端
-func TestConsoleToolsNotOverOAuth(t *testing.T) {
+// 守門:console 自己的工具(不是核心登記的)不可以進核心任何一種端點的白名單,否則對外 MCP 連接埠會把 gcp、fb_、voice_ 等開放給遠端
+func TestConsoleToolsNotOnRemotePort(t *testing.T) {
 	n := 0
 	for _, name := range ToolNames() {
 		if isCoreToolName(name) {
 			continue
 		}
 		n++
-		if coremcp.ReadOnlyTools[name] || coremcp.OAuthWriteTools[name] || coremcp.OAuthAdminTools[name] {
-			t.Errorf("console 的工具 %s 在核心的 OAuth 白名單裡", name)
+		if coremcp.ReadOnlyTools[name] || coremcp.OAuthWriteTools[name] || coremcp.OAuthAdminTools[name] ||
+			coremcp.AdminToolAllow[name] || coremcp.AgentToolAllow[name] || coremcp.WorkerToolAllow[name] {
+			t.Errorf("console 的工具 %s 在核心的端點白名單裡", name)
 		}
 	}
 	if n == 0 {
@@ -328,27 +343,7 @@ func TestConsoleToolsNotOverOAuth(t *testing.T) {
 	}
 }
 
-// omx_ 使用者 token 不能走公開的 OAuth 連接埠:401(和沒帶 token 一樣,不帶 invalid_token);omo_ 照常
-func TestConsoleOAuthPortRejectsUserTokens(t *testing.T) {
-	r := newOAuthRig(t)
-	if err := r.svc.Store.CreateToken(model.Token{ID: "t1", UserID: "u_boss", Device: "x", CreatedAt: model.Now(), Hash: service.HashToken("omx_t1")}); err != nil {
-		t.Fatal(err)
-	}
-	const rpc = `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
-	user := r.do("POST", "/mcp", rpc, "Content-Type", "application/json", "Authorization", "Bearer omx_t1")
-	none := r.do("POST", "/mcp", rpc, "Content-Type", "application/json")
-	if user.Code != 401 || user.Code != none.Code || user.Header().Get("WWW-Authenticate") != none.Header().Get("WWW-Authenticate") || user.Body.String() != none.Body.String() {
-		t.Fatalf("omx_ 要和沒帶 token 一樣:%d %q / %d %q", user.Code, user.Header().Get("WWW-Authenticate"), none.Code, none.Header().Get("WWW-Authenticate"))
-	}
-	if !strings.Contains(user.Header().Get("WWW-Authenticate"), "resource_metadata=") {
-		t.Fatal("401 要帶 resource_metadata:", user.Header())
-	}
-	if len(r.toolNames(r.connect("ev-boss", "boss@x", "mcp:read", "read"))) == 0 {
-		t.Fatal("omo_ 要照常能用")
-	}
-}
-
-// 核心 service 被重建(連線池換掉)後,OAuth 連接埠改用新的 service;沒換就不重建
+// 核心 service 被重建(連線池換掉)後,對外 MCP 連接埠改用新的 service;沒換就不重建
 func TestOAuthPortFollowsServiceRebuild(t *testing.T) {
 	a, b := &service.Service{}, &service.Service{}
 	cur := a
@@ -372,5 +367,14 @@ func TestOAuthPortFollowsServiceRebuild(t *testing.T) {
 	cur = nil
 	if serve() != 503 {
 		t.Fatal("核心不可用要 503")
+	}
+}
+
+// console 的對外掛載同樣拒絕跨站送出,CSRF 綁同意畫面的 cookie(核心 core/oauth/browser.go)
+func TestConsoleOAuthConsentRejectsCrossSite(t *testing.T) {
+	r := newOAuthRig(t)
+	w := r.do("POST", "/oauth/authorize", "via=evoleap", "Content-Type", "application/x-www-form-urlencoded", "Origin", "https://evil.test")
+	if w.Code != 403 || w.Header().Get("Location") != "" {
+		t.Fatal(w.Code, w.Body.String())
 	}
 }

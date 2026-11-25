@@ -35,6 +35,9 @@ type Data struct {
 // 功能代號(Data.Features)
 const FeatureIssueAccept = "issue_accept" // Issue 的接受與放回(POST …/issues/{id}/accept、release)
 
+// FeatureGitLabLogin 這台伺服器啟用了 GitLab 登入(POST /api/auth/gitlab/start);看設定,不在 Features 裡,由伺服器加上
+const FeatureGitLabLogin = "gitlab_login"
+
 // Features 目前這支程式支援的功能
 var Features = []string{FeatureIssueAccept}
 

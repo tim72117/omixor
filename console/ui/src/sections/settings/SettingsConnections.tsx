@@ -65,7 +65,7 @@ export function SettingsConnections() {
       </div>
       <div className="split-detail">
         {sel ? <Editor key={sel.id} original={sel} state={states[sel.id] ?? {}} />
-          : <EmptyState title="選一個連線" icon="key.horizontal" message="每個連線是一個外部服務的網址加上認證方式。登入後,omixor 的其他功能(例如旁白發佈)就能用這個身分呼叫它的 API。" />}
+          : <EmptyState title={conns.length ? "選一個連線" : "還沒有連線"} icon="key.horizontal" message="每個連線是一個外部服務的網址加上認證方式。登入後,omixor 的其他功能(例如旁白發佈)就能用這個身分呼叫它的 API。" />}
       </div>
       {adding && <NewSheet existing={conns.map((c) => c.id)} onClose={() => setAdding(false)} onCreated={setSelection} />}
     </div>

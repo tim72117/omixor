@@ -18,7 +18,7 @@ import (
 type App struct {
 	Mu sync.Mutex
 
-	// 目前登入的使用者(和 Swift 版一樣固定是 tim)
+	// 沒啟用登入時操作者的人員 id:本機使用者 LocalIdentity;已有範例資料人員(舊安裝、OMIXOR_TEMPLATES)時沿用它,見 New
 	Me string
 
 	// 範例資料:和 Swift 版 MockData 一模一樣的 JSON 物件(從 templates/seed/ 載入,時間平移到現在)。
@@ -75,7 +75,7 @@ func OnStart(f func(*App)) { starters = append(starters, f) }
 // New 建立 app 並載入範例資料。不會啟動計時器與各功能,要另外呼叫 Start。
 func New() *App {
 	a := &App{
-		Me:   "tim",
+		Me:   LocalIdentity,
 		C:    map[string][]map[string]any{},
 		Nav:  Nav{Section: "overview", Env: "production", TimeRange: "24h"},
 		MCP:  MCPStatus{State: "stopped", Port: 3765},
@@ -85,6 +85,10 @@ func New() *App {
 	a.loadSeed()
 	if pgPool() != nil {
 		a.loadPersisted()
+	}
+	// 相容:範例資料(範本或舊安裝存下來的)的值班、PR 審查人等指著 legacyLocalPerson,有這個人就照用,身分不變
+	if _, p := a.Find("people", legacyLocalPerson); p != nil {
+		a.Me = legacyLocalPerson
 	}
 	return a
 }
@@ -207,6 +211,9 @@ func (a *App) Name(actor Actor) string {
 			if n, ok := p["name"].(string); ok {
 				return n
 			}
+		}
+		if actor.ID == LocalIdentity {
+			return localDisplayName()
 		}
 		return actor.ID
 	case "ai":

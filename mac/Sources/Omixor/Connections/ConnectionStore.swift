@@ -17,8 +17,8 @@ final class ConnectionStore {
         if let d = try? Data(contentsOf: fileURL), let list = try? JSONDecoder().decode([Connection].self, from: d) {
             app.connections = list
         } else {
-            app.connections = Connection.defaults
-            save()
+            // 沒有存檔(或讀不到):空清單。這裡不寫檔,讀取失敗時才不會蓋掉原本存的連線
+            app.connections = []
         }
         // 背景確認登入還有效;用 weak self,app 已經不在時(例如測試結束)就不做
         Task { [weak self] in

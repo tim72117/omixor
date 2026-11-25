@@ -8,7 +8,6 @@ import (
 
 	"omixor-core/ldapauth"
 	"omixor-core/model"
-	"omixor-core/store"
 )
 
 // Directory 驗證帳號密碼的目錄服務(LDAP / Active Directory;實作見 ldapauth,伺服器啟動時由環境變數建立)
@@ -69,66 +68,25 @@ type DirectoryIdentity struct{ ID, Email, Name string }
 //
 // 回傳已存好的使用者(LastLoginAt 已更新)
 func (s *Service) ResolveDirectoryUser(id DirectoryIdentity, isAdmin bool) (*model.User, error) {
-	now := s.mt()
-	key := LDAPIDPrefix + id.ID
-	email := strings.ToLower(strings.TrimSpace(id.Email))
-	if validUserEmail(email) != nil { // 沒有 @ 或是保留的本機身分:當作沒有 mail(退回帳號@網域,仍沒有就不能建立)
+	return s.resolveExternalUser(externalIdentity{
+		key: LDAPIDPrefix + id.ID, email: s.directoryEmail(id.ID, id.Email), name: id.Name,
+		admin: isAdmin, trustMail: s.LDAPTrustMail,
+		via: "ldap", detail: map[string]any{"username": id.ID},
+		noEmail: fail(403, "這個 LDAP 帳號(%s)沒有 email:目錄裡要有 mail 屬性,或請管理員設定 OMIXOR_LDAP_EMAIL_DOMAIN", id.ID),
+		pending: "管理員已經用這個 email(%s)預先加入你,但這台伺服器不會自動把 LDAP 帳號對上預先加入的名單。請先讓管理員移除這筆,或請伺服器管理員開 OMIXOR_LDAP_TRUST_MAIL",
+	})
+}
+
+// directoryEmail 目錄帳號的 email:目錄的 mail(沒有 @ 或是保留的本機身分當作沒有),沒有就「帳號@LDAPEmailDomain」,都沒有回空字串
+func (s *Service) directoryEmail(id, mail string) string {
+	email := strings.ToLower(strings.TrimSpace(mail))
+	if validUserEmail(email) != nil {
 		email = ""
 	}
 	if email == "" && s.LDAPEmailDomain != "" {
-		email = id.ID + "@" + strings.TrimPrefix(strings.ToLower(s.LDAPEmailDomain), "@")
+		email = id + "@" + strings.TrimPrefix(strings.ToLower(s.LDAPEmailDomain), "@")
 	}
-	u, err := s.Store.UserByEvoleapID(key)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, err
-	}
-	if u == nil {
-		if email == "" {
-			s.Audit(nil, "login.denied", "", map[string]any{"via": "ldap", "username": id.ID, "reason": "no-email"})
-			return nil, fail(403, "這個 LDAP 帳號(%s)沒有 email:目錄裡要有 mail 屬性,或請管理員設定 OMIXOR_LDAP_EMAIL_DOMAIN", id.ID)
-		}
-		if other, err := s.Store.UserByEmail(email); err == nil {
-			if other.EvoleapID != "" {
-				// 這個 email 已經是另一個身分(evoleap 或別的 LDAP 帳號)在用:不能接管
-				s.Audit(nil, "login.denied", "", map[string]any{"via": "ldap", "username": id.ID, "reason": "email-in-use", "other": other.ID})
-				return nil, fail(403, "這個 email(%s)已經是另一個帳號在用,請聯絡管理員", email)
-			}
-			// 管理員先用 email 加進名單、還沒對上身分的人。目錄的 mail 使用者自己改得動的話,
-			// 這一步等於讓人用自己填的 email 接手別人預先加入的身分(連同組織權限),所以要管理員明確開 LDAPTrustMail
-			if !s.LDAPTrustMail {
-				s.Audit(nil, "login.denied", "", map[string]any{"via": "ldap", "username": id.ID, "reason": "email-pending", "other": other.ID})
-				return nil, fail(403, "管理員已經用這個 email(%s)預先加入你,但這台伺服器不會自動把 LDAP 帳號對上預先加入的名單。請先讓管理員移除這筆,或請伺服器管理員開 OMIXOR_LDAP_TRUST_MAIL", email)
-			}
-			u = other
-			u.EvoleapID = key
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return nil, err
-		}
-	}
-	if u == nil {
-		role := "member"
-		if isAdmin {
-			role = "admin"
-		}
-		u = &model.User{ID: RandID("u_", 9), EvoleapID: key, Email: email, Role: role, CreatedAt: now}
-		s.Audit(&model.Principal{User: *u}, "user.created", "", map[string]any{"via": "ldap", "username": id.ID, "role": role})
-	}
-	if u.Disabled {
-		s.Audit(&model.Principal{User: *u}, "login.denied", "", map[string]any{"via": "ldap", "reason": "disabled"})
-		return nil, fail(403, "這個帳號已停用")
-	}
-	if isAdmin && u.Role != "admin" {
-		u.Role = "admin"
-		s.Audit(&model.Principal{User: *u}, "ldap.admin", "", map[string]any{"username": id.ID})
-	}
-	if id.Name != "" {
-		u.Name = id.Name
-	}
-	u.LastLoginAt = &now
-	if err := s.saveUser(u); err != nil {
-		return nil, err
-	}
-	return u, nil
+	return email
 }
 
 func (s *Service) isLDAPAdmin(id string) bool {

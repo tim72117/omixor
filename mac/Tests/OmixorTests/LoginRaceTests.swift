@@ -174,6 +174,7 @@ final class LoginRaceTests: XCTestCase {
         }
         let app = AppState()
         app.startConnections()
+        seedTestConnections(app)
         let store = try XCTUnwrap(app.connStore)
         approveInBrowser()
         let login = Task { await store.login("evoleap-local") }
@@ -196,6 +197,7 @@ final class LoginRaceTests: XCTestCase {
         }
         let app = AppState()
         app.startConnections()
+        seedTestConnections(app)
         let store = try XCTUnwrap(app.connStore)
         let orgA = app.currentOrgId
         let scopeA = TokenVault.scope

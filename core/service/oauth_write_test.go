@@ -205,27 +205,27 @@ func TestOAuthCSRFBoundToRequest(t *testing.T) {
 	ro, rw := e.checkScope(cl, rScope), e.checkScope(cl, rwScope)
 	ch := oaChallenge(oaVerifier)
 	mk := func(c *service.OAuthAuthChecked) string {
-		x, err := e.svc.NewOAuthCSRF(c, ch, "2.2.2.2")
+		x, err := e.svc.NewOAuthCSRF(c, ch, "2.2.2.2", "browser-a")
 		if err != nil {
 			t.Fatal(err)
 		}
 		return x
 	}
-	if x := mk(ro); e.svc.VerifyOAuthCSRF(x, rw, ch) {
+	if x := mk(ro); e.svc.VerifyOAuthCSRF(x, rw, ch, "browser-a") {
 		t.Fatal("唯讀請求的 CSRF 不能拿去送要求讀寫的請求(隱藏欄位 scope 被改)")
 	}
-	if x := mk(rw); e.svc.VerifyOAuthCSRF(x, ro, ch) {
+	if x := mk(rw); e.svc.VerifyOAuthCSRF(x, ro, ch, "browser-a") {
 		t.Fatal("scope 範圍不同要失敗")
 	}
-	if x := mk(ro); e.svc.VerifyOAuthCSRF(x, ro, oaChallenge(strings.Repeat("y", 50))) {
+	if x := mk(ro); e.svc.VerifyOAuthCSRF(x, ro, oaChallenge(strings.Repeat("y", 50)), "browser-a") {
 		t.Fatal("challenge 不同要失敗")
 	}
 	org := e.check(cl, "o")
-	if x := mk(ro); e.svc.VerifyOAuthCSRF(x, org, ch) {
+	if x := mk(ro); e.svc.VerifyOAuthCSRF(x, org, ch, "browser-a") {
 		t.Fatal("resource 不同要失敗")
 	}
 	x := mk(rw)
-	if !e.svc.VerifyOAuthCSRF(x, rw, ch) || e.svc.VerifyOAuthCSRF(x, rw, ch) {
+	if !e.svc.VerifyOAuthCSRF(x, rw, ch, "browser-a") || e.svc.VerifyOAuthCSRF(x, rw, ch, "browser-a") {
 		t.Fatal("相同請求通過一次,不能重複")
 	}
 }

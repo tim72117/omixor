@@ -1,7 +1,7 @@
 // omixor-web:omixor console(Go + React)。環境變數集中定義在 omixor-core/config(說明見 docs/configuration.md,-h 也會列出),舊名稱 OPS_* 仍相容。
 //
 //	MCP:http://127.0.0.1:3765/mcp(OMIXOR_MCP_PORT 可改),規格和 Swift 版一模一樣
-//	OAuth:設了 OMIXOR_OAUTH_ADDR(例如 127.0.0.1:8771)才開,遠端 MCP 用戶端(claude.ai)用 evoleap 登入連 /mcp;見 console/README.md
+//	對外 MCP:設了 OMIXOR_OAUTH_ADDR(例如 127.0.0.1:8771)才開,端點與認證同 omixor server(/mcp、/mcp/org/{org}、/mcp/agent、/mcp/worker/{org};OAuth 登入或 omx_ token);見 console/README.md
 //	畫面:http://127.0.0.1:5191(OMIXOR_WEB_PORT 改連接埠;OMIXOR_WEB_ADDR 改位址,例如 0.0.0.0:5191,必須先啟用 LDAP 登入)
 //	資料:OMIXOR_CONSOLE_DATA_DIR,預設 ~/Library/Application Support/omixor-console(舊的 OpsWeb 會自動搬過來);
 //	      設了 OMIXOR_DATABASE_URL(與 OMIXOR_SECRET_KEY)就改存 PostgreSQL
@@ -65,7 +65,7 @@ func main() {
 		runImport()
 		return
 	}
-	// OAuth 連接埠(OMIXOR_OAUTH_ADDR)明確啟用卻條件不合就不啟動:要在建核心之前,核心的 service 才會帶上 evoleap 設定
+	// 對外 MCP 連接埠(OMIXOR_OAUTH_ADDR)明確啟用卻條件不合就不啟動:要在建核心之前,核心的 service 才會帶上登入設定
 	if err := mcp.PrepareOAuth(cfg); err != nil {
 		log.Fatal(err)
 	}

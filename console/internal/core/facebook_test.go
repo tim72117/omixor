@@ -206,7 +206,7 @@ func TestFBLenientDecoding(t *testing.T) {
 	if s.APIVersion != FBDefaultVersion || len(s.Pages) != 1 || s.Pages[0].ID != "9" || s.Pages[0].Name != "9" || !s.Pages[0].Managed {
 		t.Fatalf("%+v", s)
 	}
-	if len(s.Drafts) != 1 || s.Drafts[0].Status != "draft" || s.Drafts[0].Message != "hi" || s.Drafts[0].Author != "tim" {
+	if len(s.Drafts) != 1 || s.Drafts[0].Status != "draft" || s.Drafts[0].Message != "hi" || s.Drafts[0].Author != LocalIdentity {
 		t.Fatalf("%+v", s.Drafts)
 	}
 	if err := json.Unmarshal([]byte("{}"), &s); err != nil || s.Pages == nil || s.Drafts == nil {

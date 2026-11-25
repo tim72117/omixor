@@ -18,6 +18,8 @@
 //	OMIXOR_LDAP_EMAIL_DOMAIN       目錄沒有 mail 屬性時,用「帳號@這個網域」當 email
 //	OMIXOR_LDAP_TRUST_MAIL         true:管理員先用 email 加進名單、還沒登入過的人,會和目錄 mail 相同的 LDAP 帳號對上(預設 false;
 //	                               目錄的 mail 使用者自己改得動時不要開,否則能冒用別人預先加入的身分)
+//	OMIXOR_GITLAB_URL …            自建 GitLab 的 OAuth2 登入(MCP 同意畫面與 CLI):設了 OMIXOR_GITLAB_URL 才啟用,需要 OMIXOR_PUBLIC_URL,
+//	                               設定不完整會直接啟動失敗;全部變數見 gitlab.go 與 core/gitlabauth
 //
 // 路由:
 //
@@ -48,9 +50,7 @@ import (
 	"time"
 
 	"omixor-core/api"
-	"omixor-core/backend"
 	"omixor-core/config"
-	"omixor-core/mcp"
 	"omixor-core/oauth"
 	"omixor-core/service"
 	"omixor-core/store"
@@ -68,7 +68,11 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 	// 版本資訊(免登入):{version, commit, buildTime}
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(version.Info())
+		info := version.Info()
+		if svc.GitLabEnabled() { // 能力偵測:客戶端據此決定要不要提供 GitLab 登入
+			info.Features = append(info.Features, version.FeatureGitLabLogin)
+		}
+		_ = json.NewEncoder(w).Encode(info)
 	})
 	mux.Handle("/api/", api.New(svc).Handler())
 
@@ -78,27 +82,14 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 	if public != "" {
 		agentURL = public + "/mcp/agent"
 	}
-	mux.Handle("/mcp/agent", mcp.AgentEndpoint(mcp.AgentEndpointConfig{Svc: svc}))
 	// OAuth(Claude 自訂 connector 唯讀連 /mcp 或 /mcp/org/{org}):需要對外網址(issuer、resource 都由它推導),沒設就不掛
 	var oa *oauth.Handler
 	if public != "" {
 		oa = oauth.New(svc, public)
 		oa.Mount(mux)
 	}
-	// 人類端點 /mcp/org/{org} 與統一入口 /mcp(認證、OAuth 資源綁定、觀測 log 都在 core/oauth 的 MCPMount,和本機 console 共用)
+	// 四種 MCP 端點(/mcp/agent、/mcp/org/{org}、/mcp、/mcp/worker/{org};認證、OAuth 資源綁定、觀測 log 都在 core/oauth 的 MCPMount,和 console 的對外 MCP 連接埠共用)
 	(&oauth.MCPMount{Svc: svc, Public: public, OAuth: oa, Cloud: cfg.Str(config.KService) != "", AgentEndpoint: agentURL}).Mount(mux)
-	// 執行者端點:給領取任務的 LLM 用,只有 dispatch_ 四個工具;認證同管理端點
-	mux.Handle("/mcp/worker/{org}", mcp.WorkerEndpoint(mcp.WorkerEndpointConfig{
-		AgentEndpoint: agentURL,
-		Resolve: func(r *http.Request) (backend.Backend, string, error) {
-			tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			p, err := svc.Authenticate(tok)
-			if err != nil {
-				return nil, "", err
-			}
-			return &backend.Local{Svc: svc, P: p}, r.PathValue("org"), nil
-		},
-	}))
 	// 對外的形象網站(英文版;只有設了 OMIXOR_SITE_DIR 才提供,見 site.go)
 	// 有掛上網站時,找不到的頁面回 site/404.html(不影響 /api/、/mcp/、/health 與既有路由)
 	if dir := cfg.Str(config.SiteDir); mountSite(mux, dir) {
@@ -127,6 +118,9 @@ func Run() {
 	}
 	if err := configureLDAP(svc, cfg.Getenv); err != nil {
 		log.Fatalf("LDAP 設定:%v", cfg.Redact(err.Error()))
+	}
+	if err := configureGitLab(svc, cfg.Getenv, cfg.Str(config.PublicURL)); err != nil {
+		log.Fatalf("GitLab 設定:%v", cfg.Redact(err.Error()))
 	}
 	if err := svc.EnsureOrgsForIssues(); err != nil {
 		log.Fatalf("補建組織失敗:%v", err)

@@ -875,7 +875,7 @@ func FBPublish(a *App, draftID string, schedule *time.Time, now time.Time, actor
 	defer a.Mu.Unlock()
 	FBSaveDraft(a, n, me)
 	by := ""
-	if d.Author != me {
+	if !samePerson(d.Author, me) {
 		by = "(草稿:" + FBAuthorName(a, d.Author) + ")"
 	}
 	if schedule != nil {

@@ -64,6 +64,7 @@ final class ConnectionTests: XCTestCase {
         let app = AppState()
         apps.append(app)
         app.startConnections()
+        if app.connections.isEmpty { seedTestConnections(app) }
         return (app, app.connStore!)
     }
 
@@ -126,7 +127,14 @@ final class ConnectionTests: XCTestCase {
         XCTAssertEqual(ConnHTTP.jwtClaims("h.\(payload).s")?["email"] as? String, "a@b.c")
     }
 
-    func testDefaultsSeededAndPersisted() {
+    func testNewInstallHasNoConnections() {
+        let app = AppState()
+        apps.append(app)
+        app.startConnections()
+        XCTAssertTrue(app.connections.isEmpty)
+    }
+
+    func testConnectionsPersisted() {
         let (app, store) = makeApp()
         XCTAssertEqual(app.connections.map(\.id), ["evoleap", "evoleap-local"])
         var c = Connection(id: store.newId(for: "Payments API"), name: "Payments API", baseURL: "https://pay.example", auth: .bearer)

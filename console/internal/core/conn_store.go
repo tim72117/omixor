@@ -56,8 +56,8 @@ func connLoad(a *App) {
 	if list, ok := readConnections(a.connFile()); ok {
 		s.List = list
 	} else {
-		s.List = DefaultConnections()
-		connSave(a)
+		// 沒有存檔(或讀不到):空清單。這裡不寫檔,讀取暫時失敗時才不會蓋掉原本存的連線
+		s.List = []Connection{}
 	}
 }
 

@@ -91,6 +91,8 @@ type AgentEndpointConfig struct {
 	// Done 每次工具呼叫處理完後(含被拒絕的):哪個角色、哪個任務(憑證綁定的)、呼叫哪個工具、成功(err 為 nil)或失敗。
 	// 只給稽核紀錄用(例如自動執行的執行日誌),不帶參數與結果
 	Done func(role Role, tool string, err error)
+	// Source 驗證失敗次數依什麼計(429 的分桶);nil = service.ClientIP
+	Source func(r *http.Request) string
 }
 
 const agentInstructions = "This is omixor's agent endpoint: you are working as an agent, and your identity is determined by the credential. " +
@@ -132,6 +134,9 @@ func AgentEndpoint(cfg AgentEndpointConfig) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := service.ClientIP(r)
+		if cfg.Source != nil {
+			ip = cfg.Source(r)
+		}
 		const prefix = "Bearer "
 		auth := r.Header.Get("Authorization")
 		var id, secret string
@@ -243,6 +248,8 @@ type AdminEndpointConfig struct {
 	ResourceMetadata func(r *http.Request) string
 	// Begin 同 Hooks.Begin:每個帶 id 的請求開始時呼叫,回傳的函式在處理完後呼叫(宿主統計、處理完重新整理畫面用);nil = 不呼叫
 	Begin func() (end func())
+	// Tool 同 Hooks.Tool:每次工具執行前呼叫,回傳的函式在該次處理完後呼叫;nil = 不呼叫
+	Tool func(name string) (done func())
 }
 
 const adminInstructions = "This is omixor's MCP endpoint, operating the issues, agents and tasks of the current organization, with the same permissions as your signed-in omixor account. " +
@@ -293,7 +300,7 @@ func AdminEndpoint(cfg AdminEndpointConfig) http.Handler {
 		}
 		sess := &Session{B: bk, OrgID: org, Endpoint: cfg.AgentEndpoint, Diag: newConnDiag("admin", bk, nil, r)}
 		// OAuth 授權:唯讀(mcp:read)只開放登記為 ReadOnly 的核心工具、其他一律「此連線是唯讀授權」(restrictReadOnly);讀寫(mcp:write)再多開 OAuthWriteTools(restrictOAuthWrite);額外掛上來的工具都不開放
-		hooks := WithApps(Hooks{Ctx: sess, Begin: cfg.Begin,
+		hooks := WithApps(Hooks{Ctx: sess, Begin: cfg.Begin, Tool: cfg.Tool,
 			// 人類端點不列 HumanHiddenTools(agent_task_delegate)
 			Allow: func(name string) bool {
 				return allow[name] && !HumanHiddenTools[name]

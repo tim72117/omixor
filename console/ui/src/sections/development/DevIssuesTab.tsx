@@ -119,7 +119,7 @@ export function DevIssuesTab() {
         </div>
         <div className={layoutClass.scroll}>
           {sel ? <IssueDetail key={sel.id} issue={sel} /> : (
-            <EmptyState title="選一個 Issue" icon="exclamationmark.bubble" message="Issue 存在這台 Mac 上(issues.json),重開 app 也還在。AI 可以用 MCP 建立、留言與關閉。" />
+            <EmptyState title="選一個 Issue" icon="exclamationmark.bubble" message="Issue 存在資料庫裡,重開也還在。AI 可以用 MCP 建立、留言與關閉。" />
           )}
         </div>
       </div>

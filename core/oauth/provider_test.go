@@ -53,6 +53,8 @@ type providerEnv struct {
 	h    http.Handler
 	cid  string
 	user *model.User
+	// cookie 同意畫面的綁定 cookie(像瀏覽器一樣帶回去)
+	cookie string
 }
 
 func newProviderEnv(t *testing.T, ps ...IdentityProvider) *providerEnv {
@@ -84,8 +86,16 @@ func (e *providerEnv) serve(h http.Handler, method, path, body string) *httptest
 	if body != "" {
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
+	if e.cookie != "" {
+		r.Header.Set("Cookie", e.cookie)
+	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
+	for _, c := range w.Result().Cookies() {
+		if c.Name == consentCookie {
+			e.cookie = c.Name + "=" + c.Value
+		}
+	}
 	return w
 }
 

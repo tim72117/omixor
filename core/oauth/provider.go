@@ -76,6 +76,9 @@ type IdentityProvider interface {
 	Callback() http.Handler
 }
 
+// confirmer provider 可以選擇性地實作:Callback 只顯示確認頁,使用者按下允許送到 POST /oauth/<ID>/confirm 才簽發授權碼
+type confirmer interface{ Confirm() http.Handler }
+
 // enabledToggle provider 可以選擇性地實作:回 false 時同意畫面不顯示它(例如 evoleap 沒設網址或被關掉);沒實作 = 永遠顯示
 type enabledToggle interface{ Enabled() bool }
 

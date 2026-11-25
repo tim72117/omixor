@@ -120,7 +120,7 @@ var AuthzOps = []AuthzOp{
 		Methods: []string{"RevokeToken"}, Routes: []string{"POST /api/admin/tokens/{id}/revoke [a]"}},
 	{ID: "schema.check", Group: "稽核與使用者", Scope: "server", Level: LvServerAdmin, Agent: AgentNo,
 		Methods: []string{"SchemaCheck"}, Tools: []string{"schema_check"}, Routes: []string{"GET /api/system/schema-check [a]"},
-		Note: "唯讀、不寫稽核;只查 catalog。Store 不是資料庫(JSON 檔模式)時 400"},
+		Note: "唯讀、不寫稽核;只查 catalog。Store 沒有實作 SchemaChecker 時 400"},
 	{ID: "audit.list", Group: "稽核與使用者", Scope: "server", Level: LvServerAdmin, Agent: AgentNo,
 		Methods: []string{"ListAudit"}, Routes: []string{"GET /api/admin/audit [a]"}},
 	{ID: "server.features.read", Group: "設定與整合", Scope: "server", Level: LvAuthenticated, Agent: AgentNo,

@@ -29,6 +29,9 @@ struct MonVisitorsTab: View {
                 homeStaysCard(d.guestStats)
                 loginCard(d.guestStats.login)
                 idleVisitsCard(d.guestStats)
+            } else if app.connections.isEmpty {
+                Card { EmptyStateView(title: "還沒有連線", icon: "key.horizontal",
+                                      message: "先在設定 › 連線新增網站的網址並登入,才能以管理員身分讀取訪客統計。").frame(minHeight: 180) }
             } else if !loading && error == nil {
                 Card { EmptyStateView(title: "還沒有資料", icon: "person.3",
                                       message: loggedIn ? "按「重新整理」讀取。" : "先登入連線,才能以管理員身分讀取訪客統計。").frame(minHeight: 180) }

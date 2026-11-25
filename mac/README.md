@@ -119,7 +119,7 @@ omixor 呼叫外部服務都透過「連線」:每個連線是一個網址加上
 | 固定 Token | 貼上 API key / 個人存取權杖 |
 | 不用認證 | 公開 API |
 
-預設有「evoleap 正式站」與「evoleap 本機」兩個連線。其他功能用 `ConnectionStore.request(連線 id, 方法, 路徑)` 呼叫,不用自己處理認證。
+新安裝沒有任何連線,要自己在設定 › 連線新增(旁白發佈、網站訪客要各自選一個)。其他功能用 `ConnectionStore.request(連線 id, 方法, 路徑)` 呼叫,不用自己處理認證。
 
 ## 旁白發佈(CI/CD › 旁白發佈)
 
@@ -127,11 +127,11 @@ omixor 呼叫外部服務都透過「連線」:每個連線是一個網址加上
 
 ## 網站訪客(監控與告警 › 網站訪客)
 
-透過連線(預設 evoleap 正式站)以管理員身分讀 `GET /api/admin/overview?range=…`,也就是 evoleap 後台「會員」頁那份資料:會員數、訪客漏斗(打開 → 載入完成 → 有播放)、各課概況、裝置／來源／載入錯誤、從首頁進來的路徑、首頁停留、登入頁、最近沒播放的造訪足跡。可選全部／30 分鐘／12 小時／1 天／7 天,開著時每 60 秒更新。AI 可用 MCP 的 `site_visitors` 讀同一份資料。不改 evoleap、不連資料庫。
+透過連線(id 是 evoleap 的那個,或在畫面上另選)以管理員身分讀 `GET /api/admin/overview?range=…`,也就是 evoleap 後台「會員」頁那份資料:會員數、訪客漏斗(打開 → 載入完成 → 有播放)、各課概況、裝置／來源／載入錯誤、從首頁進來的路徑、首頁停留、登入頁、最近沒播放的造訪足跡。可選全部／30 分鐘／12 小時／1 天／7 天,開著時每 60 秒更新。AI 可用 MCP 的 `site_visitors` 讀同一份資料。不改 evoleap、不連資料庫。
 
 ## Issue(開發 › Issue)
 
-要追蹤的問題或待辦,存在 `~/Library/Application Support/Ops/issues.json`(真實資料,重開 app 也還在;看板上的工作項目則是範例資料)。人可以在畫面上新增、編輯、留言、關閉;AI 透過 MCP 存入:
+要追蹤的問題或待辦,本機模式存在本機守護服務 omixor-local 的資料庫,遠端模式存在 omixor server(真實資料,重開 app 也還在;看板上的工作項目則是範例資料)。人可以在畫面上新增、編輯、留言、關閉;AI 透過 MCP 存入:
 
 - `issue_create`:標題、Markdown 內文、優先度(urgent / high / normal / low)、標籤、來源、網址、所屬倉庫 `repo`;`return`(`ack` 預設只回精簡確認 key/id/status/version/updatedAt/changed,`full` 回完整 Issue)
 - `issue_update`:改欄位、`append_body` 補內文、`comment` 留言、`status` 關閉或重新打開、`repo`(空字串 = 清除);同樣有 `return`(ack / full,ack 另含新 version 與 `comment_id`)
@@ -146,13 +146,13 @@ omixor 呼叫外部服務都透過「連線」:每個連線是一個網址加上
 
 ## 虛擬角色(AI 自動化 › 虛擬角色)
 
-每個角色有職責、角色設定(給 AI 的說明)與例行任務,存在 `agents.json`。omixor 不自己跑 AI:任務(人在畫面上指派、例行任務到時間自動排,或 AI 用 `agent_task_create` 指派)排著等領取;在 Claude Code 貼上「複製給 Claude Code」的那段話,AI 就會以角色身分用 `agent_task_claim` 領取、照角色設定做,用 `agent_task_report` 回報過程與結果,需要人決定時標成「需要協助」。角色可在畫面上按「新增角色」,或請 AI 用 `agent_upsert` 隨時新增或修改。預設角色:訪客分析師、旁白製作、Issue 整理員、課程開發、行銷。
+每個角色有職責、角色設定(給 AI 的說明)與例行任務,和 Issue 一樣存在 omixor-local 或 omixor server。omixor 不自己跑 AI:任務(人在畫面上指派、例行任務到時間自動排,或 AI 用 `agent_task_create` 指派)排著等領取;在 Claude Code 貼上「複製給 Claude Code」的那段話,AI 就會以角色身分用 `agent_task_claim` 領取、照角色設定做,用 `agent_task_report` 回報過程與結果,需要人決定時標成「需要協助」。角色可在畫面上按「新增角色」,或請 AI 用 `agent_upsert` 隨時新增或修改。預設角色:訪客分析師、旁白製作、Issue 整理員、課程開發、行銷。
 
 AI 自動化另有「需要處理」「執行日誌」分頁(對應 console 的同名頁籤,說明見 omixor 文件櫃 DOC-28《docs/release-notes-2026-11.md》);返回上一頁用 ⌘[。
 
 ## 組織(側邊欄最上方 / 設定 › 組織)
 
-每個組織有自己的工作空間:Issue、虛擬角色與任務、文件櫃(含結構)、連線(鑰匙圈裡的登入也分開)、追蹤的 GitHub repo、GCP 專案設定。資料在 `~/Library/Application Support/Ops/orgs/<組織 id>/`,`orgs.json` 記組織清單與目前的組織。旁白批次(`voice-jobs.json`)與畫面上的範例資料是共用的。
+每個組織有自己的工作空間:Issue、虛擬角色與任務、文件櫃(含結構)、連線(鑰匙圈裡的登入也分開)、追蹤的 GitHub repo、GCP 專案設定。Issue、角色與任務、文件櫃、組織鏈、訊息頻道存在 omixor-local 的資料庫(遠端組織在 omixor server);連線、GitHub、GCP 等這台機器的設定在 `~/Library/Application Support/Ops/orgs/<組織 id>/`,`orgs.json` 記本機的組織清單與目前的組織。舊版留下的 `issues.json`、`agents.json`、`cabinet*.json` 等會匯入守護服務一次,原檔保留當備份。旁白批次(`voice-jobs.json`)與畫面上的範例資料是共用的。
 
 - 側邊欄最上方切換組織;設定 › 組織 可以新增(全新空白,或複製目前組織的角色、文件櫃結構與連線設定)、改名、換圖示、刪除(資料夾移到垃圾桶)。
 - 目前組織的工作空間都能重新設定:虛擬角色、文件櫃結構(區塊與頁籤可新增、改名、排序、刪除,有文件的不能刪)、連線、Issue。
@@ -178,7 +178,7 @@ AI 自動化另有「需要處理」「執行日誌」分頁(對應 console 的�
 
 ## 文件櫃(側邊欄 › 文件櫃)
 
-純文字(Markdown)文件;```wireframe、```flowchart 與 flowchart 語法的 ```mermaid 區塊會畫成圖(core server 的 `wireframe_render` / `flowchart_render` 渲染,App 只把 SVG 當圖片顯示,失敗時顯示錯誤與原始描述)。預設組織依 evoleap 研發基地 `/studio` 的區塊(總覽、待辦、會員、課程、開發、構想、文件、工具)與頁籤分類;結構照 shuttle 的 `web/src/studio/proposal/ProposalLayout.tsx` 與 `studio/articles/registry.ts`,研發基地改版時要改 `Sources/Omixor/Cabinet/Cabinet.swift`。每個角色在「編輯…」設定文件櫃存取範圍(區塊或頁籤,可讀/可讀寫;頁籤優先於區塊),也可用 `agent_upsert` 的 `doc_access` 調整。AI 以角色身分讀寫文件時帶 `agent`,超出範圍會被拒絕;不帶 `agent` 視為 MCP 用戶端,全部可讀寫。結構可在文件櫃左下「編輯結構」修改(每個組織各自一份 `cabinet-layout.json`)。文件存在組織資料夾的 `cabinet.json`;檔案讀不出來時會改名保留(`cabinet.unreadable-*.json`),不會被覆蓋。
+純文字(Markdown)文件;```wireframe、```flowchart 與 flowchart 語法的 ```mermaid 區塊會畫成圖(core server 的 `wireframe_render` / `flowchart_render` 渲染,App 只把 SVG 當圖片顯示,失敗時顯示錯誤與原始描述)。預設組織依 evoleap 研發基地 `/studio` 的區塊(總覽、待辦、會員、課程、開發、構想、文件、工具)與頁籤分類;結構照 shuttle 的 `web/src/studio/proposal/ProposalLayout.tsx` 與 `studio/articles/registry.ts`,研發基地改版時要改 `Sources/Omixor/Cabinet/Cabinet.swift`。每個角色在「編輯…」設定文件櫃存取範圍(區塊或頁籤,可讀/可讀寫;頁籤優先於區塊),也可用 `agent_upsert` 的 `doc_access` 調整。AI 以角色身分讀寫文件時帶 `agent`,超出範圍會被拒絕;不帶 `agent` 視為 MCP 用戶端,全部可讀寫。結構可在文件櫃左下「編輯結構」修改(每個組織各自一份)。結構與文件存在 omixor-local 或 omixor server。
 
 
 ## Facebook 粉絲專頁(AI 自動化 › 粉絲專頁)
@@ -236,9 +236,9 @@ Sources/Omixor/
   Connections/   連線與通用認證(OAuth、瀏覽器核准、Token)
   Voice/         旁白語音批次與發佈
   Visitors/      網站訪客統計(evoleap /api/admin/overview)
-  Issues/        Issue 資料與存檔(issues.json)
-  Agents/        虛擬角色、例行任務與角色任務(agents.json)
-  Cabinet/       文件櫃:區塊結構與文件(cabinet-layout.json、cabinet.json)
+  Issues/        Issue 資料與畫面
+  Agents/        虛擬角色、例行任務與角色任務
+  Cabinet/       文件櫃:區塊結構與文件
   Orgs/          組織與各組織的資料夾
   GitHub/        GitHub 的 PR、檢查與 Actions(只讀,github.json)
   GCP/           Cloud Run、Logging、Monitoring(只讀,gcp.json)

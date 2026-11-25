@@ -8,6 +8,7 @@ import { Icon } from "../../components/Icon";
 import { Pill } from "../../components/Pill";
 import { Segmented } from "../../components/Segmented";
 import { Spinner } from "../../components/Spinner";
+import { useOmixor } from "../../lib/directory";
 import { hm } from "../../lib/format";
 import { useStored } from "../../lib/hooks";
 import type { ConnectionsView } from "../../models";
@@ -70,6 +71,7 @@ function label(name: string): string {
 }
 
 export function VisitorsTab() {
+  const o = useOmixor();
   const [cv, cvErr] = useView<ConnectionsView>("connections");
   const [range, setRange] = useState<RangeId>("1d");
   const [connId, setConnId] = useStored("visitors.connection", "evoleap");
@@ -80,6 +82,7 @@ export function VisitorsTab() {
   const [loginErr, setLoginErr] = useState<string>();
   const conns = Array.isArray(cv?.connections) ? cv!.connections : [];
   const conn = conns.find((c) => c.id === connId);
+  const noConns = !!cv && conns.length === 0; // 新安裝沒有任何連線
   const st = conn ? cv?.states?.[conn.id] : undefined;
   const loggedIn = !!st?.account;
   const busyRef = useRef(false);
@@ -132,7 +135,12 @@ export function VisitorsTab() {
         </div>
         {(cvErr || loginErr) && <Card><span className={"row gap6 " + css.orange}><Icon name="exclamationmark.triangle.fill" size={13} />{loginErr ?? `讀不到連線:${cvErr}`}</span></Card>}
         {error && <Card><span className={"row gap6 " + css.orange + " " + css.selectable}><Icon name="exclamationmark.triangle.fill" size={13} />{error}</span></Card>}
-        {data ? <Body d={data} range={range} /> : !loading && !error && (
+        {noConns ? (
+          <Card>
+            <EmptyState title="還沒有連線" icon="key.horizontal" message="先在設定 › 連線新增網站的網址並登入,才能以管理員身分讀取訪客統計。" />
+            <button className="btn" onClick={() => o.go("settings", "connections")}>管理連線…</button>
+          </Card>
+        ) : data ? <Body d={data} range={range} /> : !loading && !error && (
           <Card><EmptyState title="還沒有資料" icon="person.3" message={loggedIn ? "按「重新整理」讀取。" : "先登入連線,才能以管理員身分讀取訪客統計。"} /></Card>
         )}
       </div>

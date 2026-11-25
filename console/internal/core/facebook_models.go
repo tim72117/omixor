@@ -218,7 +218,7 @@ func (d *FBDraft) UnmarshalJSON(b []byte) error {
 	}
 	*d = FBDraft{ID: o.strOr("id", ""), PageID: o.strOr("pageId", ""), Message: o.strOr("message", ""), Link: o.strOr("link", ""),
 		ImageURL: o.strOr("imageURL", ""), LocalImage: o.strOr("localImage", ""), ProposedTime: o.time("proposedTime"),
-		Source: o.strOr("source", ""), Author: o.strOr("author", "tim"), Status: status,
+		Source: o.strOr("source", ""), Author: o.strOr("author", LocalIdentity), Status: status,
 		ScheduledFor: o.time("scheduledFor"), PublishedAt: o.time("publishedAt"), CreatedAt: created, UpdatedAt: updated}
 	if s, ok := o.str("postId"); ok {
 		d.PostID = &s

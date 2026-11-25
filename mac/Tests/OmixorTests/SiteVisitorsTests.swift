@@ -87,6 +87,7 @@ final class SiteVisitorsTests: XCTestCase {
 
         let app = AppState()
         app.startConnections()
+        seedTestConnections(app)
         defer { TokenVault.removeAll("evoleap") }
         let mcp = MCPHandler(app: app)
         func call(_ args: [String: Any]) async throws -> (String, Bool) {

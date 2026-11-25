@@ -158,7 +158,7 @@ func findServer(idOrURL string) (ServerConf, bool) {
 	return ServerConf{}, false
 }
 
-// 這次執行有沒有選過連接對象(有設定遠端時,啟動後要先選;登出會重設)
+// 這次執行有沒有選過連接對象(啟動後一律要先選,沒設定遠端時只有「本機」;登出會重設)
 var (
 	gateMu     sync.Mutex
 	gateChosen bool
@@ -167,7 +167,7 @@ var (
 func gateOpen() bool {
 	gateMu.Lock()
 	defer gateMu.Unlock()
-	return len(ConfiguredServers()) > 0 && !gateChosen
+	return !gateChosen
 }
 
 func setGateChosen(v bool) {
@@ -386,7 +386,7 @@ func remoteLogin(server, method string) (*model.User, error) {
 	}
 	evoBase := strings.TrimRight(config.Current().Str(config.Evoleap), "/")
 	if evoBase == "" {
-		evoBase = DefaultConnections()[0].BaseURL
+		evoBase = config.EvoleapURL.Default
 	}
 	evoToken, err := EvoleapLogin(evoBase, config.Current().Str(config.EvoleapConsole))
 	if err != nil {
@@ -550,7 +550,7 @@ type AccountView struct {
 	// 啟動設定裡的遠端 omixor(空的就只能用本機);ServerID 是目前連的是哪一個
 	Servers  []ServerConf `json:"servers"`
 	ServerID string       `json:"serverId"`
-	// Gate 有設定遠端、而且這次執行還沒選過連接對象:畫面要先顯示「選擇連接對象」
+	// Gate 這次執行還沒選過連接對象:畫面要先顯示「選擇連接對象」
 	Gate bool `json:"gate"`
 	// Self 目前操作的使用者的 handle(遠端 = 登入的 email、本機 = 本機使用者);畫面用它比對 Issue 的 assigneeActor 判斷「是不是我接受的」
 	Self string `json:"self,omitempty"`

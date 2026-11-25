@@ -81,13 +81,9 @@ struct Connection: Codable, Identifiable, Hashable {
         return host.hasSuffix("." + parts.dropFirst().joined(separator: "."))
     }
 
-    static let defaults: [Connection] = [
-        Connection(id: "evoleap", name: "evoleap 正式站", baseURL: "https://evoleap.io", isProduction: true,
-                   testPath: "/api/me", auth: .approval, note: "課程資料、旁白發佈"),
-        Connection(id: "evoleap-local", name: "evoleap 本機", baseURL: "http://localhost:8190", isProduction: false,
-                   testPath: "/api/me", auth: .approval,
-                   approval: ApprovalSettings(consoleURL: "http://localhost:5190"), note: "本機開發用(go run ./cmd/server + npm run dev)"),
-    ]
+    /// 登入 evoleap 證明身分(連遠端 omixor)用的臨時設定:連線清單裡沒有 evoleap 時用,不存檔。新安裝沒有任何預設連線
+    static let evoleapIdentity = Connection(id: "evoleap", name: "evoleap", baseURL: "https://evoleap.io",
+                                            testPath: "/api/me", auth: .approval)
 }
 
 /// 存在鑰匙圈的登入結果

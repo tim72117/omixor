@@ -67,6 +67,9 @@ struct PipeVoiceTab: View {
                         Button("登入「\(target.name)」…") { Task { await app.connStore?.login(target.id) } }
                     }
                 }
+                if app.connections.isEmpty {
+                    Text("還沒有連線:先新增發佈目的地的網址並登入").font(.callout).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("管理連線…") {
                     UserDefaults.standard.set(SettingsPane.connections.rawValue, forKey: SettingsKeys.pane)

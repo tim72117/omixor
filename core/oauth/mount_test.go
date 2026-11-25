@@ -48,29 +48,15 @@ func TestMCPMountHooks(t *testing.T) {
 	}
 }
 
-// MountUnified 只掛統一入口:組織端點不存在(宿主不開放時,例如 console 的 OAuth 連接埠)
-func TestMountUnifiedOnly(t *testing.T) {
-	e := newProviderEnv(t)
-	mux := http.NewServeMux()
-	(&MCPMount{Svc: e.svc, Public: pPublic}).MountUnified(mux)
-	for path, want := range map[string]int{"/mcp": 401, "/mcp/org/o": 404} {
-		w := httptest.NewRecorder()
-		mux.ServeHTTP(w, httptest.NewRequest("POST", path, strings.NewReader(`{}`)))
-		if w.Code != want {
-			t.Errorf("%s:要 %d,實際 %d", path, want, w.Code)
-		}
-	}
-}
-
-// OAuthOnly:omx_ 使用者 token 在統一入口和沒帶 token 一樣 401(不透露 token 是否有效);預設(false)照收
-func TestMCPMountOAuthOnly(t *testing.T) {
+// 四種端點都掛上;Reject 擋掉的使用者在組織端點、統一入口、執行者端點和無效 token 一樣 401;角色端點只收角色憑證
+func TestMCPMountEndpointsAndReject(t *testing.T) {
 	e := newProviderEnv(t)
 	_ = e.svc.Store.CreateToken(model.Token{ID: "t1", UserID: e.user.ID, Device: "x", CreatedAt: model.Now(), Hash: service.HashToken("omx_t1")})
 	const rpc = `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
-	post := func(m *MCPMount, auth string) *httptest.ResponseRecorder {
+	post := func(m *MCPMount, path, auth string) *httptest.ResponseRecorder {
 		mux := http.NewServeMux()
-		m.MountUnified(mux)
-		r := httptest.NewRequest("POST", "/mcp", strings.NewReader(rpc))
+		m.Mount(mux)
+		r := httptest.NewRequest("POST", path, strings.NewReader(rpc))
 		r.Header.Set("Content-Type", "application/json")
 		if auth != "" {
 			r.Header.Set("Authorization", auth)
@@ -80,12 +66,17 @@ func TestMCPMountOAuthOnly(t *testing.T) {
 		return w
 	}
 	open := &MCPMount{Svc: e.svc, Public: pPublic}
-	if w := post(open, "Bearer omx_t1"); w.Code != 200 {
-		t.Fatalf("預設要收 omx_:%d", w.Code)
+	denied := &MCPMount{Svc: e.svc, Public: pPublic, Reject: func(p *model.Principal) bool { return p.User.ID == e.user.ID }}
+	for _, path := range []string{"/mcp", "/mcp/org/o", "/mcp/worker/o"} {
+		if w := post(open, path, "Bearer omx_t1"); w.Code != 200 {
+			t.Errorf("%s:omx_ 要 200,實際 %d", path, w.Code)
+		}
+		bad, got := post(open, path, "Bearer omx_nope"), post(denied, path, "Bearer omx_t1")
+		if bad.Code != 401 || got.Code != 401 || got.Body.String() != bad.Body.String() || got.Header().Get("WWW-Authenticate") != bad.Header().Get("WWW-Authenticate") {
+			t.Errorf("%s:被 Reject 的要和無效 token 一樣 401:%d / %d", path, got.Code, bad.Code)
+		}
 	}
-	only := &MCPMount{Svc: e.svc, Public: pPublic, OAuthOnly: true}
-	user, none := post(only, "Bearer omx_t1"), post(only, "")
-	if user.Code != 401 || user.Code != none.Code || user.Header().Get("WWW-Authenticate") != none.Header().Get("WWW-Authenticate") || user.Body.String() != none.Body.String() {
-		t.Fatalf("OAuthOnly 的 omx_ 要和沒帶 token 一樣:%d / %d", user.Code, none.Code)
+	if w := post(open, "/mcp/agent", "Bearer omx_t1"); w.Code != 401 {
+		t.Errorf("角色端點不收使用者 token:%d", w.Code)
 	}
 }

@@ -129,8 +129,19 @@ func TestAccountLabelAndJWT(t *testing.T) {
 	}
 }
 
-func TestDefaultsSeededAndPersisted(t *testing.T) {
+// seedEvoleapConnections 測試用的連線(新安裝沒有預設連線)
+func seedEvoleapConnections(a *App) {
+	evo := NewConnection("evoleap", "evoleap 正式站", "https://evoleap.io")
+	evo.IsProduction, evo.TestPath, evo.Auth = true, "/api/me", AuthApproval
+	local := NewConnection("evoleap-local", "evoleap 本機", "http://localhost:8190")
+	local.TestPath, local.Auth, local.Approval.ConsoleURL = "/api/me", AuthApproval, "http://localhost:5190"
+	ConnUpsert(a, evo)
+	ConnUpsert(a, local)
+}
+
+func TestConnectionsPersisted(t *testing.T) {
 	a := connTestApp(t)
+	seedEvoleapConnections(a)
 	a.Mu.Lock()
 	ids := []string{}
 	for _, c := range a.conns().List {
@@ -139,7 +150,7 @@ func TestDefaultsSeededAndPersisted(t *testing.T) {
 	id := ConnNewID(a, "Payments API")
 	a.Mu.Unlock()
 	if strings.Join(ids, ",") != "evoleap,evoleap-local" {
-		t.Fatalf("預設連線:%v", ids)
+		t.Fatalf("連線:%v", ids)
 	}
 	if id != "payments-api" {
 		t.Fatalf("id = %s", id)
@@ -406,6 +417,7 @@ func TestDiscoverOrderAndState(t *testing.T) {
 
 func TestApprovalFlowLikeEvoleap(t *testing.T) {
 	a := connTestApp(t)
+	seedEvoleapConnections(a)
 	var bad []string
 	f := NewFakeNet(func(r *http.Request, body []byte) (int, any) {
 		var o map[string]any

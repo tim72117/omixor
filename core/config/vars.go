@@ -11,6 +11,7 @@ const (
 	GroupShared = "共用"
 	GroupServer = "伺服器(omixor-server)"
 	GroupLDAP   = "LDAP 登入(omixor-server)"
+	GroupGitLab = "GitLab 登入(omixor-server)"
 	GroupLocal  = "本機守護服務(omixor-local)"
 	GroupWeb    = "畫面與 API(omixor-web)"
 	GroupCLI    = "命令列(omixor)"
@@ -18,7 +19,7 @@ const (
 )
 
 // Groups 文件裡群組的順序
-var Groups = []string{GroupShared, GroupServer, GroupLDAP, GroupLocal, GroupWeb, GroupCLI, GroupMCP}
+var Groups = []string{GroupShared, GroupServer, GroupLDAP, GroupGitLab, GroupLocal, GroupWeb, GroupCLI, GroupMCP}
 
 var portRange = &[2]int{1, 65535}
 
@@ -29,7 +30,7 @@ var (
 		Schemes: []string{"postgres", "postgresql"}, Group: GroupShared, Programs: progs(Server, Local, Web), RequiredFor: progs(Server),
 		Doc: "PostgreSQL 連線設定,網址形式(postgres://使用者:密碼@主機/資料庫,可有多個主機、unix socket)或 key=value 形式" +
 			"(host=/cloudsql/專案:區域:執行個體 user=… password=… dbname=…,Cloud SQL 常用);密碼(網址的密碼、query 的 password/sslpassword、key=value 的 password=)會被遮蔽。" +
-			"server 必填;local 沒設就啟動內建的 PostgreSQL;web 沒設就存資料夾裡的 JSON 檔。" +
+			"server 必填;local 沒設就啟動內建的 PostgreSQL;web 的本機模式必填(沒設就不能用);遠端模式沒設時,本機設定存成資料夾裡的 JSON 檔。" +
 			"獨立模式的 omixor-local 也會使用它(例如開發用的 docker-compose 為 omixor-web 設的)"})
 	LDAPBindPassword = add(&Var{Name: "OMIXOR_LDAP_BIND_PASSWORD", Legacy: []string{"OPS_LDAP_BIND_PASSWORD"}, Kind: String, Secret: true,
 		Group: GroupLDAP, Programs: progs(Server, Web),
@@ -60,7 +61,7 @@ var (
 		Doc:        "領取任務時發給角色的憑證有效小時數(要大於 0,否則用預設)"})
 	TrustedProxyHops = add(&Var{Name: "OMIXOR_TRUSTED_PROXY_HOPS", Kind: Int, Range: &[2]int{0, 16}, Group: GroupServer, Programs: progs(Server, Web),
 		DefaultDoc: "server:有 K_SERVICE(Cloud Run)是 1,否則 0;web:0",
-		Doc: "信任的代理層數,決定怎麼取請求來源 IP(頻率限制、稽核用;web 只有 OAuth 連接埠用到)。0 = 不看 X-Forwarded-For,用連線位址;N = 取 X-Forwarded-For 由右數第 N 個" +
+		Doc: "信任的代理層數,決定怎麼取請求來源 IP(頻率限制、稽核用;web 只有對外 MCP 連接埠用到)。0 = 不看 X-Forwarded-For,用連線位址;N = 取 X-Forwarded-For 由右數第 N 個" +
 			"(最右邊是離伺服器最近的代理加的;項目不足或不是合法 IP 就退回連線位址)。Cloud Run 直接對外是 1;前面再加 HTTPS 負載平衡器要設 2。" +
 			"設太大會讓呼叫者能自己填來源、繞過每 IP 限制;設太小會讓代理的位址被當成來源、全部人共用一個額度"})
 	KService = add(&Var{Name: "K_SERVICE", Kind: String, Group: GroupServer, Programs: progs(Server),
@@ -68,10 +69,10 @@ var (
 	Port = add(&Var{Name: "PORT", Kind: Int, Default: "8080", Range: portRange, Group: GroupServer, Programs: progs(Server),
 		Doc: "Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴)"})
 	EvoleapURL = add(&Var{Name: "EVOLEAP_URL", Kind: URL, Default: "https://evoleap.io", Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server, Web),
-		Doc: "evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)。web:只有 OAuth 連接埠(OMIXOR_OAUTH_ADDR)的 evoleap 登入用;遠端模式登入用的是 OMIXOR_EVOLEAP"})
+		Doc: "evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)。web:只有對外 MCP 連接埠(OMIXOR_OAUTH_ADDR)的 evoleap 登入用;遠端模式登入用的是 OMIXOR_EVOLEAP"})
 	OAuthEvoleapLogin = add(&Var{Name: "OMIXOR_OAUTH_EVOLEAP_LOGIN", Kind: Bool, Default: "true", Group: GroupServer, Programs: progs(Server, Web),
 		Doc: "OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。server:設 false 關掉,同意畫面只剩配對碼;" +
-			"web:同意畫面只有 evoleap 登入(console 不提供配對碼),所以設了 OMIXOR_OAUTH_ADDR 就不能設 false"})
+			"web:同意畫面是 evoleap 與 GitLab(console 不提供配對碼),設了 OMIXOR_OAUTH_ADDR 時只有啟用 GitLab(OMIXOR_GITLAB_URL)才能設 false"})
 )
 
 // ---- LDAP(omixor-server;完整的檢查在 core/ldapauth,設了 OMIXOR_LDAP_URL 才啟用) ----
@@ -109,6 +110,32 @@ var (
 		Doc: "目錄沒有 mail 時,用 帳號@這個網域 當 email;只要網域(例如 corp.example.com)"})
 	LDAPTrustMail = add(&Var{Name: "OMIXOR_LDAP_TRUST_MAIL", Kind: Bool, Group: GroupLDAP, Programs: progs(Server),
 		Doc: "信任目錄的 mail:預先加入的同 email 使用者登入時自動對上"})
+)
+
+// ---- 自建 GitLab 的 OAuth2 登入(omixor-server,以及 console 的對外 MCP 連接埠;設了 OMIXOR_GITLAB_URL 才啟用,需要 OMIXOR_PUBLIC_URL) ----
+
+var (
+	GitLabURL = add(&Var{Name: "OMIXOR_GITLAB_URL", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupGitLab, Programs: progs(Server, Web),
+		Doc: "自建 GitLab 的網址(例如 https://gitlab.example.com,可帶子路徑)。沒設 = 不啟用 GitLab 登入;web 只有對外 MCP 連接埠(OMIXOR_OAUTH_ADDR)的同意畫面用;設了就必須同時有 CLIENT_ID、密鑰與 OMIXOR_PUBLIC_URL。" +
+			"GitLab Application 的 Redirect URI 要登記 <OMIXOR_PUBLIC_URL>/oauth/gitlab/callback 與 <OMIXOR_PUBLIC_URL>/api/auth/gitlab/callback(console 只要前者),scope 勾 read_user,勾 Confidential"})
+	GitLabClientID = add(&Var{Name: "OMIXOR_GITLAB_CLIENT_ID", Kind: String, Group: GroupGitLab, Programs: progs(Server, Web),
+		Doc: "GitLab Application 的 Application ID"})
+	GitLabClientSecret = add(&Var{Name: "OMIXOR_GITLAB_CLIENT_SECRET", Kind: String, Secret: true, Group: GroupGitLab, Programs: progs(Server, Web),
+		Doc: "GitLab Application 的 Secret"})
+	GitLabClientSecretFile = add(&Var{Name: "OMIXOR_GITLAB_CLIENT_SECRET_FILE", Kind: Path, Secret: true, Group: GroupGitLab, Programs: progs(Server, Web),
+		Doc: "Application 的 Secret 存在這個檔案(Docker secret);OMIXOR_GITLAB_CLIENT_SECRET 有設時以它為準"})
+	GitLabCACert = add(&Var{Name: "OMIXOR_GITLAB_CA_CERT", Kind: Path, Group: GroupGitLab, Programs: progs(Server, Web),
+		Doc: "GitLab 用自簽憑證時的 CA 憑證檔(PEM;加在系統信任清單之外)"})
+	GitLabAdmins = add(&Var{Name: "OMIXOR_GITLAB_ADMINS", Kind: String, Group: GroupGitLab, Programs: progs(Server, Web),
+		Doc: "伺服器管理員的 GitLab 使用者 id(數字,逗號分隔;不收 username,因為 username 改掉後別人可以拿去用)。每次登入都確認,只升不降"})
+	GitLabEmailDomains = add(&Var{Name: "OMIXOR_GITLAB_EMAIL_DOMAINS", Kind: String, Group: GroupGitLab, Programs: progs(Server, Web),
+		Doc: "允許用 GitLab 登入的 email 網域(逗號分隔,例如 corp.example.com;完全相同才算,不含子網域)。沒設 = 不限。GitLab 開放註冊時一定要設;" +
+			"另外 GitLab 要開啟 email 確認(omixor 只看 confirmed_at)"})
+	GitLabLinkLDAP = add(&Var{Name: "OMIXOR_GITLAB_LINK_LDAP", Kind: Bool, Group: GroupGitLab, Programs: progs(Server, Web),
+		Doc: "同一個人的 GitLab 與 LDAP 併到同一帳號。要同時啟用 LDAP 且有服務帳號(OMIXOR_LDAP_BIND_DN):用 GitLab 帳號的 LDAP 身分(DN)查目錄確認," +
+			"email 也要相同才併;web 不支援(console 沒有核心的 LDAP 登入,設了會啟動失敗);開啟後,有 LDAP 身分但查不到目錄帳號或 email 不符的人不能登入;GitLab 的 LDAP 與 omixor 的要是同一個目錄"})
+	GitLabTrustMail = add(&Var{Name: "OMIXOR_GITLAB_TRUST_MAIL", Kind: Bool, Group: GroupGitLab, Programs: progs(Server, Web),
+		Doc: "信任 GitLab 確認過的 email:預先加入的同 email 使用者登入時自動對上"})
 )
 
 // ---- 本機守護服務 ----
@@ -173,8 +200,9 @@ var (
 		Doc: "console 的 MCP 連接埠要求的 Bearer 權杖(至少 32 字元,不能含空白或換行;結尾換行會先去掉);有設但無效時 console 與 omixor-mcp 拒絕啟動;沒設時 console 自己產生並保存(omixor-mcp 也先讀這個,再讀 console 資料夾裡的 mcp_token)"})
 	OAuthAddr = add(&Var{Name: "OMIXOR_OAUTH_ADDR", Kind: String, Group: GroupWeb, Programs: progs(Web),
 		DefaultDoc: "不啟用",
-		Doc: "OAuth 專用連接埠的監聽位址(例如 127.0.0.1:8771);設了才啟用,讓 claude.ai 等遠端 MCP 用戶端用 evoleap 登入、OAuth 連到這台 console。" +
-			"只服務 /oauth/*、/.well-known/*、/mcp(統一入口,工具只有核心的 OAuth 白名單),反向代理或 Tailscale Funnel 只轉發這個連接埠。" +
+		Doc: "對外 MCP 連接埠的監聽位址(例如 127.0.0.1:8771);設了才啟用,讓遠端 MCP 用戶端(claude.ai 等)連到這台 console。" +
+			"服務 /oauth/*、/.well-known/*、/mcp、/mcp/org/{org}、/mcp/agent、/mcp/worker/{org},認證與工具和 omixor server 相同(OAuth 登入用 evoleap 或 GitLab,也收 omx_ 使用者 token;沒有 console 自己的工具)," +
+			"反向代理或 Tailscale Funnel 只轉發這個連接埠。" +
 			"需要 PostgreSQL(OMIXOR_DATABASE_URL)、非遠端模式、OMIXOR_PUBLIC_URL(https),evoleap 要登記回呼網址 <OMIXOR_PUBLIC_URL>/oauth/evoleap/callback"})
 	WebPort = add(&Var{Name: "OMIXOR_WEB_PORT", Legacy: []string{"OPS_WEB_PORT"}, Kind: Int, Default: "5191", Range: portRange, Group: GroupWeb, Programs: progs(Web),
 		Doc: "畫面與 API 的連接埠(沒設 OMIXOR_WEB_ADDR 時聽 127.0.0.1:<連接埠>)"})

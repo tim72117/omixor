@@ -46,7 +46,7 @@ final class OmixorAuthTests: XCTestCase {
         StubProtocol.handler = nil
     }
 
-    private var evo: Connection { Connection.defaults.first { $0.id == "evoleap" }! }
+    private var evo: Connection { Connection.testFixtures[0] }
     private var paths: [String] { StubProtocol.log.map { URL(string: $0.1)?.path ?? "" } }
 
     func testExchangeStoresOmixorTokenAndRevokesEvoleap() async throws {

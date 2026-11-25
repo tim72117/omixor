@@ -57,7 +57,7 @@ var (
 	localCoreVal *backend.Local
 	localCoreKey any // 建立核心時的資料庫連線池,換了就重建
 
-	// localServiceInit 建本機核心的 service 之後要套的設定(OAuth 連接埠的 evoleap 登入等,見 ConfigureLocalService);nil = 不套
+	// localServiceInit 建本機核心的 service 之後要套的設定(對外 MCP 連接埠的 evoleap、GitLab 登入等,見 ConfigureLocalService);nil = 不套
 	localServiceInit func(*service.Service)
 
 	// newTestCore 沒有資料庫時改用的核心(測試用;UseTestStores 設定)。nil = 沒有資料庫就不能用
@@ -72,9 +72,15 @@ const (
 	localUserKey = "local:" + LocalIdentity
 	// legacyLocalIdentity 產品早期叫 Ops 時的本機身分(舊資料裡的字串;遷移時對到本機使用者)
 	legacyLocalIdentity = "ops-web"
-	// legacyLocalPerson 範例資料的人員 id(App.Me;舊資料的建立者、留言作者常是它)
+	// legacyLocalPerson 範例資料的人員 id,也是早期寫死的本機使用者(舊資料的建立者、留言作者常是它);只為相容舊資料保留
 	legacyLocalPerson = "tim"
 )
+
+// IsLocalUser 這位使用者是不是本機使用者 omixor-console(本機建立的那一列,或舊版沒有標記的同名列)。
+// 對外 MCP 連接埠用:本機使用者是伺服器管理員,只能在本機使用,不能被任何遠端登入或 token 對上
+func IsLocalUser(u model.User) bool {
+	return u.EvoleapID == localUserKey || strings.EqualFold(strings.TrimSpace(u.Email), LocalIdentity)
+}
 
 // LocalAliases 舊資料裡會對到本機使用者的字串(遷移與寬鬆解析器用;mcp 由遷移規則內建)
 func LocalAliases() []string { return []string{legacyLocalIdentity, legacyLocalPerson, MCPAuthor} }

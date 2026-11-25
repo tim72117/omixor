@@ -36,6 +36,7 @@ final class OrgTests: XCTestCase {
     func testDeleteOrgClearsItsTokens() async throws {
         let app = AppState()
         app.startConnections()
+        seedTestConnections(app)
         let other = app.createOrg(name: "Side", template: .copyCurrent)
         await app.switchOrg(other.id).value
         TokenVault.setTokens(TokenSet(accessToken: "side-token", tokenType: "Bearer"), "evoleap")
@@ -52,6 +53,7 @@ final class OrgTests: XCTestCase {
     func testCreateSwitchIsolateAndDelete() async throws {
         let app = AppState()
         app.startIssues(); app.startTestAgents(); app.startCabinet(); app.startConnections()
+        seedTestConnections(app)
         app.startIssues().create(title: "evoleap 的 Issue", by: "tim")
         try! Cabinet.create(app, title: "evoleap 文件", body: "", section: "levels", tab: "/studio/tools", tags: [], by: "tim")
         TokenVault.setTokens(TokenSet(accessToken: "default-token", tokenType: "Bearer"), "evoleap")

@@ -1,5 +1,6 @@
 # 公開映像:推 v* tag 時把 omixor-server 建好推到 ghcr.io/<owner>/omixor-server(標版本號與 latest),
 # 給自建伺服器用(部署設定在 repo 外的 omixor-deploy:GitLab CI 用 docker stack deploy 拉這個映像)。
+# 同時把 console(console/Dockerfile)推到 ghcr.io/<owner>/omixor-console,標籤規則相同。
 # 正式站 omixor.io 是 deploy-server.yml(同樣推 v* tag → Cloud Run;推 main 不部署)。同一個 tag 會兩邊都觸發。
 # ghcr 第一次建立的套件預設是私有的:要在 GitHub 套件設定改成公開,或部署端先 docker login ghcr.io。
 name: Release server image
@@ -17,6 +18,7 @@ on:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/omixor-server
+  CONSOLE_IMAGE: ghcr.io/${{ github.repository_owner }}/omixor-console
 
 concurrency:
   group: release-image-${{ github.ref }}
@@ -99,4 +101,22 @@ jobs:
           if [ "$LATEST" = "true" ]; then
             docker tag $IMAGE:$TAG $IMAGE:latest
             docker push $IMAGE:latest
+          fi
+
+      # console(操作畫面;不含 site/ 的形象網站),自建用。跑法見 console/docker-compose.yml
+      - name: Build and push console
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+          LATEST: ${{ steps.tag.outputs.latest }}
+        run: |
+          docker build -f console/Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --build-arg VERSION=$TAG \
+            --build-arg COMMIT=${{ github.sha }} \
+            --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            -t $CONSOLE_IMAGE:$TAG .
+          docker push $CONSOLE_IMAGE:$TAG
+          if [ "$LATEST" = "true" ]; then
+            docker tag $CONSOLE_IMAGE:$TAG $CONSOLE_IMAGE:latest
+            docker push $CONSOLE_IMAGE:latest
           fi

@@ -160,21 +160,6 @@ func (c Connection) AllowsHost(host string) bool {
 	return strings.HasSuffix(h, "."+strings.Join(parts[1:], "."))
 }
 
-// DefaultConnections 同 Swift 的 Connection.defaults
-func DefaultConnections() []Connection {
-	evo := NewConnection("evoleap", "evoleap 正式站", "https://evoleap.io")
-	evo.IsProduction = true
-	evo.TestPath = "/api/me"
-	evo.Auth = AuthApproval
-	evo.Note = "課程資料、旁白發佈"
-	local := NewConnection("evoleap-local", "evoleap 本機", "http://localhost:8190")
-	local.TestPath = "/api/me"
-	local.Auth = AuthApproval
-	local.Approval.ConsoleURL = "http://localhost:5190"
-	local.Note = "本機開發用(go run ./cmd/server + npm run dev)"
-	return []Connection{evo, local}
-}
-
 // TokenSet 存在鑰匙圈的登入結果(JSON 格式同 Swift:日期是 ISO 8601)
 type TokenSet struct {
 	AccessToken  string  `json:"accessToken"`

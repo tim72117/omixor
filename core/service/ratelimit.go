@@ -34,7 +34,7 @@ func (r *rateWindow) allow(now time.Time, key string, perMax, totalMax int) bool
 
 // loginLimits 各入口各自的限額,一個被灌爆不影響別的
 type loginLimits struct {
-	pair, ldap, evoleap rateWindow
+	pair, ldap, evoleap, gitlab, gitlabToken rateWindow
 }
 
 // allowLogin 登入類入口的限額(每個來源 LoginPerIP、每個入口 LoginTotal,預設 10 與 60,每分鐘);w 是該入口自己的視窗

@@ -439,6 +439,25 @@ var rules = []rule{
 		}
 		return nil
 	}},
+	{Server, func(c *Config) error {
+		// 設了 GitLab 的其他項目卻沒設 OMIXOR_GITLAB_URL:GitLab 登入不會啟用,多半是漏設
+		if c.IsSet(GitLabURL) {
+			if !c.IsSet(PublicURL) {
+				return fmt.Errorf("設了 OMIXOR_GITLAB_URL,也要設 OMIXOR_PUBLIC_URL(GitLab 的回呼網址由它推導)")
+			}
+			return nil
+		}
+		var set []string
+		for _, v := range All {
+			if v.Group == GroupGitLab && v != GitLabURL && c.IsSet(v) {
+				set = append(set, v.Name)
+			}
+		}
+		if len(set) > 0 {
+			return fmt.Errorf("設了 %s,但沒設 OMIXOR_GITLAB_URL,GitLab 登入不會啟用", strings.Join(set, "、"))
+		}
+		return nil
+	}},
 	{Web, func(c *Config) error {
 		// 兩個都設而連接埠不一樣:OMIXOR_WEB_ADDR 優先,OMIXOR_WEB_PORT 會被忽略,多半是設錯
 		if c.IsSet(WebAddr) && c.IsSet(WebPort) {
@@ -451,8 +470,8 @@ var rules = []rule{
 	{Web, webOAuthRule},
 }
 
-// webOAuthRule 設了 OMIXOR_OAUTH_ADDR(console 的 OAuth 連接埠)時的相依:要有對外網址(issuer、resource、evoleap 回呼都由它推導)、
-// 網址必須是 https(本機位址除外,開發用)且只有網址、evoleap 登入不能關(console 沒有配對碼)、不能是遠端模式(授權與使用者在那台 server)。
+// webOAuthRule 設了 OMIXOR_OAUTH_ADDR(console 的對外 MCP 連接埠)時的相依:要有對外網址(issuer、resource、evoleap 回呼都由它推導)、
+// 網址必須是 https(本機位址除外,開發用)且只有網址、evoleap 登入只有在啟用 GitLab 時才能關(console 沒有配對碼)、不能是遠端模式(授權與使用者在那台 server)。
 // 需要 PostgreSQL 與否是執行期才知道的事,由 console 啟動時檢查
 func webOAuthRule(c *Config) error {
 	if !c.IsSet(OAuthAddr) {
@@ -472,8 +491,8 @@ func webOAuthRule(c *Config) error {
 	if u.Scheme != "https" && !IsLoopbackHost(u.Hostname()) {
 		return fmt.Errorf(pre + "OMIXOR_PUBLIC_URL 必須是 https(只有 localhost、127.0.0.1、[::1] 可以用 http,開發用)")
 	}
-	if !c.Bool(OAuthEvoleapLogin) {
-		return fmt.Errorf(pre + "OMIXOR_OAUTH_EVOLEAP_LOGIN 不能是 false(console 的同意畫面只有 evoleap 登入)")
+	if !c.Bool(OAuthEvoleapLogin) && !c.IsSet(GitLabURL) {
+		return fmt.Errorf(pre + "OMIXOR_OAUTH_EVOLEAP_LOGIN 設 false 時要另外啟用 GitLab 登入(OMIXOR_GITLAB_URL):console 的同意畫面沒有配對碼,兩種都沒有就沒人能登入")
 	}
 	if c.IsSet(ServerURL) {
 		return fmt.Errorf(pre + "但 OMIXOR_SERVER 設了(遠端模式):OAuth 要連本機 PostgreSQL 的 console,遠端模式請改在那台 omixor server 設 OMIXOR_PUBLIC_URL")
