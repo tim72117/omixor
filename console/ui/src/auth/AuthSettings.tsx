@@ -125,6 +125,7 @@ export function AuthSettings() {
               {field("群組篩選", "groupFilter", "(|(member=%s)(uniqueMember=%s))", "%s 換成使用者 DN;也會看使用者的 memberOf")}
               {field("群組搜尋起點", "groupBaseDN", "ou=groups,dc=corp,dc=example,dc=com", "空白用上面的搜尋起點")}
             </div>
+            {!l.adminGroup.trim() && <Pill text="沒有填管理員群組:所有能登入的帳號都是管理員" color="orange" icon="exclamationmark.triangle" />}
           </Card>
 
           <Card title="測試與儲存" subtitle="用一組真的帳號試登入;啟用時一定要用管理員群組的帳號測試成功,才能存,避免把自己鎖在外面。">

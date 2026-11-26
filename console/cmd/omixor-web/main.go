@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -88,6 +89,9 @@ func main() {
 	}
 
 	au := auth.New(auth.VaultSecrets{})
+	if c := au.Config(); c.Mode == "ldap" && strings.TrimSpace(c.LDAP.AdminGroup) == "" {
+		log.Printf("警告:LDAP 登入沒有設定管理員群組,所有能登入的帳號都是管理員(可以改設定、憑證與對外發佈)。到 設定 › 認證 填「管理員群組」")
+	}
 	addr := web.ConfiguredAddr()
 	// 在 Docker 裡要聽 0.0.0.0,但連接埠只發布到主機的 127.0.0.1 時,設 OMIXOR_WEB_LOCAL_ONLY_PUBLISH=1
 	if !web.IsLoopbackAddr(addr) && !au.Enabled() && !cfg.Bool(config.WebLocalOnlyPublish) {

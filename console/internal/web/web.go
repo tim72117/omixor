@@ -11,6 +11,7 @@
 //	其他路徑                   React 畫面(ui/dist)
 //
 // 啟用 LDAP 時,/api 除了 /api/auth/status、/api/auth/login 都要登入(/api/issues/ 也可以用 OMIXOR_API_TOKEN);畫面的動作以登入者署名。
+// 工具與動作分一般成員 / 管理員(見 access.go);非管理員的 /api/issues 只限目前的組織。
 package web
 
 import (
@@ -94,7 +95,8 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		writeJSON(w, 200, v)
 	})
 	mux.HandleFunc("POST /api/tool/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if what, ok := adminTools[r.PathValue("name")]; ok && denyNonAdmin(w, r, app, au, what) {
+		// 一般成員只能用 memberTools 列的工具,其他(含還沒分類的)要 web 管理員(見 access.go)
+		if what, need := toolNeedsAdmin(r.PathValue("name")); need && denyNonAdmin(w, r, app, au, what) {
 			return
 		}
 		if !mcp.HasTool(r.PathValue("name")) { // 不存在的工具與不存在的動作一致:404(不是 400)
@@ -124,12 +126,15 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 				return
 			}
 		}
+		if !isAdmin(r, app, au) {
+			stripCredential(res)
+		}
 		writeJSON(w, 200, map[string]any{"result": res})
 	})
 	mux.HandleFunc("POST /api/action/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
-		// 核心要管理員、或 web 共用的設定:web 的登入者要是管理員(見 admin.go)
-		if what, ok := adminActions[name]; ok && denyNonAdmin(w, r, app, au, what) {
+		// 一般成員只能用 memberActions 列的動作,其他(含還沒分類的)要 web 管理員(見 access.go)
+		if what, need := actionNeedsAdmin(name); need && denyNonAdmin(w, r, app, au, what) {
 			return
 		}
 		args, err := readArgs(r)

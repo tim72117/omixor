@@ -28,6 +28,7 @@ import (
 //	POST /api/issues/{org}/{id}/delete    刪除
 //
 // {org} 是組織 id;是 omixor-web 目前的組織時,變更會出現在畫面與動態牆,其他組織只改資料。
+// 啟用 LDAP 時,登入的非管理員只能用目前的組織(其他 403);API token 不受限。
 // 作者:啟用 LDAP 時用登入者;用 API token(OMIXOR_API_TOKEN,Authorization: Bearer …)或本機模式時用 body 的 author
 // (person id、"mcp" 或 "agent:<角色 id>";沒給是本機使用者)。
 
@@ -77,11 +78,27 @@ func issueVersionOf(in map[string]any, ifMatch string) (int, error) {
 	return n, nil
 }
 
+// otherOrgDenied 登入的非管理員只能讀寫目前的組織(畫面看得到的那個);web 對核心用同一個身分,分不出他是不是別的組織的成員。
+// API token、本機模式(沒有登入者)不受限
+func otherOrgDenied(r *http.Request, app *core.App, org string) bool {
+	u, ok := ctxUser(r)
+	if !ok || u.Admin {
+		return false
+	}
+	app.Mu.Lock()
+	defer app.Mu.Unlock()
+	return org != app.CurrentOrgID()
+}
+
 func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 	org := func(w http.ResponseWriter, r *http.Request) (string, bool) {
 		o := r.PathValue("org")
 		if !core.ValidOrgID(o) {
 			writeJSON(w, 400, map[string]any{"error": "組織 id 不對:" + o})
+			return "", false
+		}
+		if otherOrgDenied(r, app, o) {
+			writeJSON(w, 403, map[string]any{"error": "只有管理員可以讀寫其他組織的 Issue;你登入的帳號不是 web 的管理員", "forbidden": true})
 			return "", false
 		}
 		return o, true

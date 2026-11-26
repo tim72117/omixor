@@ -48,6 +48,18 @@ func Action(a *App, name string, args map[string]any) (any, error) {
 	return f(a, args)
 }
 
+// HasAction 有登記這個 action 嗎
+func HasAction(name string) bool { return actions[name] != nil }
+
+// ActionNames 全部登記的 action(web 的權限分類測試用,見 web/access.go)
+func ActionNames() []string {
+	out := []string{}
+	for k := range actions {
+		out = append(out, k)
+	}
+	return out
+}
+
 func ViewNames() []string {
 	out := []string{}
 	for k := range views {
