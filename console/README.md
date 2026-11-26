@@ -54,6 +54,21 @@ docker compose up -d --build
 > **升級須知(管理員改看帳號名單)**:舊版的「管理員群組」不再使用,只有**帳號名單**裡的人是網頁管理員;名單空白就沒有任何管理員(以前管理員群組空白是「所有人都是管理員」)。
 > 救援與設定:在主機上設 `OMIXOR_LDAP_ADMINS=帳號1,帳號2` 重新啟動;或用 `OMIXOR_AUTH=off`(畫面只開本機)啟動,到 **設定 › 認證** 填名單、用名單裡的帳號測試並儲存,再拿掉 `OMIXOR_AUTH=off`。
 
+### 升級與救援(誰能登入、組織怎麼選)
+
+**升級前先確認**(啟用 LDAP 的伺服器):
+
+- **要是組織成員才能登入**。帳號要對得上 omixor 使用者、沒停用,而且是某個組織的成員、核心的伺服器管理員,或管理員帳號名單上的人。其他人登入回 403 並顯示原因;已登入的 session 下一個請求就失效。第一次登入被拒的人,使用者已經建好,到成員頁用他的 email 加入即可。啟動紀錄會列出對不上或停用的管理員、不屬於任何組織的 LDAP 帳號數。
+- **每個人各自的目前組織**。畫面把選的組織存在瀏覽器,每個請求帶 `X-Omixor-Org`;沒帶用預設,帶了不能用的組織回 409 `orgChanged`。自己寫腳本呼叫 `/api` 的,要指定組織就帶這個標頭。
+- **系統工作組織**。原本「全站的目前組織」改成系統工作組織(管理員用 `system_org_set` 換):整合、範例資料、監控、旁白、助理、虛擬辦公室、MCP 3765、背景工作都只用它。**自動執行只執行系統工作組織的任務**。其他組織的成員用得到 Issue、待決定、事件、角色與任務、組織鏈、對話、文件櫃與設定;其他頁面在那些組織不顯示。換系統工作組織時,進行中的請求超過幾秒沒做完會回 409,稍後再試。
+- **console 專有工具現在也在 OAuth MCP 入口**(`/mcp`),分級與限制見下面「遠端 MCP 用戶端」。已經授權過的連線會看到這些工具。
+
+**救援**(進不去時):
+
+1. **你在管理員名單上,但對不上 omixor 使用者**(例如先用 email 被預先加入而沒開 trustMail、目錄沒有 mail 也沒設 email 網域):照常登入,畫面只會給認證設定。開 trustMail 或填 email 網域,用自己的帳號測試並儲存,再重新登入。這個登入看不到任何組織資料,也不能關掉 LDAP。email 已經是另一個身分在用時,設定修不好:改走第 3 步。
+2. **管理員的使用者被停用**:照樣不能登入。請另一位管理員重新啟用;沒有別人時,用 `OMIXOR_LDAP_ADMINS` 加一個能登入的帳號重新啟動,由他啟用。
+3. **還是進不去**:在主機上用 `OMIXOR_AUTH=off` 啟動(畫面只開本機),到 設定 › 認證 修設定,或到成員頁加人、啟用使用者,再拿掉 `OMIXOR_AUTH=off`。
+
 預設是「不用登入、只限本機」。要讓同事連進來:
 
 1. 用本機模式開 omixor console,到 **設定 › 認證** 選「LDAP 帳號登入」,填伺服器(ldaps:// 或 ldap:// + StartTLS、自簽 CA)、找使用者的方式(服務帳號搜尋,或直接用 DN 範本 / AD 的 `%s@網域`)、允許登入的群組、**管理員帳號名單**。
@@ -115,7 +130,7 @@ claude mcp add --transport http omixor-console <OMIXOR_PUBLIC_URL>/mcp   # 不�
 - 續期(約每 10 分鐘):服務帳號搜尋的設定會向目錄重新確認,帳號不存在、停用(AD `userAccountControl`、`accountExpires`、`nsAccountLock`,或被使用者篩選排除)或不在允許群組就撤銷授權;目錄連不上或 LDAP 登入關掉時暫停續期(不撤銷)。直接用帳號組 DN 的設定查不了,授權最長維持「登入有效時數」(預設 12 小時)就要重新輸入密碼。
 - 管理員帳號名單只決定網頁管理員,不會讓人在 MCP 裡變成伺服器管理員。
 - 撤銷與停用(web 管理員,目前只有 API):`POST /api/action/user_oauth_revoke {"email":…}`、`POST /api/action/user_disable {"email":…, "disabled": true}`。
-- 3765、`omxm_`、`omx_` 照常可用。
+- 3765、`omxm_`、`omx_` 照常可用(`omixor-mcp` 的轉接、`--channel`、`--init-worker` 目前仍只走 3765 與 `omxm_`)。
 
 ## 遠端 MCP 用戶端(對外 MCP 連接埠:claude.ai、omx_ token、角色憑證)
 
@@ -136,8 +151,14 @@ console 的 MCP 連接埠(3765)只給同一台電腦、用 `omxm_` 權杖;要讓
 - **誰能登入**:evoleap 帳號要對得上 console 資料庫裡已經有的使用者(管理員先用 email 把人加進組織),對不上就拒絕、不自動建帳號。GitLab 同 server 的規則:通過 email 網域等檢查的新帳號會自動建成一般使用者(要加進組織才看得到東西),開放註冊的 GitLab 一定要設 `OMIXOR_GITLAB_EMAIL_DOMAINS`。**沒有配對碼**。認證設定啟用 LDAP 時也能用 LDAP 帳號(見上一節)。
 - **`omx_` token 從哪來**:console 本機模式**沒有發放 `omx_` 的功能**(沒有 `/api/auth/*`,畫面也沒有)。只有資料庫裡本來就有的(例如和 omixor-server 共用同一個資料庫)才能用,console 也不能列出或撤銷它們。
 - **不開放**:`omxm_` 權杖在這個連接埠無效;本機使用者 `omixor-console`(伺服器管理員)不管用什麼 token 都會被拒;server 的 `/api/*` 一概沒有(所以 `omixor` CLI 不能對這個連接埠登入)。
-- **工具**:全部是核心的工具,權限與 server 相同(OAuth 預設唯讀,同意畫面選「讀寫」才多開協作寫入且不是伺服器管理員;`omx_` 權限同該使用者)。console 自己的工具(gcp、github、fb_、voice_、server、範例資料、office)**不會**出現。寫入署名是登入的那位使用者或角色。
-- **畫面快取**:從這個連接埠寫入後,console 重讀目前組織的 Issue、角色、文件櫃;寫到別的組織的,切換過去時才讀。
+- **工具**:核心工具的權限與 server 相同(OAuth 預設唯讀,同意畫面選「讀寫」才多開協作寫入且不是伺服器管理員;`omx_` 權限同該使用者)。寫入署名是登入的那位使用者或角色。console 專有工具見下一項。
+- **console 專有工具**(兩種入口都一樣;只在 `/mcp`、只給 OAuth 授權,`omx_` 與其他端點看不到;每次帶 `org`,要是成員):
+  - 唯讀:overview、list、get、server、voice_jobs、office_state、site_visitors、github、github_runs、github_run、github_pull、gcp、gcp_logs、gcp_metrics、fb_pages、fb_posts、fb_insights、fb_drafts(唯讀授權不能帶 `refresh`)
+  - 讀寫:alert_update、work_item_create、work_item_move、pipeline_update、activity_post、office_move、issue_decision_withdraw、issue_decision_reopen、navigate
+  - 組織管理員(`mcp:admin`、該組織管理員,**而且**在 console 的管理員帳號名單;沒啟用 LDAP 時改要核心的伺服器管理員):alert_create、log_append、request_approval、fb_draft_save
+  - 不開放:voice_submit(在主機執行程式)
+  - issue_decision_withdraw、issue_decision_reopen、navigate 可用在自己的任何組織;其餘是整台一份的功能,`org` 只能是系統工作組織。啟用 LDAP 時要用 LDAP 帳號授權。navigate 只移動自己的畫面,沒啟用 LDAP 時拒絕。work_item_create 帶 `incident_id` 要 `mcp:admin` 且是組織管理員。
+- **畫面快取**:從這個連接埠寫入後,console 重讀系統工作組織的快取,並通知看著各組織的畫面重讀。
 
 用 Tailscale Funnel 在本機試(`<機器>.<tailnet>.ts.net` 換成自己的):
 
@@ -168,7 +189,7 @@ claude --dangerously-load-development-channels server:omixor-tasks
 - `--init-worker` 產生 `.mcp.json`(註冊頻道 `omixor-tasks` 與本機 omixor MCP)與 `CLAUDE.md`(長期授權:收到通知不用問就領取,預設交給子代理執行,做完用 `agent_task_report` 回報)。範本在 `omixor-core/mcp/worker_template.go`。
 - 授權一定要寫在 `CLAUDE.md`(或啟動時的第一則訊息):頻道事件在 Claude Code 裡不算使用者指令,光靠頻道的說明它會停下來問。
 - 第一次啟動會問要不要啟用 MCP 伺服器與開發頻道,都選同意。工作階段要一直開著才收得到;只能在終端機用,桌面 app 的 Code 分頁不支援 channels。
-- **自動/手動**:每個角色有「自動執行」開關(console 的執行者),關著時待領取的任務不會被自動領走,每筆任務有「開始執行」按鈕(一次只跑一筆);領任務前會先檢查 claude 是否已登入。
+- **自動/手動**:每個角色有「自動執行」開關(console 的執行者;只執行系統工作組織的任務,人工「開始執行」以按的人署名領取),關著時待領取的任務不會被自動領走,每筆任務有「開始執行」按鈕(一次只跑一筆);領任務前會先檢查 claude 是否已登入。
 - **執行日誌**:每次執行的工具呼叫、伺服器確認、遮蔽結果都記下來,每個組織保留最近 50 筆(`reportedBy` 為 `role` 或 `runner`);畫面在「需要處理」(被擋住等人回覆的任務)與「執行日誌」兩個頁籤。細節見 omixor 文件櫃 DOC-28《docs/release-notes-2026-11.md》。
 - 頻道跟著 console 目前的組織(每次查詢重讀):console 晚開、中途換組織都跟得上,換組織時會先送一則新組織的待領清單。
 

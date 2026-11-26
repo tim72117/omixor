@@ -26,4 +26,7 @@ export const SECTIONS: { id: SectionId; title: string; icon: string; group: "mai
   { id: "system", title: "系統", icon: "switch.2", group: "end" },
 ];
 
+/** 系統工作組織以外的組織也能用的頁面(資料分組織);第一個是預設落點(Issue 在開發進度) */
+export const ORG_SECTIONS: SectionId[] = ["development", "incidents", "automation", "channels", "cabinet", "settings", "system"];
+
 export type Nav = { section: SectionId; focusId?: string; env: string; timeRange: string };

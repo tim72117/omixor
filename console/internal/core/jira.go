@@ -155,7 +155,8 @@ type jiraAtt struct {
 }
 
 // JiraImport 匯入這些專案的 Issue;includeClosed 為 false 時只匯入還沒完成的(statusCategory != Done)
-func JiraImport(a *App, projects []string, includeClosed bool) (JiraImportResult, error) {
+// who 是網頁的呼叫者(沒給 = 系統身分)
+func JiraImport(a *App, projects []string, includeClosed bool, who ...*Caller) (JiraImportResult, error) {
 	res := JiraImportResult{Projects: map[string]int{}, Errors: map[string]string{}}
 	c, ok := jiraConn(a)
 	if !ok {
@@ -233,13 +234,19 @@ func JiraImport(a *App, projects []string, includeClosed bool) (JiraImportResult
 		created = append(created, n)
 		res.Created++
 	}
-	if err := a.issueRemoteSave(s.Org, updated, created); err != nil {
+	var saveErr error
+	a.AsCaller(firstCaller(who), func() { saveErr = a.issueRemoteSave(s.Org, updated, created) })
+	if err := saveErr; err != nil {
 		a.issueRemoteFailed(err)
 		a.Mu.Unlock()
 		return res, facingPrefix("jira_import", "Issue 沒有存起來:", err)
 	}
 	a.issueRemoteLoad(s)
-	a.Log(a.Actor(), "square.and.arrow.down", "從 Jira 匯入 "+strings.Join(keys, "、")+":新增 "+strconv.Itoa(res.Created)+
+	logger := a.Actor()
+	if c := firstCaller(who); c != nil {
+		logger = Person(c.Account())
+	}
+	a.Log(logger, "square.and.arrow.down", "從 Jira 匯入 "+strings.Join(keys, "、")+":新增 "+strconv.Itoa(res.Created)+
 		" 筆、更新 "+strconv.Itoa(res.Updated)+" 筆", "development")
 	a.Mu.Unlock()
 	a.Changed("issues")
@@ -619,6 +626,6 @@ func init() {
 			return nil, UserError{"projects 要是專案代碼的陣列"}
 		}
 		closed, _ := args["includeClosed"].(bool)
-		return JiraImport(a, projects, closed)
+		return JiraImport(a, projects, closed, CallerOf(args))
 	})
 }

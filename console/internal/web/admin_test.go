@@ -21,6 +21,7 @@ func adminTestClients(t *testing.T) (bob, alice *client, app *core.App) {
 	if _, out := c.do("POST", "/api/auth/config", map[string]any{"config": ldapCfg(f), "bindPassword": "svc-pw", "testUsername": "alice", "testPassword": "alice-pw"}, nil); out["error"] != nil {
 		t.Fatal(out)
 	}
+	joinOrg(t, app, au, "bob") // 不是任何組織成員的人不能登入
 	login := func(user, pw string) *client {
 		x := &client{t: t, srv: c.srv, c: newJarClient()}
 		if _, out := x.do("POST", "/api/auth/login", map[string]any{"username": user, "password": pw}, nil); out["error"] != nil {

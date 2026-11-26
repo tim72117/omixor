@@ -10,7 +10,7 @@ import (
 // 都由核心依登入身分決定。issues(id) 附的 commits 也走這裡的 ListIssueCommits(讀不到就不附)。呼叫時沒有拿著 Mu。decisionBackend 見 tools_decision.go。
 
 func (b appBackend) ReportCommits(org string, in service.CommitReport) (*service.CommitReportResult, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -18,7 +18,7 @@ func (b appBackend) ReportCommits(org string, in service.CommitReport) (*service
 }
 
 func (b appBackend) QueryCommits(org string, in service.CommitQueryInput) (*service.CommitQueryResult, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +26,7 @@ func (b appBackend) QueryCommits(org string, in service.CommitQueryInput) (*serv
 }
 
 func (b appBackend) GetRepoSync(org, repo string) (*service.CommitSyncView, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func (b appBackend) GetRepoSync(org, repo string) (*service.CommitSyncView, erro
 }
 
 func (b appBackend) ListIssueCommits(org, issue string, limit int) (*service.IssueCommits, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (b appBackend) ListIssueCommits(org, issue string, limit int) (*service.Iss
 }
 
 func (b appBackend) LinkIssueCommit(org, issue string, in service.CommitLinkInput) (*model.IssueCommitView, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func (b appBackend) LinkIssueCommit(org, issue string, in service.CommitLinkInpu
 }
 
 func (b appBackend) UnlinkIssueCommit(org, issue string, in service.CommitUnlinkInput) error {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return err
 	}

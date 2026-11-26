@@ -50,7 +50,7 @@ func (a *App) chainView() OrgChainView {
 }
 
 func (o AgentOps) GetChain(org string) (*model.OrgChain, error) {
-	b, err := o.be()
+	b, err := o.read(org)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (o AgentOps) GetChain(org string) (*model.OrgChain, error) {
 
 // SaveChain 整份取代組織鏈;成功後寫動態、通知畫面
 func (o AgentOps) SaveChain(org string, edges []model.ChainEdge) (*model.OrgChain, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -69,15 +69,15 @@ func (o AgentOps) SaveChain(org string, edges []model.ChainEdge) (*model.OrgChai
 	}
 	o.a.Changed("chain")
 	o.a.Mu.Lock()
-	me := o.a.Me
+	me := o.who.actorOr(o.a.Me)
 	o.a.Mu.Unlock()
-	o.logf(Person(me), "point.3.connected.trianglepath.dotted", fmt.Sprintf("更新組織鏈(%d 條)", len(c.Edges)))
+	o.logf(me, "point.3.connected.trianglepath.dotted", fmt.Sprintf("更新組織鏈(%d 條)", len(c.Edges)))
 	return c, nil
 }
 
 // DelegateTask 依組織鏈委派(本機核心:伺服器管理員帶 From 指定委派的角色;遠端:要角色憑證,一般帳號會被拒絕)
 func (o AgentOps) DelegateTask(org string, in service.DelegateInput) (*model.AgentTask, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (o AgentOps) DelegateTask(org string, in service.DelegateInput) (*model.Age
 
 // WorkerDelegate 領取者以任務角色的身分依組織鏈委派(/mcp/worker 的 dispatch_delegate)
 func (o AgentOps) WorkerDelegate(org, taskID, code string, in service.DelegateInput) (*model.AgentTask, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func init() {
 		if err := ReadInto(args, &in); err != nil {
 			return nil, err
 		}
-		c, err := a.AgentOps().SaveChain(a.currentOrgNow(), in.Edges)
+		c, err := a.AgentOpsFor(CallerOf(args)).SaveChain(a.currentOrgNow(), in.Edges)
 		if err != nil {
 			return nil, agentUserErr(err)
 		}

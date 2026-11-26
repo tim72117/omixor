@@ -11,7 +11,7 @@ import (
 // 呼叫時沒有拿著 Mu(這幾個工具不鎖 Env)。decisionBackend 見 tools_decision.go。
 
 func (b appBackend) ListIssueItems(org, issue string, q service.ItemListQuery) ([]model.IssueItem, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -19,7 +19,7 @@ func (b appBackend) ListIssueItems(org, issue string, q service.ItemListQuery) (
 }
 
 func (b appBackend) GetIssueItem(org, issue, item string) (*model.IssueItem, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func (b appBackend) GetIssueItem(org, issue, item string) (*model.IssueItem, err
 }
 
 func (b appBackend) AddIssueItem(org, issue string, in service.ItemInput) (*model.IssueItem, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +35,7 @@ func (b appBackend) AddIssueItem(org, issue string, in service.ItemInput) (*mode
 }
 
 func (b appBackend) UpdateIssueItem(org, issue, item string, in service.ItemPatch) (*model.IssueItem, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (b appBackend) UpdateIssueItem(org, issue, item string, in service.ItemPatc
 }
 
 func (b appBackend) DeleteIssueItem(org, issue, item string) error {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func (b appBackend) DeleteIssueItem(org, issue, item string) error {
 }
 
 func (b appBackend) ClaimIssueItem(org, issue, item string, in service.ItemClaimInput) (*service.ItemClaimResult, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (b appBackend) ClaimIssueItem(org, issue, item string, in service.ItemClaim
 }
 
 func (b appBackend) ReleaseIssueItem(org, issue, item string) (*model.IssueItem, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (b appBackend) ReleaseIssueItem(org, issue, item string) (*model.IssueItem,
 }
 
 func (b appBackend) ReportIssueItem(org, issue, item string, in service.ItemReport) (*model.IssueItem, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (b appBackend) ReportIssueItem(org, issue, item string, in service.ItemRepo
 }
 
 func (b appBackend) BlockIssueItem(org, issue, item string, in service.ItemReport) (*model.IssueItem, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (b appBackend) BlockIssueItem(org, issue, item string, in service.ItemRepor
 }
 
 func (b appBackend) UnblockIssueItem(org, issue, item string) (*model.IssueItem, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (b appBackend) UnblockIssueItem(org, issue, item string) (*model.IssueItem,
 }
 
 func (b appBackend) CancelIssueItem(org, issue, item string) (*model.IssueItem, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (b appBackend) CancelIssueItem(org, issue, item string) (*model.IssueItem, 
 }
 
 func (b appBackend) PromoteIssueItem(org, issue, item string, in service.ItemPromoteInput) (*service.ItemPromoteResult, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}

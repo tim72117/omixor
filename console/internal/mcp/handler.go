@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 
+	"omixor-core/backend"
 	coremcp "omixor-core/mcp"
 	"omixor-core/model"
 	"omixor-core/version"
@@ -28,6 +29,10 @@ type Call struct {
 	Args Args
 	// 誰做的:MCP 呼叫是 core.MCPActor;畫面透過 /api/tool 呼叫時是目前使用者
 	Actor core.Actor
+	// 網頁 /api/tool 的呼叫者:核心寫入用他的身分(nil = 系統身分)
+	Who *core.Caller
+	// OAuth 呼叫(oauth_tools.go)的核心後端,身分是授權的那個人;不是 nil 時核心的寫入一律用它,不看 Who
+	OAuth *backend.Local
 }
 
 type ToolFunc func(c *Call) (any, error)
@@ -36,6 +41,10 @@ type ToolFunc func(c *Call) (any, error)
 type callCtx struct {
 	App   *core.App
 	Actor core.Actor
+	// who 見 RunAs
+	who *core.Caller
+	// oauth 見 Call.OAuth
+	oauth *backend.Local
 	// locked 現在是不是拿著 App.Mu(Env 的 Lock/Unlock 設定):Issue 工具會上鎖,核心的角色工具不上鎖,
 	// 同一個 callCtx 的方法兩種情況都會被呼叫,要靠它知道能不能再鎖(見 tools_core.go 的 withMu)
 	locked bool
@@ -167,7 +176,7 @@ func mustServer() *coremcp.Server {
 func Register(name string, f ToolFunc) {
 	srv.Register(name, func(c *coremcp.Call) (any, error) {
 		x := c.Ctx.(*callCtx)
-		return f(&Call{App: x.App, Args: c.Args, Actor: x.Actor})
+		return f(&Call{App: x.App, Args: c.Args, Actor: x.Actor, Who: x.who, OAuth: x.oauth})
 	})
 }
 
@@ -217,6 +226,11 @@ func HasTool(name string) bool { return srv.Has(name) }
 
 // Run 執行工具(MCP 與畫面共用)。panic 會轉成錯誤,不會讓伺服器掛掉。
 func Run(a *core.App, name string, args map[string]any, actor core.Actor) (any, error) {
+	return RunAs(a, name, args, actor, nil)
+}
+
+// RunAs 同 Run,核心的寫入以網頁呼叫者 who 的身分執行(/api/tool;nil = 系統身分)
+func RunAs(a *core.App, name string, args map[string]any, actor core.Actor, who *core.Caller) (any, error) {
 	if err := rejectIdentity(name, args); err != nil {
 		return nil, err
 	}
@@ -225,5 +239,5 @@ func Run(a *core.App, name string, args map[string]any, actor core.Actor) (any, 
 			return nil, err
 		}
 	}
-	return srv.Run(name, args, &callCtx{App: a, Actor: actor})
+	return srv.Run(name, args, &callCtx{App: a, Actor: actor, who: who})
 }

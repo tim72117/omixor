@@ -211,7 +211,7 @@ var (
 	OAuthAddr = add(&Var{Name: "OMIXOR_OAUTH_ADDR", Kind: String, Group: GroupWeb, Programs: progs(Web),
 		DefaultDoc: "不啟用",
 		Doc: "對外 MCP 連接埠的監聽位址(例如 127.0.0.1:8771);設了才啟用,讓遠端 MCP 用戶端(claude.ai 等)連到這台 console。" +
-			"服務 /oauth/*、/.well-known/*、/mcp、/mcp/org/{org}、/mcp/agent、/mcp/worker/{org},認證與工具和 omixor server 相同(OAuth 登入用 evoleap 或 GitLab,也收 omx_ 使用者 token;沒有 console 自己的工具)," +
+			"服務 /oauth/*、/.well-known/*、/mcp、/mcp/org/{org}、/mcp/agent、/mcp/worker/{org},認證與核心工具和 omixor server 相同(OAuth 登入用 evoleap 或 GitLab,也收 omx_ 使用者 token;console 專有工具只在 /mcp 給 OAuth 連線,見 console/README.md)," +
 			"反向代理或 Tailscale Funnel 只轉發這個連接埠。" +
 			"需要 PostgreSQL(OMIXOR_DATABASE_URL)、非遠端模式、OMIXOR_PUBLIC_URL(https),evoleap 要登記回呼網址 <OMIXOR_PUBLIC_URL>/oauth/evoleap/callback"})
 	WebPort = add(&Var{Name: "OMIXOR_WEB_PORT", Legacy: []string{"OPS_WEB_PORT"}, Kind: Int, Default: "5191", Range: portRange, Group: GroupWeb, Programs: progs(Web),

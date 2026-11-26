@@ -15,10 +15,12 @@ type AssistResponder struct {
 	a       *App
 	section string
 	now     time.Time
+	// focus 畫面正在看的項目 id(呼叫者的導覽狀態)
+	focus string
 }
 
 func NewAssistResponder(a *App, section string) AssistResponder {
-	return AssistResponder{a: a, section: section, now: time.Now()}
+	return AssistResponder{a: a, section: section, now: time.Now(), focus: a.Nav.FocusID}
 }
 
 func (r AssistResponder) c(name string) []asstObj { return r.a.C[name] }
@@ -140,7 +142,7 @@ func (r AssistResponder) mentionedService(q string) asstObj {
 
 // FocusLabel 目前畫面正在看的項目名稱(給情境標籤用);沒有回傳 nil
 func (r AssistResponder) FocusLabel() *string {
-	f := r.a.Nav.FocusID
+	f := r.focus
 	if f == "" {
 		return nil
 	}

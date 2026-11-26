@@ -70,7 +70,7 @@ func (s GitLabSettings) Clone() GitLabSettings {
 }
 
 // NormalizeGitHubRepo owner/name;也接受 https://github.com/owner/name(.git)、git@github.com:owner/name.git
-// (同 App 的 GitHub.normalizeRepo、web 的 GHNormalizeRepo)
+// (同 App 的 GitHub.normalizeRepo;console 直接呼叫這裡)
 func NormalizeGitHubRepo(s string) (string, bool) {
 	t := strings.TrimSpace(s)
 	for _, p := range []string{"https://github.com/", "http://github.com/", "github.com/", "git@github.com:"} {
@@ -115,7 +115,7 @@ func NormalizeGitLabBaseURL(s string) (string, bool) {
 var glPathSeg = regexp.MustCompile(`^[A-Za-z0-9_.\-]+$`)
 
 // NormalizeGitLabProject 專案:數字 id、group/subgroup/project,或專案網址(https://gitlab…/group/project、git@…:group/project.git)
-// (同 web 的 GLNormalizeProject)
+// (console 直接呼叫這裡)
 func NormalizeGitLabProject(s, baseURL string) (string, bool) {
 	t := strings.TrimSpace(s)
 	if t == "" {

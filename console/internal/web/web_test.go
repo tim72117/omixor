@@ -76,7 +76,9 @@ func ldapCfg(f *authtest.Fake) auth.Config {
 	return auth.Config{Mode: "ldap", LDAP: auth.LDAP{
 		URL: "ldap://" + f.Addr, BindDN: authtest.SvcDN, BaseDN: authtest.Base,
 		RequiredGroup: authtest.UsersDN,
-	}, Admins: []string{"alice"}}
+	}, Admins: []string{"alice"},
+		EmailDomain: "corp.example", // bob 的目錄資料沒有 mail;沒有 email 的帳號對不上核心使用者、不能登入
+	}
 }
 
 func TestLocalModeNeedsNoLogin(t *testing.T) {
@@ -152,6 +154,7 @@ func TestLDAPLoginFlowAndAttribution(t *testing.T) {
 	if out["error"] != "帳號或密碼錯誤" {
 		t.Fatal(out)
 	}
+	joinOrg(t, app, au, "bob") // 不是任何組織成員的人不能登入
 	_, out = c.do("POST", "/api/auth/login", map[string]any{"username": "bob", "password": "bob-pw"}, nil)
 	if out["error"] != nil {
 		t.Fatal(out)

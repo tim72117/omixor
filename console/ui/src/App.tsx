@@ -10,12 +10,14 @@ import { IconButton } from "./components/IconButton";
 import { Dropdown, MenuList } from "./components/Menu";
 import { Segmented } from "./components/Segmented";
 import { color } from "./lib/color";
-import { clearFocus, go, goBack, guardedNavigate, useNavSync } from "./lib/nav";
+import { switchOrg, useOutsideSystemOrg, usePinSelectedOrg } from "./lib/switchOrg";
+import { clearFocus, go, goBack, guardedNavigate, routeStore, useNavSync } from "./lib/nav";
 import { DirectoryProvider } from "./lib/directory";
 import { useFeatures, useFeaturesError, useFeaturesSync, useLocalNotice, useTimedNotice } from "./features";
 import { openOffice, useOfficeAvailable } from "./officeLink";
 import { SECTION_VIEWS } from "./sections";
-import { SECTIONS, type Nav, type SectionId } from "./types";
+import { ORG_SECTIONS, SECTIONS, type Nav, type SectionId } from "./types";
+import type { OrgIndex } from "./models";
 import { StatusDot } from "./components/StatusDot";
 
 /** 只有這些區塊會讀工具列的環境(正式、預備、開發);其他區塊(Issue、文件櫃、自動化…)的資料屬於組織,和環境無關,不顯示切換 */
@@ -23,7 +25,6 @@ const ENV_SECTIONS: SectionId[] = ["overview", "pipelines", "infrastructure"];
 /** 只有這些區塊會讀工具列的時間範圍 */
 const RANGE_SECTIONS: SectionId[] = ["overview", "infrastructure", "monitoring"];
 
-type OrgIndex = { current: string; orgs: { id: string; name: string; symbol: string; color: string; note: string }[] };
 
 /** 側邊欄徽章:各功能可以登記 view「badges」回傳 {section: 數字} */
 function useBadges(): Record<string, number> {
@@ -40,12 +41,18 @@ export function App() {
   const { route, canGoBack } = useNavSync(nav);
   // 系統設定關掉的頁面不顯示(useNavSync 會把網址換成總覽;這裡先照總覽畫,不閃一下)
   const asked = (route?.section ?? "overview") as SectionId;
-  const section: SectionId = SECTION_VIEWS[asked] && flags.visible(asked) ? asked : "overview";
+  const outside = useOutsideSystemOrg();
+  const available = (id: SectionId) => flags.visible(id) && (!outside || ORG_SECTIONS.includes(id));
+  const wanted: SectionId = SECTION_VIEWS[asked] && flags.visible(asked) ? asked : "overview";
+  // 這個組織用不了的頁面(例如總覽):改到能用的頁面,網址一起換
+  const section: SectionId = available(wanted) ? wanted : (ORG_SECTIONS.find(available) ?? "settings");
+  const unavailable = outside && !!route && !ORG_SECTIONS.includes(asked);
+  useEffect(() => { if (unavailable) routeStore.redirect(section); }, [unavailable, section]);
   const View = SECTION_VIEWS[section];
   const [showAssistantPref, setShowAssistant] = useAssistantVisible();
   // AI 助理是實驗功能(系統設定的 assistant):關掉時面板、右上角按鈕與 ⌘J 都不提供
   const assistantOn = flags.enabled("assistant");
-  const showAssistant = assistantOn && showAssistantPref;
+  const showAssistant = assistantOn && !outside && showAssistantPref; // 助理還沒分組織
   const [palette, setPalette] = useState(false);
   const officeOn = useOfficeAvailable();
 
@@ -70,7 +77,7 @@ export function App() {
           <div key={g} className="side-group">
             {g === "main" && <div className="side-label">維運</div>}
             {g === "auto" && <div className="side-label">自動化</div>}
-            {SECTIONS.filter((s) => s.group === g && flags.visible(s.id)).map((s) => (
+            {SECTIONS.filter((s) => s.group === g && available(s.id)).map((s) => (
               <button key={s.id} className={"side-item" + (s.id === section ? " on" : "")} onClick={() => go(s.id)}>
                 <Icon name={s.icon} size={15} />
                 <span>{s.title}</span>
@@ -101,7 +108,7 @@ export function App() {
           <div className={"row gap4 " + s.toolbarRight}>
             <button className="btn link" title="搜尋頁面、服務、伺服器、事件(⌘K)" onClick={() => setPalette(true)}><Icon name="magnifyingglass" size={14} /></button>
             {officeOn && <button className="btn link" title="3D 辦公室(新分頁)" onClick={openOffice}><Icon name="building.2" size={14} /></button>}
-            {assistantOn && <button className="btn link" title={showAssistant ? "隱藏 AI 助理(⌘J)" : "顯示 AI 助理(⌘J)"} onClick={() => setShowAssistant(!showAssistant)}>
+            {assistantOn && !outside && <button className="btn link" title={showAssistant ? "隱藏 AI 助理(⌘J)" : "顯示 AI 助理(⌘J)"} onClick={() => setShowAssistant(!showAssistant)}>
               <Icon name={showAssistant ? "sidebar.trailing" : "sparkles"} size={14} />
             </button>}
           </div>
@@ -162,6 +169,7 @@ function OrgSwitcher() {
   const [idx] = useView<OrgIndex>("orgs");
   const [open, setOpen] = useState(false);
   const cur = idx?.orgs.find((o) => o.id === idx.current);
+  usePinSelectedOrg(idx);
   return (
     <div className="org-switcher">
       <button className="org-current" onClick={() => setOpen(!open)}>
@@ -174,7 +182,7 @@ function OrgSwitcher() {
           <MenuList checkColumn={false} close={() => setOpen(false)} items={[
             ...(idx?.orgs ?? []).map((o) => ({
               label: <><Icon name={o.symbol} size={14} color={color(o.color)} /> {o.name} {o.id === idx?.current && <span className="muted">✓</span>}</>,
-              onClick: () => { if (o.id !== idx?.current) action("org_switch", { id: o.id }); },
+              onClick: () => { if (o.id !== idx?.current) void switchOrg(o.id, idx?.perUser); },
             })),
             "sep",
             { label: <><Icon name="gearshape" size={14} /> 管理組織…</>, onClick: () => go("settings", "orgs") },

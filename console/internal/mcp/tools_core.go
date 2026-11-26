@@ -64,7 +64,7 @@ func (x *callCtx) withMu(f func()) {
 	f()
 }
 
-func (x *callCtx) Backend() backend.Backend { return appBackend{a: x.App} }
+func (x *callCtx) Backend() backend.Backend { return appBackend{a: x.App, who: x.who} }
 func (x *callCtx) Org() (org string) {
 	x.withMu(func() { org = x.App.CurrentOrgID() })
 	return
@@ -114,11 +114,16 @@ var _ coremcp.AgentEnv = (*callCtx)(nil)
 type appBackend struct {
 	backend.Unsupported
 	a *core.App
+	// who 網頁 /api/tool 的呼叫者;nil = 系統身分(MCP 3765、角色與執行者端點)
+	who *core.Caller
 }
+
+// agentOps 角色、任務、組織鏈、頻道的操作(寫入與頻道用呼叫者身分)
+func (b appBackend) agentOps() core.AgentOps { return b.a.AgentOpsFor(b.who) }
 
 func (b appBackend) ListOrgs() ([]model.Org, error) {
 	out := []model.Org{}
-	for _, o := range b.a.Orgs().Orgs {
+	for _, o := range b.a.VisibleOrgs(b.who).Orgs { // 網頁的非管理員只看得到自己的組織
 		out = append(out, model.Org{ID: o.ID, Name: o.Name, Note: o.Note})
 	}
 	return out, nil
@@ -140,8 +145,10 @@ func (b appBackend) GetIssue(_, id string) (*model.Issue, error) {
 }
 
 func (b appBackend) CreateIssue(_ string, in service.IssueInput) (*model.Issue, error) {
-	issue := b.a.CreateIssueIn(in) // in.Project:放進的專案(空 = 組織層級);專案不存在或沒有代號時核心回錯,原因在 IssueRemoteErr
-	if issue.ID == "" {            // Issue 伺服器連不上,或核心拒絕(專案不存在、沒有代號…)
+	var issue model.Issue
+	// in.Project:放進的專案(空 = 組織層級);專案不存在或沒有代號時核心回錯,原因在 IssueRemoteErr
+	b.a.AsCaller(b.who, func() { issue = b.a.CreateIssueIn(in) })
+	if issue.ID == "" { // Issue 伺服器連不上,或核心拒絕(專案不存在、沒有代號…)
 		if e := b.a.IssueRemoteErr(); e != nil {
 			return nil, e // 原型別帶回去(*service.Error 的狀態碼與 Data)
 		}
@@ -151,7 +158,12 @@ func (b appBackend) CreateIssue(_ string, in service.IssueInput) (*model.Issue, 
 	return &c, nil
 }
 
-func (b appBackend) UpdateIssue(_, id string, p service.IssuePatch) (*model.Issue, error) {
+func (b appBackend) UpdateIssue(_, id string, p service.IssuePatch) (out *model.Issue, err error) {
+	b.a.AsCaller(b.who, func() { out, err = b.updateIssue(id, p) })
+	return
+}
+
+func (b appBackend) updateIssue(id string, p service.IssuePatch) (*model.Issue, error) {
 	a := b.a
 	appendBody := ""
 	if p.AppendBody != nil {
@@ -216,7 +228,9 @@ func (appBackend) SupportsIssueAppendBody() bool { return true }
 
 // AddIssueComment 新增一則留言:App.AddIssueComment 走核心的只附加路徑(本機 service、遠端 POST …/comments)
 func (b appBackend) AddIssueComment(_, id, text, author string) (*model.Issue, error) {
-	i, err := b.a.AddIssueComment(id, text, author)
+	var i *model.Issue
+	var err error
+	b.a.AsCaller(b.who, func() { i, err = b.a.AddIssueComment(id, text, author) })
 	if err != nil {
 		return nil, err
 	}
@@ -248,100 +262,100 @@ func copyIssues(l []model.Issue) []model.Issue {
 // ---- 角色與任務:交給 App.AgentOps ----
 
 func (b appBackend) ListAgents(org string) ([]model.Agent, error) {
-	return b.a.AgentOps().ListAgents(org)
+	return b.agentOps().ListAgents(org)
 }
 func (b appBackend) GetAgent(org, id string) (*model.Agent, error) {
-	return b.a.AgentOps().GetAgent(org, id)
+	return b.agentOps().GetAgent(org, id)
 }
 func (b appBackend) SaveAgent(org string, in model.Agent) (*model.Agent, error) {
-	return b.a.AgentOps().SaveAgent(org, in)
+	return b.agentOps().SaveAgent(org, in)
 }
-func (b appBackend) DeleteAgent(org, id string) error { return b.a.AgentOps().DeleteAgent(org, id) }
+func (b appBackend) DeleteAgent(org, id string) error { return b.agentOps().DeleteAgent(org, id) }
 func (b appBackend) DeleteAgentTo(org, id, transferTo string) error {
-	return b.a.AgentOps().DeleteAgentTo(org, id, transferTo)
+	return b.agentOps().DeleteAgentTo(org, id, transferTo)
 }
 func (b appBackend) TransferAgentTasks(org string, in service.AgentTransferInput) (*service.AgentTransferResult, error) {
-	return b.a.AgentOps().TransferAgentTasks(org, in)
+	return b.agentOps().TransferAgentTasks(org, in)
 }
 func (b appBackend) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {
-	return b.a.AgentOps().ListAgentTasks(org, f)
+	return b.agentOps().ListAgentTasks(org, f)
 }
 func (b appBackend) GetAgentTask(org, id string) (*model.AgentTask, error) {
-	return b.a.AgentOps().GetAgentTask(org, id)
+	return b.agentOps().GetAgentTask(org, id)
 }
 func (b appBackend) AssignTask(org string, in service.TaskInput) (*model.AgentTask, error) {
-	return b.a.AgentOps().AssignTask(org, in)
+	return b.agentOps().AssignTask(org, in)
 }
 func (b appBackend) ClaimTask(org string, in service.ClaimInput) (*service.ClaimResult, error) {
-	return b.a.AgentOps().ClaimTask(org, in)
+	return b.agentOps().ClaimTask(org, in)
 }
 func (b appBackend) ClaimNext(org, agentID string) (*service.ClaimResult, error) {
-	return b.a.AgentOps().ClaimNext(org, agentID)
+	return b.agentOps().ClaimNext(org, agentID)
 }
 func (b appBackend) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
-	return b.a.AgentOps().ReleaseTask(org, id, reason)
+	return b.agentOps().ReleaseTask(org, id, reason)
 }
-func (b appBackend) Whoami() string { return b.a.AgentOps().Whoami() }
+func (b appBackend) Whoami() string { return b.agentOps().Whoami() }
 func (b appBackend) ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error) {
-	return b.a.AgentOps().ReportTask(org, id, in)
+	return b.agentOps().ReportTask(org, id, in)
 }
 func (b appBackend) WorkerReport(org, id, code string, in service.TaskReport) (*model.AgentTask, error) {
-	return b.a.AgentOps().WorkerReport(org, id, code, in)
+	return b.agentOps().WorkerReport(org, id, code, in)
 }
 func (b appBackend) WorkerComment(org, taskID, code, issueID, comment string) (*model.Issue, error) {
-	return b.a.AgentOps().WorkerComment(org, taskID, code, issueID, comment)
+	return b.agentOps().WorkerComment(org, taskID, code, issueID, comment)
 }
 func (b appBackend) CancelTask(org, id string) (*model.AgentTask, error) {
-	return b.a.AgentOps().CancelTask(org, id)
+	return b.agentOps().CancelTask(org, id)
 }
 func (b appBackend) RequeueTask(org, id string) (*model.AgentTask, error) {
-	return b.a.AgentOps().RequeueTask(org, id)
+	return b.agentOps().RequeueTask(org, id)
 }
 func (b appBackend) RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error) {
-	return b.a.AgentOps().RunRoutine(org, agentID, routineID, author)
+	return b.agentOps().RunRoutine(org, agentID, routineID, author)
 }
 
 // ---- 組織鏈:交給 App.AgentOps ----
 
 func (b appBackend) GetChain(org string) (*model.OrgChain, error) {
-	return b.a.AgentOps().GetChain(org)
+	return b.agentOps().GetChain(org)
 }
 func (b appBackend) SaveChain(org string, edges []model.ChainEdge) (*model.OrgChain, error) {
-	return b.a.AgentOps().SaveChain(org, edges)
+	return b.agentOps().SaveChain(org, edges)
 }
 func (b appBackend) DelegateTask(org string, in service.DelegateInput) (*model.AgentTask, error) {
-	return b.a.AgentOps().DelegateTask(org, in)
+	return b.agentOps().DelegateTask(org, in)
 }
 func (b appBackend) WorkerDelegate(org, taskID, code string, in service.DelegateInput) (*model.AgentTask, error) {
-	return b.a.AgentOps().WorkerDelegate(org, taskID, code, in)
+	return b.agentOps().WorkerDelegate(org, taskID, code, in)
 }
 
 // ---- 訊息頻道:交給 App.AgentOps ----
 
 func (b appBackend) ListChannels(org string, f service.ChannelFilter) ([]model.ChannelSummary, error) {
-	return b.a.AgentOps().ListChannels(org, f)
+	return b.agentOps().ListChannels(org, f)
 }
 func (b appBackend) GetChannel(org, id, as string) (*model.ChannelSummary, error) {
-	return b.a.AgentOps().GetChannel(org, id, as)
+	return b.agentOps().GetChannel(org, id, as)
 }
 func (b appBackend) CreateChannel(org string, in service.ChannelInput) (*model.ChannelSummary, error) {
-	return b.a.AgentOps().CreateChannel(org, in)
+	return b.agentOps().CreateChannel(org, in)
 }
 func (b appBackend) UpdateChannel(org, id string, in service.ChannelPatch) (*model.ChannelSummary, error) {
-	return b.a.AgentOps().UpdateChannel(org, id, in)
+	return b.agentOps().UpdateChannel(org, id, in)
 }
 func (b appBackend) ChangeChannelMembers(org, id string, in service.ChannelMembersInput) (*model.ChannelSummary, error) {
-	return b.a.AgentOps().ChangeChannelMembers(org, id, in)
+	return b.agentOps().ChangeChannelMembers(org, id, in)
 }
 func (b appBackend) ListChannelMessages(org, id string, in service.MessageListInput) (*service.MessagePage, error) {
-	return b.a.AgentOps().ListChannelMessages(org, id, in)
+	return b.agentOps().ListChannelMessages(org, id, in)
 }
 func (b appBackend) PostChannelMessage(org, id string, in service.PostInput) (*model.ChannelMessage, error) {
-	return b.a.AgentOps().PostChannelMessage(org, id, in)
+	return b.agentOps().PostChannelMessage(org, id, in)
 }
 func (b appBackend) MarkChannelRead(org, id string, in service.ReadInput) (*model.ChannelRead, error) {
-	return b.a.AgentOps().MarkChannelRead(org, id, in)
+	return b.agentOps().MarkChannelRead(org, id, in)
 }
 func (b appBackend) ChannelInbox(org, who string) (*service.ChannelInbox, error) {
-	return b.a.AgentOps().ChannelInbox(org, who)
+	return b.agentOps().ChannelInbox(org, who)
 }

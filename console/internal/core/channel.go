@@ -3,7 +3,7 @@ package core
 import (
 	"fmt"
 	"strings"
-	"sync/atomic"
+	"sync"
 
 	"omixor-core/model"
 	"omixor-core/service"
@@ -29,18 +29,42 @@ type ChannelsView struct {
 	Error    string                 `json:"error,omitempty"`
 }
 
-// channelUnread 最近一次讀到的未讀總數(側邊欄徽章用,不在拿著 Mu 時打網路)
-var channelUnread atomic.Int64
+// channelUnread 最近一次讀到的未讀總數(側邊欄徽章用,不在拿著 Mu 時打網路)。鍵是組織與呼叫者的 LDAP 帳號
+// (空字串 = 系統身分):未讀數因組織、因人而異,不能共用一份
+var channelUnread sync.Map // channelUnreadKey → int
+
+type channelUnreadKey struct {
+	a            *App
+	org, account string
+}
+
+// channelFilterAll 不篩選
+var channelFilterAll service.ChannelFilter
+
+// unreadOf 目前組織裡這個帳號的未讀數(拿著 Mu 呼叫)
+func (a *App) unreadOf(account string) int {
+	n, _ := channelUnread.Load(channelUnreadKey{a.root(), a.CurrentOrgID(), account})
+	v, _ := n.(int)
+	return v
+}
+
+// unreadAccount 呼叫者的未讀數記在哪個鍵:系統身分(沒啟用登入、遠端)是空字串
+func unreadAccount(who *Caller) string {
+	if who == nil || IsRemote() {
+		return ""
+	}
+	return who.Account()
+}
 
 // channelsView 視圖(在 Mu 下執行;和組織鏈視圖一樣,遠端模式會在這裡問伺服器)
-func (a *App) channelsView() ChannelsView {
+func (a *App) channelsView(who *Caller) ChannelsView {
 	m := a.membersView()
 	v := ChannelsView{Org: m.Org, Remote: m.Remote, Members: m.Members, Error: m.Error,
 		Channels: []model.ChannelSummary{}, Agents: []model.Agent{}}
 	if v.Org == "" {
 		return v
 	}
-	b, err := agentBackend()
+	b, err := coreBackendFor(who, "", v.Org) // 頻道、已讀因人而異:用呼叫者的身分
 	if err != nil {
 		v.Error = err.Error()
 		return v
@@ -61,7 +85,8 @@ func (a *App) channelsView() ChannelsView {
 	for _, c := range v.Channels {
 		total += c.Unread
 	}
-	if channelUnread.Swap(int64(total)) != int64(total) {
+	key := channelUnreadKey{a.root(), v.Org, unreadAccount(who)}
+	if old, _ := channelUnread.Swap(key, total); old != total && !(old == nil && total == 0) {
 		go a.Changed("badges")
 	}
 	return v
@@ -71,7 +96,7 @@ func (a *App) channelsView() ChannelsView {
 func (o AgentOps) channelsChanged() { o.a.Changed("channels", "badges") }
 
 func (o AgentOps) ListChannels(org string, f service.ChannelFilter) ([]model.ChannelSummary, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +104,7 @@ func (o AgentOps) ListChannels(org string, f service.ChannelFilter) ([]model.Cha
 }
 
 func (o AgentOps) GetChannel(org, id, as string) (*model.ChannelSummary, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +113,7 @@ func (o AgentOps) GetChannel(org, id, as string) (*model.ChannelSummary, error) 
 
 // CreateChannel 建立頻道;新建的(不是綁 Issue 已有的那個)寫動態
 func (o AgentOps) CreateChannel(org string, in service.ChannelInput) (*model.ChannelSummary, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +132,7 @@ func (o AgentOps) CreateChannel(org string, in service.ChannelInput) (*model.Cha
 	if !existed[c.ID] {
 		o.channelsChanged()
 		o.a.Mu.Lock()
-		me := o.a.Me
+		me := o.who.actorOr(o.a.Me)
 		o.a.Mu.Unlock()
 		text := fmt.Sprintf("建立對話頻道「%s」(%d 位成員)", c.Name, len(c.Members))
 		if c.IssueID != "" {
@@ -117,7 +142,7 @@ func (o AgentOps) CreateChannel(org string, in service.ChannelInput) (*model.Cha
 			}
 			text = fmt.Sprintf("為 %s 建立對話頻道「%s」", ref, c.Name)
 		}
-		o.logChannel(Person(me), text)
+		o.logChannel(me, text)
 	}
 	return c, nil
 }
@@ -129,7 +154,7 @@ func (o AgentOps) logChannel(actor Actor, text string) {
 }
 
 func (o AgentOps) UpdateChannel(org, id string, in service.ChannelPatch) (*model.ChannelSummary, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +166,7 @@ func (o AgentOps) UpdateChannel(org, id string, in service.ChannelPatch) (*model
 }
 
 func (o AgentOps) ChangeChannelMembers(org, id string, in service.ChannelMembersInput) (*model.ChannelSummary, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +178,7 @@ func (o AgentOps) ChangeChannelMembers(org, id string, in service.ChannelMembers
 }
 
 func (o AgentOps) ListChannelMessages(org, id string, in service.MessageListInput) (*service.MessagePage, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +187,7 @@ func (o AgentOps) ListChannelMessages(org, id string, in service.MessageListInpu
 
 // PostChannelMessage 發訊息;提到角色時寫一筆動態(角色只收到通知,不排任務)
 func (o AgentOps) PostChannelMessage(org, id string, in service.PostInput) (*model.ChannelMessage, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +217,7 @@ func (o AgentOps) PostChannelMessage(org, id string, in service.PostInput) (*mod
 }
 
 func (o AgentOps) MarkChannelRead(org, id string, in service.ReadInput) (*model.ChannelRead, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +229,7 @@ func (o AgentOps) MarkChannelRead(org, id string, in service.ReadInput) (*model.
 }
 
 func (o AgentOps) ChannelInbox(org, who string) (*service.ChannelInbox, error) {
-	b, err := o.be()
+	b, err := o.be(org)
 	if err != nil {
 		return nil, err
 	}
@@ -212,8 +237,25 @@ func (o AgentOps) ChannelInbox(org, who string) (*service.ChannelInbox, error) {
 }
 
 func init() {
-	RegisterView("channels", func(a *App) any { return a.channelsView() })
-	OnBadge(func(a *App) map[string]int { return map[string]int{"channels": int(channelUnread.Load())} })
+	RegisterView("channels", func(a *App) any { return a.channelsView(nil) })
+	RegisterCallerView("channels", func(a *App, who *Caller) any { return a.channelsView(who) })
+	OnBadge(func(a *App) map[string]int { return map[string]int{"channels": a.unreadOf("")} })
+	// 有呼叫者:對話的徽章換成他的未讀數
+	RegisterCallerView("badges", func(a *App, who *Caller) any {
+		if a.IsScoped() {
+			return a.scopedBadges(who)
+		}
+		out := a.badges()
+		account := unreadAccount(who)
+		if account == "" {
+			return out
+		}
+		delete(out, "channels")
+		if n := a.unreadOf(account); n > 0 && a.SectionVisible("channels") {
+			out["channels"] = n
+		}
+		return out
+	})
 
 	RegisterAction("channel_create", func(a *App, args map[string]any) (any, error) {
 		var in service.ChannelInput
@@ -221,7 +263,7 @@ func init() {
 			return nil, err
 		}
 		in.As = ""
-		c, err := a.AgentOps().CreateChannel(a.currentOrgNow(), in)
+		c, err := a.AgentOpsFor(CallerOf(args)).CreateChannel(a.currentOrgNow(), in)
 		return c, agentUserErr(err)
 	})
 	RegisterAction("channel_update", func(a *App, args map[string]any) (any, error) {
@@ -233,7 +275,7 @@ func init() {
 			return nil, err
 		}
 		in.As = ""
-		c, err := a.AgentOps().UpdateChannel(a.currentOrgNow(), in.ID, in.ChannelPatch)
+		c, err := a.AgentOpsFor(CallerOf(args)).UpdateChannel(a.currentOrgNow(), in.ID, in.ChannelPatch)
 		return c, agentUserErr(err)
 	})
 	RegisterAction("channel_members", func(a *App, args map[string]any) (any, error) {
@@ -245,7 +287,7 @@ func init() {
 			return nil, err
 		}
 		in.As = ""
-		c, err := a.AgentOps().ChangeChannelMembers(a.currentOrgNow(), in.ID, in.ChannelMembersInput)
+		c, err := a.AgentOpsFor(CallerOf(args)).ChangeChannelMembers(a.currentOrgNow(), in.ID, in.ChannelMembersInput)
 		return c, agentUserErr(err)
 	})
 	RegisterAction("channel_messages", func(a *App, args map[string]any) (any, error) {
@@ -258,7 +300,7 @@ func init() {
 		if err := ReadInto(args, &in); err != nil {
 			return nil, err
 		}
-		p, err := a.AgentOps().ListChannelMessages(a.currentOrgNow(), in.ID, service.MessageListInput{Since: in.Since, Before: in.Before, Limit: in.Limit})
+		p, err := a.AgentOpsFor(CallerOf(args)).ListChannelMessages(a.currentOrgNow(), in.ID, service.MessageListInput{Since: in.Since, Before: in.Before, Limit: in.Limit})
 		return p, agentUserErr(err)
 	})
 	RegisterAction("channel_post", func(a *App, args map[string]any) (any, error) {
@@ -269,7 +311,7 @@ func init() {
 		if err := ReadInto(args, &in); err != nil {
 			return nil, err
 		}
-		m, err := a.AgentOps().PostChannelMessage(a.currentOrgNow(), in.ID, service.PostInput{Text: in.Text})
+		m, err := a.AgentOpsFor(CallerOf(args)).PostChannelMessage(a.currentOrgNow(), in.ID, service.PostInput{Text: in.Text})
 		return m, agentUserErr(err)
 	})
 	RegisterAction("channel_read", func(a *App, args map[string]any) (any, error) {
@@ -280,7 +322,7 @@ func init() {
 		if err := ReadInto(args, &in); err != nil {
 			return nil, err
 		}
-		r, err := a.AgentOps().MarkChannelRead(a.currentOrgNow(), in.ID, service.ReadInput{UpTo: in.UpTo})
+		r, err := a.AgentOpsFor(CallerOf(args)).MarkChannelRead(a.currentOrgNow(), in.ID, service.ReadInput{UpTo: in.UpTo})
 		return r, agentUserErr(err)
 	})
 }

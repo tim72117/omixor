@@ -207,7 +207,7 @@ func (r *oauthRig) call(access, tool string, args map[string]any) (isErr bool, t
 	return isErr, string(b)
 }
 
-// 授權 → /mcp:唯讀授權只看到核心的唯讀白名單;讀寫授權多出協作寫入;console 的工具(gcp、fb_…)兩者都沒有
+// 授權 → /mcp:唯讀授權只看到核心的唯讀白名單;讀寫授權多出協作寫入;console 的專有工具照自己的分級(細節見 oauth_tools_test.go)
 func TestConsoleOAuthToolsFollowGrant(t *testing.T) {
 	r := newOAuthRig(t)
 	read := r.toolNames(r.connect("ev-boss", "boss@x", "mcp:read", "read"))
@@ -215,23 +215,22 @@ func TestConsoleOAuthToolsFollowGrant(t *testing.T) {
 		t.Fatal("tools/list 空的")
 	}
 	for n := range read {
-		if !coremcp.ReadOnlyTools[n] {
+		if !coremcp.ReadOnlyTools[n] && oauthConsoleTools[n] != ruleRead {
 			t.Errorf("唯讀授權不該有 %s", n)
 		}
 	}
 	write := r.toolNames(r.connect("ev-boss", "boss@x", "mcp:read mcp:write", "write"))
 	for n := range write {
-		if !coremcp.ReadOnlyTools[n] && !coremcp.OAuthWriteTools[n] {
+		rule, own := oauthConsoleTools[n]
+		if !coremcp.ReadOnlyTools[n] && !coremcp.OAuthWriteTools[n] && !(own && rule.Tier <= coremcp.TierWrite) {
 			t.Errorf("讀寫授權不該有 %s", n)
 		}
 	}
 	if !write["issue_create"] || read["issue_create"] {
 		t.Fatal("issue_create 只有讀寫授權才有")
 	}
-	for _, n := range []string{"gcp", "gcp_logs", "github", "fb_pages", "voice_submit", "server", "overview", "list"} {
-		if read[n] || write[n] {
-			t.Errorf("console 的工具 %s 不該出現在對外 MCP 連接埠", n)
-		}
+	if read["voice_submit"] || write["voice_submit"] {
+		t.Error("voice_submit 不開放給 OAuth")
 	}
 }
 

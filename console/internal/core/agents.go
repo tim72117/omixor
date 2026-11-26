@@ -72,18 +72,23 @@ func AgentService() *service.Service {
 }
 
 // RoleCallFinished 角色端點(/mcp/agent)或對外 MCP 連接埠處理完一個會寫入的請求:核心可能多了 Issue、留言、任務狀態、文件,
-// 重讀「目前組織」的 Issue 清單、角色資料與文件櫃並通知畫面(畫面只快取目前組織;寫到別的組織的,切換過去時才讀,所以不需要重讀)。不要拿著 Mu
+// 重讀「目前組織」(系統工作組織)的快取,並通知全部組織層的主題:寫入可能在別的組織,看著那個組織的畫面
+// (啟用 LDAP 時每人各選)要靠通知重讀。不要拿著 Mu
 func (a *App) RoleCallFinished() {
+	a.InvalidateScoped()
 	a.Mu.Lock()
 	a.RefreshIssuesIfStale(0)
 	a.changedIssues()
 	org := a.CurrentOrgID()
 	a.Mu.Unlock()
 	a.AgentsChanged()
-	if org != "" && a.cabinetRefresh(org) {
-		a.Changed("cabinet")
+	if org != "" {
+		a.cabinetRefresh(org)
+		if a.IncidentsRefresh(org) {
+			a.Changed("alerts")
+		}
 	}
-	a.Changed("channels", "badges") // 角色可能發了頻道訊息、標了已讀
+	a.Changed("cabinet", "incidents", "chain", "members", "channels", "badges") // 角色可能發了頻道訊息、標了已讀
 }
 
 // ---- 快取 ----
@@ -278,322 +283,6 @@ func (a *App) TaskAuthorName(author string) string {
 	return a.Name(Person(author))
 }
 
-// ---- 寫:交給核心,成功後更新快取、寫動態、通知畫面 ----
-
-// AgentOps 角色與任務的寫入(實作 backend.Backend 的角色部分)。呼叫時不要拿著 Mu。
-// 讀取(ListAgents 等)直接問核心,不用快取。
-type AgentOps struct{ a *App }
-
-func (a *App) AgentOps() AgentOps { return AgentOps{a} }
-
-func (o AgentOps) be() (backend.Backend, error) { return agentBackend() }
-
-// done 寫入成功後:快取換成核心最新的、通知畫面
-func (o AgentOps) done(org string) {
-	o.a.agentRefresh(org)
-	o.a.Changed("agents")
-}
-
-func (o AgentOps) logf(actor Actor, icon, text string) {
-	o.a.Mu.Lock()
-	o.a.Log(actor, icon, text, "automation")
-	o.a.Mu.Unlock()
-}
-
-func (o AgentOps) agentName(org, id string) string {
-	if g := o.a.FindAgentIn(org, id); g != nil {
-		return g.Name
-	}
-	return id
-}
-
-func (o AgentOps) ListAgents(org string) ([]model.Agent, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	return b.ListAgents(org)
-}
-
-func (o AgentOps) GetAgent(org, id string) (*model.Agent, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	return b.GetAgent(org, id)
-}
-
-func (o AgentOps) SaveAgent(org string, in model.Agent) (*model.Agent, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	g, err := b.SaveAgent(org, in)
-	if err == nil {
-		o.done(org)
-	}
-	return g, err
-}
-
-func (o AgentOps) DeleteAgent(org, id string) error { return o.DeleteAgentTo(org, id, "") }
-
-// DeleteAgentTo 刪角色;名下有任務時 transferTo 空 = 409(核心的 *service.Error,Data 有各狀態的任務數),不空 = 先轉給它再刪
-func (o AgentOps) DeleteAgentTo(org, id, transferTo string) error {
-	b, err := o.be()
-	if err != nil {
-		return err
-	}
-	if err = b.DeleteAgentTo(org, id, transferTo); err == nil {
-		o.done(org)
-	}
-	return err
-}
-
-// TransferAgentTasks 不刪角色的單獨轉移(scope:all 全部 | open 只轉待領取與需要協助,空 = open)
-func (o AgentOps) TransferAgentTasks(org string, in service.AgentTransferInput) (*service.AgentTransferResult, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	res, err := b.TransferAgentTasks(org, in)
-	if err == nil {
-		o.done(org)
-	}
-	return res, err
-}
-
-func (o AgentOps) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	return b.ListAgentTasks(org, f)
-}
-
-func (o AgentOps) GetAgentTask(org, id string) (*model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	return b.GetAgentTask(org, id)
-}
-
-func (o AgentOps) AssignTask(org string, in service.TaskInput) (*model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	t, err := b.AssignTask(org, in)
-	if err != nil {
-		return nil, err
-	}
-	o.done(org)
-	o.logAssigned(org, *t)
-	return t, nil
-}
-
-func (o AgentOps) logAssigned(org string, t model.AgentTask) {
-	who := SystemActor
-	if t.CreatedBy != RoutineAuthor {
-		who = AuthorActor(t.CreatedBy)
-	}
-	o.logf(who, "person.badge.clock", "指派 "+t.ID+"「"+t.Title+"」給"+o.agentName(org, t.AgentID))
-}
-
-func (o AgentOps) ClaimTask(org string, in service.ClaimInput) (*service.ClaimResult, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	was := ""
-	if in.TaskID != "" {
-		if t, err := b.GetAgentTask(org, in.TaskID); err == nil {
-			was = t.Status
-		}
-	}
-	res, err := b.ClaimTask(org, in)
-	if err != nil {
-		return nil, err
-	}
-	if res.Task != nil {
-		o.done(org)
-		if was != "inProgress" && res.Agent != nil {
-			o.logf(AI(res.Agent.ID), "figure.walk", res.Agent.Name+"開始處理 "+res.Task.ID+"「"+res.Task.Title+"」")
-		}
-	}
-	return res, nil
-}
-
-// ClaimNext 從全部啟用中角色的待領取任務挑最優先的一筆領走(agentID 非空限定角色)
-func (o AgentOps) ClaimNext(org, agentID string) (*service.ClaimResult, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	res, err := b.ClaimNext(org, agentID)
-	if err != nil {
-		return nil, err
-	}
-	if res.Task != nil {
-		o.done(org)
-		if res.Agent != nil {
-			o.logf(AI(res.Agent.ID), "figure.walk", res.Agent.Name+"開始處理 "+res.Task.ID+"「"+res.Task.Title+"」")
-		}
-	}
-	return res, nil
-}
-
-// ReleaseTask 放棄領取:退回待領取
-func (o AgentOps) ReleaseTask(org, id, reason string) (*model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	t, err := b.ReleaseTask(org, id, reason)
-	if err != nil {
-		return nil, err
-	}
-	o.done(org)
-	o.logf(AI(t.AgentID), "arrow.uturn.backward", "放棄領取 "+t.ID+"「"+t.Title+"」,退回待領取")
-	return t, nil
-}
-
-// Whoami 呼叫者的署名(同領取任務寫進 ClaimedBy 的值);本機是 omixor-console,遠端是雲端帳號的 email
-func (o AgentOps) Whoami() string {
-	b, err := o.be()
-	if err != nil {
-		return ""
-	}
-	return b.Whoami()
-}
-
-func (o AgentOps) ReportTask(org, id string, in service.TaskReport) (*model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	was := ""
-	if t, err := b.GetAgentTask(org, id); err == nil {
-		was = t.Status
-	}
-	t, err := b.ReportTask(org, id, in)
-	if err != nil {
-		return nil, err
-	}
-	o.done(org)
-	if in.Status != nil && *in.Status != was {
-		name := o.agentName(org, t.AgentID)
-		switch *in.Status {
-		case "done":
-			o.logf(AI(t.AgentID), "checkmark.circle", name+"完成 "+t.ID+"「"+t.Title+"」")
-		case "blocked":
-			o.logf(AI(t.AgentID), "hand.raised", name+"在 "+t.ID+"「"+t.Title+"」需要協助")
-		}
-	}
-	return t, nil
-}
-
-// WorkerReport 領取者(本機是 omixor-console,遠端是雲端帳號)以角色身分回報自己領取的任務(/mcp/worker 的 dispatch_report)
-func (o AgentOps) WorkerReport(org, id, code string, in service.TaskReport) (*model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	t, err := b.WorkerReport(org, id, code, in)
-	if err != nil {
-		return nil, err
-	}
-	o.done(org)
-	if in.Status != nil {
-		name := o.agentName(org, t.AgentID)
-		switch *in.Status {
-		case "done":
-			o.logf(AI(t.AgentID), "checkmark.circle", name+"完成 "+t.ID+"「"+t.Title+"」")
-		case "blocked":
-			o.logf(AI(t.AgentID), "hand.raised", name+"在 "+t.ID+"「"+t.Title+"」需要協助")
-		}
-	}
-	return t, nil
-}
-
-// WorkerComment 領取者以角色身分在 Issue 留言(/mcp/worker 的 dispatch_comment);寫完重讀 Issue 給畫面
-func (o AgentOps) WorkerComment(org, taskID, code, issueID, comment string) (*model.Issue, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	i, err := b.WorkerComment(org, taskID, code, issueID, comment)
-	if err != nil {
-		return nil, err
-	}
-	o.a.Mu.Lock()
-	o.a.ReloadIssues()
-	o.a.Mu.Unlock()
-	go o.a.Changed("issues")
-	return i, nil
-}
-
-func (o AgentOps) CancelTask(org, id string) (*model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	t, err := b.CancelTask(org, id)
-	if err == nil {
-		o.done(org)
-	}
-	return t, err
-}
-
-func (o AgentOps) RequeueTask(org, id string) (*model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	t, err := b.RequeueTask(org, id)
-	if err == nil {
-		o.done(org)
-	}
-	return t, err
-}
-
-func (o AgentOps) ReplyTask(org, id, text string) (*model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	t, err := b.ReplyTask(org, id, text)
-	if err == nil {
-		o.done(org)
-	}
-	return t, err
-}
-
-func (o AgentOps) RunRoutine(org, agentID, routineID, author string) (*model.AgentTask, error) {
-	b, err := o.be()
-	if err != nil {
-		return nil, err
-	}
-	t, err := b.RunRoutine(org, agentID, routineID, author)
-	if err != nil {
-		return nil, err
-	}
-	o.done(org)
-	o.logAssigned(org, *t)
-	return t, nil
-}
-
-// AgentsChanged 核心的角色資料被別的路徑改過(角色端點、Issue 指派、例行任務排程):重讀目前組織並通知畫面。不要拿著 Mu
-func (a *App) AgentsChanged() {
-	a.Mu.Lock()
-	org := a.CurrentOrgID()
-	a.Mu.Unlock()
-	if org != "" {
-		a.agentRefresh(org)
-	}
-	a.Changed("agents")
-}
-
 // ---- 預設值 ----
 
 // 同 Swift 版的新角色預設值
@@ -632,11 +321,11 @@ func init() {
 		if template != "copyCurrent" || IsRemote() {
 			return
 		}
-		be, err := agentBackend()
+		newOrg := filepath.Base(dir)
+		be, err := coreBackendFor(a.caller, "", newOrg) // 建立組織的人(拿著 Mu,見 AsCaller)
 		if err != nil {
 			return
 		}
-		newOrg := filepath.Base(dir)
 		for _, g := range a.Agents() {
 			g = g.Clone()
 			for i := range g.Routines {
@@ -661,13 +350,7 @@ func init() {
 		if !a.FeatureOn("automation.agents") && !a.FeatureOn("automation.dispatch") {
 			return nil
 		}
-		n := 0
-		for _, t := range a.AgentTasks() {
-			if t.Status == "blocked" {
-				n++
-			}
-		}
-		return map[string]int{"automation": n}
+		return map[string]int{"automation": blockedTasks(a)}
 	})
 	OnStart(func(a *App) {
 		if config.Current().Bool(config.NoTimers) {
@@ -716,7 +399,7 @@ func init() {
 		if c := strings.TrimSpace(g.Color); c != "" && !iaOneOf(c, AgentColors) {
 			return nil, UserError{"color 必須是 " + strings.Join(AgentColors, "、") + " 之一"}
 		}
-		saved, err := a.AgentOps().SaveAgent(a.currentOrgNow(), g)
+		saved, err := a.AgentOpsFor(CallerOf(args)).SaveAgent(a.currentOrgNow(), g)
 		if err != nil {
 			return nil, agentUserErr(err)
 		}
@@ -725,32 +408,32 @@ func init() {
 	// 名下有任務(任何狀態)的角色要先轉移:不帶 transferTo = 409(回應帶 code = agentHasTasks、taskCounts、total,畫面據此開「轉移給…」視窗);
 	// 帶 transferTo(目標角色 id)= 同一個交易裡先轉移再刪
 	RegisterAction("agent_delete", func(a *App, args map[string]any) (any, error) {
-		return nil, agentConflictErr(a.AgentOps().DeleteAgentTo(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "transferTo")))
+		return nil, agentConflictErr(a.AgentOpsFor(CallerOf(args)).DeleteAgentTo(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "transferTo")))
 	})
 	// 不刪角色的單獨轉移:{from, to, scope: all|open}
 	RegisterAction("agent_task_transfer", func(a *App, args map[string]any) (any, error) {
-		res, err := a.AgentOps().TransferAgentTasks(a.currentOrgNow(), service.AgentTransferInput{
+		res, err := a.AgentOpsFor(CallerOf(args)).TransferAgentTasks(a.currentOrgNow(), service.AgentTransferInput{
 			From: agentArg(args, "from"), To: agentArg(args, "to"), Scope: agentArg(args, "scope")})
 		return res, agentUserErr(err)
 	})
 	RegisterAction("agent_task_cancel", func(a *App, args map[string]any) (any, error) {
-		t, err := a.AgentOps().CancelTask(a.currentOrgNow(), agentArg(args, "id"))
+		t, err := a.AgentOpsFor(CallerOf(args)).CancelTask(a.currentOrgNow(), agentArg(args, "id"))
 		return t, agentUserErr(err)
 	})
 	RegisterAction("agent_task_requeue", func(a *App, args map[string]any) (any, error) {
-		t, err := a.AgentOps().RequeueTask(a.currentOrgNow(), agentArg(args, "id"))
+		t, err := a.AgentOpsFor(CallerOf(args)).RequeueTask(a.currentOrgNow(), agentArg(args, "id"))
 		return t, agentUserErr(err)
 	})
 	// 人回覆需要協助的任務:{id, text};回覆記成備註(本人署名)、任務退回待領取,角色下次領取就看得到
 	RegisterAction("agent_task_reply", func(a *App, args map[string]any) (any, error) {
-		t, err := a.AgentOps().ReplyTask(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "text"))
+		t, err := a.AgentOpsFor(CallerOf(args)).ReplyTask(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "text"))
 		return t, agentUserErr(err)
 	})
 	RegisterAction("agent_routine_run", func(a *App, args map[string]any) (any, error) {
 		a.Mu.Lock()
 		org, me := a.CurrentOrgID(), a.Me
 		a.Mu.Unlock()
-		_, err := a.AgentOps().RunRoutine(org, agentArg(args, "agent"), agentArg(args, "routine"), me)
+		_, err := a.AgentOpsFor(CallerOf(args)).RunRoutine(org, agentArg(args, "agent"), agentArg(args, "routine"), me)
 		return nil, agentUserErr(err)
 	})
 	RegisterAction("agent_prompt", func(a *App, args map[string]any) (any, error) {
@@ -768,6 +451,17 @@ func init() {
 		}
 		return map[string]any{"text": AgentPrompt(*g, t)}, nil
 	})
+}
+
+// blockedTasks 需要協助的角色任務數(徽章用;拿著 Mu 呼叫)
+func blockedTasks(a *App) int {
+	n := 0
+	for _, t := range a.AgentTasks() {
+		if t.Status == "blocked" {
+			n++
+		}
+	}
+	return n
 }
 
 // agentConflictErr 同 agentUserErr,但 409 帶著核心給的欄位(StatusError.Data;例如刪角色時名下有任務的 code、taskCounts、

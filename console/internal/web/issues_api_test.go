@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"omixor-core/model"
 	"omixor-web/internal/auth"
 	"omixor-web/internal/auth/authtest"
-	"omixor-core/model"
 	"omixor-web/internal/core"
 )
 
@@ -165,9 +165,10 @@ func TestIssueAPIAuth(t *testing.T) {
 	if is, _ := out["result"].(map[string]any); is == nil || is["createdBy"] != core.LocalIdentity {
 		t.Fatalf("token 呼叫:本機模式署名一律是本機使用者(body 的 author 不傳給核心):%v", out)
 	}
+	bobUser := joinOrg(t, app, au, "bob")
 	c.do("POST", "/api/auth/login", map[string]any{"username": "bob", "password": "bob-pw"}, nil)
 	_, out = c.do("POST", "/api/issues/"+org, map[string]any{"title": "登入者建立", "author": "mcp"}, nil)
-	if is, _ := out["result"].(map[string]any); is == nil || is["createdBy"] != core.LocalIdentity {
-		t.Fatalf("登入者呼叫:本機模式的操作者就是本機使用者:%v", out)
+	if is, _ := out["result"].(map[string]any); is == nil || is["createdBy"] != bobUser.Email {
+		t.Fatalf("登入者呼叫:署名登入者本人:%v", out)
 	}
 }

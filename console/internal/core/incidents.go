@@ -27,7 +27,7 @@ import (
 // incMigrated 已經檢查過要不要匯入的組織(key:App 位址 + 組織)
 var incMigrated sync.Map
 
-func incKey(a *App, org string) string { return fmt.Sprintf("%p|%s", a, org) }
+func incKey(a *App, org string) string { return fmt.Sprintf("%p|%s", a.root(), org) }
 
 // incErr 最近一次讀核心的錯誤(組織 → 訊息;成功後清掉)
 var incErr sync.Map
@@ -54,7 +54,7 @@ func coreActor(x Actor) *model.IncidentActor {
 
 // migrateIncidents 本機模式:核心沒有事件、快取有 → 匯入一次(不拿 Mu)
 func (a *App) migrateIncidents(be backend.Backend, org string) {
-	if IsRemote() || org == "" {
+	if IsRemote() || org == "" || a.IsScoped() { // 一次性 App 沒有舊資料:不能標成匯入過
 		return
 	}
 	if _, done := incMigrated.Load(incKey(a, org)); done {
@@ -133,17 +133,27 @@ func (a *App) incidentsChanged(org string) {
 }
 
 // DeclareIncident 宣告事件(畫面與 MCP 共用;檢查人員、服務、告警在呼叫端)。不要拿著 Mu
-func (a *App) DeclareIncident(org string, in service.IncidentInput) (*model.Incident, error) {
+func (a *App) DeclareIncident(org string, in service.IncidentInput, who ...*Caller) (*model.Incident, error) {
 	be, err := agentBackend()
 	if err != nil {
 		return nil, err
 	}
-	a.migrateIncidents(be, org)
+	a.migrateIncidents(be, org) // 舊資料匯入是系統的工作
+	if be, err = coreBackendFor(firstCaller(who), "", org); err != nil {
+		return nil, err
+	}
+	if a.IsScoped() { // 指揮官是這個組織的真實成員:原樣給核心嚴格解析(系統工作組織的是範例人員 id,要拿掉)
+		in.Author, in.Actor = CoreAuthor(in.Author), coreIncidentActor(in.Actor)
+		be = rawBackend(be)
+	}
 	inc, err := be.DeclareIncident(org, in)
 	if err != nil {
 		return nil, err
 	}
-	who := ActorFromCore(in)
+	logger := ActorFromCore(in)
+	if c := firstCaller(who); c != nil {
+		logger = Person(c.Account())
+	}
 	a.Mu.Lock()
 	for _, id := range inc.AlertIDs {
 		if _, al := a.Find("alerts", id); al != nil {
@@ -151,7 +161,7 @@ func (a *App) DeclareIncident(org string, in service.IncidentInput) (*model.Inci
 		}
 	}
 	if a.mockOrg() == org {
-		a.Log(who, "flame.fill", fmt.Sprintf("宣告 SEV%d 事件 %s「%s」", inc.Sev, inc.ID, inc.Title), "incidents")
+		a.Log(logger, "flame.fill", fmt.Sprintf("宣告 SEV%d 事件 %s「%s」", inc.Sev, inc.ID, inc.Title), "incidents")
 	}
 	a.Mu.Unlock()
 	a.incidentsChanged(org)
@@ -159,21 +169,31 @@ func (a *App) DeclareIncident(org string, in service.IncidentInput) (*model.Inci
 }
 
 // UpdateIncidentCore 更新事件(畫面與 MCP 共用)。不要拿著 Mu
-func (a *App) UpdateIncidentCore(org, id string, p service.IncidentPatch) (*model.Incident, error) {
+func (a *App) UpdateIncidentCore(org, id string, p service.IncidentPatch, who ...*Caller) (*model.Incident, error) {
 	be, err := agentBackend()
 	if err != nil {
 		return nil, err
 	}
 	a.migrateIncidents(be, org)
+	if be, err = coreBackendFor(firstCaller(who), "", org); err != nil {
+		return nil, err
+	}
+	if a.IsScoped() { // 同 DeclareIncident
+		p.Author, p.Actor = CoreAuthor(p.Author), coreIncidentActor(p.Actor)
+		be = rawBackend(be)
+	}
 	inc, err := be.UpdateIncident(org, id, p)
 	if err != nil {
 		return nil, err
 	}
 	if p.Status != nil {
-		who := ActorFromCore(service.IncidentInput{Actor: p.Actor, Author: p.Author})
+		logger := ActorFromCore(service.IncidentInput{Actor: p.Actor, Author: p.Author})
+		if c := firstCaller(who); c != nil {
+			logger = Person(c.Account())
+		}
 		a.Mu.Lock()
 		if a.mockOrg() == org {
-			a.Log(who, "flame", inc.ID+" 狀態改為"+IncidentStatusLabel[*p.Status], "incidents")
+			a.Log(logger, "flame", inc.ID+" 狀態改為"+IncidentStatusLabel[*p.Status], "incidents")
 		}
 		a.Mu.Unlock()
 	}
@@ -224,7 +244,11 @@ func init() {
 		a.Mu.Lock()
 		org, who := a.CurrentOrgID(), a.Actor()
 		a.Mu.Unlock()
-		inc, err := a.UpdateIncidentCore(org, id, service.IncidentPatch{Note: &text, Actor: coreActor(who), Author: ActorAuthor(who)})
+		caller := CallerOf(args)
+		if caller != nil {
+			who = Person(caller.Account())
+		}
+		inc, err := a.UpdateIncidentCore(org, id, service.IncidentPatch{Note: &text, Actor: coreActor(who), Author: ActorAuthor(who)}, caller)
 		if err != nil {
 			return nil, facing(err)
 		}

@@ -17,7 +17,7 @@ func (a *App) AcceptIssue(id string, release bool) (*model.Issue, error) {
 	if u := IssueRemoteURL(); u != "" && remoteLacks(u, version.FeatureIssueAccept) { // 舊伺服器(/api/version 沒宣告)還沒有接受功能
 		return nil, UserError{Message: "這台伺服器還不支援接受功能,請先更新伺服器版本"}
 	}
-	b, err := a.issueBackend()
+	b, err := a.issueWriteBackend()
 	var i *model.Issue
 	if err == nil {
 		if release {

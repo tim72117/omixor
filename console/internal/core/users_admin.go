@@ -33,9 +33,9 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		l := localCore()
-		if l == nil {
-			return nil, errNoDB
+		l, err := localCoreFor(CallerOf(args), "")
+		if err != nil {
+			return nil, err
 		}
 		n, err := l.Svc.RevokeUserOAuth(l.P, email)
 		if err != nil {
@@ -49,9 +49,9 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		l := localCore()
-		if l == nil {
-			return nil, errNoDB
+		l, err := localCoreFor(CallerOf(args), "")
+		if err != nil {
+			return nil, err
 		}
 		disabled := true
 		if v, ok := args["disabled"].(bool); ok {

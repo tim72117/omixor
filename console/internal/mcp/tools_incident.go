@@ -33,19 +33,24 @@ func (b appBackend) GetIncident(org, id string) (*model.Incident, error) {
 
 func (b appBackend) DeclareIncident(org string, in service.IncidentInput) (*model.Incident, error) {
 	a := b.a
+	// 系統工作組織以外的組織(一次性 App)沒有人員清單、值班:指揮官交給核心解析(組織成員的 email 等;沒給是呼叫者本人)。
+	// 服務、告警照樣要在清單裡(清單是空的,給了就是「找不到」)
+	scoped := a.IsScoped()
 	a.Mu.Lock()
 	err := func() error {
-		if strings.TrimSpace(in.Commander) == "" {
-			in.Commander = a.Me
-			if oc := a.CurrentOnCall(); oc != nil {
-				in.Commander = core.Str(oc, "person")
+		if !scoped {
+			if strings.TrimSpace(in.Commander) == "" {
+				in.Commander = a.Me
+				if oc := a.CurrentOnCall(); oc != nil {
+					in.Commander = core.Str(oc, "person")
+				}
 			}
+			_, person := a.Find("people", in.Commander)
+			if person == nil || core.Str(person, "id") != in.Commander {
+				return Errorf("Person %s not found", in.Commander)
+			}
+			in.CommanderName = core.Str(person, "name")
 		}
-		_, person := a.Find("people", in.Commander)
-		if person == nil || core.Str(person, "id") != in.Commander {
-			return Errorf("Person %s not found", in.Commander)
-		}
-		in.CommanderName = core.Str(person, "name")
 		for k, s := range in.Services {
 			id, err := serviceID(a, s)
 			if err != nil {
@@ -67,11 +72,11 @@ func (b appBackend) DeclareIncident(org string, in service.IncidentInput) (*mode
 	if err != nil {
 		return nil, err
 	}
-	return a.DeclareIncident(org, in)
+	return a.DeclareIncident(org, in, b.who)
 }
 
 func (b appBackend) UpdateIncident(org, id string, p service.IncidentPatch) (*model.Incident, error) {
-	return b.a.UpdateIncidentCore(org, id, p)
+	return b.a.UpdateIncidentCore(org, id, p, b.who)
 }
 
 func (b appBackend) ImportIncidents(string, []model.Incident) (*model.ImportResult, error) {

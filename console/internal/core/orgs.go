@@ -229,9 +229,9 @@ func (a *App) createOrg(name, symbol, color, template string) (Organization, err
 	if IsRemote() {
 		return Organization{}, UserError{"遠端的組織要用 omixor server 建立"} // org_create 動作走 remoteCreateOrg
 	}
-	l := localCore()
-	if l == nil {
-		return Organization{}, errNoDB
+	l, err := localCoreFor(a.caller, "")
+	if err != nil {
+		return Organization{}, err
 	}
 	if symbol == "" {
 		symbol = "building.2"
@@ -290,8 +290,8 @@ func (a *App) UpdateOrg(org Organization) bool {
 		if s.Index.Orgs[k].ID != org.ID {
 			continue
 		}
-		l := localCore()
-		if l == nil {
+		l, err := localCoreFor(a.caller, org.ID)
+		if err != nil {
 			return false
 		}
 		if err := l.Svc.UpdateOrg(l.P, toCoreOrg(org)); err != nil {
@@ -320,9 +320,9 @@ func (a *App) DeleteOrg(id string) error {
 	if len(s.Index.Orgs) <= 1 {
 		return UserError{"至少要留一個組織"}
 	}
-	l := localCore()
-	if l == nil {
-		return errNoDB
+	l, err := localCoreFor(a.caller, id)
+	if err != nil {
+		return err
 	}
 	if err := l.Svc.DeleteOrg(l.P, id); err != nil {
 		return err
@@ -397,14 +397,26 @@ func init() {
 		if IsRemote() {
 			return a.remoteCreateOrg(strings.TrimSpace(name), sym, col, sw)
 		}
-		a.Mu.Lock()
-		defer a.Mu.Unlock()
 		var org Organization
-		var err error
-		a.As(UserActor(a, args), func() {
-			if org, err = a.createOrg(strings.TrimSpace(name), sym, col, tpl); err == nil && sw && org.ID != a.CurrentOrgID() {
-				a.SwitchOrg(org.ID)
+		err := a.switching(func() error { // 第一個組織、沒有登入者的 switch 會換系統工作組織
+			a.Mu.Lock()
+			defer a.Mu.Unlock()
+			// 「複製目前組織」:呼叫者畫面上選的組織要還是系統工作組織(web 放的,在鎖裡核對)
+			if want, _ := args[ExpectSystemOrgKey].(string); want != "" && want != a.CurrentOrgID() {
+				return UserError{"複製設定只能從系統工作組織複製;請切換到那個組織,或改用全新空白"}
 			}
+			var err error
+			a.As(UserActor(a, args), func() {
+				a.AsCaller(CallerOf(args), func() {
+					org, err = a.createOrg(strings.TrimSpace(name), sym, col, tpl)
+				})
+				// 切換組織時重新載入(含舊資料匯入)是系統的工作,不用呼叫者身分
+				// 有登入者:各人的目前組織由畫面自己帶,不換系統工作組織(只有第一個組織例外,見 createOrg)
+				if err == nil && sw && CallerOf(args) == nil && org.ID != a.CurrentOrgID() {
+					a.SwitchOrg(org.ID)
+				}
+			})
+			return err
 		})
 		return org, err
 	})
@@ -418,30 +430,94 @@ func init() {
 		}
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
-		if !a.UpdateOrg(org) {
+		var ok bool
+		a.AsCaller(CallerOf(args), func() { ok = a.UpdateOrg(org) })
+		if !ok {
 			return nil, UserError{"找不到組織 " + org.ID}
 		}
 		return org, nil
 	})
 	RegisterAction("org_delete", func(a *App, args map[string]any) (any, error) {
 		id, _ := args["id"].(string)
-		a.Mu.Lock()
-		defer a.Mu.Unlock()
-		var err error
-		a.As(UserActor(a, args), func() { err = a.DeleteOrg(id) })
-		return nil, err
+		return nil, a.switching(func() (err error) {
+			a.Mu.Lock()
+			defer a.Mu.Unlock()
+			a.As(UserActor(a, args), func() {
+				a.AsCaller(CallerOf(args), func() { err = a.DeleteOrg(id) })
+			})
+			return err
+		})
 	})
+	// org_switch {id}:沒啟用登入時換全站的目前組織;有登入者時不改伺服器狀態,只確認能用並回「自己的」組織清單
+	// (current = id),畫面之後的請求帶 X-Omixor-Org
 	RegisterAction("org_switch", func(a *App, args map[string]any) (any, error) {
 		id, _ := args["id"].(string)
+		if who := CallerOf(args); who != nil {
+			return selectOrg(a, who, id)
+		}
+		return switchSystemOrg(a, args, id)
+	})
+	// system_org_set {id}:換系統工作組織(限 web 管理員;MCP 3765、背景工作、自動執行、還沒分組織的功能用的那個)
+	RegisterAction("system_org_set", func(a *App, args map[string]any) (any, error) {
+		id, _ := args["id"].(string)
+		who := CallerOf(args)
+		if who != nil {
+			x, err := who.Access()
+			if err != nil {
+				return nil, err
+			}
+			if !x.Admin {
+				return nil, StatusError{Status: 403, Message: "只有管理員可以換系統工作組織", Data: map[string]any{"forbidden": true}}
+			}
+		}
+		idx, err := switchSystemOrg(a, args, id)
+		if err != nil || who == nil {
+			return idx, err
+		}
+		return visibleOrgs(idx.(OrgIndex), who), nil
+	})
+}
+
+func switchSystemOrg(a *App, args map[string]any, id string) (out any, err error) {
+	err = a.switching(func() error {
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
 		var ok bool
 		a.As(UserActor(a, args), func() { ok = a.SwitchOrg(id) })
 		if !ok {
-			return nil, UserError{"找不到組織 " + id + ",或已經是目前的組織"}
+			return UserError{"找不到組織 " + id + ",或已經是目前的組織"}
 		}
-		return a.Orgs(), nil
+		out = a.Orgs()
+		return nil
 	})
+	return out, err
+}
+
+// ExpectSystemOrgKey org_create 複製設定時,args 帶呼叫者以為的系統工作組織
+const ExpectSystemOrgKey = "_systemOrg"
+
+// selectOrg 登入者選自己的目前組織(不改任何伺服器狀態);非管理員只能選自己是成員的(不存在的組織同一句話)
+func selectOrg(a *App, who *Caller, id string) (any, error) {
+	x, err := who.Access()
+	if err != nil {
+		return nil, err
+	}
+	denied := StatusError{Status: 403, Message: "只能切換到你是成員的組織", Data: map[string]any{"forbidden": true}}
+	if !x.Member(id) {
+		return nil, denied
+	}
+	idx := OrgIndex{Orgs: a.OrgList()}
+	for _, o := range idx.Orgs {
+		if o.ID == id {
+			idx.Current = id
+		}
+	}
+	if idx.Current == "" {
+		return nil, UserError{"找不到組織 " + id}
+	}
+	out := visibleOrgs(idx, who)
+	out.Current = id
+	return out, nil
 }
 
 // ReadInto 把 JSON 物件轉成 struct

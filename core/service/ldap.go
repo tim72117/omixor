@@ -107,6 +107,12 @@ func (s *Service) ResolveDirectoryUser(id DirectoryIdentity, isAdmin bool) (*mod
 	return s.resolveDirectory(s.LDAPSettings(), id, isAdmin)
 }
 
+// ResolveDirectoryUserWith 同 ResolveDirectoryUser,但用呼叫者給的整組設定(設定可以在執行中改的宿主,例如 console 的網頁登入)。
+// 傳 ProveLDAP 用的同一份設定,網頁登入和 OAuth 授權就對到同一位使用者
+func (s *Service) ResolveDirectoryUserWith(set LDAPSettings, id DirectoryIdentity) (*model.User, error) {
+	return s.resolveDirectory(set, id, set.isAdmin(id.ID))
+}
+
 // resolveDirectory ResolveDirectoryUser 的本體,email 網域與是否信任 mail 照 set
 func (s *Service) resolveDirectory(set LDAPSettings, id DirectoryIdentity, isAdmin bool) (*model.User, error) {
 	return s.resolveExternalUser(externalIdentity{

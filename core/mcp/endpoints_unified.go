@@ -44,6 +44,8 @@ type UnifiedEndpointConfig struct {
 	// Tools 額外的工具(一律視為需要 org)
 	Tools        []Tool
 	Instructions string
+	// HostTools 宿主的專有工具:只給 OAuth 連線,依分級開放(見 host_tools.go)
+	HostTools []HostTool
 	// Begin 同 Hooks.Begin:每個帶 id 的請求開始時呼叫,回傳的函式在處理完後呼叫(宿主統計、處理完重新整理畫面用);nil = 不呼叫
 	Begin func() (end func())
 	// Tool 同 Hooks.Tool:每次工具執行前呼叫(哪個工具),回傳的函式在該次處理完後呼叫;nil = 不呼叫
@@ -178,6 +180,9 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 	if ins == "" {
 		ins = unifiedInstructions
 	}
+	if len(cfg.HostTools) > 0 {
+		ins += hostToolsInstructions
+	}
 	srv := NewCoreServer(ins)
 	allow := map[string]bool{}
 	for k := range AdminToolAllow {
@@ -189,6 +194,14 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 		n := t.Def["name"].(string)
 		allow[n] = true
 		extra[n] = true
+	}
+	host := map[string]ToolTier{}
+	for _, t := range cfg.HostTools {
+		if t.Tier < TierRead || t.Tier > TierAdmin { // 沒分級的工具不掛(預設拒絕)
+			continue
+		}
+		srv.Add(t.Tool)
+		host[t.Def["name"].(string)] = t.Tier
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bk, err := cfg.Resolve(r)
@@ -231,7 +244,7 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 					return nil, nil, err
 				}
 				// mcp:admin 授權的組織管理員工具:每次呼叫即時確認呼叫者目前是這個 org 的管理員(不是授權當下;被降級或移出組織後立刻失效)
-				if OAuthAdminTools[name] && !extra[name] && isOAuthAdminBackend(bk) {
+				if (OAuthAdminTools[name] && !extra[name] || host[name] == TierAdmin) && isOAuthAdminBackend(bk) {
 					if err := orgAdminCheck(avail, org); err != nil {
 						return nil, nil, err
 					}
@@ -244,7 +257,7 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 			Guard: RejectIdentityAgent,
 		})
 		// OAuth(唯讀):和 AdminEndpoint 同一套限制;組織仍由每次呼叫的 org 參數與即時成員資格決定(CallCtx),token 本身不帶組織
-		hooks = restrictOAuth(hooks, bk, true)
+		hooks = restrictHostTools(restrictOAuth(hooks, bk, true), bk, host)
 		// 每個結果的 _meta 都帶 omixor/server(含 orgs、schema_check 這類沒有 org 的工具);omixor/org 的行為不變
 		callCtx := hooks.CallCtx
 		hooks.CallCtx = func(name string, args map[string]any) (any, map[string]any, error) {

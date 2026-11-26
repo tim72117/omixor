@@ -1,4 +1,5 @@
 // AI 自動化 › 派發:看哪一個角色被派了哪些任務(跨所有角色的總表),以及每個角色目前的負載
+import { useOutsideSystemOrg } from "../../lib/switchOrg";
 import { useEffect } from "react";
 import { action, refreshTopics, useRun, useView } from "../../api";
 import { AgentAvatar } from "../../components/Avatar";
@@ -28,7 +29,8 @@ type Scope = (typeof SCOPES)[number];
 
 /** openHelp:到「需要處理」頁籤並標示這個任務;openLog:到「執行日誌」頁籤 */
 export function AutoDispatch({ openTask, openHelp, openLog }: { openTask: (task: AgentTask) => void; openHelp: (taskId: string) => void; openLog: () => void }) {
-  const runnerOn = useFeatures().enabled("automation.runner"); // 系統設定 › AI 自動化 › 自動執行
+  const outside = useOutsideSystemOrg(); // 自動執行只執行系統工作組織的任務
+  const runnerOn = useFeatures().enabled("automation.runner") && !outside; // 系統設定 › AI 自動化 › 自動執行
   const d = useAuto();
   const issueLabel = useIssueLabel(), isIssueRef = useIsIssueRef();
   const dir = useDirectory();
@@ -60,6 +62,7 @@ export function AutoDispatch({ openTask, openHelp, openLog }: { openTask: (task:
   });
   /** 不能開始執行的原因(空白 = 可以) */
   const startBlock = (t: AgentTask): string => {
+    if (outside) return "自動執行只執行系統工作組織的任務";
     if (!rv) return "載入中";
     if (rv.disabled) return rv.disabledReason ?? "「自動執行」在系統設定裡關閉了";
     if (!rv.claudeFound) return "找不到 claude(Claude Code CLI)";

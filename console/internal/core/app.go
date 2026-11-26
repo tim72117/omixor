@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"omixor-web/internal/templates"
@@ -37,6 +38,18 @@ type App struct {
 
 	// 目前這個動作是誰做的(畫面有登入時是登入者);見 As
 	acting *Actor
+	// 目前拿著 Mu 的這段寫入用誰的身分呼叫核心(nil = 系統身分);見 AsCaller
+	caller *Caller
+
+	// parent 不是 nil = Scoped 做的一次性 App(見 scoped.go);muted 時不發變更通知
+	parent *App
+	muted  bool
+
+	// 現在是不是每位登入者各自的畫面(見 nav_user.go)
+	perUser atomic.Pointer[func() bool]
+	// 誰是網頁管理員、換系統工作組織的鎖(見 console_policy.go)
+	consoleAdmins atomic.Pointer[func(account string) bool]
+	systemGate    SystemGate
 
 	version uint64
 	subsMu  sync.Mutex
@@ -153,6 +166,12 @@ func shiftTimes(v any, d time.Duration) any {
 
 // Changed 通知畫面這些主題的資料變了
 func (a *App) Changed(topics ...string) {
+	if a.parent != nil { // 一次性 App:寫入的通知轉給原本的 App,讀取時的不發
+		if !a.muted {
+			a.parent.Changed(topics...)
+		}
+		return
+	}
 	markDirty(topics)
 	a.subsMu.Lock()
 	a.version++
@@ -167,6 +186,7 @@ func (a *App) Changed(topics ...string) {
 }
 
 func (a *App) Version() uint64 {
+	a = a.root()
 	a.subsMu.Lock()
 	defer a.subsMu.Unlock()
 	return a.version
@@ -243,6 +263,9 @@ func (a *App) Log(actor Actor, icon, text, section string) {
 		item["org"] = org
 	}
 	a.C["activity"] = append([]map[string]any{item}, a.C["activity"]...)
+	if a.parent != nil { // 一次性 App:原本的 App 可能收著這個組織的舊資料(換系統工作組織時直接拿來用)
+		a.parent.addStashedActivity(a.mockOrg(), item)
+	}
 	if pgPool() != nil {
 		pgGo(func() { activityInsert(item) })
 	}

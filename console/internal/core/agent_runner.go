@@ -78,6 +78,8 @@ type RunnerRecord struct {
 	RunID       string `json:"runId"`
 	ServerCalls int    `json:"serverCalls"`
 	ToolCalls   int    `json:"toolCalls"`
+	// Org 這筆屬於哪個組織(紀錄是整台一份,非管理員的畫面只列目前組織的;不輸出)
+	Org string `json:"-"`
 }
 
 const (
@@ -545,7 +547,7 @@ func (s *runnerState) release() {
 // 先檢查:系統設定的「自動執行」開著、角色啟用、任務還是待領取、找得到 claude。
 // 一次一筆:迴圈或另一筆人工啟動的正在跑時直接回錯誤(不排隊),請使用者等它做完或先停止。
 // 通過檢查就在背景執行並回傳一個執行結束時關閉的 channel;領取失敗(被別人領走等)記在 lastError,不回給呼叫端。
-func (a *App) startTask(ctx context.Context, org, taskID string) (<-chan struct{}, error) {
+func (a *App) startTask(ctx context.Context, org, taskID string, who ...*Caller) (<-chan struct{}, error) {
 	if org == "" {
 		return nil, UserError{"還沒有組織"}
 	}
@@ -592,7 +594,7 @@ func (a *App) startTask(ctx context.Context, org, taskID string) (<-chan struct{
 	go func() {
 		defer close(done)
 		defer st.release()
-		ran, err := a.runTask(ctx, org, *task, c, bin)
+		ran, err := a.runTask(ctx, org, *task, c, bin, who...)
 		switch {
 		case err != nil:
 			st.setError(err.Error())
@@ -617,9 +619,10 @@ func runnerPriority(p string) int {
 
 // runTask 領取並執行一筆。被別人領走(409)回 false、nil;領取時其他錯誤回 error(之後一段時間不再試);
 // 領到之後的任何失敗都回報 blocked,不回 error
-func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunConfig, bin string) (bool, error) {
+func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunConfig, bin string, who ...*Caller) (bool, error) {
 	ops := a.AgentOps()
-	res, err := ops.ClaimTask(org, service.ClaimInput{AgentID: t.AgentID, TaskID: t.ID})
+	// 人工啟動:領取以啟動的人署名(核心的領取者);執行中的回報照舊是系統的工作
+	res, err := a.AgentOpsFor(firstCaller(who)).ClaimTask(org, service.ClaimInput{AgentID: t.AgentID, TaskID: t.ID})
 	if err != nil {
 		if service.Code(err) == 409 {
 			runnerLogf("%s 已被別人領取,跳過", t.ID)
@@ -726,6 +729,7 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 	rec.FinishedAt = Time{fin.UTC().Truncate(time.Second)}
 	rec.DurationSeconds = int(fin.Sub(started).Seconds())
 	rec = a.finishRunLog(org, runRec, rec)
+	rec.Org = org
 	st.mu.Lock()
 	st.history = append([]RunnerRecord{rec}, st.history...)
 	if len(st.history) > runnerHistoryMax {

@@ -62,6 +62,22 @@ func emptyMock() *mockData {
 	return d
 }
 
+// addStashedActivity 別處(一次性 App)寫了 org 的動態:加進這裡收著(或正在用)的那份。不要拿著 a.Mu
+func (a *App) addStashedActivity(org string, item map[string]any) {
+	a.Mu.Lock()
+	defer a.Mu.Unlock()
+	s := a.mockSt()
+	c := a.C
+	if s.org != org {
+		d, ok := s.stash[org]
+		if !ok { // 沒收著:切換過去時從資料庫讀
+			return
+		}
+		c = d.C
+	}
+	c["activity"] = append([]map[string]any{item}, c["activity"]...)
+}
+
 // switchMock 把 a.C / a.Sprint 換成目前組織的資料(呼叫時要拿著 Mu)
 func (a *App) switchMock() {
 	s := a.mockSt()

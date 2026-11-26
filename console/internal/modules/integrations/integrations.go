@@ -39,6 +39,8 @@ type integState struct {
 
 var integStates sync.Map // *App → *integState
 
+func init() { core.OnRelease(func(a *core.App) { integStates.Delete(a) }) }
+
 func integOf(a *core.App) *integState {
 	v, _ := integStates.LoadOrStore(a, &integState{})
 	return v.(*integState)
@@ -278,9 +280,9 @@ func equalStrings(a, b []string) bool {
 
 // ---- 寫 ----
 
-func ghSaveCore(a *core.App, in coreinteg.GitHubSettingsInput) error {
+func ghSaveCore(a *core.App, in coreinteg.GitHubSettingsInput, who ...*core.Caller) error {
 	org := a.CurrentOrgNow()
-	be, err := backendNow()
+	be, err := backendFor(org, who)
 	if err != nil {
 		return integErr(err)
 	}
@@ -300,9 +302,9 @@ func ghSaveCore(a *core.App, in coreinteg.GitHubSettingsInput) error {
 	return nil
 }
 
-func glSaveCore(a *core.App, in coreinteg.GitLabSettingsInput) (*coreinteg.GitLabSettings, error) {
+func glSaveCore(a *core.App, in coreinteg.GitLabSettingsInput, who ...*core.Caller) (*coreinteg.GitLabSettings, error) {
 	org := a.CurrentOrgNow()
-	be, err := backendNow()
+	be, err := backendFor(org, who)
 	if err != nil {
 		return nil, integErr(err)
 	}
@@ -320,6 +322,18 @@ func glSaveCore(a *core.App, in coreinteg.GitLabSettingsInput) (*coreinteg.GitLa
 	a.Mu.Unlock()
 	a.Changed("gitlab")
 	return x, nil
+}
+
+// backendFor 寫設定用:有網頁呼叫者就用他在 org 的身分
+func backendFor(org string, who []*core.Caller) (coreinteg.Backend, error) {
+	if len(who) == 0 || who[0] == nil {
+		return backendNow()
+	}
+	be, err := core.BackendFor(who[0], org)
+	if err != nil {
+		return nil, err
+	}
+	return coreinteg.Of(be), nil
 }
 
 // backendNow 目前核心的 GitHub、GitLab 設定介面(核心模組 omixor-core/modules/integrations 的 Backend)

@@ -83,6 +83,7 @@ var adminActions = map[string]string{
 	"user_disable":      "停用或啟用使用者",
 	"user_oauth_revoke": "撤銷使用者的 MCP 授權",
 	"org_create":        "建立組織",
+	"system_org_set":    "換系統工作組織",
 	"org_update":        "改組織資料",
 	"org_delete":        "刪除組織",
 	// web 伺服器共用的設定與憑證

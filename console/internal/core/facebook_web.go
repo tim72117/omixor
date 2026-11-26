@@ -135,7 +135,7 @@ func init() {
 	})
 	// Meta 登入(開瀏覽器、等回呼,完成才回傳)
 	RegisterAction("facebook_login", func(a *App, args map[string]any) (any, error) {
-		if err := FBLoginWithMeta(a, UserActor(a, args)); err != nil {
+		if err := fbLoginWithMeta(a, UserActor(a, args), func(wait func()) bool { return away(args, wait) }); err != nil {
 			return nil, fbUserErr(err)
 		}
 		fbWarm(a)

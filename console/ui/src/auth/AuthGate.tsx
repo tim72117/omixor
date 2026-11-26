@@ -2,7 +2,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ErrorText } from "../components/ErrorText";
 import { Logo } from "../components/Logo";
-import { login, refreshAuth, useAuth } from "./auth";
+import { setOrgUser } from "../lib/orgSelection";
+import { login, logout, refreshAuth, useAuth } from "./auth";
+import { AuthSettings } from "./AuthSettings";
 import css from "./auth.module.css";
 
 // 任何 API 回 401 就重新確認登入狀態
@@ -17,7 +19,10 @@ window.fetch = async (...args: Parameters<typeof fetch>) => {
 export function AuthGate({ children }: { children: ReactNode }) {
   const s = useAuth();
   if (!s) return <div className={css.loading}>載入中…</div>;
-  if (s.mode === "ldap" && !s.loggedIn) return <LoginPage />;
+  if (s.mode === "ldap" && s.repair) return <RepairPage reason={s.denied} />;
+  if (s.mode === "ldap" && !s.loggedIn) return <LoginPage denied={s.denied} />;
+  if (s.mode === "ldap" && s.unavailable) return <Unavailable reason={s.unavailable} />;
+  if (s.mode === "ldap" && s.user) setOrgUser(s.user.id); // 在任何組織資料的請求之前
   return (
     <>
       {children}
@@ -31,7 +36,31 @@ export function AuthGate({ children }: { children: ReactNode }) {
   );
 }
 
-function LoginPage() {
+/** 管理員對不上 omixor 使用者:只給認證設定 */
+function RepairPage({ reason }: { reason?: string }) {
+  return (
+    <div className="col gap12" style={{ padding: 24, height: "100vh", overflow: "auto" }}>
+      <ErrorText>{reason}</ErrorText>
+      <div className="muted">你是管理員,這次登入只能修認證設定;存好之後重新登入。</div>
+      <div className="row"><button className="btn" onClick={() => void logout()}>登出</button></div>
+      <AuthSettings />
+    </div>
+  );
+}
+
+function Unavailable({ reason }: { reason: string }) {
+  return (
+    <div className={css.bg}>
+      <div className={css.card}>
+        <ErrorText>{reason}</ErrorText>
+        <button className={"btn primary " + css.center} onClick={() => void refreshAuth()}>重試</button>
+        <button className={"btn " + css.center} onClick={() => void logout()}>登出</button>
+      </div>
+    </div>
+  );
+}
+
+function LoginPage({ denied }: { denied?: string }) {
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,7 +90,7 @@ function LoginPage() {
         <div className={"muted caption " + css.centerText}>用公司的 LDAP 帳號登入</div>
         <input className="input" placeholder="帳號" autoComplete="username" autoFocus value={u} onChange={(e) => setU(e.target.value)} />
         <input className="input" placeholder="密碼" type="password" autoComplete="current-password" value={p} onChange={(e) => setP(e.target.value)} />
-        <ErrorText>{err}</ErrorText>
+        <ErrorText>{err ?? denied}</ErrorText>
         <button className={"btn primary " + css.center} disabled={busy || !u.trim() || !p} type="submit">
           {busy ? "登入中…" : "登入"}
         </button>

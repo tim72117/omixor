@@ -281,21 +281,33 @@ func ConnDiscover(a *App, id string) {
 
 // ConnLogin 登入(OAuth 或瀏覽器核准會開瀏覽器、等回呼,完成才回傳)
 func ConnLogin(a *App, id string) {
+	connLogin(a, id, func(wait func()) bool { wait(); return true })
+}
+
+// connLogin 同 ConnLogin;等人在瀏覽器操作的部分交給 away 執行,它回 false(系統工作組織換了)就什麼都不寫、回 false
+func connLogin(a *App, id string, away func(func()) bool) bool {
 	a.Mu.Lock()
 	c, ok := ConnFind(a, id)
 	scope := a.conns().Scope
 	a.Mu.Unlock()
 	if !ok {
-		return
+		return true
 	}
 	connSetState(a, id, func(s *ConnectionState) { s.Busy = true; s.Error = nil; s.LastTest = nil })
-	defer connSetState(a, id, func(s *ConnectionState) { s.Busy = false })
+	same := true
+	defer func() {
+		if same { // 換過組織:那份連線狀態已經丟掉,不要寫到新組織的
+			connSetState(a, id, func(s *ConnectionState) { s.Busy = false })
+		}
+	}()
 	var err error
 	switch c.Auth {
 	case AuthOAuth:
 		var t *TokenSet
 		var settings OAuthSettings
-		t, settings, err = oauthLogin(c, scope)
+		if same = away(func() { t, settings, err = oauthLogin(c, scope) }); !same {
+			return false
+		}
 		if err == nil {
 			a.Mu.Lock()
 			s := a.conns()
@@ -310,14 +322,16 @@ func ConnLogin(a *App, id string) {
 		}
 	case AuthApproval:
 		var t *TokenSet
-		t, err = approvalLogin(c)
+		if same = away(func() { t, err = approvalLogin(c) }); !same {
+			return false
+		}
 		if err == nil {
 			vaultSetTokens(scope, id, t)
 		}
 	}
 	if err != nil {
 		connSetState(a, id, func(s *ConnectionState) { s.Error = strPtr(err.Error()) })
-		return
+		return true
 	}
 	ConnRefreshAccount(a, id)
 	a.Mu.Lock()
@@ -327,6 +341,7 @@ func ConnLogin(a *App, id string) {
 	}
 	a.Log(Person(a.Me), "person.badge.key", text, "settings")
 	a.Mu.Unlock()
+	return true
 }
 
 // ConnLogout 登出:瀏覽器核准的連線會通知伺服器作廢 token
@@ -640,9 +655,25 @@ func init() {
 		ConnDelete(a, id)
 		return map[string]any{"ok": true}, nil
 	})
+	RegisterAction("connection_login", func(a *App, args map[string]any) (any, error) {
+		id, err := connID(args)
+		if err != nil {
+			return nil, err
+		}
+		a.Mu.Lock()
+		_, ok := ConnFind(a, id)
+		a.Mu.Unlock()
+		if !ok {
+			return nil, UserError{"找不到連線 " + id}
+		}
+		if !connLogin(a, id, func(wait func()) bool { return away(args, wait) }) {
+			return nil, errSystemSwitched
+		}
+		return stateOf(a, id), nil
+	})
 	for name, f := range map[string]func(*App, string){
-		"connection_login": ConnLogin, "connection_logout": ConnLogout,
-		"connection_test": ConnRefreshAccount, "connection_discover": ConnDiscover,
+		"connection_logout": ConnLogout,
+		"connection_test":   ConnRefreshAccount, "connection_discover": ConnDiscover,
 	} {
 		f := f
 		RegisterAction(name, func(a *App, args map[string]any) (any, error) {

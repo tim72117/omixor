@@ -319,7 +319,8 @@ export type ConnectionState = { account?: string | null; busy?: boolean; error?:
 export type ConnectionsView = { connections: Connection[]; states: Record<string, ConnectionState> };
 
 export type Organization = { id: string; name: string; symbol: string; color: string; note: string; createdAt?: string };
-export type OrgIndex = { current: string; orgs: Organization[] };
+/** perUser:啟用 LDAP,各人自己選目前組織;system:系統工作組織(自己看得到才有) */
+export type OrgIndex = { current: string; orgs: Organization[]; perUser?: boolean; system?: string };
 
 /** 陣列型 view 的安全取值(後端回了別的格式也不會壞) */
 export const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);

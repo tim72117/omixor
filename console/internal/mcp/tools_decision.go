@@ -15,8 +15,16 @@ import (
 
 func decisionBackend() (backend.Backend, error) { return core.AgentBackend() }
 
+// coreFor 呼叫者在 org 的核心(讀寫都用:讀取也要照呼叫者看得到的,受限專案才不會洩漏);沒有呼叫者時同 decisionBackend
+func (b appBackend) coreFor(org string) (backend.Backend, error) {
+	if b.who == nil {
+		return decisionBackend()
+	}
+	return core.BackendFor(b.who, org)
+}
+
 func (b appBackend) ListDecisions(org string, q service.DecisionListQuery) ([]model.Decision, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -24,7 +32,7 @@ func (b appBackend) ListDecisions(org string, q service.DecisionListQuery) ([]mo
 }
 
 func (b appBackend) GetDecision(org, id string) (*model.Decision, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +40,7 @@ func (b appBackend) GetDecision(org, id string) (*model.Decision, error) {
 }
 
 func (b appBackend) AddDecision(org string, in service.DecisionInput) (*model.Decision, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +48,7 @@ func (b appBackend) AddDecision(org string, in service.DecisionInput) (*model.De
 }
 
 func (b appBackend) AnswerDecision(org, id string, in service.DecisionAnswer) (*model.Decision, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +56,7 @@ func (b appBackend) AnswerDecision(org, id string, in service.DecisionAnswer) (*
 }
 
 func (b appBackend) WithdrawDecision(org, id string) (*model.Decision, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +64,7 @@ func (b appBackend) WithdrawDecision(org, id string) (*model.Decision, error) {
 }
 
 func (b appBackend) ReopenDecision(org, id string) (*model.Decision, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +72,7 @@ func (b appBackend) ReopenDecision(org, id string) (*model.Decision, error) {
 }
 
 func (b appBackend) DecisionToIssue(org, id string, in service.DecisionToIssueInput) (*service.DecisionIssueResult, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +80,7 @@ func (b appBackend) DecisionToIssue(org, id string, in service.DecisionToIssueIn
 }
 
 func (b appBackend) DecisionSummaries(org string) (map[string]model.DecisionSummary, error) {
-	be, err := decisionBackend()
+	be, err := b.coreFor(org)
 	if err != nil {
 		return nil, err
 	}
@@ -86,10 +94,10 @@ func init() { core.ConsoleFeatures = DecisionFeatures }
 
 func init() {
 	Register("issue_decision_withdraw", func(c *Call) (any, error) {
-		return decisionTransition(c, func(b appBackend, org, id string) (*model.Decision, error) { return b.WithdrawDecision(org, id) })
+		return decisionTransition(c, backend.Backend.WithdrawDecision)
 	})
 	Register("issue_decision_reopen", func(c *Call) (any, error) {
-		return decisionTransition(c, func(b appBackend, org, id string) (*model.Decision, error) { return b.ReopenDecision(org, id) })
+		return decisionTransition(c, backend.Backend.ReopenDecision)
 	})
 }
 
@@ -104,18 +112,23 @@ func DecisionFeatures() []string {
 	return out
 }
 
-func decisionTransition(c *Call, do func(appBackend, string, string) (*model.Decision, error)) (any, error) {
+func decisionTransition(c *Call, do func(backend.Backend, string, string) (*model.Decision, error)) (any, error) {
 	id, err := c.Args.Require("id")
 	if err != nil {
 		return nil, err
 	}
-	x := &callCtx{App: c.App, Actor: c.Actor}
-	d, err := do(appBackend{a: c.App}, x.Org(), id)
+	x := &callCtx{App: c.App, Actor: c.Actor, who: c.Who}
+	var be backend.Backend = appBackend{a: c.App, who: c.Who}
+	var env coremcp.Env = x
+	if c.OAuth != nil { // OAuth:寫入與顯示名稱都用授權者自己的後端
+		be, env = c.OAuth, &coremcp.Session{B: c.OAuth, OrgID: x.Org()}
+	}
+	d, err := do(be, x.Org(), id)
 	if err != nil {
 		if backend.NotFound(err) {
 			return nil, Errorf("%s not found", id)
 		}
 		return nil, ToolErr(err)
 	}
-	return coremcp.DecisionJSON(x, *d), nil
+	return coremcp.DecisionJSON(env, *d), nil
 }

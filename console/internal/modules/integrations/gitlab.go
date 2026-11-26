@@ -206,56 +206,18 @@ func GLIsRunning(status string) bool {
 
 // MARK: 網址與專案
 
-// GLNormalizeBaseURL 去頭尾空白、結尾的 / 與 /api/v4;必須是 http(s)://主機
+// GLNormalizeBaseURL 去頭尾空白、結尾的 / 與 /api/v4;必須是 http(s)://主機,不能帶帳號密碼。規則在核心
+// (coreinteg.NormalizeGitLabBaseURL)
 func GLNormalizeBaseURL(s string) (string, error) {
-	t := strings.TrimSpace(s)
-	t = strings.TrimSuffix(t, "/")
-	t = strings.TrimSuffix(t, "/api/v4")
-	t = strings.TrimSuffix(t, "/")
-	u, err := url.Parse(t)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.RawQuery != "" || u.Fragment != "" {
-		return "", core.ConnErr("GitLab 網址要寫成 https://gitlab.example.com")
+	if t, ok := coreinteg.NormalizeGitLabBaseURL(s); ok {
+		return t, nil
 	}
-	return t, nil
+	return "", core.ConnErr("GitLab 網址要寫成 https://gitlab.example.com")
 }
 
-var glPathSeg = regexp.MustCompile(`^[A-Za-z0-9_.\-]+$`)
-
-// GLNormalizeProject 專案:數字 id、group/subgroup/project,或專案網址(https://gitlab…/group/project、git@…:group/project.git)
+// GLNormalizeProject 專案:數字 id、group/subgroup/project 或專案網址;規則在核心(coreinteg.NormalizeGitLabProject)
 func GLNormalizeProject(s, baseURL string) (string, bool) {
-	t := strings.TrimSpace(s)
-	if t == "" {
-		return "", false
-	}
-	if n, err := strconv.Atoi(t); err == nil {
-		if n <= 0 {
-			return "", false
-		}
-		return strconv.Itoa(n), true
-	}
-	if baseURL != "" && strings.HasPrefix(strings.ToLower(t), strings.ToLower(baseURL)+"/") {
-		t = t[len(baseURL)+1:]
-	} else if u, err := url.Parse(t); err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" {
-		t = strings.TrimPrefix(u.Path, "/")
-	} else if strings.HasPrefix(t, "git@") {
-		if _, rest, ok := strings.Cut(t, ":"); ok {
-			t = rest
-		}
-	}
-	if i := strings.Index(t, "/-/"); i >= 0 {
-		t = t[:i]
-	}
-	t = strings.TrimSuffix(strings.Trim(t, "/"), ".git")
-	parts := strings.Split(t, "/")
-	if len(parts) < 2 {
-		return "", false
-	}
-	for _, p := range parts {
-		if !glPathSeg.MatchString(p) {
-			return "", false
-		}
-	}
-	return t, true
+	return coreinteg.NormalizeGitLabProject(s, baseURL)
 }
 
 // glProjectPath API 路徑:/api/v4/projects/<id 或 URL 編碼的路徑>
@@ -484,7 +446,7 @@ func GLEnsureConnection(a *core.App, base string) (core.Connection, error) {
 
 // GLSetServer 設定 GitLab 網址、CA 憑證檔、不驗證憑證。網址是組織的設定(先存核心,要組織管理員);
 // CA 憑證檔、不驗證憑證只存在這台的連線。網址換了舊的登入作廢(ConnUpsert 會清 token)
-func GLSetServer(a *core.App, base *string, caCert *string, insecure *bool) (core.Connection, error) {
+func GLSetServer(a *core.App, base *string, caCert *string, insecure *bool, who ...*core.Caller) (core.Connection, error) {
 	if base != nil {
 		b, err := GLNormalizeBaseURL(*base)
 		if err != nil {
@@ -495,7 +457,7 @@ func GLSetServer(a *core.App, base *string, caCert *string, insecure *bool) (cor
 		cur, ok := GLConnection(a)
 		a.Mu.Unlock()
 		if !ok || cur.BaseURL != b {
-			x, err := glSaveCore(a, coreinteg.GitLabSettingsInput{BaseURL: &b})
+			x, err := glSaveCore(a, coreinteg.GitLabSettingsInput{BaseURL: &b}, who...)
 			if err != nil {
 				return core.Connection{}, err
 			}
@@ -548,7 +510,7 @@ func glSetLocalServer(a *core.App, base *string, caCert *string, insecure *bool)
 }
 
 // GLAddProject 追蹤專案(存到組織的設定,要組織管理員;見 integrations.go)
-func GLAddProject(a *core.App, p string) error {
+func GLAddProject(a *core.App, p string, who ...*core.Caller) error {
 	a.Mu.Lock()
 	base := ""
 	if c, ok := GLConnection(a); ok {
@@ -559,13 +521,13 @@ func GLAddProject(a *core.App, p string) error {
 	if !ok {
 		return core.ConnErr("專案要寫成 group/project(可以有子群組)、專案 id,或專案網址")
 	}
-	_, err := glSaveCore(a, coreinteg.GitLabSettingsInput{Add: []string{key}})
+	_, err := glSaveCore(a, coreinteg.GitLabSettingsInput{Add: []string{key}}, who...)
 	return err
 }
 
 // GLRemoveProject 不再追蹤(存到組織的設定);成功後把畫面上這個專案的資料拿掉
-func GLRemoveProject(a *core.App, key string) error {
-	if _, err := glSaveCore(a, coreinteg.GitLabSettingsInput{Remove: []string{key}}); err != nil {
+func GLRemoveProject(a *core.App, key string, who ...*core.Caller) error {
+	if _, err := glSaveCore(a, coreinteg.GitLabSettingsInput{Remove: []string{key}}, who...); err != nil {
 		return err
 	}
 	a.Mu.Lock()
@@ -1005,14 +967,14 @@ func init() {
 		if v, ok := args["insecure"].(bool); ok {
 			insecure = &v
 		}
-		return GLSetServer(a, base, ca, insecure)
+		return GLSetServer(a, base, ca, insecure, core.CallerOf(args))
 	})
 	core.RegisterAction("gitlab_add_project", func(a *core.App, args map[string]any) (any, error) {
 		p, _ := args["project"].(string)
 		if f, ok := args["project"].(float64); ok {
 			p = strconv.Itoa(int(f))
 		}
-		if err := GLAddProject(a, p); err != nil {
+		if err := GLAddProject(a, p, core.CallerOf(args)); err != nil {
 			return nil, err
 		}
 		a.Mu.Lock()
@@ -1021,7 +983,7 @@ func init() {
 	})
 	core.RegisterAction("gitlab_remove_project", func(a *core.App, args map[string]any) (any, error) {
 		p, _ := args["project"].(string)
-		if err := GLRemoveProject(a, p); err != nil {
+		if err := GLRemoveProject(a, p, core.CallerOf(args)); err != nil {
 			return nil, err
 		}
 		a.Mu.Lock()

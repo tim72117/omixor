@@ -91,6 +91,11 @@ func main() {
 	for _, w := range au.Config().Warnings() {
 		log.Printf("警告:%s", w)
 	}
+	if au.Enabled() {
+		for _, w := range core.UpgradeLoginWarnings(au.Config().AdminList()) {
+			log.Printf("提醒:%s", w)
+		}
+	}
 	addr := web.ConfiguredAddr()
 	// 在 Docker 裡要聽 0.0.0.0,但連接埠只發布到主機的 127.0.0.1 時,設 OMIXOR_WEB_LOCAL_ONLY_PUBLISH=1
 	if !web.IsLoopbackAddr(addr) && !au.Enabled() && !cfg.Bool(config.WebLocalOnlyPublish) {

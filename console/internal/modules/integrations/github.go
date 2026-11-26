@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"omixor-core/config"
 	"omixor-core/httperr"
@@ -261,34 +260,8 @@ func GHRegisterURL() string {
 	return "https://github.com/settings/applications/new?" + strings.Join(q, "&")
 }
 
-// GHNormalizeRepo owner/name;也接受 https://github.com/owner/name(.git)
-func GHNormalizeRepo(s string) (string, bool) {
-	t := strings.TrimSpace(s)
-	for _, p := range []string{"https://github.com/", "http://github.com/", "github.com/", "git@github.com:"} {
-		if strings.HasPrefix(t, p) {
-			t = t[len(p):]
-		}
-	}
-	t = strings.TrimSuffix(t, ".git")
-	t = strings.TrimSuffix(t, "/")
-	parts := []string{}
-	for _, p := range strings.Split(t, "/") {
-		if p != "" {
-			parts = append(parts, p)
-		}
-	}
-	if len(parts) != 2 {
-		return "", false
-	}
-	for _, p := range parts {
-		for _, r := range p {
-			if !(unicode.IsLetter(r) || unicode.IsNumber(r) || strings.ContainsRune("-_.", r)) {
-				return "", false
-			}
-		}
-	}
-	return strings.Join(parts, "/"), true
-}
+// GHNormalizeRepo 規則在核心(coreinteg.NormalizeGitHubRepo),兩邊接受的寫法一致
+func GHNormalizeRepo(s string) (string, bool) { return coreinteg.NormalizeGitHubRepo(s) }
 
 // MARK: 解析 GitHub 的 JSON
 
@@ -443,17 +416,17 @@ func GHEnsureConnection(a *core.App) core.Connection {
 }
 
 // GHAddRepo 追蹤 repo(存到組織的設定,要組織管理員;見 integrations.go)
-func GHAddRepo(a *core.App, repo string) error {
+func GHAddRepo(a *core.App, repo string, who ...*core.Caller) error {
 	r, ok := GHNormalizeRepo(repo)
 	if !ok {
 		return core.ConnErr("repo 要寫成 owner/name,例如 tim72117/evoleap")
 	}
-	return ghSaveCore(a, coreinteg.GitHubSettingsInput{Add: []string{r}})
+	return ghSaveCore(a, coreinteg.GitHubSettingsInput{Add: []string{r}}, who...)
 }
 
 // GHRemoveRepo 不再追蹤(存到組織的設定);成功後把畫面上這個 repo 的資料拿掉
-func GHRemoveRepo(a *core.App, r string) error {
-	if err := ghSaveCore(a, coreinteg.GitHubSettingsInput{Remove: []string{r}}); err != nil {
+func GHRemoveRepo(a *core.App, r string, who ...*core.Caller) error {
+	if err := ghSaveCore(a, coreinteg.GitHubSettingsInput{Remove: []string{r}}, who...); err != nil {
 		return err
 	}
 	a.Mu.Lock()
@@ -786,7 +759,7 @@ func init() {
 	})
 	core.RegisterAction("github_add_repo", func(a *core.App, args map[string]any) (any, error) {
 		r, _ := args["repo"].(string)
-		if err := GHAddRepo(a, r); err != nil {
+		if err := GHAddRepo(a, r, core.CallerOf(args)); err != nil {
 			return nil, err
 		}
 		a.Mu.Lock()
@@ -795,7 +768,7 @@ func init() {
 	})
 	core.RegisterAction("github_remove_repo", func(a *core.App, args map[string]any) (any, error) {
 		r, _ := args["repo"].(string)
-		if err := GHRemoveRepo(a, r); err != nil {
+		if err := GHRemoveRepo(a, r, core.CallerOf(args)); err != nil {
 			return nil, err
 		}
 		a.Mu.Lock()

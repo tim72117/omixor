@@ -10,7 +10,8 @@
 //	/api/office/…、/office/    3D 虛擬辦公室:下命令、SSE、檢視器回報、狀態;檢視器靜態檔(見 office.go)
 //	其他路徑                   React 畫面(ui/dist)
 //
-// 啟用 LDAP 時,/api 除了 /api/auth/status、/api/auth/login 都要登入(/api/issues/ 也可以用 OMIXOR_API_TOKEN);畫面的動作以登入者署名。
+// 啟用 LDAP 時,/api 除了 /api/auth/status、/api/auth/login 都要登入(/api/issues/ 也可以用 OMIXOR_API_TOKEN);畫面的動作以登入者署名
+// (寫進核心的資料也是,見 core/caller.go)。非管理員只能讀寫自己是成員的組織,不是任何組織成員的人不能登入(見 membership.go)。
 // 工具與動作分一般成員 / 管理員(見 access.go);非管理員的 /api/issues 只限目前的組織。
 package web
 
@@ -64,9 +65,13 @@ func IsLoopbackAddr(addr string) bool {
 
 // Handler:dist 是 React 建好的檔案(可以是 nil,只開 API)
 func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
+	// 啟用 LDAP 時每位登入者有自己的畫面(換頁等,見 core/nav_user.go)
+	app.SetPerUserUI(func() bool { return au != nil && au.Enabled() && !core.IsRemote() })
+	// MCP 入口的專有工具用同一份管理員名單(沒啟用 LDAP 時沒有名單,見 mcp/oauth_tools.go)
+	app.SetConsoleAdmins(func(account string) bool { return au != nil && au.Config().IsAdminAccount(account) })
 	mux := http.NewServeMux()
 	registerAuth(mux, app, au)
-	registerIssueAPI(mux, app)
+	registerIssueAPI(mux, app, au)
 	registerOffice(mux, office.For(app))
 	mux.HandleFunc("GET /api/views", func(w http.ResponseWriter, r *http.Request) {
 		names := core.ViewNames()
@@ -75,8 +80,12 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 	})
 	mux.HandleFunc("GET /api/view/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
+		app := appOf(r, app)
 		setDataVersion(w, app)
-		v, ok := core.View(app, name)
+		if app.IsScoped() && name == "incidents" { // 事件快取一次性的 App 還沒有:先讀
+			app.IncidentsRefresh(app.CurrentOrgNow())
+		}
+		v, ok := core.ViewFor(app, name, callerOf(r, au))
 		if !ok {
 			writeJSON(w, 404, map[string]any{"error": "沒有這個 view:" + name})
 			return
@@ -95,6 +104,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		writeJSON(w, 200, v)
 	})
 	mux.HandleFunc("POST /api/tool/{name}", func(w http.ResponseWriter, r *http.Request) {
+		app := appOf(r, app)
 		// 一般成員只能用 memberTools 列的工具,其他(含還沒分類的)要 web 管理員(見 access.go)
 		if what, need := toolNeedsAdmin(r.PathValue("name")); need && denyNonAdmin(w, r, app, au, what) {
 			return
@@ -113,7 +123,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			notFoundRestricted(w)
 			return
 		}
-		out, err := mcp.Run(app, r.PathValue("name"), args, core.Person(userID(r, app)))
+		out, err := mcp.RunAs(app, r.PathValue("name"), args, core.Person(userID(r, app)), callerOf(r, au))
 		if err != nil {
 			writeFail(w, r, err)
 			return
@@ -133,6 +143,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 	})
 	mux.HandleFunc("POST /api/action/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
+		app := appOf(r, app)
 		// 一般成員只能用 memberActions 列的動作,其他(含還沒分類的)要 web 管理員(見 access.go)
 		if what, need := actionNeedsAdmin(name); need && denyNonAdmin(w, r, app, au, what) {
 			return
@@ -147,7 +158,21 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			notFoundRestricted(w)
 			return
 		}
+		// 只認伺服器放的
+		delete(args, core.PinKey)
+		delete(args, core.ExpectSystemOrgKey)
+		if p, ok := r.Context().Value(pinKey{}).(*gatePin); ok {
+			args[core.PinKey] = p
+		}
+		// 「複製目前組織的設定」複製的是系統工作組織:登入者選的是別的組織時不照做,免得複製到沒打算複製的東西(action 在鎖裡核對)
+		if org := r.Header.Get(orgHeader); name == "org_create" && args["template"] == "copyCurrent" && callerOf(r, au) != nil && org != "" {
+			args[core.ExpectSystemOrgKey] = org
+		}
 		args[core.UserKey] = userID(r, app)
+		delete(args, core.CallerKey) // 只認伺服器放的
+		if who := callerOf(r, au); who != nil {
+			args[core.CallerKey] = who
+		}
 		setDataVersion(w, app)
 		out, err := core.Action(app, name, args)
 		if err != nil {
@@ -169,6 +194,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 	})
 	// 附件:上傳也走 JSON(維持「POST 一律 JSON」的 CSRF 防護),data 是 base64;只收圖片
 	mux.HandleFunc("POST /api/attachments", func(w http.ResponseWriter, r *http.Request) {
+		app := appOf(r, app)
 		var req struct {
 			Data string `json:"data"`
 		}
@@ -190,7 +216,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			writeFail(w, r, err)
 			return
 		}
-		id, err := core.SaveAttachment(app, data)
+		id, err := core.SaveAttachment(app, data, callerOf(r, au))
 		if err != nil {
 			writeFail(w, r, err)
 			return
@@ -198,7 +224,20 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		writeJSON(w, 200, map[string]any{"result": map[string]any{"id": id, "url": core.AttachmentURL(id)}})
 	})
 	mux.HandleFunc("GET /api/attachments/{id}", func(w http.ResponseWriter, r *http.Request) {
-		data, mime, err := core.ReadAttachment(app, r.PathValue("id"))
+		var data []byte
+		var mime string
+		var err error
+		if s, ok := scopeOf(r); ok { // 登入者:在他能讀的組織裡找
+			orgs := []string{}
+			for _, o := range app.OrgList() {
+				if s.access.Member(o.ID) {
+					orgs = append(orgs, o.ID)
+				}
+			}
+			data, mime, err = core.ReadAttachmentAmong(r.PathValue("id"), orgs)
+		} else {
+			data, mime, err = core.ReadAttachment(app, r.PathValue("id"))
+		}
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -263,14 +302,14 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			files.ServeHTTP(w, r)
 		})
 	}
-	return guard(mux, au)
+	return guard(membershipGate(mux, app, au), au)
 }
 
 // guard:
 //   - Host 只接受本機名稱與 OMIXOR_WEB_HOSTS 列的主機(防 DNS rebinding)
 //   - 帶 Origin 的請求,Origin 也要是這些主機(防其他網站跨站呼叫)
 //   - POST /api 一律要 Content-Type: application/json(表單無法跨站送,等於 CSRF 防護)
-//   - 啟用 LDAP 時,/api 要登入(/api/auth/status、/api/auth/login 除外)
+//   - 啟用 LDAP 時,/api 要登入(/api/auth/status、/api/auth/login 除外);登入後依組織成員身分的檢查見 membership.go
 func guard(next http.Handler, au *auth.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !AllowedHost(hostOnly(r.Host)) {

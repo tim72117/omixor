@@ -136,6 +136,18 @@ func (a *App) Issue(id string) *model.Issue {
 	return nil
 }
 
+// LookupIssue 向核心查組織 org 裡編號 ref(內部 id、目前或舊的 key)的 Issue:系統身分、不看快取,剛搬走的也看得出來。
+// 找不到是核心的 404。給 web 層判斷這張 Issue 呼叫者能不能看;不要拿著 Mu
+func (a *App) LookupIssue(org, ref string) (*model.Issue, error) {
+	a.Mu.Lock()
+	defer a.Mu.Unlock()
+	b, err := a.issueBackend()
+	if err != nil {
+		return nil, err
+	}
+	return b.GetIssue(org, strings.TrimSpace(ref))
+}
+
 // AuthorActor 作者字串 → Actor(同 Swift 的 IssueStore.actor)
 func AuthorActor(author string) Actor {
 	if author == MCPAuthor {
@@ -279,6 +291,16 @@ func (a *App) updateIssue(id, author, appendBody string, replaceComments bool, v
 		}
 	}
 	if appendBody == "" && string(Marshal(n)) == string(Marshal(before)) {
+		if a.caller != nil { // 沒有要寫的:上面的內容是系統身分讀的,呼叫者自己看得到才回給他
+			b, err := a.issueWriteBackend()
+			if err == nil {
+				_, err = b.GetIssue(s.Org, before.ID)
+			}
+			if err != nil {
+				a.issueRemoteFailed(err)
+				return nil
+			}
+		}
 		return &n
 	}
 	saved, err := a.issueRemoteUpdate(n, before, author, appendBody, replaceComments, version)
@@ -319,7 +341,7 @@ func (a *App) AddIssueComment(id, text, author string) (*model.Issue, error) {
 		return nil, UserError{Message: "留言不能是空的"}
 	}
 	s := a.issueSt()
-	b, err := a.issueBackend()
+	b, err := a.issueWriteBackend()
 	var i *model.Issue
 	if err == nil {
 		i, err = b.AddIssueComment(s.Org, id, t, author)
@@ -412,7 +434,9 @@ func init() {
 		id, _ := args["id"].(string)
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
-		if _, err := a.TrashIssueAs(UserActor(a, args), id); err != nil {
+		var err error
+		a.AsCaller(CallerOf(args), func() { _, err = a.TrashIssueAs(UserActor(a, args), id) })
+		if err != nil {
 			return nil, trashErr(err)
 		}
 		return nil, nil
@@ -421,12 +445,17 @@ func init() {
 		if !a.FeatureOn("development.issues") {
 			return nil
 		}
-		n := 0
-		for _, i := range a.Issues() {
-			if i.Status == "open" && slices.Index(model.IssuePriorities, i.Priority) <= 1 { // urgent、high(不認得的也算,同 Swift 的 firstIndex ?? 0)
-				n++
-			}
-		}
-		return map[string]int{"development": n}
+		return map[string]int{"development": openUrgentIssues(a)}
 	})
+}
+
+// openUrgentIssues 開著的 urgent、high Issue 數(徽章用;拿著 Mu 呼叫)
+func openUrgentIssues(a *App) int {
+	n := 0
+	for _, i := range a.Issues() {
+		if i.Status == "open" && slices.Index(model.IssuePriorities, i.Priority) <= 1 { // urgent、high(不認得的也算,同 Swift 的 firstIndex ?? 0)
+			n++
+		}
+	}
+	return n
 }

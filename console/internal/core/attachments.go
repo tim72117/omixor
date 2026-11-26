@@ -82,12 +82,12 @@ func AttachmentIDFor(orgDir, seed string) string {
 	return ""
 }
 
-// SaveAttachment 存到目前組織的核心(呼叫時不用拿鎖)
-func SaveAttachment(a *App, data []byte) (string, error) {
+// SaveAttachment 存到目前組織的核心(呼叫時不用拿鎖);who 是網頁的呼叫者(沒給 = 系統身分)
+func SaveAttachment(a *App, data []byte, who ...*Caller) (string, error) {
 	a.Mu.Lock()
 	org := a.CurrentOrgID()
 	a.Mu.Unlock()
-	b, err := coreBackend("")
+	b, err := coreBackendFor(firstCaller(who), "", org)
 	if err != nil {
 		return "", err
 	}
@@ -102,6 +102,10 @@ func ReadAttachment(a *App, id string) ([]byte, string, error) {
 	a.Mu.Lock()
 	org, dir := a.CurrentOrgID(), a.DataDir()
 	a.Mu.Unlock()
+	return readOrgAttachment(org, dir, id)
+}
+
+func readOrgAttachment(org, dir, id string) ([]byte, string, error) {
 	if b, err := coreBackend(""); err == nil {
 		if data, t, err := b.GetAttachment(org, id); err == nil {
 			return data, t, nil

@@ -16,7 +16,7 @@ const noOrgMessage = "還沒有組織:請管理員先在畫面上建立第一個
 // orgFreeActions 不屬於任何組織、沒有組織時也能做的 action
 var orgFreeActions = map[string]bool{
 	"navigate": true, "system_reload": true, "server_features_save": true,
-	"org_create": true, "org_update": true, "org_delete": true, "org_switch": true,
+	"org_create": true, "org_update": true, "org_delete": true, "org_switch": true, "system_org_set": true,
 	"mode_set": true, "remote_logout": true, "gate_reset": true,
 	"mcp_token_reveal": true, "mcp_token_rotate": true,
 }

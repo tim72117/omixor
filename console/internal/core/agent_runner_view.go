@@ -111,7 +111,9 @@ func (s *runnerState) seedHistory(org string) {
 	}
 	for _, l := range f.Runs {
 		if !have[l.RunID] {
-			s.history = append(s.history, l.record())
+			r := l.record()
+			r.Org = org
+			s.history = append(s.history, r)
 		}
 	}
 	sort.SliceStable(s.history, func(i, j int) bool { return s.history[i].StartedAt.After(s.history[j].StartedAt.Time) })
@@ -183,7 +185,7 @@ func init() {
 		if id == "" {
 			return nil, UserError{"要給任務 id(task)"}
 		}
-		if _, err := a.startTask(context.Background(), a.currentOrgNow(), id); err != nil {
+		if _, err := a.startTask(context.Background(), a.currentOrgNow(), id, CallerOf(args)); err != nil {
 			return nil, err
 		}
 		a.Changed("agent_runner")

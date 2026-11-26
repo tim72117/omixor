@@ -11,7 +11,9 @@ func (b appBackend) AcceptIssue(_, id string) (*model.Issue, error) { return b.a
 func (b appBackend) ReleaseIssue(_, id string) (*model.Issue, error) { return b.acceptIssue(id, true) }
 
 func (b appBackend) acceptIssue(id string, release bool) (*model.Issue, error) {
-	i, err := b.a.AcceptIssue(id, release)
+	var i *model.Issue
+	var err error
+	b.a.AsCaller(b.who, func() { i, err = b.a.AcceptIssue(id, release) })
 	if err != nil {
 		return nil, err
 	}

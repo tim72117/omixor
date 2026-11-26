@@ -137,7 +137,7 @@ func assistSection(a *App, args map[string]any) (string, error) {
 	s, _ := args["section"].(string)
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return a.Nav.Section, nil
+		return a.NavOf(CallerOf(args)).Section, nil
 	}
 	for _, x := range assistSections {
 		if x == s {
@@ -162,6 +162,7 @@ func init() {
 			return nil, err
 		}
 		r := NewAssistResponder(a, sec)
+		r.focus = a.NavOf(CallerOf(args)).FocusID
 		return AssistBriefingResult{AssistBriefing: r.Briefing(), FocusLabel: r.FocusLabel(), Section: sec,
 			SectionTitle: assistSectionTitle[sec], Suggestions: r.Suggestions()}, nil
 	})
@@ -184,6 +185,8 @@ func init() {
 		if closed, ok := assistClosedReply(a, q); ok {
 			return AssistReplyResult{AssistReply: closed, Question: q, Section: sec}, nil
 		}
-		return AssistReplyResult{AssistReply: assistVisibleOnly(a, NewAssistResponder(a, sec).Reply(q)), Question: q, Section: sec}, nil
+		r := NewAssistResponder(a, sec)
+		r.focus = a.NavOf(CallerOf(args)).FocusID
+		return AssistReplyResult{AssistReply: assistVisibleOnly(a, r.Reply(q)), Question: q, Section: sec}, nil
 	})
 }

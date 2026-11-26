@@ -25,9 +25,12 @@ import { countByStatus, DECISION_FILTERS_DEFAULT, type DecisionFilters } from ".
 import { DevPullRequestsTab } from "./DevPullRequestsTab";
 import { DevReposTab } from "./DevReposTab";
 import { useFeatures, useFeatureTabs } from "../../features";
+import { useOutsideSystemOrg } from "../../lib/switchOrg";
 import { layoutClass } from "../../components/Layout";
 
 const DEV_TAB_IDS = DEV_TABS.map((d) => d.id);
+/** 系統工作組織以外的組織能用的分頁(其他分頁是整台一份的資料) */
+const ORG_DEV_TAB_IDS: typeof DEV_TAB_IDS = ["board", "issues", "decisions"];
 
 export default function DevelopmentView(props: SectionProps) {
   return <OmixorProvider><Development {...props} /></OmixorProvider>;
@@ -39,8 +42,9 @@ function Development({ focusId, clearFocus }: SectionProps) {
   // 分頁依系統設定;選的分頁關了就顯示第一個開著的。Repositories 的 key(development.repos)是選用模組 integrations 登記的:
   // 後端沒編進模組時清單沒有這個 key → 不顯示
   const flags = useFeatures();
-  const tabs = useFeatureTabs(DEV_TAB_IDS, rawTab, setRawTab, (t) => (t === "decisions" ? undefined : `development.${t}`)); // 待決定分頁沒有功能開關,永遠顯示
-  const tab = tabs.shown, setTab = tabs.select;
+  const ids = useOutsideSystemOrg() ? ORG_DEV_TAB_IDS : DEV_TAB_IDS;
+  const tabs = useFeatureTabs(ids, rawTab, setRawTab, (t) => (t === "decisions" ? undefined : `development.${t}`)); // 待決定分頁沒有功能開關,永遠顯示
+  const tab = ids.includes(tabs.shown) ? tabs.shown : "issues", setTab = tabs.select;
   const [selectedPR, setSelectedPR] = useState<number>();
   const [prRepoFilter, setPrRepoFilter] = useState<string>();
   const [highlightedItem, setHighlightedItem] = useState<string>();
@@ -102,7 +106,7 @@ function Development({ focusId, clearFocus }: SectionProps) {
     <DevCtx.Provider value={model}>
       <div className={layoutClass.page}>
         <div className="tabbar">
-          <Segmented value={tab} onChange={setTab} options={DEV_TABS.filter((d) => tabs.on(d.id)).map((d) => ({ value: d.id, label: <><SIcon name={d.icon} size={12} />{d.label}{d.id === "decisions" && pending > 0 ? `(${pending})` : ""}</> }))} />
+          <Segmented value={tab} onChange={setTab} options={DEV_TABS.filter((d) => ids.includes(d.id) && tabs.on(d.id)).map((d) => ({ value: d.id, label: <><SIcon name={d.icon} size={12} />{d.label}{d.id === "decisions" && pending > 0 ? `(${pending})` : ""}</> }))} />
         </div>
         <div className={layoutClass.page}>
           {tab === "overview" && <DevOverviewTab />}

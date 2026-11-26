@@ -41,10 +41,11 @@ func TestLoginStatusCodes(t *testing.T) {
 	resetAuthJSON(t)
 	f := authtest.Start(t)
 	au := auth.New(&auth.MemorySecrets{})
-	c, _ := newServer(t, au)
+	c, app := newServer(t, au)
 	if code, out := c.do("POST", "/api/auth/config", map[string]any{"config": ldapCfg(f), "bindPassword": "svc-pw", "testUsername": "alice", "testPassword": "alice-pw"}, nil); code != 200 {
 		t.Fatalf("設定:%d %v", code, out)
 	}
+	joinOrg(t, app, au, "bob")
 	// 帳號不存在 vs 密碼錯誤:同一個 401、同一句話
 	c1, _, o1 := rawLogin(t, c.srv.URL, "nobody-here", "x")
 	c2, _, o2 := rawLogin(t, c.srv.URL, "bob", "wrong-password")

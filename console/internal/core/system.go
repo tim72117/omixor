@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"omixor-core/backend"
 	"omixor-core/config"
 	"omixor-core/model"
 	"omixor-core/service"
@@ -46,6 +47,14 @@ var alwaysOnSections = map[string]bool{"overview": true, "settings": true, "syst
 // systemBackend 測試可以換掉(預設是目前模式的核心)
 var systemBackend = agentBackend
 
+// systemWriteBackend 改功能開關用的核心:有呼叫者用他在 org 的身分
+func systemWriteBackend(who *Caller, org string) (backend.Backend, error) {
+	if who == nil {
+		return systemBackend()
+	}
+	return coreBackendFor(who, "", org)
+}
+
 type sysState struct {
 	mu sync.Mutex
 	// key 目前這份屬於哪一個(模式 + 組織)
@@ -75,8 +84,12 @@ type sysState struct {
 var sysStates sync.Map // *App → *sysState
 
 func sysOf(a *App) *sysState {
-	v, _ := sysStates.LoadOrStore(a, &sysState{lastGood: map[string]*service.SystemSettingsView{}, serverLast: map[string]*service.ServerFeaturesView{}})
+	v, _ := sysStates.LoadOrStore(a, newSysState())
 	return v.(*sysState)
+}
+
+func newSysState() *sysState {
+	return &sysState{lastGood: map[string]*service.SystemSettingsView{}, serverLast: map[string]*service.ServerFeaturesView{}}
 }
 
 // sysKey 模式 + 組織(換了 server 或組織就是另一份)
@@ -211,9 +224,13 @@ func (a *App) GuardSection(section string) (string, string) {
 	if section == "" || a.SectionVisible(section) {
 		return section, ""
 	}
-	notice := "「" + sectionTitle(section) + "」在系統設定裡關閉了,已改去總覽"
+	notice := closedSectionNotice(section)
 	a.featureNotice(notice)
 	return "overview", notice
+}
+
+func closedSectionNotice(section string) string {
+	return "「" + sectionTitle(section) + "」在系統設定裡關閉了,已改去總覽"
 }
 
 // enforceNav 功能開關換了:目前所在頁被關掉就切回總覽並提示(不拿 Mu 呼叫)
@@ -222,7 +239,9 @@ func (a *App) enforceNav() {
 	cur := a.Nav.Section
 	moved := false
 	if cur != "" && !a.SectionVisible(cur) {
-		a.featureNotice("「" + sectionTitle(cur) + "」在系統設定裡關閉了,已切回總覽")
+		if !a.PerUserUI() { // 分人時沒有人看 App.Nav(各畫面自己換掉關閉的頁面),不要在大家的畫面放提示
+			a.featureNotice("「" + sectionTitle(cur) + "」在系統設定裡關閉了,已切回總覽")
+		}
 		a.Nav.Section, a.Nav.FocusID = "overview", ""
 		moved = true
 	}
@@ -331,12 +350,12 @@ func (st *sysState) applyServer(sk string, x *service.ServerFeaturesView, err er
 
 // ServerFeaturesSave 改這台伺服器開放的功能(系統層;核心要伺服器管理員,web 的登入者權限由 internal/web 先擋)。
 // 成功後套用核心回傳的,並重讀組織層(組織層的清單跟著系統層變)。不拿 Mu 呼叫
-func (a *App) ServerFeaturesSave(features map[string]bool, reset []string) (*service.ServerFeaturesView, error) {
+func (a *App) ServerFeaturesSave(features map[string]bool, reset []string, who ...*Caller) (*service.ServerFeaturesView, error) {
 	if len(features) == 0 && len(reset) == 0 {
 		return nil, UserError{"沒有要改的功能"}
 	}
 	_, key, _, _ := a.sysBegin()
-	be, err := systemBackend()
+	be, err := systemWriteBackend(firstCaller(who), "")
 	if err != nil {
 		return nil, UserError{sysErrText(err)}
 	}
@@ -353,6 +372,7 @@ func (a *App) ServerFeaturesSave(features map[string]bool, reset []string) (*ser
 	}
 	st.mu.Unlock()
 	a.Changed("system")
+	a.InvalidateScoped() // 系統層換了:各組織快取的組織層清單也跟著變
 	a.SystemRefresh()
 	return x, nil
 }
@@ -369,7 +389,7 @@ func errOrgChanged(shown, now string) error {
 
 // SystemSaveFor 改功能開關(組織管理員;核心判斷權限,web 的登入者權限由 internal/web 先擋);
 // expectOrg 是畫面顯示的組織("" = 不檢查),和目前的組織不同時不存、回 409。成功後套用核心回傳的(不拿 Mu 呼叫)
-func (a *App) SystemSaveFor(expectOrg string, features map[string]bool, reset []string) (*service.SystemSettingsView, error) {
+func (a *App) SystemSaveFor(expectOrg string, features map[string]bool, reset []string, who ...*Caller) (*service.SystemSettingsView, error) {
 	if len(features) == 0 && len(reset) == 0 {
 		return nil, UserError{"沒有要改的功能"}
 	}
@@ -377,7 +397,7 @@ func (a *App) SystemSaveFor(expectOrg string, features map[string]bool, reset []
 	if expectOrg != "" && expectOrg != org {
 		return nil, errOrgChanged(expectOrg, org)
 	}
-	be, err := systemBackend()
+	be, err := systemWriteBackend(firstCaller(who), org)
 	if err != nil {
 		return nil, UserError{sysErrText(err)}
 	}
@@ -516,7 +536,7 @@ func init() {
 			return nil, err
 		}
 		org, _ := args["org"].(string)
-		if _, err := a.SystemSaveFor(org, features, reset); err != nil {
+		if _, err := a.SystemSaveFor(org, features, reset, CallerOf(args)); err != nil {
 			return nil, err
 		}
 		a.Mu.Lock()
@@ -530,7 +550,7 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := a.ServerFeaturesSave(features, reset); err != nil {
+		if _, err := a.ServerFeaturesSave(features, reset, CallerOf(args)); err != nil {
 			return nil, err
 		}
 		a.Mu.Lock()

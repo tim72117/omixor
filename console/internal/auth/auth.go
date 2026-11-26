@@ -183,6 +183,11 @@ func (s *Service) Login(username, password, _ string) (string, User, error) {
 	return tok, u, nil
 }
 
+// UserSettings 某份設定(可能還沒存)怎麼把目錄帳號對到核心使用者:email 網域與是否信任目錄的 mail(同 LDAPSettings)
+func (s *Service) UserSettings(c Config) service.LDAPSettings {
+	return service.LDAPSettings{EmailDomain: c.effectiveEmailDomain(), TrustMail: c.effectiveTrustMail()}
+}
+
 // User 由 token 找登入的人(過期回 false)
 func (s *Service) User(token string) (User, bool) {
 	s.mu.Lock()

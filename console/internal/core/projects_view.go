@@ -48,7 +48,6 @@ func (a *App) StopProjectsTimer() {
 
 // projectsRefresh 從核心重讀 org 的專案換進快取(不拿 Mu),回傳內容有沒有變;讀不到時保留原本的
 func (a *App) projectsRefresh(org string) bool {
-	a.InvalidateRestricted() // 專案、成員有變:受限專案的快取作廢
 	var list []model.Project
 	var err error
 	if org != "" || IsRemote() { // 本機還沒有組織時不問核心
@@ -74,6 +73,9 @@ func (a *App) projectsRefresh(org string) bool {
 		list = []model.Project{}
 	}
 	changed := st.org != org || !st.loaded || string(Marshal(st.list)) != string(Marshal(list))
+	if changed && st.loaded && st.org == org { // 別的路徑改了專案:受限專案的快取作廢
+		a.InvalidateRestricted()
+	}
 	st.org, st.list, st.loaded = org, list, true
 	return changed
 }
@@ -143,21 +145,21 @@ func init() {
 
 type restrictedCache struct {
 	mu   sync.Mutex
-	org  string
 	set  map[string]bool
 	at   time.Time
 	list bool
 }
 
-var restrictedCaches sync.Map // *App → *restrictedCache
+// restrictedCaches 每個組織一份,放在原本的 App 上(一次性 App 共用);系統身分讀的清單,和呼叫者無關
+var restrictedCaches sync.Map // scopedKey → *restrictedCache
 
 // RestrictedProjectIDsOf 組織的受限專案 id(5 秒快取)。沒有專案功能(核心不支援)回空集合
 func (a *App) RestrictedProjectIDsOf(org string) (map[string]bool, error) {
-	v, _ := restrictedCaches.LoadOrStore(a, &restrictedCache{})
+	v, _ := restrictedCaches.LoadOrStore(scopedKey{a.root(), org}, &restrictedCache{})
 	c := v.(*restrictedCache)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.list && c.org == org && time.Since(c.at) < 5*time.Second {
+	if c.list && time.Since(c.at) < scopedTTL {
 		return c.set, nil
 	}
 	be, err := agentBackend()
@@ -177,7 +179,7 @@ func (a *App) RestrictedProjectIDsOf(org string) (map[string]bool, error) {
 			set[x.ID] = true
 		}
 	}
-	c.org, c.set, c.at, c.list = org, set, time.Now(), true
+	c.set, c.at, c.list = set, time.Now(), true
 	return set, nil
 }
 
@@ -186,12 +188,13 @@ func (a *App) RestrictedProjectIDs() (map[string]bool, error) {
 	return a.RestrictedProjectIDsOf(a.currentOrgNow())
 }
 
-// InvalidateRestricted 專案或成員有變時清掉快取
+// InvalidateRestricted 專案或成員有變時清掉快取(整筆換掉,正在讀的舊結果不會留下來)
 func (a *App) InvalidateRestricted() {
-	if v, ok := restrictedCaches.Load(a); ok {
-		c := v.(*restrictedCache)
-		c.mu.Lock()
-		c.list = false
-		c.mu.Unlock()
-	}
+	root := a.root()
+	restrictedCaches.Range(func(k, _ any) bool {
+		if k.(scopedKey).root == root {
+			restrictedCaches.Delete(k)
+		}
+		return true
+	})
 }

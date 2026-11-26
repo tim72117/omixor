@@ -1,4 +1,5 @@
 // AI 自動化 › 虛擬角色:角色設定、例行任務、指派任務、看任務進度(Swift 的 AutoAgentsView)
+import { useOutsideSystemOrg } from "../../lib/switchOrg";
 import { AutoTextarea } from "../../components/AutoTextarea";
 import { Fragment, useEffect, useState } from "react";
 import { ApiError, action, tool, useRun, useView } from "../../api";
@@ -99,7 +100,8 @@ export function AutoAgents({ selection, setSelection }: { selection?: string; se
 }
 
 function AgentDetail({ agent, tasks, edit }: { agent: Agent; tasks: AgentTask[]; edit: () => void }) {
-  const runnerOn = useFeatures().enabled("automation.runner"); // 系統設定 › AI 自動化 › 自動執行
+  const outside = useOutsideSystemOrg(); // 自動執行只執行系統工作組織的任務
+  const runnerOn = useFeatures().enabled("automation.runner") && !outside; // 系統設定 › AI 自動化 › 自動執行
   const [cab] = useView<CabinetView>("cabinet");
   const issueLabel = useIssueLabel(), isIssueRef = useIsIssueRef();
   const dir = useDirectory();

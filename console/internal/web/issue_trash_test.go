@@ -165,6 +165,7 @@ func TestTrashActionsAdminOnly(t *testing.T) {
 	if _, out := c.do("POST", "/api/auth/config", map[string]any{"config": ldapCfg(f), "bindPassword": "svc-pw", "testUsername": "alice", "testPassword": "alice-pw"}, nil); out["error"] != nil {
 		t.Fatal(out)
 	}
+	joinOrg(t, app, au, "bob")
 	bob := &client{t: t, srv: c.srv, c: newJarClient()}
 	if _, out := bob.do("POST", "/api/auth/login", map[string]any{"username": "bob", "password": "bob-pw"}, nil); out["error"] != nil {
 		t.Fatal(out)

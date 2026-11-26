@@ -1,4 +1,5 @@
 // 事件管理:事件列表 + 詳情、值班、統計(Swift 的 IncidentsView、IncListPane、IncDeclareSheet)
+import { useOutsideSystemOrg } from "../../lib/switchOrg";
 import { AutoTextarea } from "../../components/AutoTextarea";
 import { useEffect, useMemo, useState } from "react";
 import { tool, useRun, useView } from "../../api";
@@ -190,6 +191,9 @@ function IncRow({ inc, on, onClick }: { inc: Incident; on: boolean; onClick: () 
 function DeclareSheet({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
   const { services, onCall } = useInc();
   const dir = useDirectory();
+  // 系統工作組織以外沒有人員清單:指揮官是組織成員(email),沒選就是自己
+  const outside = useOutsideSystemOrg();
+  const [members] = useView<{ members?: { email: string; name?: string }[] }>("members");
   const [title, setTitle] = useState("");
   const [sev, setSev] = useState(2);
   const [svc, setSvc] = useState<Set<string>>(new Set());
@@ -206,14 +210,14 @@ function DeclareSheet({ open, onClose, onCreated }: { open: boolean; onClose: ()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   // MCP 的 incident_declare 要求 impact,所以影響範圍也要填(Swift 版畫面可以留空)
-  const can = title.trim() !== "" && commander !== "" && impact.trim() !== "";
+  const can = title.trim() !== "" && (outside || commander !== "") && impact.trim() !== "";
   const list = services
     .filter((s) => !sq.trim() || s.name.toLowerCase().includes(sq.trim().toLowerCase()) || svc.has(s.id))
     .sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
   const submit = () => run(async () => {
     if (!can) return;
     const r = await tool<{ id?: string } | string>("incident_declare", {
-      title: title.trim(), sev, impact: impact.trim(), commander, services: services.map((s) => s.id).filter((id) => svc.has(id)),
+      title: title.trim(), sev, impact: impact.trim(), commander: outside && !members?.members?.some((m) => m.email === commander) ? "" : commander, services: services.map((s) => s.id).filter((id) => svc.has(id)),
     });
     const id = typeof r === "string" ? (/INC-\d+/.exec(r)?.[0] ?? "") : r?.id ?? "";
     onClose();
@@ -234,8 +238,9 @@ function DeclareSheet({ open, onClose, onCreated }: { open: boolean; onClose: ()
       </label>
       <label className={fieldClass}><span>指揮官</span>
         <select className="select" value={commander} onChange={(e) => setCommander(e.target.value)}>
-          <option value="">請選擇</option>
-          {dir.people.map((p) => <option key={p.id} value={p.id}>{p.name}({p.role})</option>)}
+          <option value="">{outside ? "我自己" : "請選擇"}</option>
+          {outside ? (members?.members ?? []).map((m) => <option key={m.email} value={m.email}>{m.name || m.email}</option>)
+            : dir.people.map((p) => <option key={p.id} value={p.id}>{p.name}({p.role})</option>)}
         </select>
       </label>
       <label className={fieldClass}><span>影響範圍</span><AutoTextarea minRows={3} value={impact} placeholder="哪些使用者、什麼功能受影響" onChange={setImpact} /></label>

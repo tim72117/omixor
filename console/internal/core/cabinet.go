@@ -223,282 +223,6 @@ func (a *App) ValidateCabinetLayout(sections []CabinetSection) string {
 	return model.ValidateCabinetLayout(sections, a.CabinetDocs())
 }
 
-// ---- 寫:交給核心,成功後更新快取、寫動態、通知畫面 ----
-
-// CabinetOps 文件櫃的寫入。呼叫時不要拿著 Mu
-type CabinetOps struct{ a *App }
-
-func (a *App) CabinetOps() CabinetOps { return CabinetOps{a} }
-
-func (o CabinetOps) done(org string) {
-	o.a.cabinetRefresh(org)
-	o.a.Changed("cabinet")
-}
-
-func (o CabinetOps) GetCabinet(org string) (*model.Cabinet, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	return b.GetCabinet(org)
-}
-
-func (o CabinetOps) GetDoc(org, id string) (*CabinetDoc, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	return b.GetDoc(org, id)
-}
-
-// CreateDoc 新增文件並記到動態牆(同 Swift 的 Cabinet.create)
-func (o CabinetOps) CreateDoc(org string, in service.DocInput) (*CabinetDoc, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	d, err := b.CreateDoc(org, in)
-	if err != nil {
-		return nil, err
-	}
-	o.done(org)
-	loc := o.docPlace(org, d)
-	o.a.Mu.Lock()
-	o.a.Log(AuthorActor(d.Author), "archivebox", "文件櫃新增 "+d.ID+"「"+d.Title+"」("+loc+")", "cabinet")
-	o.a.Mu.Unlock()
-	return d, nil
-}
-
-// UpdateDoc 修改文件(不記動態牆,同 Swift)
-func (o CabinetOps) UpdateDoc(org, id string, p service.DocPatch) (*CabinetDoc, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	d, err := b.UpdateDoc(org, id, p)
-	if err == nil {
-		o.done(org)
-	}
-	return d, err
-}
-
-// ReadDoc 分段讀(大綱、段落、行號範圍、搜尋;見 omixor-core/model/docsections.go)
-func (o CabinetOps) ReadDoc(org, id string, in service.DocRead) (*service.DocView, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	return b.ReadDoc(org, id, in)
-}
-
-// EditDoc 局部修改(字串取代、整段替換、段尾附加);改完更新快取、通知畫面
-func (o CabinetOps) EditDoc(org, id string, in service.DocEdit) (*service.DocEditResult, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	r, err := b.EditDoc(org, id, in)
-	if err == nil && !r.Unchanged {
-		o.done(org)
-	}
-	return r, err
-}
-
-func (o CabinetOps) DeleteDoc(org, id string) error {
-	b, err := agentBackend()
-	if err != nil {
-		return err
-	}
-	if err = b.DeleteDoc(org, id); err == nil {
-		o.done(org)
-	}
-	return err
-}
-
-// SaveLayout 存未分專案的新結構(核心檢查:被拿掉的區塊、頁籤裡不能還有文件;遠端模式要組織管理員)
-// expected 非 nil 是樂觀鎖(版本不符 409,訊息「結構已被別人更新,請重新載入」);nil 是無鎖覆蓋
-func (o CabinetOps) SaveLayout(org string, layout []CabinetSection, expected *int64) ([]CabinetSection, error) {
-	return o.SaveProjectLayout(org, "", layout, expected)
-}
-
-// SaveProjectLayout 存某個專案的新結構(project 空 = 未分專案;不存在的專案 404)
-func (o CabinetOps) SaveProjectLayout(org, project string, layout []CabinetSection, expected *int64) ([]CabinetSection, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	var l []CabinetSection
-	if project == "" {
-		l, err = b.SaveCabinetLayout(org, layout, expected)
-	} else {
-		l, err = b.SaveProjectCabinetLayout(org, project, layout, expected)
-	}
-	if err == nil || cabCode(err) == 409 { // 版本衝突:別人改過了,先把最新的結構換進快取、通知畫面重讀
-		o.done(org)
-	}
-	return l, err
-}
-
-// GetProjectCabinet 某個專案的結構與文件(project 空 = 未分專案;不存在的專案 404)。直接問核心,不走快取
-func (o CabinetOps) GetProjectCabinet(org, project string) (*model.Cabinet, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	if project == "" {
-		return b.GetCabinet(org)
-	}
-	return b.GetProjectCabinet(org, project)
-}
-
-// docPlace 文件在動態牆上的位置:「區塊 › 頁籤」,專案的文件前面加專案名稱
-func (o CabinetOps) docPlace(org string, d *CabinetDoc) string {
-	if d.Project == "" {
-		return model.Layout(o.a.cabinetOf(org).Layout).Location(d.Section, d.TabPath())
-	}
-	name := d.Project
-	if l, err := o.ListProjects(org); err == nil {
-		for _, x := range l {
-			if x.ID == d.Project {
-				name = x.Name
-			}
-		}
-	}
-	if c, err := o.GetProjectCabinet(org, d.Project); err == nil {
-		return name + " › " + model.Layout(c.Layout).Location(d.Section, d.TabPath())
-	}
-	return name + " › " + d.Section
-}
-
-// ---- 專案(組織底下的一層,目前只有文件櫃分專案;見 omixor-core/model/project.go) ----
-
-func (o CabinetOps) ListProjects(org string) ([]model.Project, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	return b.ListProjects(org)
-}
-
-// CreateProject 新增專案(核心:組織管理員;名稱必填、不重複)
-func (o CabinetOps) CreateProject(org string, in service.ProjectInput) (*model.Project, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	x, err := b.CreateProject(org, in)
-	if err != nil {
-		return nil, err
-	}
-	o.a.projectsRefresh(org)
-	o.a.Changed("cabinet")
-	return x, nil
-}
-
-// UpdateProject 改專案名稱或說明
-func (o CabinetOps) UpdateProject(org, id string, p service.ProjectPatch) (*model.Project, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	x, err := b.UpdateProject(org, id, p)
-	if err == nil {
-		o.a.projectsRefresh(org)
-		o.a.Changed("cabinet")
-	}
-	return x, err
-}
-
-// DeleteProject 刪除專案(裡面還有文件時核心回 409)
-func (o CabinetOps) DeleteProject(org, id string) error {
-	b, err := agentBackend()
-	if err != nil {
-		return err
-	}
-	if err = b.DeleteProject(org, id); err == nil {
-		o.a.projectsRefresh(org)
-		o.a.Changed("cabinet")
-	}
-	return err
-}
-
-// LinkProjectRepo 連結專案與程式碼倉庫(核心:組織管理員;只用於預設值與篩選,不是權限來源)
-func (o CabinetOps) LinkProjectRepo(org, project, repo string) (*model.Project, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	x, err := b.LinkProjectRepo(org, project, repo)
-	if err == nil {
-		o.a.projectsRefresh(org)
-		o.a.Changed("cabinet")
-	}
-	return x, err
-}
-
-// UnlinkProjectRepo 取消專案與程式碼倉庫的連結(不影響已經建立的 Issue)
-func (o CabinetOps) UnlinkProjectRepo(org, project, repo string) (*model.Project, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	x, err := b.UnlinkProjectRepo(org, project, repo)
-	if err == nil {
-		o.a.projectsRefresh(org)
-		o.a.Changed("cabinet")
-	}
-	return x, err
-}
-
-// ListProjectMembers 專案成員(核心:看得到專案的組織成員;受限專案要是專案成員或組織管理員)
-func (o CabinetOps) ListProjectMembers(org, project string) ([]model.ProjectMember, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	return b.ListProjectMembers(org, project)
-}
-
-// SetProjectMember 加入專案成員或改角色(核心:組織管理員或專案管理員)
-func (o CabinetOps) SetProjectMember(org, project string, in service.ProjectMemberInput) (*model.ProjectMember, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	m, err := b.SetProjectMember(org, project, in)
-	if err == nil {
-		o.a.projectsRefresh(org)
-		o.a.Changed("cabinet")
-	}
-	return m, err
-}
-
-// RemoveProjectMember 移除專案成員(核心:組織管理員或專案管理員)
-func (o CabinetOps) RemoveProjectMember(org, project, actor string) error {
-	b, err := agentBackend()
-	if err != nil {
-		return err
-	}
-	err = b.RemoveProjectMember(org, project, actor)
-	if err == nil {
-		o.a.projectsRefresh(org)
-		o.a.Changed("cabinet")
-	}
-	return err
-}
-
-func (o CabinetOps) Import(org string, in service.CabinetImport) (*service.CabinetImportResult, error) {
-	b, err := agentBackend()
-	if err != nil {
-		return nil, err
-	}
-	res, err := b.ImportCabinet(org, in)
-	if err == nil {
-		o.done(org)
-	}
-	return res, err
-}
-
 // ---- 舊資料(本機的 cabinet.json / cabinet-layout.json)一次性匯入 ----
 
 const cabinetImportedFile = "cabinet-imported.json"
@@ -607,7 +331,7 @@ func init() {
 		if template == "copyCurrent" {
 			layout = model.CloneLayout(a.CabinetLayout())
 		}
-		if be, err := agentBackend(); err == nil {
+		if be, err := coreBackendFor(a.caller, "", filepath.Base(dir)); err == nil { // 建立組織的人
 			zero := int64(0) // 新組織第一次存;已經有人存了(409)就不覆蓋
 			if _, err := be.SaveCabinetLayout(filepath.Base(dir), layout, &zero); err != nil && cabCode(err) != 409 {
 				log.Printf("新組織的文件櫃結構:%v", err)
@@ -674,7 +398,7 @@ func init() {
 	RegisterAction("project_create", func(a *App, args map[string]any) (any, error) {
 		name := strings.TrimSpace(agentArg(args, "name"))
 		restricted, _ := args["restricted"].(bool) // 受限專案:只有專案成員與組織管理員看得到
-		x, err := a.CabinetOps().CreateProject(a.currentOrgNow(), service.ProjectInput{Name: name, Key: strings.TrimSpace(agentArg(args, "key")),
+		x, err := a.CabinetOpsFor(CallerOf(args)).CreateProject(a.currentOrgNow(), service.ProjectInput{Name: name, Key: strings.TrimSpace(agentArg(args, "key")),
 			Description: strings.TrimSpace(agentArg(args, "description")), Restricted: restricted})
 		if err != nil {
 			return nil, agentConflictErr(err) // 代號格式、重複、保留字的訊息原樣帶回
@@ -701,7 +425,7 @@ func init() {
 		if p.Name == nil && p.Description == nil && p.Key == nil && p.Restricted == nil {
 			return nil, UserError{"要給 name、key、description 或 restricted"}
 		}
-		x, err := a.CabinetOps().UpdateProject(a.currentOrgNow(), agentArg(args, "id"), p)
+		x, err := a.CabinetOpsFor(CallerOf(args)).UpdateProject(a.currentOrgNow(), agentArg(args, "id"), p)
 		if err != nil {
 			return nil, agentConflictErr(err)
 		}
@@ -709,14 +433,14 @@ func init() {
 	})
 	// 專案與 repo 的連結(參數 id = 專案 id、repo;核心:組織管理員)
 	RegisterAction("project_repo_link", func(a *App, args map[string]any) (any, error) {
-		x, err := a.CabinetOps().LinkProjectRepo(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "repo"))
+		x, err := a.CabinetOpsFor(CallerOf(args)).LinkProjectRepo(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "repo"))
 		if err != nil {
 			return nil, agentConflictErr(err)
 		}
 		return x, nil
 	})
 	RegisterAction("project_repo_unlink", func(a *App, args map[string]any) (any, error) {
-		x, err := a.CabinetOps().UnlinkProjectRepo(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "repo"))
+		x, err := a.CabinetOpsFor(CallerOf(args)).UnlinkProjectRepo(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "repo"))
 		if err != nil {
 			return nil, agentConflictErr(err)
 		}
@@ -734,7 +458,7 @@ func init() {
 		return l, nil
 	})
 	RegisterAction("project_member_set", func(a *App, args map[string]any) (any, error) {
-		m, err := a.CabinetOps().SetProjectMember(a.currentOrgNow(), agentArg(args, "id"),
+		m, err := a.CabinetOpsFor(CallerOf(args)).SetProjectMember(a.currentOrgNow(), agentArg(args, "id"),
 			service.ProjectMemberInput{Actor: agentArg(args, "actor"), Role: agentArg(args, "role")})
 		if err != nil {
 			return nil, agentConflictErr(err)
@@ -742,10 +466,10 @@ func init() {
 		return m, nil
 	})
 	RegisterAction("project_member_remove", func(a *App, args map[string]any) (any, error) {
-		return nil, agentUserErr(a.CabinetOps().RemoveProjectMember(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "actor")))
+		return nil, agentUserErr(a.CabinetOpsFor(CallerOf(args)).RemoveProjectMember(a.currentOrgNow(), agentArg(args, "id"), agentArg(args, "actor")))
 	})
 	RegisterAction("project_delete", func(a *App, args map[string]any) (any, error) {
-		return nil, agentUserErr(a.CabinetOps().DeleteProject(a.currentOrgNow(), agentArg(args, "id")))
+		return nil, agentUserErr(a.CabinetOpsFor(CallerOf(args)).DeleteProject(a.currentOrgNow(), agentArg(args, "id")))
 	})
 	// cabinet_doc_get 依 id 找文件(任何專案;畫面從別頁跳過來時用來切到文件所在的專案)。找不到回 null
 	RegisterAction("cabinet_doc_get", func(a *App, args map[string]any) (any, error) {
@@ -775,14 +499,14 @@ func init() {
 			}
 			expected = &n
 		}
-		l, err := a.CabinetOps().SaveProjectLayout(a.currentOrgNow(), project, layout, expected)
+		l, err := a.CabinetOpsFor(CallerOf(args)).SaveProjectLayout(a.currentOrgNow(), project, layout, expected)
 		if err != nil {
 			return nil, agentConflictErr(err) // 版本衝突 409 帶 currentVersion 給畫面
 		}
 		return l, nil
 	})
 	RegisterAction("cabinet_doc_delete", func(a *App, args map[string]any) (any, error) {
-		err := a.CabinetOps().DeleteDoc(a.currentOrgNow(), agentArg(args, "id"))
+		err := a.CabinetOpsFor(CallerOf(args)).DeleteDoc(a.currentOrgNow(), agentArg(args, "id"))
 		if cabCode(err) == 404 { // 已經不在了:同原本的行為,不算錯
 			return nil, nil
 		}

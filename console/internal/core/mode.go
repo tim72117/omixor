@@ -467,14 +467,15 @@ func (a *App) SetMode(mode, server string) error { return a.SetModeAuth(mode, se
 func (a *App) SetModeAuth(mode, server, auth string) error {
 	switch mode {
 	case ModeLocal:
-		a.Mu.Lock()
-		defer a.Mu.Unlock()
-		setGateChosen(true)
-		if currentMode().Mode == ModeLocal {
+		return a.switching(func() error {
+			a.Mu.Lock()
+			defer a.Mu.Unlock()
+			setGateChosen(true)
+			if currentMode().Mode != ModeLocal {
+				a.enterMode(modeFile{Mode: ModeLocal}, nil)
+			}
 			return nil
-		}
-		a.enterMode(modeFile{Mode: ModeLocal}, nil)
-		return nil
+		})
 	case ModeRemote:
 		sc, err := resolveServer(server)
 		if err != nil {
@@ -493,11 +494,13 @@ func (a *App) SetModeAuth(mode, server, auth string) error {
 		if err != nil {
 			return fmt.Errorf("讀不到組織清單:%v", err)
 		}
-		a.Mu.Lock()
-		defer a.Mu.Unlock()
-		setGateChosen(true)
-		a.enterMode(modeFile{Mode: ModeRemote, Server: srv}, orgs)
-		return nil
+		return a.switching(func() error { // 上面的登入與連網都不拿鎖
+			a.Mu.Lock()
+			defer a.Mu.Unlock()
+			setGateChosen(true)
+			a.enterMode(modeFile{Mode: ModeRemote, Server: srv}, orgs)
+			return nil
+		})
 	}
 	return UserError{"模式只有 local 或 remote"}
 }

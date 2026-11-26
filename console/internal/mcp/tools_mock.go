@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	coremcp "omixor-core/mcp"
 	"omixor-core/service"
 	"omixor-web/internal/core"
 )
@@ -112,10 +113,11 @@ func init() {
 				}
 				recent = append(recent, map[string]any{"date": it["date"], "by": a.Name(core.ActorFrom(it["actor"])), "text": it["text"], "section": it["section"]})
 			}
+			nav := a.NavOf(c.Who) // 網頁的登入者看自己的目前頁;MCP 連接埠是全站那一份
 			firing, open, pending, running := a.FiringAlerts(), a.OpenIncidents(), a.PendingApprovals(), a.RunningPipelines()
 			return map[string]any{
 				"now": core.ISO(now),
-				"ui":  map[string]any{"section": a.Nav.Section, "env": a.Nav.Env, "timeRange": a.Nav.TimeRange, "focusId": nullable(a.Nav.FocusID)},
+				"ui":  map[string]any{"section": nav.Section, "env": nav.Env, "timeRange": nav.TimeRange, "focusId": nullable(nav.FocusID)},
 				"counts": map[string]any{
 					"services": len(a.C["services"]), "unhealthyServices": unhealthy, "firingAlerts": len(firing),
 					"openIncidents": len(open), "pendingApprovals": len(pending), "runningPipelines": len(running),
@@ -211,39 +213,49 @@ func init() {
 		})
 	})
 
+	// navigate 只移動呼叫者自己的畫面(core/nav_user.go);啟用 LDAP 時,沒有登入者的連線(MCP 3765)移不動任何人的畫面,回應裡說明
 	Register("navigate", func(c *Call) (any, error) {
 		return locked(c, func(a *core.App) (any, error) {
 			env, err := c.Args.OptionalEnum("env", core.DeployEnvs)
 			if err != nil {
 				return nil, err
 			}
-			if env != "" {
-				a.Nav.Env = env
-			}
 			tr, err := c.Args.OptionalEnum("time_range", core.TimeRanges)
 			if err != nil {
 				return nil, err
-			}
-			if tr != "" {
-				a.Nav.TimeRange = tr
 			}
 			section, err := c.Args.OptionalEnum("section", core.AppSections)
 			if err != nil {
 				return nil, err
 			}
+			focus, hasFocus := c.Args.String("focus_id")
 			notice := ""
 			if section != "" {
-				focus := c.Args.Str("focus_id")
 				// 系統設定關掉的頁面:改去總覽,回傳 notice 說明(同 App 的 MCPHandler.navigate)
-				if to, n := a.GuardSection(section); n != "" {
+				if to, n := a.GuardSectionFor(c.Who, section); n != "" {
 					section, focus, notice = to, "", n
 				}
-				a.Nav.Section = section
-				a.Nav.FocusID = focus
-			} else if f, ok := c.Args.String("focus_id"); ok {
-				a.Nav.FocusID = f
 			}
-			out := map[string]any{"section": a.Nav.Section, "focusId": nullable(a.Nav.FocusID), "env": a.Nav.Env, "timeRange": a.Nav.TimeRange}
+			nav := a.UpdateNav(c.Who, func(nav *core.Nav) {
+				if env != "" {
+					nav.Env = env
+				}
+				if tr != "" {
+					nav.TimeRange = tr
+				}
+				if section != "" {
+					nav.Section, nav.FocusID = section, focus
+				} else if hasFocus {
+					nav.FocusID = focus
+				}
+			})
+			out := map[string]any{"section": nav.Section, "focusId": nullable(nav.FocusID), "env": nav.Env, "timeRange": nav.TimeRange}
+			if c.Who == nil && a.PerUserUI() {
+				if notice != "" {
+					notice += " "
+				}
+				notice += "Sign-in is enabled and this connection is not tied to a signed-in user, so no one's screen was moved."
+			}
 			if notice != "" {
 				out["notice"] = notice
 			}
@@ -330,6 +342,12 @@ func init() {
 	Register("work_item_create", func(c *Call) (any, error) {
 		// 事件的後續工作:事件存在核心,建好工作項目後(鎖外)再請核心把它加進 followUps
 		var incID, org string
+		// OAuth:加進事件的後續工作等於改事件,要和 incident_update 同樣的授權(mcp:admin 且是該組織管理員);建立前就檢查
+		if ref, ok := c.Args.String("incident_id"); ok && ref != "" && c.OAuth != nil {
+			if err := oauthIncidentGrant(c); err != nil {
+				return nil, err
+			}
+		}
 		out, err := locked(c, func(a *core.App) (any, error) {
 			title, err := c.Args.Require("title")
 			if err != nil {
@@ -387,8 +405,7 @@ func init() {
 			return out, err
 		}
 		item, _ := out.(map[string]any)
-		if _, err := c.App.UpdateIncidentCore(org, incID, service.IncidentPatch{AddFollowUps: []string{core.Str(item, "id")},
-			Actor: coreActorOf(c.Actor), Author: core.ActorAuthor(c.Actor)}); err != nil {
+		if err := addFollowUp(c, org, incID, core.Str(item, "id")); err != nil {
 			return nil, Errorf("Work item %s was created but could not be added to the follow-ups of incident %s: %s", core.Str(item, "id"), incID, err.Error())
 		}
 		return out, nil
@@ -564,6 +581,41 @@ func init() {
 			return a.C["activity"][0], nil
 		})
 	})
+}
+
+// addFollowUp 把工作項目加進事件的後續工作:OAuth 用授權者的身分,其他照舊(網頁呼叫者或系統身分)
+func addFollowUp(c *Call, org, incident, item string) error {
+	if c.OAuth == nil {
+		_, err := c.App.UpdateIncidentCore(org, incident, service.IncidentPatch{AddFollowUps: []string{item},
+			Actor: coreActorOf(c.Actor), Author: core.ActorAuthor(c.Actor)}, c.Who)
+		return err
+	}
+	if _, err := c.OAuth.UpdateIncident(org, incident, service.IncidentPatch{AddFollowUps: []string{item}}); err != nil {
+		return err
+	}
+	c.App.IncidentsRefresh(org)
+	c.App.Changed("incidents", "alerts", "badges")
+	return nil
+}
+
+// oauthIncidentGrant OAuth 呼叫要改事件時的授權檢查(同統一入口的 incident_update)
+func oauthIncidentGrant(c *Call) error {
+	if !c.OAuth.OAuthAdmin() {
+		return ToolError{Status: 403, Message: coremcp.OAuthAdminRequiredMessage, Data: map[string]any{"code": coremcp.OAuthCodeAdminScopeRequired}}
+	}
+	orgs, err := c.OAuth.ListOrgs()
+	if err != nil {
+		return ToolErr(err)
+	}
+	c.App.Mu.Lock()
+	org := c.App.CurrentOrgID()
+	c.App.Mu.Unlock()
+	for _, o := range orgs {
+		if o.ID == org && o.MyRole == "admin" {
+			return nil
+		}
+	}
+	return ToolError{Status: 403, Message: "Linking a work item to an incident requires you to be an administrator of organization " + org, Data: map[string]any{"code": coremcp.OAuthCodeOrgAdminRequired}}
 }
 
 func itoa(n int) string { s, _ := core.ScalarString(n); return s }

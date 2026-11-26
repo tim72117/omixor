@@ -23,6 +23,28 @@ func RegisterView(name string, f ViewFunc) {
 	views[name] = f
 }
 
+// callerViews 內容因呼叫者而異的 view(名稱要同時用 RegisterView 登記;沒有呼叫者時用那一份)
+var callerViews = map[string]func(a *App, who *Caller) any{}
+
+// RegisterCallerView 見 callerViews
+func RegisterCallerView(name string, f func(a *App, who *Caller) any) {
+	if _, dup := callerViews[name]; dup {
+		panic("View 重複登記:" + name)
+	}
+	callerViews[name] = f
+}
+
+// ViewFor 同 View;who 不是 nil 而且這個 view 因人而異時,用呼叫者的身分算
+func ViewFor(a *App, name string, who *Caller) (any, bool) {
+	f, ok := callerViews[name]
+	if !ok || who == nil {
+		return View(a, name)
+	}
+	a.Mu.Lock()
+	defer a.Mu.Unlock()
+	return Object(f(a, who)), true
+}
+
 func RegisterAction(name string, f ActionFunc) {
 	if _, dup := actions[name]; dup {
 		panic("Action 重複登記:" + name)
@@ -109,25 +131,31 @@ func init() {
 		name := c
 		RegisterView(name, func(a *App) any { return a.C[name] })
 	}
+	// navigate 只改呼叫者自己的導覽狀態(沒分人時是全站那一份),見 nav_user.go
 	RegisterAction("navigate", func(a *App, args map[string]any) (any, error) {
+		who := CallerOf(args)
 		a.Mu.Lock()
 		f, _ := args["focusId"].(string)
+		section, _ := args["section"].(string)
 		notice := ""
-		if s, ok := args["section"].(string); ok && s != "" {
-			// 系統設定關掉的頁面:改去總覽(提示放在 system view 的 notice,畫面上方會顯示)
-			if to, n := a.GuardSection(s); n != "" {
-				s, f, notice = to, "", n
+		if section != "" {
+			// 系統設定關掉的頁面:改去總覽(沒分人時提示放在 system view 的 notice,畫面上方會顯示)
+			if to, n := a.GuardSectionFor(who, section); n != "" {
+				section, f, notice = to, "", n
 			}
-			a.Nav.Section = s
 		}
-		a.Nav.FocusID = f
-		if s, ok := args["env"].(string); ok && s != "" {
-			a.Nav.Env = s
-		}
-		if s, ok := args["timeRange"].(string); ok && s != "" {
-			a.Nav.TimeRange = s
-		}
-		nav := a.Nav
+		nav := a.UpdateNav(who, func(nav *Nav) {
+			if section != "" {
+				nav.Section = section
+			}
+			nav.FocusID = f
+			if s, ok := args["env"].(string); ok && s != "" {
+				nav.Env = s
+			}
+			if s, ok := args["timeRange"].(string); ok && s != "" {
+				nav.TimeRange = s
+			}
+		})
 		a.Mu.Unlock()
 		if notice != "" {
 			a.Changed("nav", "system")
@@ -147,21 +175,24 @@ var badgeFuncs []func(a *App) map[string]int
 func OnBadge(f func(a *App) map[string]int) { badgeFuncs = append(badgeFuncs, f) }
 
 func init() {
-	RegisterView("badges", func(a *App) any {
-		out := map[string]int{}
-		for _, f := range badgeFuncs {
-			for k, v := range f(a) {
-				out[k] += v
-			}
+	RegisterView("badges", func(a *App) any { return a.badges() })
+}
+
+// badges 各功能登記的徽章加總(拿著 Mu 呼叫)
+func (a *App) badges() map[string]int {
+	out := map[string]int{}
+	for _, f := range badgeFuncs {
+		for k, v := range f(a) {
+			out[k] += v
 		}
-		for k, v := range out {
-			// 關掉的頁面不顯示徽章(同 App 的 badge(for:) 先看 isVisible)
-			if v <= 0 || !a.SectionVisible(k) {
-				delete(out, k)
-			}
+	}
+	for k, v := range out {
+		// 關掉的頁面不顯示徽章(同 App 的 badge(for:) 先看 isVisible)
+		if v <= 0 || !a.SectionVisible(k) {
+			delete(out, k)
 		}
-		return out
-	})
+	}
+	return out
 }
 
 // UserKey 畫面呼叫 Action 時,後端會把登入者的 id 放在 args[UserKey]

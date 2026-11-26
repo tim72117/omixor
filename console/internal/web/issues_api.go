@@ -15,6 +15,7 @@ import (
 	"omixor-core/model"
 	"omixor-core/service"
 
+	"omixor-web/internal/auth"
 	"omixor-web/internal/core"
 )
 
@@ -28,8 +29,8 @@ import (
 //	POST /api/issues/{org}/{id}/delete    刪除
 //
 // {org} 是組織 id;是 omixor-web 目前的組織時,變更會出現在畫面與動態牆,其他組織只改資料。
-// 啟用 LDAP 時,登入的非管理員只能用目前的組織(其他 403);API token 不受限。
-// 作者:啟用 LDAP 時用登入者;用 API token(OMIXOR_API_TOKEN,Authorization: Bearer …)或本機模式時用 body 的 author
+// 啟用 LDAP 時,登入者要是路徑上那個組織的成員(管理員不限;其他 403;遠端模式的非管理員只能用目前的組織);API token 不受限。
+// 作者:啟用 LDAP 時用登入者(寫進核心的身分見 core/caller.go);用 API token(OMIXOR_API_TOKEN,Authorization: Bearer …)或本機模式時用 body 的 author
 // (person id、"mcp" 或 "agent:<角色 id>";沒給是本機使用者)。
 
 // apiToken 有設 OMIXOR_API_TOKEN 且請求帶了相同的 Bearer token
@@ -90,7 +91,7 @@ func otherOrgDenied(r *http.Request, app *core.App, org string) bool {
 	return org != app.CurrentOrgID()
 }
 
-func registerIssueAPI(mux *http.ServeMux, app *core.App) {
+func registerIssueAPI(mux *http.ServeMux, app *core.App, au *auth.Service) {
 	org := func(w http.ResponseWriter, r *http.Request) (string, bool) {
 		o := r.PathValue("org")
 		if !core.ValidOrgID(o) {
@@ -101,7 +102,8 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 			writeFail(w, r, err)
 			return "", false
 		}
-		if otherOrgDenied(r, app, o) {
+		// 有登入者身分的(LDAP、本機模式)由 membershipGate 檢查是不是路徑上那個組織的成員
+		if callerOf(r, au) == nil && otherOrgDenied(r, app, o) {
 			writeJSON(w, 403, map[string]any{"error": "只有管理員可以讀寫其他組織的 Issue;你登入的帳號不是 web 的管理員", "forbidden": true})
 			return "", false
 		}
@@ -169,12 +171,15 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		}
 		labels, _ := strs(in, "labels")
 		author := issueAPIAuthor(r, app, in)
+		who := callerOf(r, au)
 		app.Mu.Lock()
 		var issue model.Issue
 		var failure error
 		app.WithOrgIssues(o, func() {
-			issue = app.CreateIssueIn(service.IssueInput{Title: str(in, "title"), Body: str(in, "body"), Priority: priority, Labels: labels,
-				Source: str(in, "source"), Link: str(in, "link"), Author: author, Repo: str(in, "repo"), Project: projectArg(in)})
+			app.AsCaller(who, func() {
+				issue = app.CreateIssueIn(service.IssueInput{Title: str(in, "title"), Body: str(in, "body"), Priority: priority, Labels: labels,
+					Source: str(in, "source"), Link: str(in, "link"), Author: author, Repo: str(in, "repo"), Project: projectArg(in)})
+			})
 			if issue.ID == "" { // 核心沒存(專案不存在、專案沒有代號、伺服器連不上…):帶原因回去,不要回一份沒有 id 的草稿當成功
 				failure = app.IssueRemoteErr()
 			}
@@ -225,7 +230,12 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		}
 		author := issueAPIAuthor(r, app, in)
 		id := r.PathValue("id")
-		if issueAPIHidden(r, app, o, id) || issueAPIProjectHidden(r, app, o, in) { // 受限專案的 Issue、搬進受限專案:和不存在一樣
+		id, hidden, err := issueAPITarget(r, app, o, id)
+		if err != nil {
+			writeFail(w, r, err)
+			return
+		}
+		if hidden || issueAPIProjectHidden(r, app, o, in) { // 受限專案的 Issue、搬進受限專案:和不存在一樣
 			notFoundRestricted(w)
 			return
 		}
@@ -235,6 +245,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 			badRequest(w, err)
 			return
 		}
+		who := callerOf(r, au)
 		app.Mu.Lock()
 		var updated *model.Issue
 		var failure error
@@ -248,7 +259,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 					return app.UpdateIssueReplacingCommentsAtVersion(id, author, version, change)
 				}
 			}
-			updated = update(id, author, func(i *model.Issue) {
+			change := func(i *model.Issue) {
 				if _, ok := in["title"]; ok {
 					i.Title = patch.Title
 				}
@@ -279,7 +290,8 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 				if _, ok := in["comments"]; ok {
 					i.Comments = patch.Comments
 				}
-			})
+			}
+			app.AsCaller(who, func() { updated = update(id, author, change) })
 			if updated == nil {
 				failure = app.IssueRemoteErr()
 			}
@@ -290,7 +302,11 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 				writeFail(w, r, failure)
 				return
 			}
-			writeJSON(w, 404, map[string]any{"error": "找不到 Issue " + id})
+			writeJSON(w, 404, map[string]any{"error": "找不到 Issue " + r.PathValue("id")})
+			return
+		}
+		if issueAPIResultHidden(r, app, o, *updated) {
+			notFoundRestricted(w)
 			return
 		}
 		writeJSON(w, 200, map[string]any{"result": updated})
@@ -301,8 +317,12 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 		if !ok {
 			return
 		}
-		id := r.PathValue("id")
-		if issueAPIHidden(r, app, o, id) {
+		id, hidden, err := issueAPITarget(r, app, o, r.PathValue("id"))
+		if err != nil {
+			writeFail(w, r, err)
+			return
+		}
+		if hidden {
 			notFoundRestricted(w)
 			return
 		}
@@ -311,9 +331,12 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 			in = map[string]any{}
 		}
 		author := issueAPIAuthor(r, app, in)
+		who := callerOf(r, au)
 		app.Mu.Lock()
 		var failure error
-		app.WithOrgIssues(o, func() { _, failure = app.TrashIssueAs(core.AuthorActor(author), id) })
+		app.WithOrgIssues(o, func() {
+			app.AsCaller(who, func() { _, failure = app.TrashIssueAs(core.AuthorActor(author), id) })
+		})
 		app.Mu.Unlock()
 		if failure != nil { // 找不到 404、沒權限 403、連線錯誤… 照核心的狀態碼,不吞錯
 			writeFail(w, r, failure)
@@ -327,7 +350,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 // 請求的是目前組織時先重讀資料庫(多個用戶端同時寫也看得到彼此的變更);其他組織 WithOrgIssues 本來就每次重讀。
 func IssueAPI(app *core.App) http.Handler {
 	mux := http.NewServeMux()
-	registerIssueAPI(mux, app)
+	registerIssueAPI(mux, app, nil) // 認證在外層、沒有網頁登入者:系統身分
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		org, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/api/issues/"), "/")
 		app.Mu.Lock()

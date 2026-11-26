@@ -206,12 +206,22 @@ func FBDisconnect(a *App, actor Actor) {
 
 // FBLoginWithMeta (a) Meta 登入:OAuth 授權碼 → 長期使用者權杖 → 各專頁的 Page access token(會開瀏覽器、等回呼)
 func FBLoginWithMeta(a *App, actor Actor) error {
+	return fbLoginWithMeta(a, actor, func(wait func()) bool { wait(); return true })
+}
+
+// fbLoginWithMeta 同 FBLoginWithMeta;等人在瀏覽器操作的部分交給 away(見 connLogin)
+func fbLoginWithMeta(a *App, actor Actor, away func(func()) bool) error {
 	c := FBEnsureConnection(a)
 	scope := fbScope(a)
 	if _, ok := vaultSecret(scope, c.ID); c.OAuth.ClientID == "" || !ok {
 		return fbErr("先填 Meta App 的 App ID 與 App secret")
 	}
-	tokens, settings, err := oauthLogin(c, scope)
+	var tokens *TokenSet
+	var settings OAuthSettings
+	var err error
+	if !away(func() { tokens, settings, err = oauthLogin(c, scope) }) {
+		return errSystemSwitched
+	}
 	if err != nil {
 		return err
 	}

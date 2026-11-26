@@ -23,29 +23,35 @@ import css from "./automation.module.css";
 import { AutoCtx, pendingOf, type AutoData } from "./autoShared";
 import { needsHelpTasks, taskNeedsHelp } from "./needsHelpModel";
 import { useFeatureTabs } from "../../features";
+import { useOutsideSystemOrg } from "../../lib/switchOrg";
 
 type Tab = "inbox" | "agents" | "dispatch" | "help" | "log" | "chain" | "flows" | "runs" | "insights";
 const TAB_IDS = ["inbox", "agents", "dispatch", "help", "log", "chain", "flows", "runs", "insights"] as const satisfies readonly Tab[];
+/** 系統工作組織以外的組織能用的分頁(角色、任務、組織鏈分組織;其他是整台一份的) */
+const ORG_TABS: readonly Tab[] = ["agents", "dispatch", "help", "chain"];
 const TABS: { id: Tab; label: string }[] = [
   { id: "inbox", label: "待核准" }, { id: "agents", label: "虛擬角色" }, { id: "dispatch", label: "派發" }, { id: "help", label: "需要處理" }, { id: "log", label: "執行日誌" }, { id: "chain", label: "組織鏈" }, { id: "flows", label: "自動化流程" }, { id: "runs", label: "執行紀錄" }, { id: "insights", label: "成效" },
 ];
 
 export default function AutomationView({ focusId, clearFocus }: SectionProps) {
+  const outside = useOutsideSystemOrg();
   const autosView = useView<Automation[]>("automations");
   const [autos] = autosView;
   const [runs, runsErr] = useView<AutomationRun[]>("automation_runs");
   const [approvals, approvalsErr] = useView<Approval[]>("approvals");
-  const [agents, agentsErr] = useView<AgentsView>("agents", ["orgs"]);
+  const agentsView = useView<AgentsView>("agents", ["orgs"]);
+  const [agents, agentsErr] = agentsView;
   const data: AutoData = useMemo(() => ({
     automations: arr(autos), runs: arr(runs), approvals: arr(approvals),
     agents: agents && Array.isArray(agents.agents) ? { agents: agents.agents, tasks: arr(agents.tasks) } : undefined,
     // 讀取失敗也算「有結果」:否則某個 view 一直失敗時頁面永遠停在載入中(錯誤顯示在分頁上方)
-    agentsError: agentsErr, loaded: autos !== undefined && (runs !== undefined || !!runsErr) && (approvals !== undefined || !!approvalsErr),
-  }), [autos, runs, approvals, agents, agentsErr, runsErr, approvalsErr]);
+    agentsError: agentsErr,
+    loaded: outside ? agents !== undefined || !!agentsErr : autos !== undefined && (runs !== undefined || !!runsErr) && (approvals !== undefined || !!approvalsErr),
+  }), [autos, runs, approvals, agents, agentsErr, runsErr, approvalsErr, outside]);
   // 分頁與選中的角色存在網址(#/automation?tab=dispatch&agent=…):重新整理、上一頁都會還原;切分頁用 replace
   const [rawTab, setRawTab] = useRouteChoice<Tab>("tab", TAB_IDS, "inbox");
   const tabs = useFeatureTabs(TAB_IDS, rawTab, setRawTab, (x) => `automation.${x === "help" || x === "log" ? "dispatch" : x}`); // 需要處理、執行日誌沒有自己的功能開關,跟派發
-  const tab = tabs.shown, setTab = tabs.select;
+  const tab: Tab = outside && !ORG_TABS.includes(tabs.shown) ? "agents" : tabs.shown, setTab = tabs.select;
   const [focusApproval, setFocusApproval] = useState<string>();
   const [detail, setDetail] = useState<string>();
   const [selectedRun, setSelectedRun] = useState<string>();
@@ -90,17 +96,17 @@ export default function AutomationView({ focusId, clearFocus }: SectionProps) {
         <PageHeader title="AI 自動化" subtitle="AI 負責分析與執行,人負責把關。調整每個流程的自主程度,並在這裡核准高風險動作。"
           right={
             <div className="row gap8">
-              <AIBadge text={`${active} 個流程啟用中`} />
+              {!outside && <AIBadge text={`${active} 個流程啟用中`} />}
               {running > 0 && <Pill text={`${running} 個執行中`} color="blue" icon="arrow.triangle.2.circlepath" />}
               {pending.length > 0 && <Pill text={`${pending.length} 件待核准`} color="orange" icon="hand.raised.fill" />}
             </div>
           }>
-          <div className={"tabscroll " + css.tabs}><Segmented value={tab} onChange={setTab} options={TABS.filter((t) => tabs.on(t.id)).map((t) => ({ value: t.id, label: tabTitle(t) }))} /></div>
+          <div className={"tabscroll " + css.tabs}><Segmented value={tab} onChange={setTab} options={TABS.filter((t) => tabs.on(t.id) && (!outside || ORG_TABS.includes(t.id))).map((t) => ({ value: t.id, label: tabTitle(t) }))} /></div>
         </PageHeader>
         <div className={"col " + css.page}>
-          <ViewState view={autosView} what="AI 自動化">{() => <>
-          {runsErr && <ErrorText>讀不到執行紀錄:{runsErr}</ErrorText>}
-          {approvalsErr && <ErrorText>讀不到核准請求:{approvalsErr}</ErrorText>}
+          <ViewState<unknown> view={outside ? agentsView : autosView} what="AI 自動化">{() => <>
+          {!outside && runsErr && <ErrorText>讀不到執行紀錄:{runsErr}</ErrorText>}
+          {!outside && approvalsErr && <ErrorText>讀不到核准請求:{approvalsErr}</ErrorText>}
           {tab === "inbox" ? <AutoInbox focusId={focusApproval} clearFocus={() => setFocusApproval(undefined)} edited={edited} setEdited={setEdited} openAutomation={setDetail} openRun={(id) => { setSelectedRun(id); setTab("runs"); }} />
             : tab === "agents" ? <AutoAgents selection={selectedAgent} setSelection={setSelectedAgent} />
             : tab === "dispatch" ? <AutoDispatch openTask={openTaskPage} openHelp={openHelp} openLog={() => setTab("log")} />

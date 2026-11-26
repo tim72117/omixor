@@ -25,10 +25,11 @@ import (
 //   - 都沒設:沒有
 //
 // 只服務:/oauth/*、/.well-known/*,以及四種 MCP 端點 /mcp、/mcp/org/{org}、/mcp/agent、/mcp/worker/{org}(core/oauth 的 MCPMount,和 server/server.go 同一份)。
+// console 專有工具也掛在這個入口的 /mcp(只給 OAuth,見 oauth_tools.go)。
 // console 自己的 MCP 連接埠(3765,Bearer omxm_)完全不變;這個入口不收 omxm_ 權杖,也沒有配對碼(server 的 /api/* 一概沒有)。
 // 同意畫面證明身分:evoleap、GitLab,以及 console 認證設定啟用 LDAP 時的 LDAP 帳號密碼(對應核心使用者 ldap:<帳號>)。
 // 授權、使用者、組織與工具全是核心的(core/oauth、core/service、core/mcp):這裡只接 console 的核心 service(同一個實例,使用者與組織共用)
-// 與畫面快取。console 才有的工具(gcp、github、fb_、voice_、server、範例資料…)不是核心登記的,所以不會出現在這裡(見 TestConsoleToolsNotOnRemotePort)。
+// 與畫面快取。console 才有的工具對 omx_ token、/mcp/org、角色與執行者端點都不開放。
 // 本機使用者(omixor-console,伺服器管理員)只能在本機使用:不管用什麼 token,在這個入口一律當認證失敗。
 
 // LDAPSource 目前的 LDAP 登入設定與是否啟用(console 的認證設定可以在執行中改)
@@ -224,7 +225,8 @@ func newOAuthHandler(app *core.App, svc *service.Service, cfg *config.Config, ld
 	(&oauth.MCPMount{
 		Svc: svc, Public: public, OAuth: oa, AgentEndpoint: public + "/mcp/agent",
 		Begin: act.Begin, Tool: act.Tool,
-		Reject: func(p *model.Principal) bool { return core.IsLocalUser(p.User) },
+		HostTools: oauthHostTools(app), // console 專有工具,依分級只給 OAuth(oauth_tools.go)
+		Reject:    func(p *model.Principal) bool { return core.IsLocalUser(p.User) },
 		// 和本機連接埠的 /mcp/agent 共用同一個 service:失敗次數分開計,遠端猜錯憑證(反向代理後面來源常是 127.0.0.1)不會把本機的角色擋掉
 		AgentSource: remoteAgentSource,
 		AgentDone: func(role coremcp.Role, tool string, err error) {
@@ -243,5 +245,7 @@ func remoteAgentSource(r *http.Request) string {
 	return "remote:" + service.LimitKey(service.ClientIP(r))
 }
 
-// isWriteTool 不是唯讀登記的工具就當會寫入(寫入後要重讀 console 的快取;這個連接埠的工具都是核心的,見 coremcp.ReadOnlyTools)
-func isWriteTool(name string) bool { return !coremcp.ReadOnlyTools[name] }
+// isWriteTool 不是唯讀登記的工具就當會寫入(寫入後要重讀 console 的快取;核心工具見 coremcp.ReadOnlyTools,專有工具見 oauthConsoleTools)
+func isWriteTool(name string) bool {
+	return !coremcp.ReadOnlyTools[name] && oauthConsoleTools[name].Tier != coremcp.TierRead
+}

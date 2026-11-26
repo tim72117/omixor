@@ -3,6 +3,8 @@
 // 回應標頭 X-Omixor-Version:伺服器算 view / 執行 action 前的資料版本(見 internal/web/web.go setDataVersion),
 // viewStore 拿來判斷 SSE 通知是不是已經反映在手上的資料裡。
 
+import { followOrgChange, orgHeaders } from "./orgSelection.ts";
+
 /** status:HTTP 狀態碼(action 才有);data:回應裡 error 以外的欄位(例如刪角色 409 的 code、taskCounts、total) */
 export class ApiError extends Error {
   status: number;
@@ -47,8 +49,9 @@ function dataVersion(r: Response): number | undefined {
 }
 
 export async function getJSON<T>(url: string): Promise<{ data: T; version?: number }> {
-  const r = await fetch(url);
+  const r = await fetch(url, { headers: orgHeaders() });
   const body = await readBody(r);
+  followOrgChange(r.status, body);
   if (!r.ok) throw toApiError(r, body);
   return { data: body as T, version: dataVersion(r) };
 }
@@ -56,8 +59,10 @@ export async function getJSON<T>(url: string): Promise<{ data: T; version?: numb
 export async function postJSON<T>(url: string, args: unknown): Promise<{ data: T; version?: number }> {
   const r = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...orgHeaders() },
     body: JSON.stringify(args ?? {}),
   });
-  return { data: unwrapPost<T>(r, await readBody(r)), version: dataVersion(r) };
+  const body = await readBody(r);
+  followOrgChange(r.status, body);
+  return { data: unwrapPost<T>(r, body), version: dataVersion(r) };
 }

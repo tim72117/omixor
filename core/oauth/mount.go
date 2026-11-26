@@ -38,6 +38,8 @@ type MCPMount struct {
 	AgentDone func(role mcp.Role, tool string, err error)
 	// NewBackend 這次連線的 Backend;nil = backend.Local{Svc, P}(直接用 service)
 	NewBackend func(*model.Principal) backend.Backend
+	// HostTools 宿主的專有工具:只掛在統一入口 /mcp、只給 OAuth 連線,依分級開放(見 mcp.HostTool);nil = 沒有
+	HostTools []mcp.HostTool
 	// Tool 四種端點每次工具執行前呼叫,回傳的函式在該次處理完後呼叫(見 mcp.Hooks.Tool;宿主處理完重新整理畫面用);nil = 不做事
 	Tool func(name string) (done func())
 	// Begin 每個帶 id 的 MCP 請求開始時呼叫,回傳的函式在處理完後呼叫(見 mcp.Hooks.Begin);nil = 不做事
@@ -143,6 +145,7 @@ func (m *MCPMount) unifiedEndpoint() http.Handler {
 		ResourceMetadata: rm,
 		Begin:            m.Begin,
 		Tool:             m.Tool,
+		HostTools:        m.HostTools,
 		Resolve: func(r *http.Request) (backend.Backend, error) {
 			tok, _ := mcp.BearerToken(r)
 			resource := ""

@@ -7,6 +7,8 @@ import { iconButtonClass } from "../../components/IconButton";
 import { Modal, ModalTitle } from "../../components/Modal";
 import { Pill } from "../../components/Pill";
 import { color } from "../../lib/color";
+import { useCanSwitchTarget } from "../../auth/ConnectGate";
+import { switchOrg } from "../../lib/switchOrg";
 import { go } from "../../lib/nav";
 import type { AgentsView, CabinetView, ConnectionsView, Organization, OrgIndex } from "../../models";
 import { CabinetLayoutEditor } from "../cabinet/CabinetLayoutEditor";
@@ -42,6 +44,7 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
   const [deleting, setDeleting] = useState<Organization>();
   const [editingLayout, setEditingLayout] = useState(false);
   const { busy, error, run } = useRun();
+  const admin = useCanSwitchTarget(); // 沒啟用登入,或登入者是 web 管理員
   const orgs = idx?.orgs ?? [];
   const cur = orgs.find((o) => o.id === idx?.current);
   const layout = Array.isArray(cab?.layout) ? cab!.layout : [];
@@ -60,12 +63,13 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
           <Row key={o.id}>
             <OrgBadge org={o} size={28} />
             <div className="col grow">
-              <span className="row gap6"><span className={css.strong}>{o.name}</span>{o.id === idx?.current && <Pill text="使用中" color="green" />}</span>
+              <span className="row gap6"><span className={css.strong}>{o.name}</span>{o.id === idx?.current && <Pill text="使用中" color="green" />}{idx?.perUser && o.id === idx.system && <Pill text="系統工作組織" color="blue" />}</span>
               <span className="caption muted">{o.note || `id:${o.id}`}</span>
             </div>
-            {o.id !== idx?.current && <button className="btn" disabled={busy} onClick={() => run(() => action("org_switch", { id: o.id }))}>切換</button>}
+            {o.id !== idx?.current && <button className="btn" disabled={busy} onClick={() => run(() => switchOrg(o.id, idx?.perUser))}>切換</button>}
+            {idx?.perUser && admin && o.id !== idx.system && <button className="btn" disabled={busy} title="MCP、背景工作、自動執行與整合頁面用的組織" onClick={() => run(() => action("system_org_set", { id: o.id }))}>設為系統工作組織</button>}
             <button className="btn" onClick={() => setEditing(o)}>編輯…</button>
-            {o.id !== idx?.current && <button className={iconButtonClass.normal} title="刪除" onClick={() => setDeleting(o)}><Icon name="trash" size={13} color="var(--red)" /></button>}
+            {o.id !== idx?.current && o.id !== idx?.system && <button className={iconButtonClass.normal} title="刪除" onClick={() => setDeleting(o)}><Icon name="trash" size={13} color="var(--red)" /></button>}
           </Row>
         ))}
         <Row><button className="btn link" onClick={() => setCreating(true)}><Icon name="plus" size={12} />新增組織…</button></Row>
@@ -77,7 +81,7 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
         {setup("連線", "key.horizontal", `${n(conns?.connections)} 個連線;外部服務的網址與登入`, () => setPane("connections"))}
         {canGo("development") && featuresNow().enabled("development.issues") && setup("Issue", "exclamationmark.bubble", Array.isArray(issues) ? `${issues.filter((i) => i.status === "open").length} 件未解決` : "—", () => go("development", "issues"))}
       </Section>
-      {creating && <NewOrgSheet onClose={() => setCreating(false)} />}
+      {creating && <NewOrgSheet perUser={idx?.perUser} onClose={() => setCreating(false)} />}
       {editing && <EditOrgSheet original={editing} onClose={() => setEditing(undefined)} />}
       {editingLayout && <CabinetLayoutEditor layout={layout} layoutVersion={cab?.layoutVersion ?? 0} docs={Array.isArray(cab?.docs) ? cab!.docs : []} onClose={() => setEditingLayout(false)} />}
       <Modal open={!!deleting} onClose={() => setDeleting(undefined)} width={440} title={`刪除組織「${deleting?.name ?? ""}」?`}>
@@ -108,7 +112,7 @@ function SymbolColorPickers({ symbol, colorName, onSymbol, onColor }: { symbol: 
   );
 }
 
-function NewOrgSheet({ onClose }: { onClose: () => void }) {
+function NewOrgSheet({ perUser, onClose }: { perUser?: boolean; onClose: () => void }) {
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("building.2");
   const [col, setCol] = useState("indigo");
@@ -116,8 +120,9 @@ function NewOrgSheet({ onClose }: { onClose: () => void }) {
   const [switchNow, setSwitchNow] = useState(true);
   const { busy, error, run } = useRun();
   const create = () => run(async () => {
-    await action("org_create", { name: name.trim(), symbol, color: col, template, switch: switchNow });
+    const made = await action<Organization>("org_create", { name: name.trim(), symbol, color: col, template, switch: switchNow });
     onClose();
+    if (perUser && switchNow) await switchOrg(made.id, perUser); // 伺服器不換各人的目前組織,畫面自己切
   });
   return (
     <Modal open onClose={onClose} width={520}>

@@ -190,6 +190,9 @@ func TestGLNormalize(t *testing.T) {
 			t.Errorf("%s → %s %v", in, got, err)
 		}
 	}
+	if _, err := GLNormalizeBaseURL("https://user:pw@gitlab.corp.test"); err == nil {
+		t.Error("網址帶帳號密碼要擋")
+	}
 	if _, err := GLNormalizeBaseURL("gitlab.corp.test"); err == nil {
 		t.Error("沒有 https:// 要擋")
 	}

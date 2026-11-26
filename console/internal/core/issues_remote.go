@@ -30,7 +30,8 @@ import (
 //	      沒有資料庫就不能用(回 errNoDB),不再退回存檔案。測試改用 testcores.go 的 UseTestStores(連測試用 PostgreSQL)
 //
 // 讀:組織載入時讀、每次修改前重讀;遠端模式每 5 秒在背景同步一次。
-// 寫:每個動作各自送給核心,用回傳的內容。本機模式以「omixor-web」(伺服器管理員)身分呼叫核心。
+// 寫:每個動作各自送給核心,用回傳的內容。本機模式以「omixor-web」(伺服器管理員)身分呼叫核心;
+// 網頁登入者的寫入改用本人身分(見 caller.go)。
 
 const (
 	issueRemoteEvoleapConn = "evoleap"
@@ -250,8 +251,8 @@ func issueRemoteExchange(base, scope, stale string) (string, error) {
 // issueSave 一次改多筆、新增多筆(新增的由核心給編號,新的在前)。
 // 本機:直接用核心的存放處,保留 Jira 的建立時間與留言作者;
 // 遠端:一筆一筆送(伺服器的 API 沒有批次;新增的建立時間會是送出的時間)
-func issueSave(scope, org string, updates, creates []model.Issue) error {
-	b, err := coreBackend(scope)
+func issueSave(who *Caller, scope, org string, updates, creates []model.Issue) error {
+	b, err := coreBackendFor(who, scope, org)
 	if err != nil {
 		return err
 	}
@@ -350,7 +351,7 @@ func legacyIssueActors(l *backend.Local, org string, i *model.Issue) error {
 }
 
 func (a *App) issueRemoteSave(org string, updates, creates []model.Issue) error {
-	return issueSave(a.conns().Scope, org, updates, creates)
+	return issueSave(a.caller, a.conns().Scope, org, updates, creates)
 }
 
 // ---- 匯入 issues.json(omixor-web import / import-issues):交給本機核心的 service.ImportIssuesWith ----
@@ -486,7 +487,7 @@ func (a *App) IssueRemoteErr() error {
 func (a *App) issueRemoteFailed(err error) {
 	s := a.issueSt()
 	if s.remoteErr != err.Error() {
-		log.Printf("Issue 伺服器:%v", err)
+		a.logCoreErr(s.Org, err.Error())
 	}
 	s.remoteErr, s.lastErr = err.Error(), err
 }
@@ -551,7 +552,7 @@ func (a *App) RefreshIssuesIfStale(maxAge time.Duration) {
 }
 
 func (a *App) issueRemoteCreate(in service.IssueInput) (model.Issue, error) {
-	b, err := a.issueBackend()
+	b, err := a.issueWriteBackend()
 	if err != nil {
 		return model.Issue{}, err
 	}
@@ -570,7 +571,7 @@ func (a *App) issueRemoteCreate(in service.IssueInput) (model.Issue, error) {
 // version > 0:呼叫者讀到的版本(UI 的編輯畫面、API 的 If-Match/version、MCP 的 version),以它做樂觀鎖;
 // 0 = 呼叫者沒給,不帶 version(規格:沒帶 version 照舊直接套用,核心不檢查)
 func (a *App) issueRemoteUpdate(n, before model.Issue, author, appendBody string, replaceComments bool, version int) (model.Issue, error) {
-	b, err := a.issueBackend()
+	b, err := a.issueWriteBackend()
 	if err != nil {
 		return model.Issue{}, err
 	}
@@ -664,7 +665,7 @@ func commentsDiff(before, n []model.Comment) (added []model.Comment, replace boo
 }
 
 func (a *App) issueRemoteDelete(id string) error {
-	b, err := a.issueBackend()
+	b, err := a.issueWriteBackend()
 	if err != nil {
 		return err
 	}

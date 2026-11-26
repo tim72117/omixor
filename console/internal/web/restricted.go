@@ -7,6 +7,9 @@ import (
 	"omixor-web/internal/auth"
 	"omixor-web/internal/core"
 	"omixor-web/internal/mcp"
+
+	"omixor-core/httperr"
+	"omixor-core/model"
 )
 
 // 受限專案(ISS-34 第 3 階段)在 web 層的篩選。
@@ -39,50 +42,13 @@ func restrictedSetFor(r *http.Request, app *core.App, au *auth.Service, org stri
 	return set, false, len(set) > 0
 }
 
-// scrubRestricted 把 JSON 值(core.Object 轉出來的)裡屬於受限專案的物件拿掉。
-// 回傳 (新的值, 這個值本身是不是受限專案的物件)。物件的判斷:project 欄位是受限專案 id(Issue、文件、頻道綁定…);
-// 專案物件本身 restricted = true;unknown 時任何有非空 project 欄位的物件、restricted = true 的物件都算
+// scrubRestricted、restrictedArg 規則在 core/console_policy.go(MCP 入口的專有工具共用同一套)
 func scrubRestricted(v any, set map[string]bool, unknown bool) (any, bool) {
-	switch x := v.(type) {
-	case map[string]any:
-		if p, ok := x["project"].(string); ok && p != "" && (unknown || set[p]) {
-			return nil, true
-		}
-		if b, ok := x["restricted"].(bool); ok && b {
-			if id, _ := x["id"].(string); unknown || set[id] {
-				return nil, true
-			}
-		}
-		for k, y := range x {
-			ny, drop := scrubRestricted(y, set, unknown)
-			if drop {
-				delete(x, k) // 欄位值本身是受限的物件(例如 {"project": {...}}):整個欄位拿掉
-				continue
-			}
-			x[k] = ny
-		}
-		return x, false
-	case []any:
-		out := make([]any, 0, len(x))
-		for _, y := range x {
-			ny, drop := scrubRestricted(y, set, unknown)
-			if !drop {
-				out = append(out, ny)
-			}
-		}
-		return out, false
-	}
-	return v, false
+	return core.ScrubRestricted(v, set, unknown)
 }
 
-// restrictedArg 引數指到受限專案(project、或專案 action 的 id)
 func restrictedArg(args map[string]any, set map[string]bool, unknown bool) bool {
-	for _, k := range []string{"project"} {
-		if p, ok := args[k].(string); ok && strings.TrimSpace(p) != "" && (unknown || set[strings.ToUpper(strings.TrimSpace(p))]) {
-			return true
-		}
-	}
-	return false
+	return core.RestrictedArg(args, set, unknown)
 }
 
 // notFoundRestricted 受限專案的資料對這位使用者「不存在」:404,訊息固定
@@ -91,7 +57,7 @@ func notFoundRestricted(w http.ResponseWriter) {
 }
 
 // restrictedTarget 引數的 id 指到受限專案裡的 Issue 或文件(寫入前先讀一次,不能等寫了再把結果拿掉):
-// 工具 issue_update、doc_save 與 action 名稱以 issue_、cabinet_doc_ 開頭、帶 id 的。讀不到(不存在、出錯)不擋,交給原本的處理回錯誤
+// 工具 issue_update、doc_save、docs 與 action 名稱以 issue_、cabinet_doc_ 開頭、帶 id 的。讀不到(不存在、出錯)不擋,交給原本的處理回錯誤
 func restrictedTarget(app *core.App, name string, args map[string]any, set map[string]bool, unknown bool) bool {
 	id, _ := args["id"].(string)
 	if strings.TrimSpace(id) == "" {
@@ -102,7 +68,7 @@ func restrictedTarget(app *core.App, name string, args map[string]any, set map[s
 	switch {
 	case short == "issue_update" || strings.HasPrefix(short, "issue_"):
 		read = "issues"
-	case short == "doc_save" || strings.HasPrefix(short, "cabinet_doc_"):
+	case short == "doc_save" || short == "docs" || strings.HasPrefix(short, "cabinet_doc_"): // docs 的分段讀取結果沒有 project 欄位
 		read = "docs"
 	default:
 		return false
@@ -128,24 +94,28 @@ func issueAPIRestricted(r *http.Request, app *core.App, org string) (set map[str
 	return set, false, len(set) > 0
 }
 
-// issueAPIHidden 這張 Issue(內部 id 或 key)屬於呼叫者看不到的受限專案
-func issueAPIHidden(r *http.Request, app *core.App, org, id string) bool {
+// issueAPITarget 把路徑上的編號(內部 id、目前或舊的 key)解析成內部 id,並判斷呼叫者能不能看。
+// 一律向核心查(快取只認得目前的 key,也可能還沒看到剛搬進受限專案);之後的動作要用回傳的 id。
+// hidden = 屬於看不到的受限專案;err = 查不出來(不能當作看得到)。找不到的照原本的編號交給後面回 404
+func issueAPITarget(r *http.Request, app *core.App, org, ref string) (id string, hidden bool, err error) {
 	set, unk, active := issueAPIRestricted(r, app, org)
 	if !active {
-		return false
+		return ref, false, nil
 	}
-	hidden := false
-	app.Mu.Lock()
-	app.WithOrgIssues(org, func() {
-		for _, i := range app.Issues() {
-			if strings.EqualFold(i.ID, id) || strings.EqualFold(i.Key, id) {
-				hidden = i.Project != "" && (unk || set[i.Project])
-				return
-			}
+	i, err := app.LookupIssue(org, ref)
+	if err != nil {
+		if httperr.Classify(err).Status == http.StatusNotFound {
+			return ref, false, nil
 		}
-	})
-	app.Mu.Unlock()
-	return hidden
+		return "", false, err
+	}
+	return i.ID, i.Project != "" && (unk || set[i.Project]), nil
+}
+
+// issueAPIResultHidden 要回給呼叫者的 Issue 屬於看不到的受限專案(寫入期間被別人搬進去)
+func issueAPIResultHidden(r *http.Request, app *core.App, org string, i model.Issue) bool {
+	set, unk, active := issueAPIRestricted(r, app, org)
+	return active && i.Project != "" && (unk || set[i.Project])
 }
 
 // issueAPIProjectHidden body 的 project 指到呼叫者看不到的受限專案

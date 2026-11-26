@@ -35,10 +35,10 @@ func trashErr(err error) error {
 }
 
 // issueTrashTarget 目前組織與核心(拿 Mu 讀,網路請求在鎖外)
-func (a *App) issueTrashTarget() (string, backend.Backend, error) {
+func (a *App) issueTrashTarget(who *Caller) (string, backend.Backend, error) {
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
-	b, err := a.issueBackend()
+	b, err := coreBackendFor(who, a.conns().Scope, a.issueSt().Org)
 	return a.issueSt().Org, b, err
 }
 
@@ -71,6 +71,8 @@ type IssueRef struct {
 	ID      string `json:"id"`
 	Key     string `json:"key"`
 	Deleted bool   `json:"deleted"` // 在垃圾桶裡
+	// Project 所屬專案:web 層靠它把受限專案的結果擋掉(只回編號也會洩漏新的 key)
+	Project string `json:"project,omitempty"`
 }
 
 func init() {
@@ -78,7 +80,7 @@ func init() {
 	// 找不到 404。任何成員都可以(不洩漏內容,只回編號)
 	RegisterAction("issue_resolve", func(a *App, args map[string]any) (any, error) {
 		ref, _ := args["ref"].(string)
-		org, b, err := a.issueTrashTarget()
+		org, b, err := a.issueTrashTarget(nil) // 只回編號的讀取:系統身分
 		if err != nil {
 			return nil, trashErr(err)
 		}
@@ -86,10 +88,10 @@ func init() {
 		if err != nil {
 			return nil, trashErr(err)
 		}
-		return IssueRef{ID: i.ID, Key: i.Display(), Deleted: i.DeletedAt != nil}, nil
+		return IssueRef{ID: i.ID, Key: i.Display(), Deleted: i.DeletedAt != nil, Project: i.Project}, nil
 	})
 	RegisterAction("issue_trash", func(a *App, args map[string]any) (any, error) {
-		org, b, err := a.issueTrashTarget()
+		org, b, err := a.issueTrashTarget(CallerOf(args))
 		if err != nil {
 			return nil, trashErr(err)
 		}
@@ -101,7 +103,7 @@ func init() {
 	})
 	RegisterAction("issue_restore", func(a *App, args map[string]any) (any, error) {
 		id, _ := args["id"].(string)
-		org, b, err := a.issueTrashTarget()
+		org, b, err := a.issueTrashTarget(CallerOf(args))
 		if err != nil {
 			return nil, trashErr(err)
 		}
@@ -119,7 +121,7 @@ func init() {
 	})
 	RegisterAction("issue_purge", func(a *App, args map[string]any) (any, error) {
 		id, _ := args["id"].(string)
-		org, b, err := a.issueTrashTarget()
+		org, b, err := a.issueTrashTarget(CallerOf(args))
 		if err != nil {
 			return nil, trashErr(err)
 		}
