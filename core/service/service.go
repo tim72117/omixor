@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"omixor-core/errmask"
@@ -102,7 +103,8 @@ type Service struct {
 	// LDAPMaxFailures、LDAPFailWindow 同一個帳號在這段時間內連續輸錯幾次就先擋(0 = 5 次、10 分鐘),見 ldap.go
 	LDAPMaxFailures int
 	LDAPFailWindow  time.Duration
-	ldapFails       failCounter // 每個帳號輸錯的次數(有上限,見 ratelimit.go)
+	ldapFails       LoginFailures                               // 每個帳號輸錯的次數(有上限,見 ldap_failures.go)
+	ldapSource      atomic.Pointer[func() (LDAPSettings, bool)] // 宿主的目錄設定(見 oauth_ldap.go)
 	// GitLab 自建 GitLab 的 OAuth2 登入(nil = 沒有啟用,見 gitlab.go)
 	GitLab *GitLabLogin
 	// AgentCredTTL 角色憑證有效時間(0 = 2 小時)

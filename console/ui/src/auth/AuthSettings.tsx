@@ -24,10 +24,11 @@ export function AuthSettings() {
   const [err, setErr] = useState<string>();
   const [tested, setTested] = useState<AuthUser>();
   const [saved, setSaved] = useState(false);
+  const [admins, setAdmins] = useState("");
 
   useEffect(() => {
     getConfig()
-      .then((c) => { setCfg(c); setMethod(c.ldap.userDNTemplate ? "direct" : "search"); })
+      .then((c) => { setCfg(c); setAdmins((c.admins ?? []).join(", ")); setMethod(c.ldap.userDNTemplate ? "direct" : "search"); })
       .catch((e) => setLoadErr(e.message));
   }, []);
 
@@ -36,8 +37,14 @@ export function AuthSettings() {
 
   const l = cfg.ldap;
   const set = (patch: Partial<LdapConfig["ldap"]>) => { setCfg({ ...cfg, ldap: { ...l, ...patch } }); setTested(undefined); setSaved(false); };
+  const adminList = admins.split(/[,,\s]+/).map((a) => a.trim()).filter(Boolean);
+  const env = cfg.env ?? {};
+  const noAdmins = !env.admins?.length && adminList.length === 0;
+  const touch = (patch: Partial<LdapConfig>) => { setCfg({ ...cfg, ...patch }); setSaved(false); };
   const effective = (): LdapConfig => ({
     ...cfg,
+    admins: adminList,
+    env: undefined,
     ldap: method === "direct" ? { ...l } : { ...l, userDNTemplate: "" },
   });
   const pw = bindPw ? bindPw : undefined;
@@ -121,14 +128,34 @@ export function AuthSettings() {
           <Card title="群組" subtitle="群組 DN 留白表示不限制。">
             <div className="grid g2">
               {field("允許登入的群組", "requiredGroup", "cn=ops-users,ou=groups,dc=corp,dc=example,dc=com")}
-              {field("管理員群組(可以改這頁)", "adminGroup", "cn=ops-admins,ou=groups,dc=corp,dc=example,dc=com")}
               {field("群組篩選", "groupFilter", "(|(member=%s)(uniqueMember=%s))", "%s 換成使用者 DN;也會看使用者的 memberOf")}
               {field("群組搜尋起點", "groupBaseDN", "ou=groups,dc=corp,dc=example,dc=com", "空白用上面的搜尋起點")}
             </div>
-            {!l.adminGroup.trim() && <Pill text="沒有填管理員群組:所有能登入的帳號都是管理員" color="orange" icon="exclamationmark.triangle" />}
           </Card>
 
-          <Card title="測試與儲存" subtitle="用一組真的帳號試登入;啟用時一定要用管理員群組的帳號測試成功,才能存,避免把自己鎖在外面。">
+          <Card title="管理員與帳號" subtitle="只有名單裡的帳號是管理員(不看 LDAP 群組)。組織成員另外在成員頁手動加入。">
+            <div className="grid g2">
+              <label className="col gap4">
+                <span className="caption muted">管理員帳號名單(逗號分隔,不分大小寫)</span>
+                <input className="input mono" value={env.admins ? env.admins.join(", ") : admins} readOnly={!!env.admins} placeholder="alice, bob"
+                  onChange={(e) => { setAdmins(e.target.value); setTested(undefined); setSaved(false); }} />
+                {env.admins && <span className="caption faint">由主機的 OMIXOR_LDAP_ADMINS 決定</span>}
+              </label>
+              <label className="col gap4">
+                <span className="caption muted">Email 網域(目錄沒有 mail 時用 帳號@網域)</span>
+                <input className="input mono" value={env.emailDomain ?? cfg.emailDomain ?? ""} readOnly={env.emailDomain !== undefined} placeholder="corp.example.com"
+                  onChange={(e) => touch({ emailDomain: e.target.value })} />
+                <span className="caption faint">MCP 用 LDAP 帳號授權時需要 email(目錄的 mail 或這個網域)</span>
+              </label>
+            </div>
+            <label className="row gap4">
+              <input type="checkbox" checked={env.trustMail ?? !!cfg.trustMail} disabled={env.trustMail !== undefined} onChange={(e) => touch({ trustMail: e.target.checked })} />
+              信任目錄的 mail:事先用 email 加進組織的人,第一次用 LDAP 授權時自動對上(目錄的 mail 使用者自己改得動就不要開)
+            </label>
+            {noAdmins && <Pill text="管理員名單是空的:沒有人是管理員" color="orange" icon="exclamationmark.triangle" />}
+          </Card>
+
+          <Card title="測試與儲存" subtitle="用一組真的帳號試登入;啟用時要用名單裡的管理員帳號測試成功才能存,避免把自己鎖在外面。">
             <div className="row gap8 wrap">
               <input className="input" placeholder="測試帳號" value={tu} onChange={(e) => setTu(e.target.value)} />
               <input className="input" type="password" placeholder="密碼" value={tp} onChange={(e) => setTp(e.target.value)} />
@@ -149,7 +176,7 @@ export function AuthSettings() {
       )}
 
       <div className="row gap8">
-        <button className="btn primary" disabled={busy || (cfg.mode === "ldap" && (!tu || !tp))}
+        <button className="btn primary" disabled={busy || (cfg.mode === "ldap" && (!tu || !tp || noAdmins))}
           onClick={() => run(async () => { await saveConfig(effective(), pw, tu, tp); setSaved(true); setBindPw(""); await refreshAuth(); })}>
           儲存
         </button>

@@ -51,17 +51,21 @@ docker compose up -d --build
 
 ## 登入(LDAP)
 
+> **升級須知(管理員改看帳號名單)**:舊版的「管理員群組」不再使用,只有**帳號名單**裡的人是網頁管理員;名單空白就沒有任何管理員(以前管理員群組空白是「所有人都是管理員」)。
+> 救援與設定:在主機上設 `OMIXOR_LDAP_ADMINS=帳號1,帳號2` 重新啟動;或用 `OMIXOR_AUTH=off`(畫面只開本機)啟動,到 **設定 › 認證** 填名單、用名單裡的帳號測試並儲存,再拿掉 `OMIXOR_AUTH=off`。
+
 預設是「不用登入、只限本機」。要讓同事連進來:
 
-1. 用本機模式開 omixor console,到 **設定 › 認證** 選「LDAP 帳號登入」,填伺服器(ldaps:// 或 ldap:// + StartTLS、自簽 CA)、找使用者的方式(服務帳號搜尋,或直接用 DN 範本 / AD 的 `%s@網域`)、允許登入與管理員的群組。
-2. 用一組**管理員群組**的帳號按「測試登入」,成功後才能儲存(避免把自己鎖在外面)。服務帳號密碼存在鑰匙圈,不寫進 `auth.json`。
+1. 用本機模式開 omixor console,到 **設定 › 認證** 選「LDAP 帳號登入」,填伺服器(ldaps:// 或 ldap:// + StartTLS、自簽 CA)、找使用者的方式(服務帳號搜尋,或直接用 DN 範本 / AD 的 `%s@網域`)、允許登入的群組、**管理員帳號名單**。
+2. 用名單裡的帳號按「測試登入」,成功後才能儲存(避免把自己鎖在外面;登入中的人也不能把自己移出名單)。服務帳號密碼存在鑰匙圈,不寫進 `auth.json`。
 3. 用 `OMIXOR_WEB_ADDR=0.0.0.0:5191 OMIXOR_WEB_HOSTS=omixor.corp.example.com ./bin/omixor-web` 重開,前面放 HTTPS 反向代理。
 
 - 畫面上的動作(確認告警、核准、發佈旁白、切換組織…)以登入者署名,記在動態牆。
 - session 存在記憶體(重開要重新登入),cookie 是 HttpOnly + SameSite=Strict;同一帳號同一來源失敗 5 次鎖 5 分鐘;空密碼一律擋(LDAP 的空密碼會被當成匿名登入成功);帳號會依篩選與 DN 規則跳脫。
 - 只接受本機名稱與 `OMIXOR_WEB_HOSTS` 列的 Host / Origin;POST 一律要 JSON(防 CSRF)。
 - 設定錯了進不去:用 `OMIXOR_AUTH=off` 啟動回到本機模式。
-- **MCP 不受影響**:和 Swift 版一樣只聽 127.0.0.1、不用登入(規格要一模一樣),所以 MCP 用戶端要在同一台電腦上。
+- 環境變數 `OMIXOR_LDAP_ADMINS`、`OMIXOR_LDAP_EMAIL_DOMAIN`、`OMIXOR_LDAP_TRUST_MAIL` 有設時蓋掉畫面的值。
+- **MCP(3765)不受影響**:和 Swift 版一樣只聽 127.0.0.1、不用登入(規格要一模一樣),所以 MCP 用戶端要在同一台電腦上。
 
 對外開放相關的變數(`OMIXOR_WEB_ADDR`、`OMIXOR_WEB_HOSTS`、`OMIXOR_AUTH=off`、`OMIXOR_LDAP_BIND_PASSWORD`、`OMIXOR_API_TOKEN`、`OMIXOR_SERVER` / `OMIXOR_SERVER_TOKEN`)的說明見 [docs/configuration.md](../docs/configuration.md)。
 
@@ -95,11 +99,29 @@ console 的 MCP 連接埠(預設 `127.0.0.1:3765`)**一律要驗證**:`/mcp`、`
 - 目前是**一把共享權杖**:持有者都是同一個身分(本機管理員),寫入的署名仍是 `MCP 用戶端`。每人各一把、署名成本機使用者隨 ISS-36。
 - conformance:`conformance/run_go.sh` 啟動的 Go 版有自己的權杖(存在它的資料夾),`compare.py` 加 `--go-data-dir <資料夾>` 或設 `OMIXOR_CONSOLE_MCP_TOKEN` 帶上。
 
+## 用 LDAP 帳號授權 MCP(和 omixor server 相同的入口)
+
+設 `OMIXOR_PUBLIC_URL`(對外的 https 網址;本機試用可用 `http://127.0.0.1:5191`)、不設 `OMIXOR_OAUTH_ADDR`,畫面連接埠就多出 `/mcp`、`/mcp/org/{org}`、`/mcp/agent`、`/mcp/worker/{org}` 與 `/oauth/*`、`/.well-known/*`(需要 PostgreSQL、非遠端模式;條件不合只在啟動紀錄警告)。反向代理要一起轉發這些路徑;不是本機名稱時,畫面也要照上面設 `OMIXOR_WEB_HOSTS`。放在反向代理後面要設 `OMIXOR_TRUSTED_PROXY_HOPS`(前面有幾層代理,一層是 1):沒設的話所有人在每 IP 限制裡算成同一個來源(代理的位址),稽核的來源也不對;沒有代理時不要設,否則呼叫者可以自己填來源。
+
+```sh
+claude mcp add --transport http omixor-console <OMIXOR_PUBLIC_URL>/mcp   # 不用帶標頭,之後在瀏覽器授權
+```
+
+同意頁在認證設定啟用 LDAP 時提供「LDAP 帳號登入」,通過後有確認頁;寫入署名是本人(核心使用者 `ldap:<帳號>`)。不需要 evoleap 時設 `OMIXOR_OAUTH_EVOLEAP_LOGIN=false`。
+
+- 目錄沒有 mail 的帳號要設 email 網域,否則授權失敗。
+- 組織成員手動加入:對方先授權一次(建立使用者,看不到任何組織),管理員再到成員頁用 email 加入。事先加入還沒授權過的人,要開「信任目錄的 mail」。
+- 失敗鎖定:同一帳號 10 分鐘內錯 5 次,網頁登入與 MCP 授權共用同一份計數(`CORP\帳號`、`帳號@網域` 算同一個)。
+- 續期(約每 10 分鐘):服務帳號搜尋的設定會向目錄重新確認,帳號不存在、停用(AD `userAccountControl`、`accountExpires`、`nsAccountLock`,或被使用者篩選排除)或不在允許群組就撤銷授權;目錄連不上或 LDAP 登入關掉時暫停續期(不撤銷)。直接用帳號組 DN 的設定查不了,授權最長維持「登入有效時數」(預設 12 小時)就要重新輸入密碼。
+- 管理員帳號名單只決定網頁管理員,不會讓人在 MCP 裡變成伺服器管理員。
+- 撤銷與停用(web 管理員,目前只有 API):`POST /api/action/user_oauth_revoke {"email":…}`、`POST /api/action/user_disable {"email":…, "disabled": true}`。
+- 3765、`omxm_`、`omx_` 照常可用。
+
 ## 遠端 MCP 用戶端(對外 MCP 連接埠:claude.ai、omx_ token、角色憑證)
 
-console 的 MCP 連接埠(3765)只給同一台電腦、用 `omxm_` 權杖;要讓**遠端** MCP 用戶端連進來,另外開一個對外 MCP 連接埠,端點、認證與權限和 omixor server 相同。**預設不啟用**,既有的 MCP 連接埠、畫面連接埠、Claude Code 與 omixor-mcp 完全不受影響。
+console 的 MCP 連接埠(3765)只給同一台電腦、用 `omxm_` 權杖;要讓**遠端** MCP 用戶端連進來,除了上一節掛在畫面連接埠的入口,也可以改用獨立的對外 MCP 連接埠(只想公開 MCP、不公開畫面時),端點、認證與權限和 omixor server 相同。**預設不啟用**,既有的 MCP 連接埠、畫面連接埠、Claude Code 與 omixor-mcp 完全不受影響。
 
-- **條件**:console 連 PostgreSQL(`OMIXOR_DATABASE_URL` + `OMIXOR_SECRET_KEY`)、不是遠端模式(沒設 `OMIXOR_SERVER`);`OMIXOR_PUBLIC_URL` 是對外的 https 網址(只放網址,不含路徑;`localhost`、`127.0.0.1`、`[::1]` 可用 http,開發用);`OMIXOR_OAUTH_EVOLEAP_LOGIN` 只有啟用 GitLab 時才能設 false。條件不合 console 直接拒絕啟動並說明原因。
+- **條件**:console 連 PostgreSQL(`OMIXOR_DATABASE_URL` + `OMIXOR_SECRET_KEY`)、不是遠端模式(沒設 `OMIXOR_SERVER`);`OMIXOR_PUBLIC_URL` 是對外的 https 網址(只放網址,不含路徑;`localhost`、`127.0.0.1`、`[::1]` 可用 http,開發用);`OMIXOR_OAUTH_EVOLEAP_LOGIN` 在啟用 GitLab 或認證設定的 LDAP 時可以設 false(三種都沒有只會在啟動紀錄警告)。條件不合 console 直接拒絕啟動並說明原因。
 - **環境變數**:`OMIXOR_OAUTH_ADDR`(例如 `127.0.0.1:8771`;設了才啟用)、`OMIXOR_PUBLIC_URL`、`OMIXOR_TRUSTED_PROXY_HOPS`(前面有幾層代理;Tailscale Funnel 是 1)、`EVOLEAP_URL`、`OMIXOR_EVOLEAP_CONSOLE`(多半不用設);要 GitLab 登入再設 `OMIXOR_GITLAB_*`(同 server,見 [docs/configuration.md](../docs/configuration.md);`OMIXOR_GITLAB_LINK_LDAP` 不支援)。
 - **登入回呼**:evoleap 登記 `<OMIXOR_PUBLIC_URL>/oauth/evoleap/callback`;GitLab Application 的 Redirect URI 登記 `<OMIXOR_PUBLIC_URL>/oauth/gitlab/callback`。
 - **端點與認證**(除了 `/oauth/*`、`/.well-known/*` 只有這四個):
@@ -111,7 +133,7 @@ console 的 MCP 連接埠(3765)只給同一台電腦、用 `omxm_` 權杖;要讓
   | `/mcp/agent` | 角色憑證 `<agentId>:<secret>`(領取任務時拿到,附的網址是 `<public>/mcp/agent`) |
   | `/mcp/worker/{org}` | `omx_` |
 
-- **誰能登入**:evoleap 帳號要對得上 console 資料庫裡已經有的使用者(管理員先用 email 把人加進組織),對不上就拒絕、不自動建帳號。GitLab 同 server 的規則:通過 email 網域等檢查的新帳號會自動建成一般使用者(要加進組織才看得到東西),開放註冊的 GitLab 一定要設 `OMIXOR_GITLAB_EMAIL_DOMAINS`。**沒有配對碼**。
+- **誰能登入**:evoleap 帳號要對得上 console 資料庫裡已經有的使用者(管理員先用 email 把人加進組織),對不上就拒絕、不自動建帳號。GitLab 同 server 的規則:通過 email 網域等檢查的新帳號會自動建成一般使用者(要加進組織才看得到東西),開放註冊的 GitLab 一定要設 `OMIXOR_GITLAB_EMAIL_DOMAINS`。**沒有配對碼**。認證設定啟用 LDAP 時也能用 LDAP 帳號(見上一節)。
 - **`omx_` token 從哪來**:console 本機模式**沒有發放 `omx_` 的功能**(沒有 `/api/auth/*`,畫面也沒有)。只有資料庫裡本來就有的(例如和 omixor-server 共用同一個資料庫)才能用,console 也不能列出或撤銷它們。
 - **不開放**:`omxm_` 權杖在這個連接埠無效;本機使用者 `omixor-console`(伺服器管理員)不管用什麼 token 都會被拒;server 的 `/api/*` 一概沒有(所以 `omixor` CLI 不能對這個連接埠登入)。
 - **工具**:全部是核心的工具,權限與 server 相同(OAuth 預設唯讀,同意畫面選「讀寫」才多開協作寫入且不是伺服器管理員;`omx_` 權限同該使用者)。console 自己的工具(gcp、github、fb_、voice_、server、範例資料、office)**不會**出現。寫入署名是登入的那位使用者或角色。

@@ -35,7 +35,9 @@ fieldset{border:0;margin:12px 0;padding:0}
 .warn{color:var(--er);font-weight:600;margin:6px 0 0}
 button.wide{width:100%;flex:none;margin:6px 0}
 details{margin:14px 0}summary{cursor:pointer;color:var(--fg2)}
-.opt ul{margin:6px 0 0 18px;padding:0;font-size:14px;color:var(--fg2)}`
+.opt ul{margin:6px 0 0 18px;padding:0;font-size:14px;color:var(--fg2)}
+input.plain[type=text]{font-size:16px;letter-spacing:normal;text-transform:none}
+.row.rev{flex-direction:row-reverse}`
 
 func (h *Handler) css(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
@@ -88,11 +90,11 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 {{end}}{{if .Buttons}}{{range .Forms}}<details{{if $.Retry}} open{{end}}><summary>{{.Summary}}</summary>
 {{template "fields" .}}<div class="row"><button class="p" type="submit" name="{{.ActionName}}" value="{{.ActionValue}}">{{.Button}}</button></div></details>
 {{end}}<div class="row"><button type="submit" name="action" value="deny">拒絕</button></div>
-{{else}}{{range .Forms}}{{template "fields" .}}<div class="row"><button type="submit" name="action" value="deny">拒絕</button><button class="p" type="submit" name="{{.ActionName}}" value="{{.ActionValue}}">{{.SoloButton}}</button></div>{{end}}
+{{else}}{{range .Forms}}{{template "fields" .}}{{if .Secret}}<div class="row rev"><button class="p" type="submit" name="{{.ActionName}}" value="{{.ActionValue}}">{{.SoloButton}}</button><button type="submit" name="action" value="deny">拒絕</button></div>{{else}}<div class="row"><button type="submit" name="action" value="deny">拒絕</button><button class="p" type="submit" name="{{.ActionName}}" value="{{.ActionValue}}">{{.SoloButton}}</button></div>{{end}}{{end}}
 {{end}}</form>{{end}}
 </main></body></html>
 {{define "fields"}}{{range .Fields}}<label for="f-{{.Name}}">{{.Label}}</label>
-<input id="f-{{.Name}}" type="{{.Type}}" name="{{.Name}}" inputmode="text"{{if .Caps}} autocapitalize="characters"{{end}} autocomplete="off" autocorrect="off" spellcheck="false"{{if .MaxLen}} maxlength="{{.MaxLen}}"{{end}}{{if .Placeholder}} placeholder="{{.Placeholder}}"{{end}}{{if .Focus}} autofocus{{end}}>
+<input id="f-{{.Name}}" type="{{.Type}}" name="{{.Name}}"{{if and (not .Caps) (eq .Type "text")}} class="plain"{{end}} inputmode="text"{{if .Caps}} autocapitalize="characters"{{end}} autocomplete="off" autocorrect="off" spellcheck="false"{{if .MaxLen}} maxlength="{{.MaxLen}}"{{end}}{{if .Placeholder}} placeholder="{{.Placeholder}}"{{end}}{{if .Focus}} autofocus{{end}}>
 {{end}}{{end}}
 `))
 
@@ -112,6 +114,7 @@ type providerView struct {
 	Presentation
 	ActionName, ActionValue string
 	Fields                  []fieldView
+	Secret                  bool // 有密碼欄:送出鈕要是這張表單的預設鈕
 }
 
 type fieldView struct {
@@ -126,7 +129,7 @@ func newProviderView(p IdentityProvider) providerView {
 	for _, f := range p.Fields() {
 		t := "text"
 		if f.Kind == "password" {
-			t = "password"
+			t, v.Secret = "password", true
 		}
 		v.Fields = append(v.Fields, fieldView{Field: f, Type: t})
 	}

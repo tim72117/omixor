@@ -31,7 +31,7 @@ func TestFailingEndpointsReturnRealStatus(t *testing.T) {
 	if code != 400 || out["error"] == nil {
 		t.Errorf("auth/test 帳密不對:%d %v", code, out)
 	}
-	down := auth.Config{Mode: "ldap", LDAP: auth.LDAP{URL: "ldap://127.0.0.1:1", BindDN: authtest.SvcDN, BaseDN: authtest.Base, UserFilter: "(uid=%s)"}}
+	down := auth.Config{Mode: "ldap", Admins: []string{"alice"}, LDAP: auth.LDAP{URL: "ldap://127.0.0.1:1", BindDN: authtest.SvcDN, BaseDN: authtest.Base, UserFilter: "(uid=%s)"}}
 	code, out = alice.do("POST", "/api/auth/test", map[string]any{"config": down, "bindPassword": "x", "username": "bob", "password": "pw"}, nil)
 	if code != 502 || !strings.Contains(out["error"].(string), "連不到 LDAP") {
 		t.Errorf("auth/test 連不上:%d %v", code, out)
@@ -48,7 +48,7 @@ func TestFailingEndpointsReturnRealStatus(t *testing.T) {
 	}
 	// 測試帳號不是管理員:設定沒存 400
 	code, out = alice.do("POST", "/api/auth/config", map[string]any{"config": ldapCfg(f), "bindPassword": "svc-pw", "testUsername": "bob", "testPassword": "bob-pw"}, nil)
-	if code != 400 || !strings.Contains(out["error"].(string), "不在管理員群組") {
+	if code != 400 || !strings.Contains(out["error"].(string), "不在管理員帳號名單") {
 		t.Errorf("auth/config 測試帳號不是管理員:%d %v", code, out)
 	}
 

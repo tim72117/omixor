@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { parseAuthResponse } from "./loginError";
 
 export type AuthUser = { id: string; name: string; email?: string; dn?: string; groups?: string[]; admin: boolean };
-export type AuthStatus = { mode: "off" | "ldap"; loggedIn: boolean; user?: AuthUser };
+// noAdmins:啟用 LDAP 但管理員帳號名單是空的(沒有人是管理員)
+export type AuthStatus = { mode: "off" | "ldap"; loggedIn: boolean; user?: AuthUser; noAdmins?: boolean };
 
 let current: AuthStatus | undefined;
 const subs = new Set<(s: AuthStatus) => void>();
@@ -43,11 +44,16 @@ export async function logout() {
 export type LdapConfig = {
   mode: "off" | "ldap";
   sessionHours: number;
+  admins: string[];
+  emailDomain: string;
+  trustMail: boolean;
+  // 被主機環境變數蓋掉的項目(只有讀取時有)
+  env?: { admins?: string[]; emailDomain?: string; trustMail?: boolean };
   ldap: {
     url: string; startTLS: boolean; caCert: string; insecureSkipVerify: boolean;
     userDNTemplate: string; bindDN: string; hasBindPassword: boolean; baseDN: string; userFilter: string;
     idAttr: string; nameAttr: string; mailAttr: string;
-    requiredGroup: string; adminGroup: string; groupFilter: string; groupBaseDN: string;
+    requiredGroup: string; groupFilter: string; groupBaseDN: string;
   };
 };
 

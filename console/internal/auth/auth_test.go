@@ -26,8 +26,8 @@ func TestMain(m *testing.M) {
 func searchCfg(f *authtest.Fake) Config {
 	return Config{Mode: "ldap", LDAP: LDAP{
 		URL: "ldap://" + f.Addr, BindDN: authtest.SvcDN, BaseDN: authtest.Base, UserFilter: "(&(objectClass=person)(uid=%s))",
-		RequiredGroup: authtest.UsersDN, AdminGroup: authtest.AdminsDN,
-	}}
+		RequiredGroup: authtest.UsersDN,
+	}, Admins: []string{"Alice"}}
 }
 
 func newSvc(pw string) *Service { return New(&MemorySecrets{PW: pw}) }
@@ -84,20 +84,21 @@ func TestBadPasswordsAndLockout(t *testing.T) {
 		t.Fatal("空密碼不該送出 bind")
 	}
 	f.Mu.Unlock()
-	// 同一帳號同一來源失敗 5 次就鎖 5 分鐘
+	// 同一帳號失敗 5 次就鎖 10 分鐘(換來源也一樣;和 MCP 授權共用同一份計數)
 	for i := 0; i < 5; i++ {
 		_, _, _ = s.Login("bob", "nope", "10.0.0.2")
 	}
-	if _, _, err := s.Login("bob", "bob-pw", "10.0.0.2"); err == nil || !strings.Contains(err.Error(), "太多次") {
-		t.Fatalf("應該被鎖:%v", err)
+	for _, u := range []string{"bob", "BOB", `CORP\bob`, "bob@corp.test"} {
+		if _, _, err := s.Login(u, "bob-pw", "10.0.0.3"); err == nil || !strings.Contains(err.Error(), "太多次") {
+			t.Fatalf("%q 應該被鎖:%v", u, err)
+		}
 	}
-	// 別的來源不受影響;時間過了就解鎖
-	if _, _, err := s.Login("bob", "bob-pw", "10.0.0.3"); err != nil {
-		t.Fatal(err)
+	if set, _ := s.LDAPSettings(); set.Failures != &s.failures {
+		t.Fatal("MCP 授權要用同一份計數")
 	}
-	s.now = func() time.Time { return time.Now().Add(6 * time.Minute) }
+	s.now = func() time.Time { return time.Now().Add(11 * time.Minute) }
 	if _, _, err := s.Login("bob", "bob-pw", "10.0.0.2"); err != nil {
-		t.Fatalf("5 分鐘後應該可以登入:%v", err)
+		t.Fatalf("10 分鐘後應該可以登入:%v", err)
 	}
 }
 
@@ -123,7 +124,7 @@ func TestFilterInjectionIsEscaped(t *testing.T) {
 func TestDirectBindTemplate(t *testing.T) {
 	f := authtest.Start(t)
 	s := newSvc("")
-	cfg := Config{Mode: "ldap", LDAP: LDAP{URL: "ldap://" + f.Addr, UserDNTemplate: "uid=%s,ou=people," + authtest.Base}}
+	cfg := Config{Mode: "ldap", Admins: []string{"alice"}, LDAP: LDAP{URL: "ldap://" + f.Addr, UserDNTemplate: "uid=%s,ou=people," + authtest.Base}}
 	if err := s.Save(cfg, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -135,8 +136,8 @@ func TestDirectBindTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 帳號裡的 DN 特殊字元要跳脫,不能變成別的 DN
-	if got := fillTemplate("uid=%s,ou=people,dc=x", "a,ou=admins"); got != `uid=a\,ou\=admins,ou=people,dc=x` {
-		t.Fatal(got)
+	if _, _, err := s.Login("alice,ou=people", "alice-pw", "127.0.0.1"); err != ErrBadLogin {
+		t.Fatal(err)
 	}
 }
 
@@ -234,54 +235,5 @@ func TestLoginDoesNotLeakLDAPDetails(t *testing.T) {
 	_, derr := s.AuthenticateWith(cfg, nil, "alice", "pw")
 	if d := httperr.ClassifyDetail(derr); d.Masked || !strings.Contains(d.Msg, "127.0.0.1") {
 		t.Errorf("診斷要保留細節:%+v", d)
-	}
-}
-
-// lockedOut 只讀:查詢不同的帳號不會為每個 key 建紀錄;失敗紀錄的 key 數有上限(超過淘汰最舊),不會無限成長
-func TestFailsMapBounded(t *testing.T) {
-	s := newSvc("")
-	base := time.Unix(1_000_000, 0)
-	cur := base
-	s.now = func() time.Time { return cur }
-	for i := 0; i < 20000; i++ {
-		if locked, _ := s.lockedOut(fmt.Sprintf("u%d|1.2.3.4", i)); locked {
-			t.Fatal("沒失敗過不該鎖")
-		}
-	}
-	if len(s.fails) != 0 {
-		t.Fatalf("只查詢不該建紀錄:%d", len(s.fails))
-	}
-	for i := 0; i < maxFailKeys*3; i++ {
-		cur = base.Add(time.Duration(i) * time.Millisecond)
-		s.fail(fmt.Sprintf("u%d|1.2.3.4", i))
-		if len(s.fails) > maxFailKeys {
-			t.Fatalf("超過上限:%d", len(s.fails))
-		}
-	}
-	// 最新的還在,最舊的被淘汰
-	if _, ok := s.fails[fmt.Sprintf("u%d|1.2.3.4", maxFailKeys*3-1)]; !ok {
-		t.Fatal("最新的失敗紀錄要在")
-	}
-	if _, ok := s.fails["u0|1.2.3.4"]; ok {
-		t.Fatal("最舊的要被淘汰")
-	}
-	// 過期的紀錄被查詢時順手清掉
-	cur = cur.Add(failWindow + time.Minute)
-	k := fmt.Sprintf("u%d|1.2.3.4", maxFailKeys*3-1)
-	if locked, _ := s.lockedOut(k); locked {
-		t.Fatal("過期不該鎖")
-	}
-	if _, ok := s.fails[k]; ok {
-		t.Fatal("過期的紀錄要刪掉")
-	}
-	// 單一 key 只留最近 maxFails 筆
-	for i := 0; i < 50; i++ {
-		s.fail("one|x")
-	}
-	if len(s.fails["one|x"]) != maxFails {
-		t.Fatalf("單一 key 的紀錄要有上限:%d", len(s.fails["one|x"]))
-	}
-	if locked, wait := s.lockedOut("one|x"); !locked || wait <= 0 || wait > failWindow {
-		t.Fatalf("要鎖,等待時間在 0 到 5 分鐘:%v %v", locked, wait)
 	}
 }

@@ -2,7 +2,7 @@
 
 預設的範本資料(示範用的假資料),Go 版(`web`)與 Swift 版(`app`)共用。
 
-**預設不載入。** 沒有開的時候,預設組織和新建的組織一樣是空的。要用時才開:
+**預設不載入。** 沒有開的時候,第一個組織(id `default`)和其他新建的組織一樣是空的。組織不會自動建立。要用時才開:
 
 ```bash
 OMIXOR_TEMPLATES=1 ./console/bin/omixor-web          # 自己找 templates/(目前資料夾、執行檔所在資料夾,往上層找)
@@ -15,7 +15,7 @@ OMIXOR_TEMPLATES=/path/to/templates ./console/bin/omixor-web   # 指定位置
 
 | 位置 | 內容 |
 |---|---|
-| `org.json` | 第一次啟動建立的預設組織(名稱、圖示、顏色);沒開範本時是 omixor |
+| `org.json` | 建立第一個組織時預填的名稱、圖示、顏色 |
 | `cabinet/` | 預設組織的文件櫃結構,一個區塊一個檔 |
 | `seed/` | 預設組織的示範畫面資料(總覽、服務、事件、告警…),一個資料集一個檔;`_meta.json` 記匯出時間 |
 | `doc/` | 文件櫃的文件轉換器 `docrender.js` 與範例網頁 `docpage.html`(Swift 版有同內容的副本) |

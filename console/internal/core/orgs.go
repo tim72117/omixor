@@ -9,10 +9,10 @@ import (
 	"unicode"
 
 	"omixor-core/model"
-	"omixor-web/internal/templates"
 )
 
 // 組織:本機模式的組織清單在核心(PostgreSQL),orgs.json 只記目前選的組織;遠端模式的清單快取在 orgs-remote-*.json。
+// 資料庫沒有任何組織時不自動建立:清單與目前組織都是空的,畫面顯示「還沒有組織」讓管理員建第一個(見 orgs_empty.go)。
 // 每個組織自己的設定檔(connections.json、github.json…)放在 <資料夾>/orgs/<組織 id>/。
 //
 // 各功能用這三個鉤子跟組織連動(在 init() 登記):
@@ -105,8 +105,6 @@ func loadOrgIndex() OrgIndex {
 // localOrgErr 本機模式讀不到組織的原因(沒有資料庫等);正常時是空的。給畫面顯示
 var localOrgErr string
 
-// loadLocalOrgIndex 本機模式:組織以核心(omixor-core,PostgreSQL)的組織表為準,名稱與建立時間照核心;
-// orgs.json 只是覆蓋層,存每個組織的圖示、顏色、備註與目前的組織
 // fromCoreOrg 核心的組織 → web 的組織(圖示、顏色沒填的用預設;prefix 是遠端組織的 id 前綴)
 func fromCoreOrg(o model.Org, prefix string) Organization {
 	name := o.Name
@@ -129,7 +127,7 @@ func toCoreOrg(o Organization) model.Org {
 }
 
 // loadLocalOrgIndex 本機模式:組織的所有資訊(名稱、圖示、顏色、備註)都在核心(PostgreSQL);
-// orgs.json 只記「目前選的組織」
+// orgs.json 只記「目前選的組織」。沒有任何組織時回空清單(Current 是 ""),不寫 orgs.json
 func loadLocalOrgIndex() OrgIndex {
 	empty := OrgIndex{Orgs: []Organization{}}
 	l := localCore()
@@ -138,17 +136,14 @@ func loadLocalOrgIndex() OrgIndex {
 		return empty
 	}
 	list, err := l.Svc.ListOrgs(l.P)
-	if err == nil && len(list) == 0 {
-		name, symbol, color := templates.Org() // 沒開範本是 omixor
-		if _, err = l.Svc.CreateOrgWith(l.P, model.Org{ID: DefaultOrgID, Name: name, Symbol: symbol, Color: color}); err == nil {
-			list, err = l.Svc.ListOrgs(l.P)
-		}
-	}
 	if err != nil {
 		localOrgErr = err.Error()
 		return empty
 	}
 	localOrgErr = ""
+	if len(list) == 0 {
+		return empty
+	}
 	var saved struct {
 		Current string `json:"current"`
 	}
@@ -216,7 +211,7 @@ func (a *App) LoadOrgData() {
 	}
 }
 
-// CreateOrg 建立組織並寫好初始檔案;不會切換過去(呼叫時要拿著 Mu)
+// CreateOrg 建立組織並寫好初始檔案;不會切換過去(第一個組織例外,見 createOrg;呼叫時要拿著 Mu)
 func (a *App) CreateOrg(name, symbol, color, template string) Organization {
 	org, err := a.createOrg(name, symbol, color, template)
 	if err != nil {
@@ -225,7 +220,11 @@ func (a *App) CreateOrg(name, symbol, color, template string) Organization {
 	return org
 }
 
-// createOrg 先在核心建立組織(伺服器管理員身分),成功才寫資料夾與覆蓋層;失敗回傳錯誤
+// createOrg 先在核心建立組織(伺服器管理員身分),成功才寫資料夾與覆蓋層;失敗回傳錯誤。
+//
+// 第一個組織(建立前一個組織都沒有)的 id 固定是 DefaultOrgID,並直接成為目前的組織:只屬於它的行為(範例資料、
+// 鑰匙圈不加前綴、動態牆不帶 org)照舊適用。不跑 OnOrgCreate(不寫初始檔案):資料夾裡可能有升級或匯入留下的
+// 舊檔案,蓋掉會讓連線等設定失效
 func (a *App) createOrg(name, symbol, color, template string) (Organization, error) {
 	if IsRemote() {
 		return Organization{}, UserError{"遠端的組織要用 omixor server 建立"} // org_create 動作走 remoteCreateOrg
@@ -243,21 +242,41 @@ func (a *App) createOrg(name, symbol, color, template string) (Organization, err
 	if template != "copyCurrent" {
 		template = "blank"
 	}
-	id := a.NewOrgID(name)
+	a.refreshEmptyOrgs() // 清單是空的:別的路徑可能已經建了組織
+	first := len(a.orgs().Index.Orgs) == 0
+	var id string
+	if first {
+		if localOrgErr != "" {
+			return Organization{}, UserError{"讀不到組織:" + localOrgErr}
+		}
+		id, template = DefaultOrgID, "blank"
+	} else {
+		id = a.NewOrgID(name)
+	}
 	made, err := l.Svc.CreateOrgWith(l.P, model.Org{ID: id, Name: name, Symbol: symbol, Color: color})
 	if err != nil {
 		return Organization{}, err
 	}
 	org := fromCoreOrg(*made, "")
 	dir := OrgDir(org.ID)
-	for _, f := range orgCreateHooks {
-		f(a, dir, template)
+	if !first {
+		for _, f := range orgCreateHooks {
+			f(a, dir, template)
+		}
 	}
 	s := a.orgs()
 	s.Index.Orgs = append(s.Index.Orgs, org)
+	if first {
+		s.Index.Current = org.ID
+	}
 	a.saveOrgs()
 	a.Log(a.Actor(), "building.2", "建立組織「"+name+"」", "settings")
-	go a.Changed("orgs")
+	if first {
+		a.LoadOrgData()
+		go a.Changed("*")
+	} else {
+		go a.Changed("orgs")
+	}
 	return org, nil
 }
 
@@ -365,7 +384,7 @@ func init() {
 		a.LoadOrgData()
 		a.Mu.Unlock()
 	})
-	RegisterView("orgs", func(a *App) any { return a.Orgs() })
+	RegisterView("orgs", func(a *App) any { return a.orgsView() })
 	RegisterAction("org_create", func(a *App, args map[string]any) (any, error) {
 		name, _ := args["name"].(string)
 		if strings.TrimSpace(name) == "" {
@@ -383,7 +402,7 @@ func init() {
 		var org Organization
 		var err error
 		a.As(UserActor(a, args), func() {
-			if org, err = a.createOrg(strings.TrimSpace(name), sym, col, tpl); err == nil && sw {
+			if org, err = a.createOrg(strings.TrimSpace(name), sym, col, tpl); err == nil && sw && org.ID != a.CurrentOrgID() {
 				a.SwitchOrg(org.ID)
 			}
 		})

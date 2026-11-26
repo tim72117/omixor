@@ -175,7 +175,7 @@ func (s *Service) resolveGitLabUser(g *gitlabauth.User) (*model.User, error) {
 	if old != nil {
 		want = old.Email
 	} else {
-		want = s.directoryEmail(entry.ID, entry.Email)
+		want = directoryEmail(s.LDAPEmailDomain, entry.ID, entry.Email)
 	}
 	if !strings.EqualFold(want, email) {
 		return nil, denied("ldap-email-differs", "這個 GitLab 帳號的 email 和對應的 LDAP 帳號不同,不能登入。請把 GitLab 的 email 改成公司目錄裡的,或聯絡管理員")

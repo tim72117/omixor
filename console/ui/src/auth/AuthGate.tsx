@@ -18,7 +18,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const s = useAuth();
   if (!s) return <div className={css.loading}>載入中…</div>;
   if (s.mode === "ldap" && !s.loggedIn) return <LoginPage />;
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {s.noAdmins && s.loggedIn && (
+        <div className={css.noAdmins} role="alert">
+          LDAP 登入已啟用但管理員帳號名單是空的,目前沒有人是管理員。請在主機上設 OMIXOR_LDAP_ADMINS=&lt;LDAP 帳號,逗號分隔&gt; 後重新啟動;
+          或用 OMIXOR_AUTH=off(只開本機)啟動,到 設定 › 認證 填名單。
+        </div>
+      )}
+    </>
+  );
 }
 
 function LoginPage() {

@@ -189,6 +189,7 @@ func TestPGOrgsAndImport(t *testing.T) {
 	a := New()
 	a.Start()
 	a.Mu.Lock()
+	a.CreateOrg("evoleap", "", "", "blank") // 第一個組織(id default):不會自動建立
 	org := a.CreateOrg("Lab", "", "", "blank")
 	a.SwitchOrg(org.ID)
 	dir := a.DataDir()

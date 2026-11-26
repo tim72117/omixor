@@ -50,9 +50,12 @@ func (a *App) StopProjectsTimer() {
 func (a *App) projectsRefresh(org string) bool {
 	a.InvalidateRestricted() // 專案、成員有變:受限專案的快取作廢
 	var list []model.Project
-	be, err := agentBackend()
-	if err == nil {
-		list, err = be.ListProjects(org)
+	var err error
+	if org != "" || IsRemote() { // 本機還沒有組織時不問核心
+		var be backend.Backend
+		if be, err = agentBackend(); err == nil {
+			list, err = be.ListProjects(org)
+		}
 	}
 	st := a.projSt()
 	st.mu.Lock()

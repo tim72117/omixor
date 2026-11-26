@@ -49,7 +49,7 @@ var (
 var (
 	PublicURL = add(&Var{Name: "OMIXOR_PUBLIC_URL", Kind: URL, Schemes: []string{"http", "https"}, Group: GroupServer, Programs: progs(Server, Web),
 		Doc: "對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent,也是 OAuth 的 issuer 與 resource 的來源。local 啟動時自己填上。" +
-			"web:設了 OMIXOR_OAUTH_ADDR 才用,必填,必須是 https(本機位址 localhost、127.0.0.1、[::1] 除外),只放網址、不放路徑"})
+			"web:對外 MCP(OAuth)的網址,必須是 https(本機位址 localhost、127.0.0.1、[::1] 除外),只放網址、不放路徑。沒設 OMIXOR_OAUTH_ADDR 時,設了它就在畫面連接埠掛上和 server 相同的 MCP 入口(/mcp、/oauth/*;需要 PostgreSQL、非遠端模式,條件不合只警告、不啟用);設了 OMIXOR_OAUTH_ADDR 時入口在那個連接埠(這時必填)"})
 	SiteDir = add(&Var{Name: "OMIXOR_SITE_DIR", Kind: Path, Group: GroupServer, Programs: progs(Server),
 		Doc: "形象網站檔案所在的資料夾(Docker 映像裡是 /site);沒設或不存在就不提供網站"})
 	TokenDays = add(&Var{Name: "OMIXOR_TOKEN_DAYS", Kind: Int, Default: "90", Range: &[2]int{0, 36500}, Group: GroupServer, Programs: progs(Server),
@@ -72,10 +72,10 @@ var (
 		Doc: "evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)。web:只有對外 MCP 連接埠(OMIXOR_OAUTH_ADDR)的 evoleap 登入用;遠端模式登入用的是 OMIXOR_EVOLEAP"})
 	OAuthEvoleapLogin = add(&Var{Name: "OMIXOR_OAUTH_EVOLEAP_LOGIN", Kind: Bool, Default: "true", Group: GroupServer, Programs: progs(Server, Web),
 		Doc: "OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。server:設 false 關掉,同意畫面只剩配對碼;" +
-			"web:同意畫面是 evoleap 與 GitLab(console 不提供配對碼),設了 OMIXOR_OAUTH_ADDR 時只有啟用 GitLab(OMIXOR_GITLAB_URL)才能設 false"})
+			"web:同意畫面是 evoleap、GitLab 與 LDAP 帳號密碼(console 的認證設定啟用 LDAP 時;不提供配對碼);只用 LDAP 時可以設 false"})
 )
 
-// ---- LDAP(omixor-server;完整的檢查在 core/ldapauth,設了 OMIXOR_LDAP_URL 才啟用) ----
+// ---- LDAP(omixor-server;ADMINS、EMAIL_DOMAIN、TRUST_MAIL、BIND_PASSWORD 另外也給 console,完整的檢查在 core/ldapauth,其他連線設定 console 用畫面) ----
 
 var (
 	LDAPURL = add(&Var{Name: "OMIXOR_LDAP_URL", Kind: URL, Schemes: []string{"ldap", "ldaps"}, Group: GroupLDAP, Programs: progs(Server),
@@ -104,12 +104,12 @@ var (
 		Doc: "email 對應的屬性"})
 	LDAPTimeoutSeconds = add(&Var{Name: "OMIXOR_LDAP_TIMEOUT_SECONDS", Kind: Int, Default: "10", Range: &[2]int{1, math.MaxInt}, Group: GroupLDAP, Programs: progs(Server),
 		Doc: "LDAP 連線與查詢的逾時秒數"})
-	LDAPAdmins = add(&Var{Name: "OMIXOR_LDAP_ADMINS", Kind: String, Group: GroupLDAP, Programs: progs(Server),
-		Doc: "伺服器管理員的帳號(逗號分隔),每次登入都確認"})
-	LDAPEmailDomain = add(&Var{Name: "OMIXOR_LDAP_EMAIL_DOMAIN", Kind: String, Group: GroupLDAP, Programs: progs(Server),
-		Doc: "目錄沒有 mail 時,用 帳號@這個網域 當 email;只要網域(例如 corp.example.com)"})
-	LDAPTrustMail = add(&Var{Name: "OMIXOR_LDAP_TRUST_MAIL", Kind: Bool, Group: GroupLDAP, Programs: progs(Server),
-		Doc: "信任目錄的 mail:預先加入的同 email 使用者登入時自動對上"})
+	LDAPAdmins = add(&Var{Name: "OMIXOR_LDAP_ADMINS", Kind: String, Group: GroupLDAP, Programs: progs(Server, Web),
+		Doc: "伺服器管理員的帳號(逗號分隔),每次登入都確認。web:console 的網頁管理員名單,有設時蓋掉認證設定裡的名單;名單空白就沒有網頁管理員"})
+	LDAPEmailDomain = add(&Var{Name: "OMIXOR_LDAP_EMAIL_DOMAIN", Kind: String, Group: GroupLDAP, Programs: progs(Server, Web),
+		Doc: "目錄沒有 mail 時,用 帳號@這個網域 當 email;只要網域(例如 corp.example.com)。web:有設時蓋掉認證設定裡的值"})
+	LDAPTrustMail = add(&Var{Name: "OMIXOR_LDAP_TRUST_MAIL", Kind: Bool, Group: GroupLDAP, Programs: progs(Server, Web),
+		Doc: "信任目錄的 mail:預先加入的同 email 使用者登入時自動對上。web:有設時蓋掉認證設定裡的值"})
 )
 
 // ---- 自建 GitLab 的 OAuth2 登入(omixor-server,以及 console 的對外 MCP 連接埠;設了 OMIXOR_GITLAB_URL 才啟用,需要 OMIXOR_PUBLIC_URL) ----

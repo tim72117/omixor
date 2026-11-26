@@ -55,6 +55,19 @@ type Config struct {
 	NameAttr           string
 	MailAttr           string
 	Timeout            time.Duration
+
+	// 以下是宿主(console 的 auth.json)才用的選填項目;零值 = 不做,伺服器的環境變數設定沒有這些
+	// TemplateReadSelf 直接用使用者身分 bind(UserDNTemplate)時,bind 後讀自己那一筆取帳號、名稱、email
+	TemplateReadSelf bool
+	// RawNonDNTemplate 範本不含 =(UPN 或單純 %s,例如要打 CORP\帳號)時,帳號原樣代入、不做 DN 跳脫(它不是 DN,只是 bind 名稱);
+	// 含 = 的 DN 範本照樣跳脫。開啟時 bind 用輸入的原大小寫
+	RawNonDNTemplate bool
+	// RequiredGroup 只允許這個群組(DN)的成員;空白 = 不限
+	RequiredGroup string
+	// GroupFilter 找群組的篩選,%s 換成使用者 DN(RequiredGroup 有填時才查;另外也看 memberOf)
+	GroupFilter string
+	// GroupBaseDN 找群組的起點;空白用 BaseDN
+	GroupBaseDN string
 }
 
 // Identity 驗證通過的人
@@ -64,6 +77,40 @@ type Identity struct {
 	Name  string
 	Email string
 	DN    string
+	// Account 同 ID,但保留目錄(或輸入)的大小寫
+	Account string
+	// Groups 這個人的群組 DN(只有設了 RequiredGroup 才查)
+	Groups []string
+}
+
+// ErrNotInGroup 帳號密碼正確,但不在 RequiredGroup
+var ErrNotInGroup = errors.New("這個帳號不在允許使用 omixor 的群組裡")
+
+// ErrCACertPEM 自簽 CA 的檔案不是有效的 PEM(StageError 的 Cause)
+var ErrCACertPEM = errors.New("not a PEM file")
+
+// 目錄那邊的問題(不是帳號密碼不對)發生在哪一步
+const (
+	StageCACert      = "ca-cert"
+	StageDial        = "dial"
+	StageStartTLS    = "starttls"
+	StageServiceBind = "service-bind"
+	StageSearch      = "search"
+	StageUserBind    = "user-bind"
+)
+
+// StageError 連線或設定類的錯誤。Error() 是給管理員看紀錄的完整說明;Cause 是底層原因
+type StageError struct {
+	Stage string
+	Cause error
+	msg   string
+}
+
+func (e *StageError) Error() string { return e.msg }
+func (e *StageError) Unwrap() error { return e.Cause }
+
+func stageErr(stage string, cause error, format string, a ...any) error {
+	return &StageError{Stage: stage, Cause: cause, msg: fmt.Errorf(format, a...).Error()}
 }
 
 // ErrInvalidCredentials 帳號不存在、被停用或密碼錯(不分是哪一種,避免被拿來猜帳號)
@@ -106,6 +153,13 @@ func FromEnv(getenv func(string) string) (*Config, error) {
 	}
 	if err := c.fill(); err != nil {
 		return nil, err
+	}
+	// 環境變數設定維持「剛好一個 %s」(宿主自己組的 Config 可以重複用)
+	if c.BindDN != "" && strings.Count(c.UserFilter, "%s") != 1 {
+		return nil, fmt.Errorf("OMIXOR_LDAP_USER_FILTER 要剛好有一個 %%s(換成帳號)(收到 %q)", c.UserFilter)
+	}
+	if c.BindDN == "" && strings.Count(c.UserDNTemplate, "%s") != 1 {
+		return nil, fmt.Errorf("OMIXOR_LDAP_USER_DN_TEMPLATE 要剛好有一個 %%s(換成帳號)(收到 %q)", c.UserDNTemplate)
 	}
 	return c, nil
 }
@@ -151,12 +205,12 @@ func (c *Config) fill() error {
 		if c.UserFilter == "" {
 			c.UserFilter = "(" + c.IDAttr + "=%s)"
 		}
-		if strings.Count(c.UserFilter, "%s") != 1 {
+		if !strings.Contains(c.UserFilter, "%s") {
 			return fmt.Errorf("OMIXOR_LDAP_USER_FILTER 要剛好有一個 %%s(換成帳號)(收到 %q)", c.UserFilter)
 		}
 	case c.UserDNTemplate != "":
 		// 方式一:直接用使用者身分 bind
-		if strings.Count(c.UserDNTemplate, "%s") != 1 {
+		if !strings.Contains(c.UserDNTemplate, "%s") {
 			return fmt.Errorf("OMIXOR_LDAP_USER_DN_TEMPLATE 要剛好有一個 %%s(換成帳號)(收到 %q)", c.UserDNTemplate)
 		}
 	default:
@@ -188,30 +242,30 @@ func New(c Config) (*Authenticator, error) {
 }
 
 func dialLDAP(c Config) (conn, error) {
-	tc := &tls.Config{InsecureSkipVerify: c.InsecureSkipVerify} //nolint:gosec // 只給測試環境,由管理員明確開
+	tc := &tls.Config{InsecureSkipVerify: c.InsecureSkipVerify, MinVersion: tls.VersionTLS12} //nolint:gosec // 只給測試環境,由管理員明確開
 	if u, _ := url.Parse(c.URL); u != nil {
 		tc.ServerName = u.Hostname()
 	}
 	if c.CACert != "" {
 		pem, err := os.ReadFile(c.CACert)
 		if err != nil {
-			return nil, fmt.Errorf("讀不到 LDAP 的 CA 憑證:%w", err)
+			return nil, stageErr(StageCACert, err, "讀不到 LDAP 的 CA 憑證:%w", err)
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pem) {
-			return nil, errors.New("LDAP 的 CA 憑證檔不是有效的 PEM")
+			return nil, stageErr(StageCACert, ErrCACertPEM, "LDAP 的 CA 憑證檔不是有效的 PEM")
 		}
 		tc.RootCAs = pool
 	}
 	l, err := ldap.DialURL(c.URL, ldap.DialWithTLSConfig(tc), ldap.DialWithDialer(&net.Dialer{Timeout: c.Timeout}))
 	if err != nil {
-		return nil, fmt.Errorf("連不到 LDAP 伺服器:%w", err)
+		return nil, stageErr(StageDial, err, "連不到 LDAP 伺服器:%w", err)
 	}
 	l.SetTimeout(c.Timeout)
 	if c.StartTLS && strings.HasPrefix(strings.ToLower(c.URL), "ldap://") {
 		if err := l.StartTLS(tc); err != nil {
 			l.Close()
-			return nil, fmt.Errorf("LDAP StartTLS 失敗:%w", err)
+			return nil, stageErr(StageStartTLS, err, "LDAP StartTLS 失敗:%w", err)
 		}
 	}
 	return l, nil
@@ -231,10 +285,11 @@ func isBadCredentials(err error) bool {
 	return false
 }
 
-// Authenticate 驗證帳號密碼。帳號不存在、被停用、密碼錯都回 ErrInvalidCredentials;
-// 連線、服務帳號等設定問題回其他錯誤(給管理員看紀錄,不要原樣給登入的人)
+// Authenticate 驗證帳號密碼。帳號不存在、被停用、密碼錯都回 ErrInvalidCredentials;不在 RequiredGroup 回 ErrNotInGroup;
+// 連線、服務帳號等設定問題回 *StageError(給管理員看紀錄,不要原樣給登入的人)
 func (a *Authenticator) Authenticate(username, password string) (*Identity, error) {
-	username = strings.ToLower(strings.TrimSpace(username))
+	typed := strings.TrimSpace(username)
+	username = strings.ToLower(typed)
 	// 空密碼在 LDAP 是「匿名 bind」,會被當成成功:一律擋掉
 	if username == "" || password == "" {
 		return nil, ErrInvalidCredentials
@@ -246,30 +301,56 @@ func (a *Authenticator) Authenticate(username, password string) (*Identity, erro
 	defer c.Close()
 
 	var dn, name, mail string
-	id := username
-	if a.cfg.BindDN != "" {
-		if err := c.Bind(a.cfg.BindDN, a.cfg.BindPassword); err != nil {
-			return nil, fmt.Errorf("LDAP 服務帳號 bind 失敗(檢查 OMIXOR_LDAP_BIND_DN 與密碼):%w", err)
-		}
-		res, err := c.Search(ldap.NewSearchRequest(a.cfg.BaseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 2, int(a.cfg.Timeout.Seconds()), false,
-			strings.Replace(a.cfg.UserFilter, "%s", ldap.EscapeFilter(username), 1),
-			[]string{"dn", a.cfg.IDAttr, a.cfg.NameAttr, "cn", a.cfg.MailAttr}, nil))
-		if err != nil {
-			return nil, fmt.Errorf("LDAP 搜尋失敗:%w", err)
-		}
-		if len(res.Entries) != 1 { // 0 = 找不到或被篩選掉(例如停用);2 以上 = 不明確,不能猜
-			return nil, ErrInvalidCredentials
-		}
-		e := res.Entries[0]
+	var groups []string
+	account := typed
+	attrs := []string{"dn", a.cfg.IDAttr, a.cfg.NameAttr, "cn", a.cfg.MailAttr}
+	if a.cfg.RequiredGroup != "" {
+		attrs = append(attrs, "memberOf")
+	}
+	read := func(e *ldap.Entry) {
 		dn, name, mail = e.DN, e.GetAttributeValue(a.cfg.NameAttr), e.GetAttributeValue(a.cfg.MailAttr)
 		if name == "" {
 			name = e.GetAttributeValue("cn")
 		}
-		if v := strings.ToLower(strings.TrimSpace(e.GetAttributeValue(a.cfg.IDAttr))); v != "" {
-			id = v
+		if v := strings.TrimSpace(e.GetAttributeValue(a.cfg.IDAttr)); v != "" {
+			account = v
 		}
+		if a.cfg.RequiredGroup != "" {
+			groups = e.GetAttributeValues("memberOf")
+		}
+	}
+	search := func(base string, scope int, filter string) (*ldap.SearchResult, error) {
+		return c.Search(ldap.NewSearchRequest(base, scope, ldap.NeverDerefAliases, 2, int(a.cfg.Timeout.Seconds()), false, filter, attrs, nil))
+	}
+	userFilter := func() string { return strings.ReplaceAll(a.cfg.UserFilter, "%s", ldap.EscapeFilter(username)) }
+	serviceBind := func() error {
+		if err := c.Bind(a.cfg.BindDN, a.cfg.BindPassword); err != nil {
+			return stageErr(StageServiceBind, err, "LDAP 服務帳號 bind 失敗(檢查 OMIXOR_LDAP_BIND_DN 與密碼):%w", err)
+		}
+		return nil
+	}
+
+	if a.cfg.BindDN != "" {
+		if err := serviceBind(); err != nil {
+			return nil, err
+		}
+		res, err := search(a.cfg.BaseDN, ldap.ScopeWholeSubtree, userFilter())
+		if err != nil {
+			return nil, stageErr(StageSearch, err, "LDAP 搜尋失敗:%w", err)
+		}
+		if len(res.Entries) != 1 { // 0 = 找不到或被篩選掉(例如停用);2 以上 = 不明確,不能猜
+			return nil, ErrInvalidCredentials
+		}
+		read(res.Entries[0])
 	} else {
-		dn = strings.Replace(a.cfg.UserDNTemplate, "%s", ldap.EscapeDN(username), 1)
+		v := username
+		if a.cfg.RawNonDNTemplate {
+			v = typed
+		}
+		if !a.cfg.RawNonDNTemplate || strings.Contains(a.cfg.UserDNTemplate, "=") {
+			v = ldap.EscapeDN(v)
+		}
+		dn = strings.ReplaceAll(a.cfg.UserDNTemplate, "%s", v)
 	}
 
 	// 用使用者自己的身分 bind。只有目錄明確說「帳號或密碼不對」才算認證失敗;
@@ -278,9 +359,70 @@ func (a *Authenticator) Authenticate(username, password string) (*Identity, erro
 		if isBadCredentials(err) {
 			return nil, ErrInvalidCredentials
 		}
-		return nil, fmt.Errorf("LDAP 驗證密碼時出錯:%w", err)
+		return nil, stageErr(StageUserBind, err, "LDAP 驗證密碼時出錯:%w", err)
 	}
-	return &Identity{ID: id, Name: name, Email: cleanMail(mail), DN: dn}, nil
+
+	// 範本模式讀自己的資料(讀不到不算失敗):DN 形式直接讀那一筆;UPN 形式在 BaseDN 底下用篩選找
+	if a.cfg.BindDN == "" && a.cfg.TemplateReadSelf {
+		var res *ldap.SearchResult
+		var err error
+		switch {
+		case strings.Contains(dn, "="):
+			res, err = search(dn, ldap.ScopeBaseObject, "(objectClass=*)")
+		case a.cfg.BaseDN != "" && a.cfg.UserFilter != "":
+			res, err = search(a.cfg.BaseDN, ldap.ScopeWholeSubtree, userFilter())
+		}
+		if err == nil && res != nil && len(res.Entries) == 1 {
+			read(res.Entries[0])
+		}
+	}
+
+	if a.cfg.RequiredGroup != "" {
+		base := a.cfg.GroupBaseDN
+		if base == "" {
+			base = a.cfg.BaseDN
+		}
+		if base != "" && a.cfg.GroupFilter != "" {
+			// 查群組用服務帳號(使用者本人可能沒有讀群組的權限)
+			if a.cfg.BindDN != "" {
+				if err := serviceBind(); err != nil {
+					return nil, err
+				}
+			}
+			f := strings.ReplaceAll(a.cfg.GroupFilter, "%s", ldap.EscapeFilter(dn))
+			if res, err := c.Search(ldap.NewSearchRequest(base, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, int(a.cfg.Timeout.Seconds()), false, f, []string{"dn"}, nil)); err == nil {
+				for _, g := range res.Entries {
+					groups = append(groups, g.DN)
+				}
+			}
+		}
+		if !inGroup(groups, a.cfg.RequiredGroup) {
+			return nil, ErrNotInGroup
+		}
+	}
+	return &Identity{ID: strings.ToLower(account), Account: account, Name: name, Email: cleanMail(mail), DN: dn, Groups: groups}, nil
+}
+
+func inGroup(groups []string, want string) bool {
+	for _, g := range groups {
+		if strings.EqualFold(normalizeDN(g), normalizeDN(want)) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeDN(dn string) string {
+	if p, err := ldap.ParseDN(dn); err == nil {
+		parts := []string{}
+		for _, rdn := range p.RDNs {
+			for _, a := range rdn.Attributes {
+				parts = append(parts, strings.ToLower(a.Type)+"="+strings.ToLower(a.Value))
+			}
+		}
+		return strings.Join(parts, ",")
+	}
+	return strings.ToLower(strings.ReplaceAll(dn, " ", ""))
 }
 
 // cleanMail 目錄的 mail 屬性:要像 email(含 @)才算;沒有 @ 的值(例如被填成保留的本機身分 omixor-console)視為沒有 mail,

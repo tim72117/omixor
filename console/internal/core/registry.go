@@ -45,6 +45,11 @@ func Action(a *App, name string, args map[string]any) (any, error) {
 	if !ok {
 		return nil, StatusError{Status: 404, Message: "沒有這個動作:" + ShortName(name)}
 	}
+	if !orgFreeActions[name] {
+		if err := a.RequireOrg(); err != nil {
+			return nil, err
+		}
+	}
 	return f(a, args)
 }
 

@@ -9,6 +9,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -482,8 +483,8 @@ func gitLabURLMissing(c *Config) error {
 }
 
 // webOAuthRule 設了 OMIXOR_OAUTH_ADDR(console 的對外 MCP 連接埠)時的相依:要有對外網址(issuer、resource、evoleap 回呼都由它推導)、
-// 網址必須是 https(本機位址除外,開發用)且只有網址、evoleap 登入只有在啟用 GitLab 時才能關(console 沒有配對碼)、不能是遠端模式(授權與使用者在那台 server)。
-// 需要 PostgreSQL 與否是執行期才知道的事,由 console 啟動時檢查
+// 網址必須是 https(本機位址除外,開發用)且只有網址、不能是遠端模式(授權與使用者在那台 server)。
+// 需要 PostgreSQL 與否、同意畫面有哪些登入方式(console 的 LDAP 設定在資料庫,可在執行中改)是執行期才知道的事,由 console 啟動時檢查
 func webOAuthRule(c *Config) error {
 	if !c.IsSet(OAuthAddr) {
 		return nil
@@ -492,23 +493,29 @@ func webOAuthRule(c *Config) error {
 	if !c.IsSet(PublicURL) {
 		return fmt.Errorf(pre + "也要設 OMIXOR_PUBLIC_URL(對外的 https 網址,例如 https://console.example.com)")
 	}
-	u, err := url.Parse(c.Str(PublicURL))
-	if err != nil || u.Hostname() == "" {
-		return nil // 網址本身的格式問題由 OMIXOR_PUBLIC_URL 的型別檢查回報
-	}
-	if p := strings.Trim(u.Path, "/"); p != "" || u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf(pre + "OMIXOR_PUBLIC_URL 只能是網址(不含路徑、查詢或片段)")
-	}
-	if u.Scheme != "https" && !IsLoopbackHost(u.Hostname()) {
-		return fmt.Errorf(pre + "OMIXOR_PUBLIC_URL 必須是 https(只有 localhost、127.0.0.1、[::1] 可以用 http,開發用)")
-	}
-	if !c.Bool(OAuthEvoleapLogin) && !c.IsSet(GitLabURL) {
-		return fmt.Errorf(pre + "OMIXOR_OAUTH_EVOLEAP_LOGIN 設 false 時要另外啟用 GitLab 登入(OMIXOR_GITLAB_URL):console 的同意畫面沒有配對碼,兩種都沒有就沒人能登入")
+	if p := WebPublicURLProblem(c); p != "" {
+		return errors.New(pre + p)
 	}
 	if c.IsSet(ServerURL) {
 		return fmt.Errorf(pre + "但 OMIXOR_SERVER 設了(遠端模式):OAuth 要連本機 PostgreSQL 的 console,遠端模式請改在那台 omixor server 設 OMIXOR_PUBLIC_URL")
 	}
 	return nil
+}
+
+// WebPublicURLProblem console 要用 OMIXOR_PUBLIC_URL 當 OAuth 的網址時,這個值哪裡不合(空字串 = 沒問題)。
+// 網址本身的格式問題由 OMIXOR_PUBLIC_URL 的型別檢查回報
+func WebPublicURLProblem(c *Config) string {
+	u, err := url.Parse(c.Str(PublicURL))
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	if p := strings.Trim(u.Path, "/"); p != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "OMIXOR_PUBLIC_URL 只能是網址(不含路徑、查詢或片段)"
+	}
+	if u.Scheme != "https" && !IsLoopbackHost(u.Hostname()) {
+		return "OMIXOR_PUBLIC_URL 必須是 https(只有 localhost、127.0.0.1、[::1] 可以用 http,開發用)"
+	}
+	return ""
 }
 
 // IsLoopbackHost host(不含連接埠)是不是本機名稱:localhost、127.0.0.1、::1

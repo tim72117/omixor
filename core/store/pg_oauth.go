@@ -128,6 +128,19 @@ func (p *PG) RevokeOAuthFamily(family string, at time.Time) error {
 	return err
 }
 
+func (p *PG) RevokeOAuthUser(userID string, at time.Time) (int, error) {
+	if userID == "" {
+		return 0, nil
+	}
+	c, cancel := ctx()
+	defer cancel()
+	tag, err := p.pool.Exec(c, `update omixor_oauth_tokens set revoked_at = $2 where user_id = $1 and revoked_at is null`, userID, at)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 func (p *PG) PurgeOAuthTokens(before time.Time) (int, error) {
 	c, cancel := ctx()
 	defer cancel()

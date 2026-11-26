@@ -97,6 +97,10 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App) {
 			writeJSON(w, 400, map[string]any{"error": "組織 id 不對:" + o})
 			return "", false
 		}
+		if err := app.RequireOrg(); err != nil {
+			writeFail(w, r, err)
+			return "", false
+		}
 		if otherOrgDenied(r, app, o) {
 			writeJSON(w, 403, map[string]any{"error": "只有管理員可以讀寫其他組織的 Issue;你登入的帳號不是 web 的管理員", "forbidden": true})
 			return "", false

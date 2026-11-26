@@ -10,17 +10,19 @@ import (
 	"omixor-web/internal/auth"
 	"omixor-web/internal/core"
 
+	"omixor-core/config"
 	"omixor-core/httperr"
 )
 
 // 登入相關的 API:
 //
-//	GET  /api/auth/status   {mode, user, loggedIn}(不用登入)
+//	GET  /api/auth/status   {mode, user, loggedIn, noAdmins?}(不用登入;noAdmins = 啟用 LDAP 但管理員帳號名單是空的)
 //	POST /api/auth/login    {username, password} → 設 session cookie(不用登入)
 //	POST /api/auth/logout
-//	GET  /api/auth/config   認證設定(管理員;不含密碼)
+//	GET  /api/auth/config   認證設定(管理員;不含密碼;env 是被環境變數蓋掉的項目)
 //	POST /api/auth/config   {config, bindPassword?, testUsername, testPassword} 存設定(管理員)。
-//	                        啟用 LDAP 時一定要附一組能登入、而且是管理員的帳密,證明設定可用,避免把自己鎖在外面
+//	                        啟用 LDAP 時管理員帳號名單不能空、要附一組能登入而且在名單裡的帳密(證明設定可用),
+//	                        而且登入中的操作者不能把自己移出名單
 //	POST /api/auth/test     {config, bindPassword?, username, password} 只測試,不存(管理員)
 
 const cookieName = "ops_session"
@@ -84,6 +86,9 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 		if ok {
 			out["user"] = u
 		}
+		if cfg.Mode == "ldap" && len(cfg.AdminList()) == 0 {
+			out["noAdmins"] = true
+		}
 		writeJSON(w, 200, out)
 	})
 
@@ -136,7 +141,7 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 		if !admin(w, r) {
 			return
 		}
-		writeJSON(w, 200, au.Config())
+		writeJSON(w, 200, authConfigView(au.Config()))
 	})
 
 	type configIn struct {
@@ -180,13 +185,21 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 			return
 		}
 		if in.Config.Mode == "ldap" {
+			if len(in.Config.AdminList()) == 0 {
+				writeJSON(w, 400, map[string]any{"error": "要填管理員帳號名單(或設 OMIXOR_LDAP_ADMINS);名單空白就沒有人是管理員,所以沒有存"})
+				return
+			}
 			u, err := test(in, in.TestUsername, in.TestPassword)
 			if err != nil {
 				writeErrPrefix(w, r, auth.StatusOf(err), "用測試帳號登入失敗,設定沒有存:", err, true)
 				return
 			}
 			if !u.Admin {
-				writeJSON(w, 400, map[string]any{"error": "測試帳號不在管理員群組,存了之後就沒有人能改設定,所以沒有存"})
+				writeJSON(w, 400, map[string]any{"error": "測試帳號不在管理員帳號名單裡,無法確認存了之後還有人能改設定,所以沒有存"})
+				return
+			}
+			if op, ok := currentUser(r, app, au); ok && au.Enabled() && !in.Config.IsAdminAccount(op.ID) {
+				writeJSON(w, 400, map[string]any{"error": "不能把自己移出管理員帳號名單,所以沒有存"})
 				return
 			}
 		}
@@ -202,8 +215,31 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 		}
 		app.Log(core.Person(u.ID), "lock", text, "settings")
 		app.Mu.Unlock()
-		writeJSON(w, 200, map[string]any{"result": au.Config()})
+		writeJSON(w, 200, map[string]any{"result": authConfigView(au.Config())})
 	})
+}
+
+// authConfigView 認證設定加上被環境變數蓋掉的項目(畫面顯示用)
+func authConfigView(c auth.Config) any {
+	return struct {
+		auth.Config
+		Env map[string]any `json:"env"`
+	}{c, authEnv()}
+}
+
+func authEnv() map[string]any {
+	out := map[string]any{}
+	if a := auth.EnvAdmins(); a != nil {
+		out["admins"] = a
+	}
+	cur := config.Current()
+	if v := cur.Str(config.LDAPEmailDomain); v != "" {
+		out["emailDomain"] = v
+	}
+	if cur.IsSet(config.LDAPTrustMail) {
+		out["trustMail"] = cur.Bool(config.LDAPTrustMail)
+	}
+	return out
 }
 
 func readInto(r *http.Request, v any) error {

@@ -79,6 +79,14 @@ func emptyCabinet() model.Cabinet {
 
 // cabinetRefresh 從核心重讀 org 的文件櫃換進快取(不拿 Mu),回傳內容有沒有變
 func (a *App) cabinetRefresh(org string) bool {
+	if org == "" && !IsRemote() { // 還沒有組織:空的,不問核心
+		st := a.cabSt()
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		changed := st.org != "" || !st.loaded
+		st.org, st.cab, st.loaded, st.err = "", emptyCabinet(), true, ""
+		return changed
+	}
 	var cab *model.Cabinet
 	be, err := agentBackend()
 	if err == nil {

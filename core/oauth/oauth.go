@@ -18,6 +18,7 @@
 //	GET  /oauth/gitlab/callback                                (OMIXOR_GITLAB_URL 有設才可用)GitLab 導回(?code=&state=):核對 cookie 與登入交易(10 分鐘、用一次)、換 token 對上使用者後立刻撤銷 GitLab token,
 //	                                                           顯示確認頁,還不簽發授權碼(同意畫面按 via=gitlab 開始;provider_gitlab.go、service/gitlab_login.go)
 //	POST /oauth/gitlab/confirm                                 GitLab 回呼後的確認頁送出(允許才簽發授權碼;綁同一個 cookie、5 分鐘、用一次)
+//	POST /oauth/ldap/confirm                                   LDAP 帳密通過後的確認頁送出(有啟用 LDAP 才有;同意畫面按 via=ldap;provider_ldap.go)
 //	POST /oauth/token                                          authorization_code(PKCE S256)、refresh_token(輪替);只收 application/x-www-form-urlencoded
 //	GET  /oauth/consent.css                                    同意畫面的樣式(CSP 不允許行內樣式,所以獨立一個檔)
 //
@@ -75,9 +76,9 @@ func NewWith(c Config) *Handler {
 }
 
 // DefaultProviders 雲端與本機伺服器的證明身分方式:evoleap 登入(沒設網址或被關掉時同意畫面不顯示)與配對碼(備援)
-// GitLab 登入(有設 OMIXOR_GITLAB_URL 才顯示)排在 evoleap 之後
+// GitLab 登入(有設 OMIXOR_GITLAB_URL 才顯示)排在 evoleap 之後;LDAP 帳號密碼(有設 OMIXOR_LDAP_URL 才顯示)排在配對碼之前
 func DefaultProviders(svc *service.Service, public string) []IdentityProvider {
-	return append(LoginProviders(svc, public), &PairProvider{Svc: svc})
+	return append(LoginProviders(svc, public), &LDAPProvider{Svc: svc, Public: public}, &PairProvider{Svc: svc})
 }
 
 // LoginProviders 只有外部登入(evoleap、GitLab;各自沒啟用時同意畫面不顯示),不含配對碼:console 的對外 MCP 連接埠用
@@ -465,6 +466,9 @@ func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case out.Confirm != nil:
+		h.ensureBrowserSecret(w, r) // 確認頁沿用同一個綁定 cookie,時效重新起算
+		renderConfirm(w, p.ID(), out.Confirm)
 	case out.Done != nil:
 		code, err := h.Svc.ApproveOAuthIdentity(chk, req.CodeChallenge, grant, out.Done.User, out.Done.Extra)
 		if err != nil {

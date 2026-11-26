@@ -137,6 +137,9 @@ func (a *App) agentRefresh(org string) bool {
 }
 
 func (a *App) agentFetch(org string) ([]Agent, []AgentTask, error) {
+	if org == "" && !IsRemote() { // 還沒有組織
+		return nil, nil, nil
+	}
 	be, err := agentBackend()
 	if err != nil {
 		return nil, nil, err

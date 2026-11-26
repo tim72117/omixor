@@ -78,11 +78,13 @@ var adminActions = map[string]string{
 	"gitlab_settings":          "改 GitLab 伺服器設定",
 	"gitlab_ensure_connection": "改 GitLab 連線",
 	// 成員與組織(核心:組織管理員 / 伺服器管理員;建立組織時套用樣板也在這裡)
-	"member_save":   "改組織成員",
-	"member_remove": "移除組織成員",
-	"org_create":    "建立組織",
-	"org_update":    "改組織資料",
-	"org_delete":    "刪除組織",
+	"member_save":       "改組織成員",
+	"member_remove":     "移除組織成員",
+	"user_disable":      "停用或啟用使用者",
+	"user_oauth_revoke": "撤銷使用者的 MCP 授權",
+	"org_create":        "建立組織",
+	"org_update":        "改組織資料",
+	"org_delete":        "刪除組織",
 	// web 伺服器共用的設定與憑證
 	"mode_set":              "改連接對象",
 	"remote_logout":         "登出 omixor server",

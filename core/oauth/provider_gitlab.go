@@ -1,7 +1,6 @@
 package oauth
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -72,49 +71,28 @@ func (p *GitLabProvider) callback(w http.ResponseWriter, r *http.Request) {
 	d["cookie_present"] = binding != ""
 	res, err := p.Svc.CompleteOAuthGitLab(q.Get("state"), q.Get("code"), q.Get("error"), binding)
 	if err != nil {
-		p.failed(w, r, res, err)
+		confirmFailed(w, r, res, err)
 		return
 	}
 	d["pairing_result"] = "gitlab_confirm"
 	// cookie 不清掉(別的分頁可能也在用),把時效續到確認的時限
 	http.SetCookie(w, p.cookie(binding, int(service.GitLabTxnTTL.Seconds())))
-	renderGitLabConfirm(w, res.Confirm)
+	renderConfirm(w, "gitlab", res.Confirm)
 }
 
 // confirm 確認頁送出:只有 action=allow 是允許,其他一律當拒絕
 func (p *GitLabProvider) confirm(w http.ResponseWriter, r *http.Request) {
 	d := detail(r)
 	d["via"] = "gitlab"
-	if crossSite(r, p.Public) {
-		d["pairing_result"] = "cross_site"
-		renderFatal(w, 403, "這個請求不是從授權頁送出的,已拒絕")
+	token, allow, ok := confirmForm(w, r, p.Public)
+	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	if err := r.ParseForm(); err != nil {
-		renderFatal(w, 400, "請求格式不對")
-		return
-	}
-	res, err := p.Svc.ConfirmOAuthGitLab(r.PostForm.Get("txn"), gitlabBinding(r), r.PostForm.Get("action") == "allow")
+	res, err := p.Svc.ConfirmOAuthGitLab(token, gitlabBinding(r), allow)
 	if err != nil {
-		p.failed(w, r, res, err)
+		confirmFailed(w, r, res, err)
 		return
 	}
 	d["pairing_result"] = "ok"
 	redirectTo(w, res.RedirectURI, "code", res.Code, "state", res.State)
-}
-
-func (p *GitLabProvider) failed(w http.ResponseWriter, r *http.Request, res *service.OAuthGitLabResult, err error) {
-	d := detail(r)
-	var oe *service.OAuthError
-	if !errors.As(err, &oe) {
-		renderFatal(w, 500, "伺服器錯誤,請稍後再試") // 原因在 service 已記 log
-		return
-	}
-	d["error"], d["pairing_result"] = oe.Code, oe.Reason
-	if res != nil && res.RedirectURI != "" && !oe.NoRedirect {
-		redirectTo(w, res.RedirectURI, "error", oe.Code, "error_description", oe.Desc, "state", res.State)
-		return
-	}
-	renderFatal(w, oe.Status, oe.Desc)
 }

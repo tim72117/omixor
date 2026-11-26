@@ -185,14 +185,14 @@ function OrgSwitcher() {
   );
 }
 
+// MCP 的位址與用法在 設定 › 整合;側欄只在 MCP 沒有正常執行時提醒,按了跳過去看
 function McpStatus() {
   const [m] = useView<{ status: { state: string; error?: string; requests: number }; url: string }>("mcp");
-  if (!m) return null;
-  const ok = m.status.state === "listening";
+  if (!m || m.status.state === "listening" || m.status.state === "starting") return null;
   return (
-    <div className="mcp-status" title={m.status.error ?? m.url}>
-      <StatusDot c={ok ? "green" : "orange"} size={7} />
-      <span className="caption">MCP {ok ? m.url.replace("http://", "") : m.status.error ?? m.status.state}</span>
-    </div>
+    <button className="btn link mcp-status" title={m.status.error ?? m.status.state} onClick={() => go("settings", "integrations")}>
+      <StatusDot c="orange" size={7} />
+      <span className="caption">MCP 未啟動</span>
+    </button>
   );
 }

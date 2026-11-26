@@ -26,7 +26,7 @@ func TestWebOAuthRule(t *testing.T) {
 		{"127.0.0.1 可以用 http", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "http://127.0.0.1:8771"}, ""},
 		{"[::1] 可以用 http", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "http://[::1]:8771"}, ""},
 		{"網址不能帶路徑", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://console.example.com/omixor"}, "不含路徑"},
-		{"evoleap 登入關掉又沒有 GitLab 不行", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_OAUTH_EVOLEAP_LOGIN": "false"}, "OMIXOR_OAUTH_EVOLEAP_LOGIN"},
+		{"只用 LDAP 時可以關 evoleap(LDAP 在認證設定,啟動時才知道)", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_OAUTH_EVOLEAP_LOGIN": "false"}, ""},
 		{"有 GitLab 時可以關 evoleap", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_OAUTH_EVOLEAP_LOGIN": "false", "OMIXOR_GITLAB_URL": "https://gitlab.example.com"}, ""},
 		{"設了 GitLab 其他項目卻沒設網址", map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_GITLAB_CLIENT_ID": "abc"}, "沒設 OMIXOR_GITLAB_URL"},
 		{"沒開 OAuth 連接埠不檢查 GitLab", map[string]string{"OMIXOR_GITLAB_CLIENT_ID": "abc"}, ""},

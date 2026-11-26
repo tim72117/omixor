@@ -22,7 +22,7 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 
 | 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
 |---|---|---|---|---|---|---|---|
-| `OMIXOR_PUBLIC_URL` |  | 網址(http/https) |  |  |  | server、web | 對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent,也是 OAuth 的 issuer 與 resource 的來源。local 啟動時自己填上。web:設了 OMIXOR_OAUTH_ADDR 才用,必填,必須是 https(本機位址 localhost、127.0.0.1、[::1] 除外),只放網址、不放路徑 |
+| `OMIXOR_PUBLIC_URL` |  | 網址(http/https) |  |  |  | server、web | 對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent,也是 OAuth 的 issuer 與 resource 的來源。local 啟動時自己填上。web:對外 MCP(OAuth)的網址,必須是 https(本機位址 localhost、127.0.0.1、[::1] 除外),只放網址、不放路徑。沒設 OMIXOR_OAUTH_ADDR 時,設了它就在畫面連接埠掛上和 server 相同的 MCP 入口(/mcp、/oauth/*;需要 PostgreSQL、非遠端模式,條件不合只警告、不啟用);設了 OMIXOR_OAUTH_ADDR 時入口在那個連接埠(這時必填) |
 | `OMIXOR_SITE_DIR` |  | 路徑 |  |  |  | server | 形象網站檔案所在的資料夾(Docker 映像裡是 /site);沒設或不存在就不提供網站 |
 | `OMIXOR_TOKEN_DAYS` |  | 整數(0–36500) | `90` |  |  | server | 使用者 token 的有效天數 |
 | `OMIXOR_ADMIN_BOOTSTRAP_EMAIL` |  | 字串 |  |  |  | server | 第一位管理員的 email(資料庫還沒有管理員時,這個 email 登入就成為管理員) |
@@ -31,7 +31,7 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `K_SERVICE` |  | 字串 |  |  |  | server | Cloud Run 自動帶入的服務名稱(不是 omixor 專用名稱);有值就表示跑在 Cloud Run,OMIXOR_TRUSTED_PROXY_HOPS 預設 1 |
 | `PORT` |  | 整數(1–65535) | `8080` |  |  | server | Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴) |
 | `EVOLEAP_URL` |  | 網址(http/https) | `https://evoleap.io` |  |  | server、web | evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)。web:只有對外 MCP 連接埠(OMIXOR_OAUTH_ADDR)的 evoleap 登入用;遠端模式登入用的是 OMIXOR_EVOLEAP |
-| `OMIXOR_OAUTH_EVOLEAP_LOGIN` |  | 布林 | `true` |  |  | server、web | OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。server:設 false 關掉,同意畫面只剩配對碼;web:同意畫面是 evoleap 與 GitLab(console 不提供配對碼),設了 OMIXOR_OAUTH_ADDR 時只有啟用 GitLab(OMIXOR_GITLAB_URL)才能設 false |
+| `OMIXOR_OAUTH_EVOLEAP_LOGIN` |  | 布林 | `true` |  |  | server、web | OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。server:設 false 關掉,同意畫面只剩配對碼;web:同意畫面是 evoleap、GitLab 與 LDAP 帳號密碼(console 的認證設定啟用 LDAP 時;不提供配對碼);只用 LDAP 時可以設 false |
 
 ## LDAP 登入(omixor-server)
 
@@ -51,9 +51,9 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `OMIXOR_LDAP_NAME_ATTR` |  | 字串 | displayName |  |  | server | 顯示名稱對應的屬性 |
 | `OMIXOR_LDAP_MAIL_ATTR` |  | 字串 | mail |  |  | server | email 對應的屬性 |
 | `OMIXOR_LDAP_TIMEOUT_SECONDS` |  | 整數(≥1) | `10` |  |  | server | LDAP 連線與查詢的逾時秒數 |
-| `OMIXOR_LDAP_ADMINS` |  | 字串 |  |  |  | server | 伺服器管理員的帳號(逗號分隔),每次登入都確認 |
-| `OMIXOR_LDAP_EMAIL_DOMAIN` |  | 字串 |  |  |  | server | 目錄沒有 mail 時,用 帳號@這個網域 當 email;只要網域(例如 corp.example.com) |
-| `OMIXOR_LDAP_TRUST_MAIL` |  | 布林 |  |  |  | server | 信任目錄的 mail:預先加入的同 email 使用者登入時自動對上 |
+| `OMIXOR_LDAP_ADMINS` |  | 字串 |  |  |  | server、web | 伺服器管理員的帳號(逗號分隔),每次登入都確認。web:console 的網頁管理員名單,有設時蓋掉認證設定裡的名單;名單空白就沒有網頁管理員 |
+| `OMIXOR_LDAP_EMAIL_DOMAIN` |  | 字串 |  |  |  | server、web | 目錄沒有 mail 時,用 帳號@這個網域 當 email;只要網域(例如 corp.example.com)。web:有設時蓋掉認證設定裡的值 |
+| `OMIXOR_LDAP_TRUST_MAIL` |  | 布林 |  |  |  | server、web | 信任目錄的 mail:預先加入的同 email 使用者登入時自動對上。web:有設時蓋掉認證設定裡的值 |
 
 ## GitLab 登入(omixor-server)
 

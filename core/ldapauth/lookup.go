@@ -41,7 +41,7 @@ func (a *Authenticator) LookupDN(dn string) (*Identity, error) {
 		return nil, fmt.Errorf("LDAP 服務帳號 bind 失敗(檢查 OMIXOR_LDAP_BIND_DN 與密碼):%w", err)
 	}
 	res, err := c.Search(ldap.NewSearchRequest(dn, ldap.ScopeBaseObject, ldap.NeverDerefAliases, 2, int(a.cfg.Timeout.Seconds()), false,
-		strings.Replace(a.cfg.UserFilter, "%s", "*", 1),
+		strings.ReplaceAll(a.cfg.UserFilter, "%s", "*"),
 		[]string{"dn", a.cfg.IDAttr, a.cfg.NameAttr, "cn", a.cfg.MailAttr}, nil))
 	if err != nil {
 		var le *ldap.Error

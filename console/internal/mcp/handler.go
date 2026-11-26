@@ -220,5 +220,10 @@ func Run(a *core.App, name string, args map[string]any, actor core.Actor) (any, 
 	if err := rejectIdentity(name, args); err != nil {
 		return nil, err
 	}
+	if srv.Has(name) && !orgFreeTools[name] {
+		if err := a.RequireOrg(); err != nil {
+			return nil, err
+		}
+	}
 	return srv.Run(name, args, &callCtx{App: a, Actor: actor})
 }

@@ -14,6 +14,7 @@
 //	OMIXOR_SITE_DIR                形象網站的資料夾(映像裡是 /site);設了才提供網站,見 site.go
 //	OMIXOR_LDAP_URL …              LDAP / Active Directory 登入(POST /api/auth/ldap):設了 OMIXOR_LDAP_URL 才啟用,設定不完整會直接啟動失敗。
 //	                               全部變數見 core/ldapauth;另外兩個在這裡:
+//	                               有設 OMIXOR_PUBLIC_URL 時,OAuth 同意畫面(MCP 授權)也提供 LDAP 帳號密碼(core/oauth 的 LDAPProvider)
 //	OMIXOR_LDAP_ADMINS             伺服器管理員的 LDAP 帳號,逗號分隔(小寫比對);第一次通過 LDAP 的其他人自動建成一般使用者
 //	OMIXOR_LDAP_EMAIL_DOMAIN       目錄沒有 mail 屬性時,用「帳號@這個網域」當 email
 //	OMIXOR_LDAP_TRUST_MAIL         true:管理員先用 email 加進名單、還沒登入過的人,會和目錄 mail 相同的 LDAP 帳號對上(預設 false;

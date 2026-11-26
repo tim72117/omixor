@@ -33,6 +33,7 @@ func TestPGIssuesTable(t *testing.T) {
 	a := New()
 	a.Start()
 	a.Mu.Lock()
+	a.CreateOrg("evoleap", "", "", "blank") // 不會自動建立組織
 	org := a.CurrentOrgID()
 	i1 := a.CreateIssue("第一筆", "內文", "high", []string{"a", "b"}, "src", "https://x", "mcp")
 	i2 := a.CreateIssue("第二筆", "", "", nil, "", "", "tim")

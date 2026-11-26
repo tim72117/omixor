@@ -186,6 +186,10 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			writeErr(w, r, 413, core.UserError{Message: "圖片太大,上限 10 MB"})
 			return
 		}
+		if err := app.RequireOrg(); err != nil {
+			writeFail(w, r, err)
+			return
+		}
 		id, err := core.SaveAttachment(app, data)
 		if err != nil {
 			writeFail(w, r, err)

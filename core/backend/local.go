@@ -25,11 +25,15 @@ func (l *Local) OAuthWrite() bool { return l.P != nil && l.P.OAuthWrite() }
 // OAuthAdmin 這個連線是有 mcp:admin 的 OAuth 授權(隱含 OAuthWrite):統一入口再多開 OAuthAdminTools,每次呼叫即時檢查呼叫者是該組織的管理員(見 mcp.restrictOAuthAdmin);仍不是伺服器管理員
 func (l *Local) OAuthAdmin() bool { return l.P != nil && l.P.OAuthAdminGrant() }
 
+// ensureOrg 只在已經有組織時補建:一個組織都沒有的資料庫不自動建立(第一個組織由使用者自己建),org 不合格也不建
 func (l *Local) ensureOrg(org string) {
-	if !l.EnsureOrg {
+	if !l.EnsureOrg || !model.ValidOrgID(org) {
 		return
 	}
 	if _, err := l.Svc.Store.GetOrg(org); err != nil {
+		if list, err := l.Svc.Store.ListOrgs(); err != nil || len(list) == 0 {
+			return
+		}
 		_ = l.Svc.Store.CreateOrg(model.Org{ID: org, Name: org, CreatedAt: model.Now()})
 	}
 }

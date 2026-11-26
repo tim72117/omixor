@@ -29,14 +29,16 @@ type Identity struct {
 	Hint string
 }
 
-// Outcome Start 的結果,三擇一:
+// Outcome Start 的結果,擇一:
 //   - Done:身分已證明,由 oauth 層用 ApproveOAuthIdentity 簽發授權碼並導回客戶端
 //   - Redirect(可附 Cookie):303 導去外部登入頁;之後由 provider 的 Callback 接手
+//   - Confirm:身分已證明但要使用者再確認一次;顯示確認頁,送到 POST /oauth/<id>/confirm
 //   - Retry:這次沒過(例如配對碼輸錯),用 RetryStatus(0 = 403)與這句話重新顯示同意畫面(換新的 CSRF)
 type Outcome struct {
 	Done        *Identity
 	Redirect    string
 	Cookie      *http.Cookie
+	Confirm     *service.OAuthConfirmPage
 	Retry       string
 	RetryStatus int
 }
@@ -82,6 +84,9 @@ type confirmer interface{ Confirm() http.Handler }
 // enabledToggle provider 可以選擇性地實作:回 false 時同意畫面不顯示它(例如 evoleap 沒設網址或被關掉);沒實作 = 永遠顯示
 type enabledToggle interface{ Enabled() bool }
 
+// hiddenWhenDisabled 沒啟用時連表單送出的分派都當它不存在
+type hiddenWhenDisabled interface{ hiddenWhenDisabled() }
+
 func providerEnabled(p IdentityProvider) bool {
 	t, ok := p.(enabledToggle)
 	return !ok || t.Enabled()
@@ -99,7 +104,13 @@ func retryOutcome(r *http.Request, oe *service.OAuthError, result string) Outcom
 
 // pickProvider 這次送出屬於哪個 provider:先看誰的欄位有填(在配對碼欄按 Enter 時,瀏覽器會用第一個送出鈕,但填了碼就是要用碼),
 // 再看按下的按鈕屬於誰;都沒有就用第一個有欄位的(舊行為:不是 evoleap 一律當配對碼)
-func pickProvider(ps []IdentityProvider, f url.Values) IdentityProvider {
+func pickProvider(all []IdentityProvider, f url.Values) IdentityProvider {
+	ps := make([]IdentityProvider, 0, len(all))
+	for _, p := range all {
+		if _, hide := p.(hiddenWhenDisabled); !hide || providerEnabled(p) {
+			ps = append(ps, p)
+		}
+	}
 	for _, p := range ps {
 		for _, fl := range p.Fields() {
 			if strings.TrimSpace(f.Get(fl.Name)) != "" {

@@ -698,6 +698,7 @@ func (s *Service) oauthCodeGrant(cl *model.OAuthClient, r OAuthTokenRequest) (*O
 		return burn(oerr(400, "invalid_grant", "帳號無法使用"))
 	}
 	access, refresh, resp := s.oauthIssue(*t, t.Scope, now) // 授權碼的 scope 就是使用者同意的,換 token 時不能改
+	capOAuthExpiry(&access, &refresh, resp, s.ldapCodeDeadline(u, now), now)
 	if err := s.oauthStore().ExchangeOAuthToken(t.ID, now, []model.OAuthToken{access, refresh}); err != nil {
 		if errors.Is(err, store.ErrStale) { // 同時有另一個請求先換走了
 			_ = s.oauthStore().RevokeOAuthFamily(t.FamilyID, now)
@@ -747,7 +748,12 @@ func (s *Service) oauthRefreshGrant(cl *model.OAuthClient, r OAuthTokenRequest, 
 	if left := t.CreatedAt.Add(OAuthAccessTTL).Sub(now); left > 0 {
 		obs.AccessRemainingS = int(left / time.Second)
 	}
+	deadline, err := s.ldapRefresh(u, t, now) // 目錄身分:每次續期都要向目錄確認(見 oauth_ldap.go)
+	if err != nil {
+		return nil, err
+	}
 	access, refresh, resp := s.oauthIssue(*t, newScope, now)
+	capOAuthExpiry(&access, &refresh, resp, deadline, now)
 	if err := s.oauthStore().ExchangeOAuthToken(t.ID, now, []model.OAuthToken{access, refresh}); err != nil {
 		if errors.Is(err, store.ErrStale) { // 並行的另一個請求先輪替了:算重用
 			obs.Result = "reuse_detected"

@@ -179,6 +179,9 @@ func ConfigureLocalService(init func(*service.Service)) {
 
 // ensureLocalOrg 組織還沒建就補建(omixor-web 的組織是自己管的;同 backend.Local 的 EnsureOrg)
 func ensureLocalOrg(l *backend.Local, org string) {
+	if !model.ValidOrgID(org) {
+		return
+	}
 	if _, err := l.Svc.Store.GetOrg(org); err != nil {
 		_ = l.Svc.Store.CreateOrg(model.Org{ID: org, Name: org, CreatedAt: model.Now()})
 	}
@@ -413,6 +416,9 @@ func ImportIssuesPath(path, org string, overwrite bool) ([]service.IssueImportRe
 	}
 	if strings.HasSuffix(path, ".json") {
 		if org == "" {
+			if _, err := localCore().Svc.Store.GetOrg(DefaultOrgID); err != nil { // 不自動建立預設組織
+				return nil, fmt.Errorf("沒有 %s 組織:用 -org 指定要匯入到哪個組織", DefaultOrgID)
+			}
 			org = DefaultOrgID
 		}
 		return out, one(path, org)
@@ -515,6 +521,10 @@ func (a *App) issueBackend() (backend.Backend, error) { return coreBackend(a.con
 
 // issueRemoteLoad 從核心讀 s.Org 的全部 Issue;失敗時保留原本的清單
 func (a *App) issueRemoteLoad(s *issueState) {
+	if s.Org == "" && !IsRemote() { // 還沒有組織
+		s.Issues = []model.Issue{}
+		return
+	}
 	b, err := a.issueBackend()
 	var list []model.Issue
 	if err == nil {

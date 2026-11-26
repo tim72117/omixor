@@ -33,6 +33,12 @@ var featureTools = map[string]string{
 	"request_approval": "automation.inbox",
 }
 
+// orgFreeTools 不屬於任何組織、還沒有組織時也能用的工具
+var orgFreeTools = map[string]bool{"orgs": true, "server": true, "navigate": true, "schema_check": true}
+
+// noOrgToolError 還沒有組織時呼叫其他工具的訊息(給 LLM 看,英文)
+const noOrgToolError = "No organization exists yet. Ask an administrator to create the first organization in the omixor console, then try again."
+
 // FeatureOfTool 工具對應的功能 key(""= 不依功能開關)
 func FeatureOfTool(name string) string { return featureTools[name] }
 
@@ -100,6 +106,9 @@ func (h *Handler) handleOne(data []byte, hooks coremcp.Hooks) []byte {
 	hooks.Guard = func(name string, args map[string]any) error {
 		if err := rejectIdentity(name, args); err != nil { // 不能指定角色身分:400,不執行、不寫入
 			return err
+		}
+		if !orgFreeTools[name] && a.RequireOrg() != nil { // 還沒有組織:不執行、不寫入
+			return ToolError{Message: noOrgToolError, Status: 409}
 		}
 		if f, closed := closedFeature(a, name); closed {
 			return featureClosedError(name, f)

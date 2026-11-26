@@ -117,7 +117,7 @@ type appBackend struct {
 }
 
 func (b appBackend) ListOrgs() ([]model.Org, error) {
-	var out []model.Org
+	out := []model.Org{}
 	for _, o := range b.a.Orgs().Orgs {
 		out = append(out, model.Org{ID: o.ID, Name: o.Name, Note: o.Note})
 	}

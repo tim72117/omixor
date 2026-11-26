@@ -75,8 +75,8 @@ func (c *client) do(method, path string, body any, hdr map[string]string) (int, 
 func ldapCfg(f *authtest.Fake) auth.Config {
 	return auth.Config{Mode: "ldap", LDAP: auth.LDAP{
 		URL: "ldap://" + f.Addr, BindDN: authtest.SvcDN, BaseDN: authtest.Base,
-		RequiredGroup: authtest.UsersDN, AdminGroup: authtest.AdminsDN,
-	}}
+		RequiredGroup: authtest.UsersDN,
+	}, Admins: []string{"alice"}}
 }
 
 func TestLocalModeNeedsNoLogin(t *testing.T) {
@@ -128,7 +128,7 @@ func TestLDAPLoginFlowAndAttribution(t *testing.T) {
 		t.Fatalf("錯的測試帳密不該存:%v", out)
 	}
 	_, out = c.do("POST", "/api/auth/config", map[string]any{"config": ldapCfg(f), "bindPassword": pw, "testUsername": "bob", "testPassword": "bob-pw"}, nil)
-	if !strings.Contains(out["error"].(string), "管理員群組") || au.Enabled() {
+	if !strings.Contains(out["error"].(string), "管理員帳號名單") || au.Enabled() {
 		t.Fatalf("非管理員的測試帳號不該存:%v", out)
 	}
 	_, out = c.do("POST", "/api/auth/config", map[string]any{"config": ldapCfg(f), "bindPassword": pw, "testUsername": "alice", "testPassword": "alice-pw"}, nil)

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -296,5 +298,45 @@ func TestLoginWithLDAPAudit(t *testing.T) {
 	}
 	if !denied || !login || !created {
 		t.Fatalf("操作紀錄:denied=%v login=%v created=%v", denied, login, created)
+	}
+}
+
+// slowDir 每次驗證停一下,模擬並行嘗試
+type slowDir struct{ calls atomic.Int32 }
+
+func (d *slowDir) Authenticate(u, p string) (*ldapauth.Identity, error) {
+	d.calls.Add(1)
+	time.Sleep(30 * time.Millisecond)
+	return nil, ldapauth.ErrInvalidCredentials
+}
+
+// 失敗計數先預扣再送目錄:並行嘗試送到目錄的次數不超過上限;共用的 Failures 跨途徑累計
+func TestLDAPFailuresReservedBeforeDirectory(t *testing.T) {
+	svc, fd, _ := ldapEnv(t)
+	slow := &slowDir{}
+	shared := &service.LoginFailures{}
+	set := service.LDAPSettings{Dir: slow, Failures: shared}
+	var wg sync.WaitGroup
+	for i := 0; i < 30; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = svc.ProveLDAP(set, "amy", "x", "1.1.1.1")
+		}()
+	}
+	wg.Wait()
+	if n := slow.calls.Load(); n != 5 {
+		t.Fatalf("送到目錄 %d 次,要 5", n)
+	}
+	// 別的途徑用同一個 shared 就看得到
+	if _, ok := shared.Reserve("AMY", svc.Now()); ok {
+		t.Fatal("共用計數要已經滿了")
+	}
+	// 目錄故障不算次數
+	fd.err = errors.New("down")
+	for i := 0; i < 12; i++ {
+		if _, err := svc.ProveLDAP(svc.LDAPSettings(), "carol", "x", "1.1.1.1"); service.Code(err) != 502 {
+			t.Fatalf("目錄故障:%v", err)
+		}
 	}
 }

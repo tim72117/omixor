@@ -1,8 +1,8 @@
 // Package templates 讀範本資料(示範用的假資料)。範本放在 repo 最外層的 templates/(JSON 與文件轉換器),
-// 預設不載入:沒有開的時候,預設組織和新組織一樣是空的。要用時設環境變數 OMIXOR_TEMPLATES 才會讀;
+// 預設不載入:沒有開的時候,第一個組織(id default)和其他新組織一樣是空的。要用時設環境變數 OMIXOR_TEMPLATES 才會讀;
 // 讀的是磁碟上的檔案,不編進執行檔。單檔太大的用目錄分檔,目錄裡的檔案照檔名排序讀入(前面的數字是順序):
 //
-//	org.json            第一次啟動建立的預設組織(名稱、圖示、顏色)
+//	org.json            建立第一個組織時預填的名稱、圖示、顏色(組織不會自動建立)
 //	cabinet/            預設組織的文件櫃結構,一個區塊一個檔
 //	seed/               預設組織的示範畫面資料,一個資料集一個檔(_meta.json 記匯出時間)
 //	doc/                文件櫃的文件範本:通用轉換器 docrender.js 與範例網頁 docpage.html(Swift 版共用);
@@ -88,7 +88,7 @@ func read(name string) []byte {
 	return b
 }
 
-// Org 預設組織;範本不在時是 omixor / building.2 / blue
+// Org 第一個組織的建議值;範本不在時是 omixor / building.2 / blue
 func Org() (name, symbol, color string) {
 	name, symbol, color = "omixor", "building.2", "blue"
 	var o struct{ Name, Symbol, Color string }

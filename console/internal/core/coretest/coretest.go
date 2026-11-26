@@ -24,9 +24,12 @@ import (
 	"testing"
 	"time"
 
+	"omixor-core/model"
 	"omixor-core/store"
 	"omixor-core/storetest"
 	"omixor-core/storetest/testdb"
+
+	"omixor-web/internal/templates"
 )
 
 const keep = 6
@@ -117,9 +120,21 @@ type entry struct {
 type Stores struct {
 	mu      sync.Mutex
 	entries []*entry // 最近用的在最後
+	empty   bool     // 新的 store 不放任何組織
 }
 
+// NewStores 每份新的 store 先放一個 default 組織(名稱照範本的 org.json):多數測試要「已經在用的安裝」
 func NewStores() *Stores { return &Stores{} }
+
+// NewEmptyStores 每份新的 store 是完全空的(測「還沒有任何組織」)
+func NewEmptyStores() *Stores { return &Stores{empty: true} }
+
+func seedOrg(pg *store.PG) {
+	name, symbol, color := templates.Org()
+	if err := pg.CreateOrg(model.Org{ID: "default", Name: name, Symbol: symbol, Color: color, CreatedAt: model.Now()}); err != nil {
+		panic("coretest:建立測試組織:" + err.Error())
+	}
+}
 
 // Get 回傳 key 對應的 store(第一次用才建;之後同一個 key 拿到同一份)。
 // 測試程序已經在結束(testdb.Closing)就回傳 nil:測試留下的背景 goroutine 不要再去開新的資料庫
@@ -141,6 +156,9 @@ func (s *Stores) Get(key string) *store.PG {
 	}
 	tb := &fakeTB{name: "coretest-" + strings.ReplaceAll(key, "\\", "/")}
 	e := &entry{key: key, tb: tb, pg: storetest.New(tb)}
+	if !s.empty {
+		seedOrg(e.pg)
+	}
 	s.entries = append(s.entries, e)
 	return e.pg
 }

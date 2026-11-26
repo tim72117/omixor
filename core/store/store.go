@@ -51,6 +51,8 @@ type OAuthStore interface {
 	ExchangeOAuthToken(useID string, at time.Time, add []model.OAuthToken) error
 	// RevokeOAuthFamily 撤銷同一個家族(family_id 相同)還沒撤銷的全部列(code、access、refresh)
 	RevokeOAuthFamily(family string, at time.Time) error
+	// RevokeOAuthUser 撤銷某位使用者還沒撤銷的全部列(含未完成的授權碼與確認交易),回傳幾列
+	RevokeOAuthUser(userID string, at time.Time) (int, error)
 	// PurgeOAuthTokens 刪掉過期超過 before 的 token 列(清理用),回傳刪了幾列
 	PurgeOAuthTokens(before time.Time) (int, error)
 }

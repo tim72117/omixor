@@ -1,6 +1,7 @@
 // omixor-web:omixor console(Go + React)。環境變數集中定義在 omixor-core/config(說明見 docs/configuration.md,-h 也會列出),舊名稱 OPS_* 仍相容。
 //
 //	MCP:http://127.0.0.1:3765/mcp(OMIXOR_MCP_PORT 可改),規格和 Swift 版一模一樣
+//	MCP 入口:設了 OMIXOR_PUBLIC_URL 時畫面連接埠另有和 omixor server 相同的 /mcp、/oauth/*(OAuth 授權,啟用 LDAP 時可用 LDAP 帳號;需要 PostgreSQL、非遠端模式)
 //	對外 MCP:設了 OMIXOR_OAUTH_ADDR(例如 127.0.0.1:8771)才開,端點與認證同 omixor server(/mcp、/mcp/org/{org}、/mcp/agent、/mcp/worker/{org};OAuth 登入或 omx_ token);見 console/README.md
 //	畫面:http://127.0.0.1:5191(OMIXOR_WEB_PORT 改連接埠;OMIXOR_WEB_ADDR 改位址,例如 0.0.0.0:5191,必須先啟用 LDAP 登入)
 //	資料:OMIXOR_CONSOLE_DATA_DIR,預設 ~/Library/Application Support/omixor-console(舊的 OpsWeb 會自動搬過來);
@@ -22,7 +23,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -84,13 +84,12 @@ func main() {
 		log.Printf("MCP:http://127.0.0.1:%d/mcp", st.Port)
 	}
 
-	if err := mcp.StartOAuth(app, cfg); err != nil {
+	au := auth.New(auth.VaultSecrets{})
+	if err := mcp.StartOAuth(app, cfg, au.LDAPSettings); err != nil {
 		log.Fatal(err)
 	}
-
-	au := auth.New(auth.VaultSecrets{})
-	if c := au.Config(); c.Mode == "ldap" && strings.TrimSpace(c.LDAP.AdminGroup) == "" {
-		log.Printf("警告:LDAP 登入沒有設定管理員群組,所有能登入的帳號都是管理員(可以改設定、憑證與對外發佈)。到 設定 › 認證 填「管理員群組」")
+	for _, w := range au.Config().Warnings() {
+		log.Printf("警告:%s", w)
 	}
 	addr := web.ConfiguredAddr()
 	// 在 Docker 裡要聽 0.0.0.0,但連接埠只發布到主機的 127.0.0.1 時,設 OMIXOR_WEB_LOCAL_ONLY_PUBLISH=1
@@ -120,7 +119,11 @@ func main() {
 	if !cfg.Bool(config.NoBrowser) {
 		go func() { time.Sleep(300 * time.Millisecond); _ = core.OpenURLCommand(url).Start() }()
 	}
-	srv := &http.Server{Handler: web.Handler(app, webui.Dist(), au), ReadHeaderTimeout: 10 * time.Second}
+	handler := web.Handler(app, webui.Dist(), au)
+	if entry := mcp.WebEntry(app, cfg, au.LDAPSettings); entry != nil { // 和 omixor server 相同的 MCP 入口,同一個連接埠
+		handler = web.WithMCPEntry(entry, handler)
+	}
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(srv.Serve(ln))
 }
 
