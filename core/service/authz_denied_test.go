@@ -156,6 +156,10 @@ var authzProbes = map[string]func(e *authzEnv, p *model.Principal) error{
 	},
 	"org.delete": func(e *authzEnv, p *model.Principal) error { return e.svc.DeleteOrg(p, "o1") },
 	"user.list":  func(e *authzEnv, p *model.Principal) error { return ign(e.svc.ListUsers(p)) },
+	"user.disable": func(e *authzEnv, p *model.Principal) error {
+		return e.svc.SetUserDisabled(p, "new@x.com", true)
+	},
+	"user.oauth.revoke": func(e *authzEnv, p *model.Principal) error { return ign(e.svc.RevokeUserOAuth(p, "new@x.com")) },
 	"user.save": func(e *authzEnv, p *model.Principal) error {
 		return ign(e.svc.SaveUser(p, "new@x.com", nil, nil))
 	},
