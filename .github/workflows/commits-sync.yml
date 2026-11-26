@@ -1,0 +1,55 @@
+# commits 同步:push 到 main 後,把新 commit 送進 omixor(omixor commits sync --source ci)。
+# 需要設定(repo 的 Settings > Secrets and variables > Actions):
+#   secret   OMIXOR_TOKEN  omixor 使用者 token(omx_ 開頭;用 omixor login 或設定頁建立)。沒設就整個略過(成功,只顯示提示),不會讓 CI 失敗。
+#   variable OMIXOR_SERVER omixor 伺服器網址,沒設用 https://omixor.io(fork 可改成自己的)。
+#   variable OMIXOR_ORG    組織 id,沒設用 omixor。
+# 驗證方式:CLI 沒有直接吃 token 的環境變數,所以這裡把 token 寫成 credentials 檔(JSON:server、token),
+#   再用 OMIXOR_CREDENTIALS 指給 CLI 讀(見 core/cli/cli.go 檔頭)。token 只放在環境變數與該檔,不印出。
+# 第一次同步只送 HEAD 當基準點,之後只送 last_sha..HEAD,所以要抓完整 git 歷史(fetch-depth: 0)。
+name: Commits Sync
+
+on:
+  push:
+    branches: [main]
+
+# 同一時間只跑一個,不取消進行中的(避免同步到一半被中斷);後面的 push 排隊
+concurrency:
+  group: commits-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      # secrets 不能直接用在 if,先轉成旗標
+      HAS_TOKEN: ${{ secrets.OMIXOR_TOKEN != '' }}
+      OMIXOR_SERVER: ${{ vars.OMIXOR_SERVER || 'https://omixor.io' }}
+      OMIXOR_ORG: ${{ vars.OMIXOR_ORG || 'omixor' }}
+    steps:
+      - name: 沒有 OMIXOR_TOKEN 就略過
+        if: env.HAS_TOKEN != 'true'
+        run: echo "::notice::未設定 secret OMIXOR_TOKEN,略過 commits 同步"
+      - uses: actions/checkout@v7
+        if: env.HAS_TOKEN == 'true'
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        if: env.HAS_TOKEN == 'true'
+        with:
+          go-version-file: console/go.mod
+      - name: build omixor CLI
+        if: env.HAS_TOKEN == 'true'
+        working-directory: console
+        run: go build -o "$RUNNER_TEMP/omixor" ./cmd/omixor
+      - name: commits sync
+        if: env.HAS_TOKEN == 'true'
+        env:
+          OMIXOR_TOKEN: ${{ secrets.OMIXOR_TOKEN }}
+        run: |
+          creds="$RUNNER_TEMP/omixor-credentials.json"
+          (umask 077; jq -n --arg server "$OMIXOR_SERVER" --arg token "$OMIXOR_TOKEN" '{server: $server, token: $token}' > "$creds")
+          export OMIXOR_CREDENTIALS="$creds"
+          "$RUNNER_TEMP/omixor" commits sync --server "$OMIXOR_SERVER" --org "$OMIXOR_ORG" --repo "github:${{ github.repository }}" --source ci

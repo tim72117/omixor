@@ -143,6 +143,19 @@ func isOAuthAdminBackend(bk any) bool {
 	return ok && b.OAuthAdmin()
 }
 
+// NoOrgsWriteGrantMessage 讀寫授權(mcp:write / mcp:admin)的帳號沒有任何組織成員資格時的說明(ISS-64):
+// 讀寫授權不帶伺服器管理員的權力(唯讀授權才有),所以不是任何組織成員的伺服器管理員會看到空清單
+const NoOrgsWriteGrantMessage = "Read-write grants do not include server-admin power, and this account is not a member of any organization, so no organization is available. " +
+	"Ask an organization admin to add you as a member, or reconnect with a read-only grant (a server admin can read every organization with it)"
+
+// noOrgsHint 可用組織是空的、而且連線是讀寫授權時的說明(orgs 結果的 note 與 orgDenied 共用);其他情況回空字串
+func noOrgsHint(bk any, avail []model.Org) string {
+	if len(avail) == 0 && isOAuthWriteBackend(bk) {
+		return NoOrgsWriteGrantMessage
+	}
+	return ""
+}
+
 // restrictOAuth 依連線的 OAuth scope 套上限制(AdminEndpoint 與 UnifiedEndpoint 共用,兩邊行為一致);不是 OAuth 連線(omx_)原樣回傳:
 //   - 唯讀(mcp:read):restrictReadOnly
 //   - 讀寫(mcp:write):restrictOAuthWrite

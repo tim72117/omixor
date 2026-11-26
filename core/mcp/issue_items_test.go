@@ -65,6 +65,16 @@ func TestIssueItemTools(t *testing.T) {
 	if d["status"] != "done" || !strings.Contains(string(mustJSON(d["evidence"])), `"commit":"abc"`) || !strings.Contains(string(mustJSON(d["evidence"])), "好了") {
 		t.Fatal(d)
 	}
+	// 完成證據查核:這裡沒有任何回報過的 commit,回應要帶查核結果與英文提醒;讀取只帶查核結果
+	if c, _ := d["evidenceCheck"].(map[string]any); c["commit"] != "invalid_sha" || c["needsVerification"] != true {
+		t.Fatal("查核結果", d)
+	}
+	if m, _ := d["message"].(string); !strings.Contains(m, "flagged needsVerification") {
+		t.Fatal("完成回報要提醒", d)
+	}
+	if g := ok(t, admin, "", "issue_items", map[string]any{"id": k + ".1"}); g["evidenceCheck"] == nil || g["message"] != nil {
+		t.Fatal(g)
+	}
 	fails(t, admin, "", "issue_item_report", map[string]any{"id": k + ".1", "status": "blocked"}, k+".1 已經完成")
 	if l := ok(t, admin, "", "issue_items", map[string]any{"issue": k}); l["total"] != 1.0 || l["open"] != 1.0 {
 		t.Fatal("預設只回未完成", l)

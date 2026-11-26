@@ -357,6 +357,18 @@ func redirectTo(w http.ResponseWriter, redirectURI string, kv ...string) {
 	w.WriteHeader(303)
 }
 
+// noteError 把 OAuthError 的原因記進這次請求的觀測欄位:error 是回給用戶端的 RFC 碼,pairing_result 是細分原因,detail 是只進 log 的細節
+func noteError(r *http.Request, oe *service.OAuthError) {
+	d := detail(r)
+	d["error"] = oe.Code
+	if oe.Reason != "" {
+		d["pairing_result"] = oe.Reason
+	}
+	if oe.Detail != "" {
+		d["detail"] = oe.Detail
+	}
+}
+
 // authError 授權請求的錯誤:client_id 或 redirect_uri 不可信 → 直接顯示;其他導回 redirect_uri?error=…
 func (h *Handler) authError(w http.ResponseWriter, r *http.Request, req service.OAuthAuthRequest, err error) {
 	var oe *service.OAuthError
@@ -364,7 +376,7 @@ func (h *Handler) authError(w http.ResponseWriter, r *http.Request, req service.
 		renderFatal(w, 500, "伺服器錯誤,請稍後再試")
 		return
 	}
-	detail(r)["error"] = oe.Code
+	noteError(r, oe)
 	if oe.NoRedirect {
 		renderFatal(w, oe.Status, oe.Desc)
 		return
@@ -512,13 +524,9 @@ func (h *Handler) approveFailed(w http.ResponseWriter, r *http.Request, chk *ser
 		renderFatal(w, 500, "伺服器錯誤,請稍後再試")
 		return
 	}
-	d := detail(r)
-	d["error"] = oe.Code
-	switch {
-	case oe.Reason != "":
-		d["pairing_result"] = oe.Reason
-	case oe.Code == "invalid_scope":
-		d["pairing_result"] = "bad_scope"
+	noteError(r, oe)
+	if oe.Code == "invalid_scope" && oe.Reason == "" {
+		detail(r)["pairing_result"] = "bad_scope"
 	}
 	if oe == service.ErrOAuthNotOrgAdmin { // 身分已證明、但不是任何組織的管理員:重新顯示同意畫面,管理員選項停用
 		msg := oe.Desc

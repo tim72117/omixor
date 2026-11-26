@@ -424,8 +424,13 @@ func (s *Service) UpdateIssue(p *model.Principal, org, id string, in IssuePatch)
 		s.issueNote(org, n.ID, by.ID, "已放回,等待重新接受")
 		s.Audit(p, "issue.release", org, map[string]any{"id": n.ID, "key": n.Key})
 	}
-	if in.Assignee != nil { // 有給 assignee:取消舊角色未領取的任務、替新角色排任務(已有未結束的不重複排);在 Issue 的鎖外(會拿 agents.mu)
+	// 有給 assignee:取消舊角色未領取的任務、替新角色排任務(已有未結束的不重複排);在 Issue 的鎖外(會拿 agents.mu)。
+	// 角色給和目前一樣的值不算指派(不能藉此替目前的角色重排任務)
+	if in.Assignee != nil && (p.Agent == nil || n.Assignee != cur.Assignee) {
 		s.syncIssueAssignee(p, org, *n, cur.Assignee, by.ID)
+	}
+	if n.Status == "closed" && cur.Status != "closed" {
+		s.closeIssueTasks(p, org, *n)
 	}
 	return s.presentIssue(n)
 }
@@ -445,6 +450,9 @@ func (s *Service) patchIssue(p *model.Principal, acc *projectAccess, org, id, re
 	}
 	if in.Version != nil && *in.Version != cur.Version {
 		return nil, nil, s.conflictErr(cur, int64(cur.Version))
+	}
+	if err := s.checkAgentPatch(p, org, cur, in); err != nil {
+		return nil, nil, err
 	}
 	expected := 0 // 存放處的條件式更新用:有給版本才檢查(多個實例時 issueLock 擋不住,要靠資料庫)
 	if in.Version != nil {

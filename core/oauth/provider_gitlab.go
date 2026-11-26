@@ -96,3 +96,12 @@ func (p *GitLabProvider) confirm(w http.ResponseWriter, r *http.Request) {
 	d["pairing_result"] = "ok"
 	redirectTo(w, res.RedirectURI, "code", res.Code, "state", res.State)
 }
+
+// Check 啟動自我檢查(見 diagnose.go):要登記在 GitLab 應用程式的回呼網址;沒啟用只是提示(GitLab 登入是選用的)。
+// 設定本身的錯誤(缺對外網址、client id 等)在 ConfigureGitLab 就回報,不在這裡重複
+func (p *GitLabProvider) Check(public string) []Problem {
+	if !p.Enabled() {
+		return []Problem{{Level: Info, Msg: "GitLab 登入沒有啟用(要用就設 OMIXOR_GITLAB_URL)"}}
+	}
+	return []Problem{{Level: Info, Msg: "GitLab 登入已啟用,要在 GitLab 應用程式登記回呼網址 " + callbackURL(public, p.ID())}}
+}

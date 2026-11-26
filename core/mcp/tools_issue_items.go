@@ -16,6 +16,46 @@ import (
 // 領取、改、取消、提升只有人。署名一律是呼叫者本人,工具沒有 agent、author 參數。
 // issue_block / issue_unblock(Issue 級卡住旗標)這一版沒有做:要動 Issue 的結構與遷移,範圍比子項大,見 ISS-37 的說明。
 
+const evidenceCheckDoc = "evidenceCheck (computed on read) separates what the system confirmed from what was only self-reported: " +
+	"commit = confirmed (reported to this organization for the issue's repo, or any repo when the issue has none), not_found (the repo has reported commits but not this one), " +
+	"unverifiable (no commit data for the repo), invalid_sha, or not_visible (on the agent endpoint, only the item bound to your current task is checked; others are not_visible); selfReported lists the evidence keys that were not confirmed; " +
+	"needsVerification=true means a done item has neither a confirmed commit nor an unverified explanation."
+
+// 被標 needsVerification 之後回報者能做什麼:角色不能回報 commits,而且 done 之後憑證就失效
+const (
+	evidenceNextStep = "If the commit just has not been reported yet, run `omixor commits sync` (or commits_report); the check is recomputed on every read. " +
+		"Otherwise tell the user what was not verified, for example in a comment on the issue."
+	evidenceAgentNextStep = "Agents cannot report commits, and reporting done ended your task and its credential, so do not retry or call more tools. " +
+		"In your final answer, tell whoever started you what was not verified; if the commit has not been reported to omixor yet, ask them to run `omixor commits sync` (the check is recomputed on every read)."
+)
+
+// isAgentBackend 這個連線是角色身分嗎(Backend 實作 IsAgent() bool,例如 backend.Local)
+func isAgentBackend(bk any) bool {
+	b, ok := bk.(interface{ IsAgent() bool })
+	return ok && b.IsAgent()
+}
+
+// evidenceWarning 完成回報被標 needsVerification 時,告訴回報者原因與下一步;沒被標回空字串
+func evidenceWarning(id string, c *model.EvidenceCheck, agent bool) string {
+	if c == nil || !c.NeedsVerification {
+		return ""
+	}
+	reason := "the evidence has no commit"
+	switch c.Commit {
+	case model.EvidenceNotFound:
+		reason = "evidence.commit was not found among the commits reported for this repo"
+	case model.EvidenceUnverifiable:
+		reason = "no commit data has been reported for this repo, so evidence.commit cannot be checked"
+	case model.EvidenceInvalidSHA:
+		reason = "evidence.commit is not a 7-40 character hex sha"
+	}
+	next := evidenceNextStep
+	if agent {
+		next = evidenceAgentNextStep
+	}
+	return id + " is recorded as done but flagged needsVerification: " + reason + " and there is no evidence.unverified explanation. " + next
+}
+
 // ItemToolDefs 子項工具的規格(接在 CoreToolDefs 後面)
 func ItemToolDefs() []any {
 	itemID := "Item number (e.g. ISS-37.2, the issue key plus a sequence number)"
@@ -35,7 +75,8 @@ func ItemToolDefs() []any {
 			}, "issue", "title")),
 		coreDef("issue_items",
 			"Queries an issue's items (to-do list). With id (e.g. ISS-37.2) returns a single one; with issue lists that issue's items, by default only unfinished ones (todo / doing / blocked); include_done=true also includes done and canceled ones, "+
-				"and status selects a single status. Each entry has status, owner, claimer, prerequisites, files, acceptance criteria, block reason and what it waits for, and completion evidence.", true,
+				"and status selects a single status. Each entry has status, owner, claimer, prerequisites, files, acceptance criteria, block reason and what it waits for, and completion evidence. "+
+				evidenceCheckDoc, true,
 			obj(map[string]any{
 				"id":           pStr(itemID + "; when given, only this one is returned"),
 				"issue":        pStr("Issue number (for listing; may be omitted when id is given)"),
@@ -65,7 +106,9 @@ func ItemToolDefs() []any {
 			"Reports on an item: status=done (finished; may attach evidence, either a JSON object like {commit, tests, unverified:[...]} or a piece of text, and a note), "+
 				"blocked (stuck; block_reason is required; when a human decision is needed, use wait_for_kind=user_decision and say in wait_for what the decision is (e.g. DEC-n or a question), and do not guess the answer; "+
 				"with wait_for_kind=item, wait_for is another item of the same issue; external is an external condition), doing (renew the lease; equals claiming when not claimed), todo (return to unclaimed, or unblock; not allowed on the agent endpoint). "+
-				"Humans: you can report only if nobody else holds a valid lease, or you are the claimer or an organization admin; agent endpoint: only the items of the task bound to that agent (use the credential returned when claiming with issue_item_claim). Completing requires the prerequisites to be done.", false,
+				"Humans: you can report only if nobody else holds a valid lease, or you are the claimer or an organization admin; agent endpoint: only the items of the task bound to that agent (use the credential returned when claiming with issue_item_claim). Completing requires the prerequisites to be done. "+
+				"On done, put the commit sha in evidence.commit (7-40 hex characters, reported to omixor with commits sync or commits_report, which agents cannot call themselves) and list anything you did not check in evidence.unverified. "+
+				evidenceCheckDoc+" A flagged report is still accepted; its response also carries a message.", false,
 			obj(map[string]any{
 				"id":            pStr(itemID),
 				"status":        pEnum("todo, doing, blocked or done", model.ItemTodo, model.ItemDoing, model.ItemBlocked, model.ItemDone),
@@ -259,6 +302,11 @@ func RegisterItemTools(s *Server) {
 			BlockReason: c.Args.Str("block_reason"), WaitForKind: c.Args.Str("wait_for_kind"), WaitFor: c.Args.Str("wait_for")})
 		if err != nil {
 			return nil, itemErr(id, err)
+		}
+		if msg := evidenceWarning(id, it.EvidenceCheck, isAgentBackend(e.Backend())); msg != "" {
+			out := toMap(it)
+			out["message"] = msg
+			return out, nil
 		}
 		return it, nil
 	})

@@ -194,7 +194,7 @@ func (s *Service) claimPicked(p *model.Principal, org string, g *model.Agent, pi
 	}
 	s.Audit(p, "agent.task.claim", org, map[string]any{"task": claimed.ID, "agent": g.ID, "expiresAt": cred.ExpiresAt.Time.Format(time.RFC3339)})
 	return &ClaimResult{Agent: g, Task: claimed, Credential: &model.AgentGrant{AgentID: g.ID, TaskID: claimed.ID, Secret: secret, Code: ClaimCode(cred.Hash),
-		ExpiresAt: cred.ExpiresAt.Time.UTC().Format(time.RFC3339)}}, nil
+		ExpiresAt: cred.ExpiresAt.Time.UTC().Format(time.RFC3339)}, AutoPostsResult: true}, nil
 }
 
 // ReportTask 回報任務(進度、結果、狀態)。組織成員可回報任何任務;角色身分只能回報憑證綁定的那一筆(id 空白就是那一筆),
@@ -262,6 +262,9 @@ func (s *Service) ReportTask(p *model.Principal, org, id string, in TaskReport) 
 	if p.Agent != nil && t.Status != "inProgress" {
 		return nil, fail(409, "%s 目前不是進行中,不能回報", t.ID)
 	}
+	if err := s.checkAgentTaskLinks(p, org, t, in.Links); err != nil {
+		return nil, err
+	}
 	note := ""
 	if in.Note != nil {
 		note = strings.TrimSpace(*in.Note)
@@ -314,6 +317,16 @@ func (s *Service) ReportTask(p *model.Principal, org, id string, in TaskReport) 
 	}
 	if in.Status != nil && *in.Status != t.Status { // 變成 done、blocked:依組織鏈回報給建立者
 		s.chainReport(p, org, updated, note)
+		if updated.Status == "done" { // 結果貼回來源 Issue(用回報前的連結:這次新增的連結多半是產出,不是來源)
+			// 本次填的結果,沒有則本次的備註。只有角色沒帶 result 時沿用任務先前存的;人不沿用(可能是角色寫的,不能掛本人的名字)
+			result := ""
+			if in.Result != nil {
+				result = *in.Result
+			} else if p.Agent != nil {
+				result = updated.Result
+			}
+			s.noteTaskResult(p, org, *t, firstNonEmpty(result, note))
+		}
 	}
 	if updated, err = s.presentTask(updated); err != nil {
 		return nil, err

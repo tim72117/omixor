@@ -250,7 +250,7 @@ func TestOAuthWriteMembershipAndServerAdmin(t *testing.T) {
 	rw := u.writeUnified(u.oauthPrincipal(rootUser, false))
 	ro := u.writeUnified(u.oauthPrincipal(rootUser, true))
 	omx := u.writeUnified(&model.Principal{User: rootUser, Via: model.ViaLogin})
-	if r := callRes(t, rw, "orgs", map[string]any{}); r.isErr || strings.Contains(r.all(), "other") || strings.Contains(r.all(), "lab") {
+	if r := callRes(t, rw, "orgs", map[string]any{}); r.isErr || !strings.Contains(r.all(), `"orgs":[]`) {
 		t.Fatal("OAuth 寫入的伺服器管理員只看得到自己是成員的組織(沒有)", r.all())
 	}
 	if r := callRes(t, rw, "issue_create", map[string]any{"org": "other", "title": "管理員闖入"}); !r.isErr {

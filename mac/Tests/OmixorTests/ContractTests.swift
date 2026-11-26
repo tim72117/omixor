@@ -234,6 +234,8 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(cred.secret, "s3cr3t-example")
         XCTAssertEqual(cred.expiresAt, "2026-11-02T01:50:00Z")
         XCTAssertEqual(cred.endpoint, "http://127.0.0.1:5996/mcp/agent", "core 沒給 endpoint 時用 server 的角色端點")
+        XCTAssertFalse(c.autoPostsResult, "回應沒明示(舊 server)就當不會自動貼結果")
+        XCTAssertEqual(cred.code, "123456", "代角色回報用的領取驗證碼")
 
         // 沒有可領的任務:task 是 null、沒有 credential
         let empty = try remote.claimTask(org: org, agent: "eng", task: nil)

@@ -94,22 +94,30 @@ extension IssueRemote {
         if let c = obj["credential"] as? [String: Any], let id = c["agentId"] as? String, let secret = c["secret"] as? String {
             cred = AgentCredential(agentId: id, taskId: c["taskId"] as? String ?? "", secret: secret,
                                    expiresAt: c["expiresAt"] as? String ?? "",
-                                   endpoint: (c["endpoint"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? agentEndpoint)
+                                   endpoint: (c["endpoint"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? agentEndpoint,
+                                   code: c["code"] as? String ?? "")
         }
-        return AgentClaim(agent: try part("agent", Agent.self), task: try part("task", AgentTask.self), credential: cred)
+        return AgentClaim(agent: try part("agent", Agent.self), task: try part("task", AgentTask.self), credential: cred,
+                          autoPostsResult: obj["autoPostsResult"] as? Bool ?? false)
     }
 
     /// 角色端點:領到的憑證用 Bearer <agentId>:<secret> 連這裡
     var agentEndpoint: String { config.url.appendingPathComponent("mcp").appendingPathComponent("agent").absoluteString }
 
-    /// 回報:status 只能是 inProgress、blocked、done
-    func reportTask(org: String, id: String, status: AgentTaskStatus?, result: String?, note: String?, links: [String]?) throws -> AgentTask {
+    /// 回報:status 只能是 inProgress、blocked、done。workerCode 非空走 worker/report(領取者以角色身分回報,同 core 的 WorkerReport)
+    func reportTask(org: String, id: String, status: AgentTaskStatus?, result: String?, note: String?, links: [String]?,
+                    workerCode: String = "") throws -> AgentTask {
         var b: [String: Any] = [:]
         if let status { b["status"] = status.rawValue }
         if let result { b["result"] = result }
         if let note { b["note"] = note }
         if let links { b["links"] = links }
-        return try decode(AgentTask.self, try send("POST", orgURL(org, ["agent-tasks", id, "report"]), try json(b)))
+        var path = ["agent-tasks", id, "report"]
+        if !workerCode.isEmpty {
+            b["code"] = workerCode
+            path = ["agent-tasks", id, "worker", "report"]
+        }
+        return try decode(AgentTask.self, try send("POST", orgURL(org, path), try json(b)))
     }
 
     func cancelTask(org: String, id: String) throws -> AgentTask {

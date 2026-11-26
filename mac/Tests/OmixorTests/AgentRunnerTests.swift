@@ -108,6 +108,32 @@ final class AgentRunnerTests: XCTestCase {
         XCTAssertEqual(r.history.first?.outcome, "done")
     }
 
+    /// Claude 沒自己回報:runner 用領取驗證碼走 worker/report(角色身分);被拒或舊 server 沒有路由就退回一般回報,結果不掉
+    func testReportsAsRoleAndFallsBack() async throws {
+        for status in [200, 409, 404] {
+            FakeOmixorServer.reset()
+            FakeOmixorServer.workerReportStatus = status
+            _ = FakeOmixorServer.newTask(agent: "programmer", title: "代回報", links: ["ISS-2"], by: "tim")
+            let r = app().agentRunner
+            r.findClaude = { true }
+            r.runClaude = { _, o in
+                self.omixorRan(o)
+                return ClaudeRunResult(text: "做完了", isError: false, sessionId: nil, turns: 1, costUSD: nil, stderr: "")
+            }
+            var c = RunnerConfig()
+            c.autoRun = true
+            try r.save("programmer", c)
+            r.tick()
+            try await waitIdle(r)
+            let reports = FakeOmixorServer.requests.filter { $0.path.hasSuffix("/report") }
+            XCTAssertEqual(reports.map { $0.path.hasSuffix("/worker/report") }, status == 200 ? [true] : [true, false], "HTTP \(status)")
+            XCTAssertEqual(reports.first?.body["code"] as? String, "123456")
+            let t = FakeOmixorServer.tasks.first
+            XCTAssertEqual(t?["status"] as? String, "done", "HTTP \(status)")
+            XCTAssertEqual(t?["result"] as? String, "做完了", "HTTP \(status)")
+        }
+    }
+
     /// 人工啟動:autoRun 關著的角色也能跑(沒存設定用預設設定);迴圈不會領它;切換自動/手動只改 autoRun
     func testManualStartRunsManualRole() async throws {
         _ = FakeOmixorServer.newTask(agent: "programmer", title: "人工啟動", links: [], by: "tim")

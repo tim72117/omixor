@@ -90,7 +90,7 @@ final class IssueTests: XCTestCase {
         app.startTestAgents()
         (_, text, isError) = try await call(mcp, "issue_create", ["title": "UTM", "agent": "行銷"])
         XCTAssertTrue(isError)
-        XCTAssertTrue(text.contains("不能指定角色身分"), text)
+        XCTAssertTrue(text.contains("An agent identity cannot be specified"), text)
         (_, _, isError) = try await call(mcp, "issue_create", ["title": "x", "agent": "不存在"])
         XCTAssertTrue(isError)
         let role = RoleMCP(app: app)

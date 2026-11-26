@@ -324,6 +324,37 @@ func (p *PG) FindCommitRepos(org, path string) ([]string, error) {
 	return out, rows.Err()
 }
 
+// LookupReportedCommits 見 Store.LookupReportedCommits
+func (p *PG) LookupReportedCommits(org string, repos, prefixes []string) (map[string]bool, bool, error) {
+	c, cancel := ctx()
+	defer cancel()
+	if repos == nil {
+		repos = []string{} // nil 會變成 SQL NULL,cardinality 就不是 0
+	}
+	const reported = `from omixor_commits where org = $1 and subject <> '' and (cardinality($2::text[]) = 0 or repo = any($2))`
+	var hasData bool
+	if err := p.pool.QueryRow(c, `select exists(select 1 `+reported+`)`, org, repos).Scan(&hasData); err != nil {
+		return nil, false, err
+	}
+	found := map[string]bool{}
+	if !hasData || len(prefixes) == 0 {
+		return found, hasData, nil
+	}
+	rows, err := p.pool.Query(c, `select x from unnest($3::text[]) as x where exists(select 1 `+reported+` and sha like x || '%')`, org, repos, prefixes)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var x string
+		if err := rows.Scan(&x); err != nil {
+			return nil, false, err
+		}
+		found[x] = true
+	}
+	return found, hasData, rows.Err()
+}
+
 // IssueCommitStats 見 Store.IssueCommitStats
 func (p *PG) IssueCommitStats(org, issueID, repo, sha string) (IssueCommitStats, error) {
 	c, cancel := ctx()

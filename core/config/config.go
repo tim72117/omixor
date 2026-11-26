@@ -37,10 +37,12 @@ const (
 	Conn                 // 資料庫連線:網址形式(有 ://,檢查 Schemes)或 key=value 形式
 	Flag                 // 旗標:有設(非空)就算開,任何值都一樣(含 0、false);Bool() 回傳有沒有設
 	Gate                 // 安全閘門:只有精確的 1 才算開,其他值一律當沒設;Bool() 只認 1
+	Key                  // 一把 32 bytes 的金鑰(64 個 hex 字元或 base64),見 key.go
+	KeyList              // 逗號分隔的多把金鑰,每把同 Key
 )
 
 func (k Kind) String() string {
-	return [...]string{"字串", "整數", "小數", "布林", "時間長度", "網址", "路徑", "選項", "網址或 key=value", "旗標(有設就算)", "閘門(只認 1)"}[k]
+	return [...]string{"字串", "整數", "小數", "布林", "時間長度", "網址", "路徑", "選項", "網址或 key=value", "旗標(有設就算)", "閘門(只認 1)", "金鑰(32 bytes)", "金鑰清單(逗號分隔)"}[k]
 }
 
 // Program 用到設定的程式
@@ -176,6 +178,8 @@ func (v *Var) check(raw string) error {
 		} else if !strings.Contains(s, "=") {
 			return fmt.Errorf("%s 要是網址(postgres://…)或 key=value 形式(host=… user=… dbname=…)%s", v.Name, show())
 		}
+	case Key, KeyList:
+		return v.checkKeys(s)
 	case Path:
 		if s == "" {
 			return fmt.Errorf("%s 不能只有空白", v.Name)
@@ -482,28 +486,37 @@ func gitLabURLMissing(c *Config) error {
 	return nil
 }
 
-// webOAuthRule 設了 OMIXOR_OAUTH_ADDR(console 的對外 MCP 連接埠)時的相依:要有對外網址(issuer、resource、evoleap 回呼都由它推導)、
-// 網址必須是 https(本機位址除外,開發用)且只有網址、不能是遠端模式(授權與使用者在那台 server)。
-// 需要 PostgreSQL 與否、同意畫面有哪些登入方式(console 的 LDAP 設定在資料庫,可在執行中改)是執行期才知道的事,由 console 啟動時檢查
+// webOAuthRule 設了 OMIXOR_OAUTH_ADDR(console 的對外 MCP 連接埠)時的相依,見 WebOAuthIssues;回第一個問題。
+// 需要 PostgreSQL 與否、同意畫面有哪些登入方式(console 的 LDAP 設定在資料庫,可在執行中改)是執行期才知道的事,由 console 啟動時檢查(oauth.Diagnose)
 func webOAuthRule(c *Config) error {
-	if !c.IsSet(OAuthAddr) {
-		return nil
-	}
-	const pre = "設了 OMIXOR_OAUTH_ADDR,"
-	if !c.IsSet(PublicURL) {
-		return fmt.Errorf(pre + "也要設 OMIXOR_PUBLIC_URL(對外的 https 網址,例如 https://console.example.com)")
-	}
-	if p := WebPublicURLProblem(c); p != "" {
-		return errors.New(pre + p)
-	}
-	if c.IsSet(ServerURL) {
-		return fmt.Errorf(pre + "但 OMIXOR_SERVER 設了(遠端模式):OAuth 要連本機 PostgreSQL 的 console,遠端模式請改在那台 omixor server 設 OMIXOR_PUBLIC_URL")
+	if is := c.WebOAuthIssues(); len(is) > 0 {
+		return errors.New("設了 OMIXOR_OAUTH_ADDR," + is[0])
 	}
 	return nil
 }
 
-// WebPublicURLProblem console 要用 OMIXOR_PUBLIC_URL 當 OAuth 的網址時,這個值哪裡不合(空字串 = 沒問題)。
-// 網址本身的格式問題由 OMIXOR_PUBLIC_URL 的型別檢查回報
+// WebOAuthIssues 設了 OMIXOR_OAUTH_ADDR(console 的 OAuth 連接埠)時設定層級的問題,依序全列(沒設連接埠 = 沒有問題):
+// 要有對外網址(issuer、resource、evoleap 回呼都由它推導)、網址要合 WebPublicURLProblem、不能是遠端模式(授權與使用者在那台 server)。
+// 對外網址沒設時只回那一項(其他都依賴它)
+func (c *Config) WebOAuthIssues() []string {
+	if !c.IsSet(OAuthAddr) {
+		return nil
+	}
+	if !c.IsSet(PublicURL) {
+		return []string{"也要設 OMIXOR_PUBLIC_URL(對外的 https 網址,例如 https://console.example.com)"}
+	}
+	var out []string
+	if p := WebPublicURLProblem(c); p != "" {
+		out = append(out, p)
+	}
+	if c.IsSet(ServerURL) {
+		out = append(out, "但 OMIXOR_SERVER 設了(遠端模式):OAuth 要連本機 PostgreSQL 的 console,遠端模式請改在那台 omixor server 設 OMIXOR_PUBLIC_URL")
+	}
+	return out
+}
+
+// WebPublicURLProblem OMIXOR_PUBLIC_URL 當 OAuth 對外網址時哪裡不合(只放網址、https;本機位址除外);
+// 沒問題或沒設回空字串(必填與否由呼叫者決定)。網址本身的格式問題由 OMIXOR_PUBLIC_URL 的型別檢查回報
 func WebPublicURLProblem(c *Config) string {
 	u, err := url.Parse(c.Str(PublicURL))
 	if err != nil || u.Hostname() == "" {

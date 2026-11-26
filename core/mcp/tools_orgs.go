@@ -20,9 +20,13 @@ func RegisterOrgTools(s *Server) {
 			}
 			orgs = append(orgs, m)
 		}
-		if noCurrent {
-			return map[string]any{"orgs": orgs}, nil
+		out := map[string]any{"orgs": orgs}
+		if !noCurrent {
+			out["current"] = e.Org()
 		}
-		return map[string]any{"current": e.Org(), "orgs": orgs}, nil
+		if h := noOrgsHint(e.Backend(), list); h != "" {
+			out["note"] = h
+		}
+		return out, nil
 	})
 }

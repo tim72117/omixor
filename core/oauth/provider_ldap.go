@@ -56,6 +56,18 @@ func (p *LDAPProvider) Enabled() bool {
 // hiddenWhenDisabled 沒啟用時 pickProvider 也要當它不存在(沒有 LDAP 的伺服器行為和以前完全一樣)
 func (p *LDAPProvider) hiddenWhenDisabled() {}
 
+// Check 啟動自我檢查(見 diagnose.go):LDAP 是選用的,沒啟用只是提示;沒有要登記的回呼網址
+func (p *LDAPProvider) Check(string) []Problem {
+	if p.Enabled() {
+		return []Problem{{Level: Info, Msg: "LDAP 帳號密碼登入已啟用"}}
+	}
+	how := "設 OMIXOR_LDAP_URL"
+	if p.Settings != nil { // 宿主的目錄設定可以在執行中改(console)
+		how = "在認證設定啟用 LDAP,不必重啟"
+	}
+	return []Problem{{Level: Info, Msg: "LDAP 登入沒有啟用(要用就" + how + ")"}}
+}
+
 // Start 驗證帳號密碼;通過回確認頁,帳密或帳號的問題重新顯示同意畫面
 func (p *LDAPProvider) Start(w http.ResponseWriter, r *http.Request, t Txn) (Outcome, error) {
 	d := detail(r)

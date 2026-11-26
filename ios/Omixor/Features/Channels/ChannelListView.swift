@@ -44,7 +44,8 @@ struct ChannelRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(channel.name).font(channel.unread > 0 ? .body.bold() : .body).lineLimit(1)
-                    if !channel.issueId.isEmpty { Pill(text: channel.issueId, color: .blue) }
+                    // issueId 是內部 id(UUID),不能直接顯示
+                    if !channel.issueId.isEmpty { Pill(text: "Issue", color: .blue) }
                 }
                 if !channel.topic.isEmpty {
                     Text(channel.topic).font(.caption).foregroundStyle(.secondary).lineLimit(1)

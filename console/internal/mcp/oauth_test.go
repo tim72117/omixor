@@ -17,6 +17,7 @@ import (
 	"omixor-core/config"
 	coremcp "omixor-core/mcp"
 	"omixor-core/model"
+	"omixor-core/oauth"
 	"omixor-core/service"
 	"omixor-core/storetest"
 )
@@ -309,15 +310,23 @@ func TestConsoleRemotePortOnlyExposesOAuthAndMCP(t *testing.T) {
 	}
 }
 
-// 啟動條件:沒設 OMIXOR_OAUTH_ADDR 什麼都不檢查;設了要有 PostgreSQL、不能是遠端模式
-func TestCheckOAuthRuntime(t *testing.T) {
-	if err := checkOAuthRuntime(true, false); err != nil {
+// 啟動條件:沒設 OMIXOR_OAUTH_ADDR 什麼都不檢查;設了要有 PostgreSQL、不能是遠端模式(檢查本身在 core/oauth 的 Diagnose,這裡確認 console 接對了)
+func TestOAuthStartupChecks(t *testing.T) {
+	cfg := config.LoadFrom(func(k string) string {
+		return map[string]string{"OMIXOR_OAUTH_ADDR": "127.0.0.1:8771", "OMIXOR_PUBLIC_URL": "https://c.example.com"}[k]
+	}, config.Web)
+	fatal := func(hasDB, remote bool) error {
+		e := oauthEnv(cfg, nil)
+		e.HasDB, e.Remote = hasDB, remote
+		return oauth.FatalError(oauth.Diagnose(e))
+	}
+	if err := fatal(true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkOAuthRuntime(false, false); err == nil || !strings.Contains(err.Error(), "PostgreSQL") {
+	if err := fatal(false, false); err == nil || !strings.Contains(err.Error(), "PostgreSQL") {
 		t.Fatal(err)
 	}
-	if err := checkOAuthRuntime(true, true); err == nil || !strings.Contains(err.Error(), "遠端模式") {
+	if err := fatal(true, true); err == nil || !strings.Contains(err.Error(), "遠端模式") {
 		t.Fatal(err)
 	}
 	if err := PrepareOAuth(config.LoadFrom(func(string) string { return "" }, config.Web)); err != nil {

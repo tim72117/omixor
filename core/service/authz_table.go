@@ -163,7 +163,7 @@ var AuthzOps = []AuthzOp{
 		Methods: []string{"AddIssueComment"}, Tools: []string{"issue_update"}, Routes: []string{"POST /api/orgs/{org}/issues/{id}/comments [a]"}},
 	{ID: "issue.accept", Group: "Issue", Scope: "org", Level: LvOrgMember, Agent: AgentOrg, Caps: []AuthzCap{CapProjectView},
 		Methods: []string{"AcceptIssue"}, Tools: []string{"issue_accept"}, Routes: []string{"POST /api/orgs/{org}/issues/{id}/accept [aa]"},
-		Note: "接受者一律是呼叫者本人(人或角色憑證,規則同 issue.comment);已關閉 409、已被別人接受 409(要先放回或用 issue_update 的 assignee 轉交)、已是自己冪等;沒有組織鏈檢查(只能指派給自己)"},
+		Note: "接受者一律是呼叫者本人(人或角色憑證,規則同 issue.comment);已關閉 409、已被別人接受 409(要先放回或用 issue_update 的 assignee 轉交)、已是自己冪等;沒有組織鏈檢查(只能指派給自己);角色憑證只能接受指派給自己、自己建立、或目前任務連到的 Issue(其他 403)"},
 	{ID: "issue.release", Group: "Issue", Scope: "org", Level: LvOrgMember, Agent: AgentOrg, Caps: []AuthzCap{CapProjectView},
 		Methods: []string{"ReleaseIssue"}, Tools: []string{"issue_accept"}, Routes: []string{"POST /api/orgs/{org}/issues/{id}/release [aa]"},
 		Note: "目前的接受者本人(人或角色憑證)或組織管理員,別人 403;沒有人接受時冪等;MCP 是 issue_accept 的 release=true。不用 CapClaimer(那是任務領取者,且守門測試會把「沒有接受者」的探測當成成員被拒)"},

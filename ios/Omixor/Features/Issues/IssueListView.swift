@@ -61,7 +61,7 @@ struct IssueRow: View {
             HStack(spacing: 6) {
                 Image(systemName: issue.isOpen ? "circle" : "checkmark.circle.fill")
                     .foregroundStyle(issue.isOpen ? .green : .purple).font(.caption)
-                Text(issue.id).font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text(issue.displayKey).font(.caption.monospaced()).foregroundStyle(.secondary)
                 if issue.priority == "urgent" || issue.priority == "high" {
                     Pill(text: issue.priorityLabel, color: issue.priority == "urgent" ? .red : .orange)
                 }

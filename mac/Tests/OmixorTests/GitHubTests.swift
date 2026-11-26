@@ -233,7 +233,7 @@ final class GitHubTests: XCTestCase {
         // 還沒登入:告訴角色要請人登入
         let (msg, isErr) = try await tool("github")
         XCTAssertTrue(isErr)
-        XCTAssertTrue("\(msg)".contains("還沒登入 GitHub"))
+        XCTAssertTrue("\(msg)".contains("not signed in to GitHub"))
 
         await login()
         let sumOut = try await tool("github", ["refresh": true]).0

@@ -33,7 +33,7 @@ final class CabinetTests: XCTestCase {
         // App 的 MCP(人類端點)不能用 agent 參數指定角色身分(core ISS-36):以角色身分要領任務拿憑證、連角色端點
         var (_, rejected, isErr) = try await call(mcp, "doc_save", ["agent": "course-dev", "tab": "L0", "title": "x"])
         XCTAssertTrue(isErr)
-        XCTAssertTrue(rejected.contains("不能指定角色身分"), rejected)
+        XCTAssertTrue(rejected.contains("An agent identity cannot be specified"), rejected)
         (_, rejected, isErr) = try await call(mcp, "docs", ["agent": "marketing"])
         XCTAssertTrue(isErr, rejected)
 
@@ -46,7 +46,7 @@ final class CabinetTests: XCTestCase {
         // 行銷:課程只能讀,不能寫;行銷研究那一頁可寫
         (_, text, err) = try await role.call("marketing", "doc_save", ["section": "levels", "title": "x"])
         XCTAssertTrue(err)
-        XCTAssertTrue(text.contains("沒有權限寫入"), text)
+        XCTAssertTrue(text.contains("has no permission to write to"), text)
         (_, text, err) = try await role.call("marketing", "doc_save", ["tab": "/docs/research/marketing", "title": "社群貼文草稿"])
         XCTAssertFalse(err, text)
         (d, _, _) = try await role.call("marketing", "docs", [:])
@@ -175,7 +175,7 @@ final class CabinetTests: XCTestCase {
         _ = try await call(mcp, "agent_task_create", ["assign_to": "triager", "title": "整理"])
         var (_, text, err) = try await call(mcp, "agent_context", ["agent": "nobody"])
         XCTAssertTrue(err)
-        XCTAssertEqual(text, "找不到角色 nobody")
+        XCTAssertEqual(MCPErrorText.message(text), "找不到角色 nobody")
 
         var c: [String: Any]
         (c, _, err) = try await call(mcp, "agent_context", ["agent": "旁白製作"])

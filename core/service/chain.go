@@ -176,7 +176,7 @@ func chainDenied(c model.OrgChain, n *chainNodes, from, target string) error {
 }
 
 // checkIssueAssign 把 Issue 指派給角色時的組織鏈檢查(Issue 的 assignee 會自動替該角色排任務,等於派工,所以不能繞過組織鏈):
-//   - 組織還沒設定組織鏈(沒有任何邊):不檢查,維持原本誰都能指派的行為。
+//   - 組織還沒設定組織鏈(沒有任何邊):人不檢查,維持原本誰都能指派的行為;角色身分一律要有邊(ISS-7),所以全部擋下。
 //   - 有設定組織鏈:組織管理員不受限(和 AssignTask 一樣);一般成員要有 user:<自己> → agent:<目標> 的邊;
 //     角色身分(角色憑證)要有 agent:<自己> → agent:<目標> 的邊。沒有邊回 403,訊息說明可以指派給誰。
 //
@@ -189,7 +189,7 @@ func (s *Service) checkIssueAssign(p *model.Principal, org, assignee string) err
 	if err != nil {
 		return err
 	}
-	if len(c.Edges) == 0 {
+	if len(c.Edges) == 0 && p.Agent == nil {
 		return nil
 	}
 	if p.Agent == nil {
@@ -205,7 +205,12 @@ func (s *Service) checkIssueAssign(p *model.Principal, org, assignee string) err
 	}
 	from, to := self.ID, assignee
 	if _, ok := c.Edge(from, to); !ok {
-		return chainDenied(c, n, from, to)
+		err := chainDenied(c, n, from, to)
+		var se *Error
+		if p.Agent != nil && errors.As(err, &se) {
+			se.Data = map[string]any{"code": AgentAssignForbiddenCode}
+		}
+		return err
 	}
 	return nil
 }

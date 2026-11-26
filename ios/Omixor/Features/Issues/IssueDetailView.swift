@@ -4,6 +4,7 @@ import SwiftUI
 struct IssueDetailView: View {
     @ObservedObject var store: IssuesStore
     @EnvironmentObject var directory: Directory
+    @EnvironmentObject var decisions: DecisionsStore
     let id: String
     @State private var draft = ""
     @State private var sending = false
@@ -19,6 +20,7 @@ struct IssueDetailView: View {
                     } else {
                         Text("沒有內容").foregroundStyle(.secondary)
                     }
+                    decisionLink(i)
                     Divider()
                     Text("留言(\(i.comments.count))").font(.headline)
                     if i.comments.isEmpty { Text("還沒有留言").font(.callout).foregroundStyle(.secondary) }
@@ -42,11 +44,22 @@ struct IssueDetailView: View {
         }
         .safeAreaInset(edge: .top) { if let e = store.error { ErrorBanner(message: e) } }
         .safeAreaInset(edge: .bottom) { composer }
-        .navigationTitle(id)
+        .navigationTitle(store.issue(id)?.displayKey ?? id)
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await store.reload(id) }
         .task { await store.reload(id) }
         .foregroundPolling(every: 20) { await store.reload(id) }
+    }
+
+    /// 這張 Issue 有待決定或需要協助:顯示筆數,點進去只看它的
+    @ViewBuilder private func decisionLink(_ i: Issue) -> some View {
+        let c = decisions.count(issue: i.displayKey)
+        if c.open + c.decided > 0 {
+            NavigationLink { DecisionListView(store: decisions, issue: i.displayKey) } label: {
+                Label("待決定:待處理 \(c.open) · 已處理 \(c.decided)", systemImage: "questionmark.bubble")
+                    .font(.subheadline).foregroundStyle(c.open > 0 ? .orange : .secondary)
+            }
+        }
     }
 
     private func header(_ i: Issue) -> some View {

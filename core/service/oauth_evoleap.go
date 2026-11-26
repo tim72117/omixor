@@ -35,7 +35,8 @@ const (
 	oauthBindLen        = 64 // 綁定密鑰雜湊的 hex 長度
 )
 
-// ErrOAuthEvoleapInvalid 回呼不被接受(不認得的 id、cookie 不對或沒有、逾時、重放):同一句話,不洩漏是哪一種
+// ErrOAuthEvoleapInvalid 回呼不被接受(不認得的 id、cookie 不對或沒有、逾時、重放):對外同一句話,不洩漏是哪一種;
+// 細分的原因用 withReason 複製一份帶進 log(Reason/Detail)。只有「已經證明是同一個瀏覽器」之後(逾時、重複使用)或不涉及交易的(沒帶 cookie、沒啟用)才改說明
 var ErrOAuthEvoleapInvalid = &OAuthError{Status: 400, Code: "invalid_request", NoRedirect: true, Reason: "evoleap_invalid",
 	Desc: "evoleap 登入已失效(逾時、重複使用,或不是在同一個瀏覽器開始的),請回到 Claude 重新開始連線"}
 
@@ -109,7 +110,9 @@ func (s *Service) startOAuthEvoleap(c *OAuthAuthChecked, challenge, state, callb
 	s.purgeOAuth()
 	id, err := evoleap.Start(s.Evoleap, callbackURL, oauthEvoleapGrantLabel(c.Client.Name, grant))
 	if err != nil {
-		return "", "", oerrR(502, "temporarily_unavailable", "暫時無法連到 evoleap,請稍後再試,或改用配對碼", "evoleap_unavailable")
+		oe := oerrR(502, "temporarily_unavailable", "暫時無法連到 evoleap,請稍後再試,或改用配對碼", "evoleap_unavailable")
+		oe.Detail = "evoleap start failed: " + err.Error() // 多半是 EVOLEAP_URL 不對或連不上
+		return "", "", oe
 	}
 	scope := scopeOfGrant(grant)
 	binding = RandID("", 24)
@@ -133,13 +136,19 @@ type OAuthEvoleapResult struct {
 // CompleteOAuthEvoleap evoleap 核准後的回呼(GET /oauth/evoleap/callback?id=&code=):binding 是瀏覽器 cookie 帶的綁定密鑰。
 // 交易用過就作廢(單一用途,後面不論成敗);evoleap 的 token 換到之後一律撤銷。不會建立新使用者,除非 LoginWithEvoleap 的規則也會(見 resolveEvoleapUser)
 func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEvoleapResult, error) {
-	if !s.OAuthEvoleapEnabled() || evoID == "" || evoCode == "" || len(evoID) > 200 || len(evoCode) > 2000 || binding == "" {
-		return nil, ErrOAuthEvoleapInvalid
+	if !s.OAuthEvoleapEnabled() {
+		return nil, ErrOAuthEvoleapInvalid.withReason("evoleap_disabled", "這個伺服器沒有啟用 evoleap 登入(EVOLEAP_URL 沒設,或 OMIXOR_OAUTH_EVOLEAP_LOGIN=false),請改用配對碼或請管理員啟用", "")
+	}
+	if evoID == "" || evoCode == "" || len(evoID) > 200 || len(evoCode) > 2000 {
+		return nil, ErrOAuthEvoleapInvalid.withReason("evoleap_bad_callback", "evoleap 回呼缺少必要的參數(id 或 code),請回到 Claude 重新開始連線", "")
+	}
+	if binding == "" {
+		return nil, ErrOAuthEvoleapInvalid.withReason("evoleap_no_cookie", "瀏覽器沒有帶回登入用的 cookie:可能被瀏覽器擋掉,或回呼網址的網域與開始登入時不同(OMIXOR_PUBLIC_URL 要和使用者實際開啟的網址一致),或不是在同一個瀏覽器完成。請回到 Claude 重新開始連線", "")
 	}
 	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindEvoleapLogin, oauthEvoleapHash(evoID))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, ErrOAuthEvoleapInvalid
+			return nil, ErrOAuthEvoleapInvalid.withReason("evoleap_unknown_id", "", "no login transaction for this id (already used, expired and purged, or never started here)")
 		}
 		return nil, err
 	}
@@ -147,16 +156,19 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 	bindHash, state, ok := strings.Cut(fam, ".")
 	if !ok || len(bindHash) != oauthBindLen ||
 		subtle.ConstantTimeCompare([]byte(bindHash), []byte(oauthBindHash(binding))) != 1 {
-		return nil, ErrOAuthEvoleapInvalid // cookie 不對:不作廢交易(不能讓別人用一個猜到的 id 把使用者的登入弄壞)
+		return nil, ErrOAuthEvoleapInvalid.withReason("evoleap_binding_mismatch", "", "cookie does not match the browser that started this login") // cookie 不對:不作廢交易(不能讓別人用一個猜到的 id 把使用者的登入弄壞)
 	}
 	now := s.now()
-	if t.RevokedAt != nil || t.UsedAt != nil || !now.Before(t.ExpiresAt) {
-		return nil, ErrOAuthEvoleapInvalid
+	if t.RevokedAt != nil || t.UsedAt != nil || !now.Before(t.ExpiresAt) { // 已證明是同一個瀏覽器,可以說明原因
+		if t.UsedAt != nil {
+			return nil, ErrOAuthEvoleapInvalid.withReason("evoleap_used", "這次 evoleap 登入已經使用過(重新整理或重複開啟回呼頁),請回到 Claude 重新開始連線", "")
+		}
+		return nil, ErrOAuthEvoleapInvalid.withReason("evoleap_expired", "evoleap 登入逾時(超過 10 分鐘),請回到 Claude 重新開始連線", "")
 	}
 	// 先標成用過:條件式(沒用過、沒過期),並行的第二個請求拿到 ErrStale
 	if err := s.oauthStore().ExchangeOAuthToken(t.ID, now, nil); err != nil {
 		if errors.Is(err, store.ErrStale) {
-			return nil, ErrOAuthEvoleapInvalid
+			return nil, ErrOAuthEvoleapInvalid.withReason("evoleap_replay", "", "concurrent callback consumed the transaction first")
 		}
 		return nil, err
 	}
@@ -170,12 +182,18 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 		if errors.As(err, &oe) && !oe.NoRedirect {
 			return &OAuthEvoleapResult{RedirectURI: t.RedirectURI, State: state}, err
 		}
-		return nil, ErrOAuthEvoleapInvalid
+		reason, detail := "evoleap_recheck", err.Error()
+		if oe != nil { // 授權請求在登入期間變得不可信(例如用戶端被刪、redirect_uri 不再註冊):錯誤頁不說細節,log 記原因
+			reason, detail = "evoleap_recheck_"+oe.Reason, oe.Code+": "+oe.Detail
+		}
+		return nil, ErrOAuthEvoleapInvalid.withReason(reason, "", detail)
 	}
 	res := &OAuthEvoleapResult{RedirectURI: chk.RedirectURI, State: state}
 	evoTok, err := evoleap.Exchange(s.Evoleap, evoID, evoCode)
 	if err != nil {
-		return res, oerrR(403, "access_denied", "evoleap 登入沒有完成,請回到 Claude 重新開始連線", "evoleap_exchange")
+		oe := oerrR(403, "access_denied", "evoleap 登入沒有完成(用核准碼換不到登入憑證),請回到 Claude 重新開始連線", "evoleap_exchange")
+		oe.Detail = "evoleap exchange failed: " + err.Error()
+		return res, oe
 	}
 	defer evoleap.Logout(s.Evoleap, evoTok) // 成功失敗都撤銷:這個 token 只用來問「你是誰」
 	code, err := s.approveEvoleapLogin(chk, t.CodeChallenge, grant, evoTok)
@@ -203,8 +221,12 @@ func (s *Service) approveEvoleapLogin(chk *OAuthAuthChecked, challenge, grant, e
 	case err == errEvoleapDisabled && u != nil:
 		s.Audit(&model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: true}, "oauth.denied", chk.Org, map[string]any{"reason": "disabled", "client": chk.Client.ID, "via": "evoleap"})
 		return "", oerrR(403, "access_denied", "這個帳號已停用", "disabled")
+	case err == errEvoleapNeedGoogle:
+		return "", oerrR(403, "access_denied", "這個 evoleap 帳號不是用 Google 登入(或 email 沒有驗證),omixor 只接受經 Google 驗證 email 的 evoleap 帳號", "evoleap_not_google")
 	case Code(err) == 403:
-		return "", oerrR(403, "access_denied", "這個 evoleap 帳號沒有 omixor 的權限,請 omixor 管理員加入", "no_account")
+		return "", oerrR(403, "access_denied", "這個 evoleap 帳號不在 omixor 的使用者名單,請 omixor 管理員用這個帳號的 email 加入", "no_account")
 	}
-	return "", oerrR(502, "temporarily_unavailable", "evoleap 驗證身分失敗,請稍後再試", "evoleap_me")
+	oe := oerrR(502, "temporarily_unavailable", "evoleap 驗證身分失敗(問不出你是誰),請稍後再試", "evoleap_me")
+	oe.Detail = "evoleap /api/me failed: " + err.Error() // 錯誤訊息不含使用者資料(連線或 HTTP 狀態碼)
+	return "", oe
 }

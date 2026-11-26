@@ -97,8 +97,8 @@ func callbackURL(public, id string) string { return public + "/oauth/" + id + "/
 
 // retryOutcome 這次沒過、要重新顯示同意畫面:把原因記進觀測欄位(result 是 pairing_result 的值)
 func retryOutcome(r *http.Request, oe *service.OAuthError, result string) Outcome {
-	d := detail(r)
-	d["error"], d["pairing_result"] = oe.Code, result
+	noteError(r, oe)
+	detail(r)["pairing_result"] = result
 	return Outcome{Retry: oe.Desc, RetryStatus: oe.Status}
 }
 

@@ -95,10 +95,21 @@ type AgentEndpointConfig struct {
 	Source func(r *http.Request) string
 }
 
+// agentIssueLimits 角色對 Issue 的權限(service/issues_agent.go),角色端點說明與拒絕時的錯誤共用
+const agentIssueLimits = "As an agent you can comment on any issue you can see, but you can change status (close/reopen) or append_body only on your own issues " +
+	"(assigned to you, linked by your current task, or created by you); you cannot change title, body, priority, labels, project, repo, source, link or unassign; " +
+	"assignee can only be an agent downstream of you on the organization chain (and on an existing issue only if it is your own). " +
+	"In agent_task_report, a new link that looks like an issue number must point to an existing issue of your own (URLs and task ids are fine)."
+
+// agentAcceptLimit 角色能接受哪些 Issue(service.checkAgentAccept),工具說明、角色端點說明與拒絕時的錯誤共用
+const agentAcceptLimit = "As an agent you can accept only an issue that is already your own (assigned to you, linked by your current task, or created by you)."
+
 const agentInstructions = "This is omixor's agent endpoint: you are working as an agent, and your identity is determined by the credential. " +
 	"First use agent_context to get the agent instructions and tasks, complete them following the task description, and report progress and the result with agent_task_report (done when finished, blocked when stuck; the credential is revoked immediately after you report). " +
 	"When the organization chain has downstream agents, you can delegate work to them with agent_task_delegate (see chain.downstream of agent_context for who you can delegate to), and they report back to you automatically when done. " +
-	"You can read issues (issues), create issues (issue_create), and comment on or change the status of issues (issue_update); to own the analysis and breakdown of an issue, accept it with issue_accept (release=true releases it). " +
+	"You can read issues (issues), create issues (issue_create), and comment on issues (issue_update). " + agentIssueLimits + " " +
+	"When you report a task that is linked to an issue as done, its result is posted to that issue as your comment automatically, so do not post the same result yourself. " +
+	"To own the analysis and breakdown of an issue, accept it with issue_accept (release=true releases it). " + agentAcceptLimit + " " +
 	"The cabinet (cabinet, docs, doc_save) can be read and written only at locations within the agent's docAccess; when the cabinet is split into projects, use projects to see which projects exist, and pass project (the project id) to the tools to operate on that project; without it they operate on the no-project cabinet. " +
 	"Message channels: mentions in agent_context are unread messages that mention you (only notifications, not tasks; you decide whether to reply); channels lists the channels you are in, channel_messages reads them (reading marks as read), and channel_post replies. The signature is always your agent. " +
 	"Items (to-do list): for work that spans phases, should be split among other sub-agents, or needs a human decision, use issue_item_add to open an item under the issue (do not open overly small ones); issue_items shows the list (only unfinished ones by default). " +

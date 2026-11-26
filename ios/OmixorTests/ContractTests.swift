@@ -32,6 +32,12 @@ final class ContractTests: XCTestCase {
         "GET /api/orgs/acme/issues": "issue_list.json",
         "GET /api/orgs/acme/issues/ISS-12": "issue.json",
         "POST /api/orgs/acme/issues/ISS-12/comments": "issue.json",
+        "POST /api/orgs/acme/issues/APP-13/accept": "issue_accepted.json",
+        "POST /api/orgs/acme/issues/APP-13/release": "issue.json",
+        "GET /api/orgs/acme/decisions": "decision_list.json",
+        "GET /api/orgs/acme/decisions/DEC-3": "decision.json",
+        "GET /api/orgs/acme/decisions/summary": "decision_summary.json",
+        "POST /api/orgs/acme/decisions/DEC-4/answer": "decision_help.json",
         "GET /api/orgs/acme/agent-tasks": "agent_task_list.json",
         "POST /api/orgs/acme/agent-tasks/T-7/requeue": "agent_task.json",
     ]
@@ -86,7 +92,7 @@ final class ContractTests: XCTestCase {
         let c = list[0]
         XCTAssertEqual(c.name, "登入頁改版")
         XCTAssertEqual(c.topic, "討論 Safari 白畫面")
-        XCTAssertEqual(c.issueId, "ISS-12")
+        XCTAssertEqual(c.issueId, "019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8d", "頻道的 issueId 是 Issue 的內部 id(不是 key,不能直接顯示)")
         XCTAssertEqual(c.members, ["user:tim@example.com", "agent:eng"])
         XCTAssertEqual(c.unread, 3)
         XCTAssertEqual(c.lastMessageAt, date("2026-11-03T08:00:00Z"))
@@ -111,8 +117,20 @@ final class ContractTests: XCTestCase {
 
     func testIssues() async throws {
         let list = try await api().issues(org: "acme")
-        XCTAssertEqual(list.map(\.id), ["ISS-12", "ISS-3"])
+        XCTAssertEqual(list.map(\.key), ["APP-12", "ISS-3"])
         let i = list[0]
+        XCTAssertEqual(i.id, "019a3f2c-8e40-7b1a-9c2d-3e4f5a6b7c8d", "id 是內部 UUID,給人看的是 key")
+        XCTAssertEqual(i.displayKey, "APP-12")
+        XCTAssertEqual(i.project, "PRJ-1")
+        XCTAssertEqual(i.version, 3)
+        XCTAssertEqual(i.repo, "github:acme/web")
+        XCTAssertEqual(i.link, "https://example.com/login")
+        XCTAssertEqual(i.source, "網站訪客 7d")
+        XCTAssertEqual(i.closedAt, date("2026-11-03T10:00:05Z"))
+        XCTAssertEqual(i.assigneeActor?.handle, "eng")
+        XCTAssertEqual(i.assigneeActor?.isAgent, true)
+        XCTAssertEqual(i.createdByActor?.displayName, "Tim")
+        XCTAssertEqual(i.comments[1].authorActor?.name, "工程師")
         XCTAssertEqual(i.title, "登入頁在 Safari 白畫面")
         XCTAssertTrue(i.body.hasPrefix("## 重現步驟"))
         XCTAssertEqual(i.status, "closed")
@@ -130,12 +148,99 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(i.comments[1].text, "已修正,見 PR #42")
         XCTAssertEqual(i.comments[1].at, date("2026-11-03T09:59:00Z"))
         XCTAssertEqual(list[1].assignee, "")
+        XCTAssertNil(list[1].assigneeActor)
+        XCTAssertEqual(list[1].version, 1)
+        XCTAssertEqual(list[1].number, 3)
         XCTAssertTrue(list[1].isOpen)
 
         let one = try await api().issue(org: "acme", id: "ISS-12")
         XCTAssertEqual(one, i)
         let commented = try await api().addComment(org: "acme", issue: "ISS-12", text: "x", author: "tim@example.com")
         XCTAssertEqual(commented.comments.count, 2)
+    }
+
+    func testIssueAcceptAndRelease() async throws {
+        let accepted = try await api().acceptIssue(org: "acme", id: "APP-13")
+        XCTAssertEqual(accepted.key, "APP-13")
+        XCTAssertEqual(accepted.assigneeActor?.handle, "tim@example.com")
+        XCTAssertEqual(accepted.version, 2)
+        XCTAssertEqual(StubProtocol.requests.last?.0.httpMethod, "POST")
+        let released = try await api().releaseIssue(org: "acme", id: "APP-13")
+        XCTAssertEqual(released.key, "APP-12", "放回走 …/release")
+        XCTAssertEqual(StubProtocol.requests.last?.0.url?.path, "/api/orgs/acme/issues/APP-13/release")
+    }
+
+    func testDecisions() async throws {
+        let list = try await api().decisions(org: "acme")
+        XCTAssertEqual(list.map(\.id), ["DEC-3", "DEC-4", "DEC-5"])
+        let d = list[0]
+        XCTAssertEqual(d.kind, "decision")
+        XCTAssertEqual(d.status, "decided")
+        XCTAssertFalse(d.isOpen)
+        XCTAssertEqual(d.options.map(\.id), ["o1", "o2"])
+        XCTAssertTrue(d.options[0].recommended)
+        XCTAssertEqual(d.options[0].description, "用 kind 欄分開")
+        XCTAssertFalse(d.options[1].recommended)
+        XCTAssertEqual(d.answer, "o1")
+        XCTAssertEqual(d.answerNote, "同一個狀態機就夠了")
+        XCTAssertEqual(d.sourceIssue, "ISS-37")
+        XCTAssertEqual(d.blocks, ["ISS-38", "等憑證"])
+        XCTAssertEqual(d.createdByActor?.handle, "eng")
+        XCTAssertEqual(d.decidedBy, "tim@example.com")
+        XCTAssertEqual(d.decidedByActor?.displayName, "Tim")
+        XCTAssertEqual(d.decidedAt, date("2026-11-21T09:00:00Z"))
+
+        let help = list[1]
+        XCTAssertTrue(help.isHelp)
+        XCTAssertEqual(help.options, [])
+        XCTAssertEqual(help.evidence, "https://example.com/build/42")
+
+        let open = list[2]
+        XCTAssertTrue(open.isOpen)
+        XCTAssertNil(open.decidedAt, "沒處理的決定沒有 decidedAt")
+        XCTAssertEqual(open.decidedBy, "")
+        XCTAssertEqual(open.sourceIssue, "")
+
+        let one = try await api().decision(org: "acme", id: "DEC-3")
+        XCTAssertEqual(one, d)
+        let sum = try await api().decisionSummary(org: "acme")
+        XCTAssertEqual(sum["ISS-37"], DecisionCount(open: 1, decided: 2))
+    }
+
+    func testAnswerDecision() async throws {
+        StubProtocol.reset { req, body in
+            let b = json(body)
+            XCTAssertEqual(req.url?.path, "/api/orgs/acme/decisions/DEC-4/answer")
+            XCTAssertEqual(b["answer"] as? String, "done")
+            XCTAssertEqual(b["evidence"] as? String, "https://example.com/build/42")
+            XCTAssertNil(b["note"], "沒填的附註不送")
+            return .init(status: 200, body: #"{"result":"# + (try! ContractTests.fixture("decision_help.json")) + "}")
+        }
+        let d = try await api().answerDecision(org: "acme", id: "DEC-4", answer: Decision.answerDone, evidence: "https://example.com/build/42")
+        XCTAssertEqual(d.status, "decided")
+    }
+
+    /// decision_to_issue 的回應(issue + decision)也讀得懂
+    func testDecisionToIssueShape() throws {
+        let r = try APIClient.decoder.decode(DecisionIssueResult.self, from: Data(try Self.fixture("decision_to_issue.json").utf8))
+        XCTAssertEqual(r.issue.key, "ISS-40")
+        XCTAssertEqual(r.decision.sourceIssue, "ISS-40")
+    }
+
+    /// 契約範例檔裡 iOS 沒有登記路由的:至少全部解得開(欄位新增、型別不對會在這裡炸)
+    func testEveryDecodableFixtureParses() throws {
+        let types: [String: Decodable.Type] = [
+            "issue.json": Issue.self, "issue_accepted.json": Issue.self, "issue_list.json": [Issue].self,
+            "issue_with_items.json": Issue.self, "decision.json": Decision.self, "decision_list.json": [Decision].self,
+            "actor_list.json": [ActorView].self, "org_list.json": [Org].self, "agent_list.json": [Agent].self,
+            "channel_list.json": [ChannelSummary].self, "channel_messages.json": MessagePage.self,
+            "agent_task_list.json": [AgentTask].self, "member_list.json": [Member].self,
+        ]
+        for (name, t) in types {
+            XCTAssertNoThrow(try APIClient.decoder.decode(t, from: Data(try Self.fixture(name).utf8)), name)
+        }
+        let withItems = try APIClient.decoder.decode(Issue.self, from: Data(try Self.fixture("issue_with_items.json").utf8))
+        XCTAssertGreaterThan(withItems.itemsTotal, 0)
     }
 
     func testTasks() async throws {

@@ -16,6 +16,8 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `OMIXOR_DATABASE_URL` | `OPS_DATABASE_URL` | 網址或 key=value(postgres/postgresql) |  | server | 是 | server、local、web | PostgreSQL 連線設定,網址形式(postgres://使用者:密碼@主機/資料庫,可有多個主機、unix socket)或 key=value 形式(host=/cloudsql/專案:區域:執行個體 user=… password=… dbname=…,Cloud SQL 常用);密碼(網址的密碼、query 的 password/sslpassword、key=value 的 password=)會被遮蔽。server 必填;local 沒設就啟動內建的 PostgreSQL;web 的本機模式必填(沒設就不能用);遠端模式沒設時,本機設定存成資料夾裡的 JSON 檔。獨立模式的 omixor-local 也會使用它(例如開發用的 docker-compose 為 omixor-web 設的) |
 | `OMIXOR_ADDR` |  | 字串 | server: :$PORT(沒有 PORT 就 :8080);local:獨立模式 127.0.0.1:8770、App 模式 127.0.0.1:0 |  |  | server、local | HTTP 監聽位址。local 只接受本機位址 |
 | `OMIXOR_SERVER` | `OPS_ISSUE_SERVER` | 網址(http/https) | cli:上次登入的、舊版登入資料的、正式站 |  |  | cli、web | 連哪一台 omixor server。cli:--server 旗標優先於它;web:設了就是遠端模式,授權、組織、Issue 交給那台 |
+| `OMIXOR_SECRET_KEY` | `OPS_SECRET_KEY` | 金鑰(32 bytes) |  |  | 是 | server、web | 加密機密用的金鑰:32 bytes,寫成 64 個 hex 字元或 base64(openssl rand -base64 32)。console 用資料庫時必填(加密 token 與密碼);伺服器目前只檢查格式,還沒有用它加密任何資料。要固定保存:console 只用這一把解密,換掉後已存的密鑰會解不開(就算把舊的放進 OMIXOR_SECRET_KEYS_OLD 也一樣) |
+| `OMIXOR_SECRET_KEYS_OLD` |  | 金鑰清單(逗號分隔) | 沒有舊金鑰 |  | 是 | server、web | 保留給金鑰輪替的舊金鑰清單,逗號分隔、格式同 OMIXOR_SECRET_KEY。目前只檢查格式:console 不讀它、伺服器也還沒有用到,不能靠它更換金鑰 |
 | `OMIXOR_MCP_LIST_TTL_SECONDS` |  | 整數(0–86400) | `300` |  |  | server、local、web | MCP 2026-07-28 請求的快取提示:server/discover、tools/list、resources/list、resources/read 結果的 ttlMs 取自這個秒數(0 = 一律視為過期);舊版協定的回應不帶快取提示 |
 
 ## 伺服器(omixor-server)
@@ -85,7 +87,6 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 
 | 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
 |---|---|---|---|---|---|---|---|
-| `OMIXOR_SECRET_KEY` | `OPS_SECRET_KEY` | 字串 |  |  | 是 | web | 用資料庫時必填:base64 的 32 bytes(openssl rand -base64 32),加密 token 與密碼;換掉後已存的會解不開 |
 | `OMIXOR_SERVER_TOKEN` | `OPS_ISSUE_SERVER_TOKEN` | 字串 |  |  | 是 | web | 遠端模式連 OMIXOR_SERVER 用的固定 token(沒設就用存著的登入、401 時走 evoleap 換) |
 | `OMIXOR_SERVERS` |  | 字串 |  |  | 是 | web | 可以連的遠端 omixor 清單:JSON 陣列,或指向 JSON 檔的路徑(內容可能含 token,視為機密) |
 | `OMIXOR_EVOLEAP` |  | 網址(http/https) | 內建的 evoleap 連線 |  |  | web | 遠端模式登入用的 evoleap 網址 |

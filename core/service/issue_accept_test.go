@@ -139,7 +139,11 @@ func TestAcceptClosedAndTransfer(t *testing.T) {
 
 func TestAcceptByAgent(t *testing.T) {
 	e := newREnv(t)
-	key := e.appIssue.Key
+	own, err := e.svc.CreateIssue(e.cto, "o1", service.IssueInput{Title: "cto 開的", Project: sp(e.app.ID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := own.Key // 角色只能接受自己的 Issue(這裡是自己建立的)
 	i, err := e.svc.AcceptIssue(e.cto, "o1", key)
 	if err != nil || i.Assignee != "cto" || i.AssigneeActor == nil || i.AssigneeActor.Kind != model.ActorKindAgent {
 		t.Fatalf("角色接受:%+v %v", i, err)
@@ -204,7 +208,8 @@ func TestAcceptRestrictedProject(t *testing.T) {
 	if _, err := e.svc.ReleaseIssue(e.bob, "o1", key); err != nil {
 		t.Fatal(err)
 	}
-	if i, err := e.svc.AcceptIssue(e.cto, "o1", e.secIssue.ID); err != nil || i.Assignee != "cto" {
+	cto := linkedAgent(t, e, "cto", e.secIssue.Key) // 角色要任務連到這張 Issue 才能接受
+	if i, err := e.svc.AcceptIssue(cto, "o1", e.secIssue.ID); err != nil || i.Assignee != "cto" {
 		t.Fatalf("角色專案成員接受:%+v %v", i, err)
 	}
 }

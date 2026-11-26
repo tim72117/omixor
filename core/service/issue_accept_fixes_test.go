@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"errors"
 	"sync/atomic"
 	"testing"
 
@@ -72,18 +73,21 @@ func TestReleaseRetryExhaustedConflict(t *testing.T) {
 	}
 }
 
-// 負責人是角色(非人類接受者):任何組織成員、別的角色憑證用 assignee="" 清掉都成功,不查身分與放回權限
-func TestUpdateClearRoleAssigneeAnyMember(t *testing.T) {
+// 負責人是角色(非人類接受者):任何組織成員用 assignee="" 清掉都成功,不查放回權限;
+// 角色憑證不能清掉指派(ISS-7),403 帶機器碼、負責人不變
+func TestUpdateClearRoleAssigneeHumansOnly(t *testing.T) {
 	e := newREnv(t)
 	empty := ""
-	for who, p := range map[string]*model.Principal{"alice": e.alice, "bob": e.bob, "pm": e.pm} {
+	assigned := func(who string) *model.Issue {
+		t.Helper()
 		i, err := e.svc.CreateIssue(e.boss, "o1", service.IssueInput{Title: "派給角色 " + who, Project: sp(e.app.ID), Assignee: "cto"})
-		if err != nil {
-			t.Fatal(err)
+		if err != nil || i.Assignee != "cto" {
+			t.Fatalf("前置:要指派給 cto:%+v %v", i, err)
 		}
-		if i.Assignee != "cto" {
-			t.Fatalf("前置:要指派給 cto:%+v", i)
-		}
+		return i
+	}
+	for who, p := range map[string]*model.Principal{"alice": e.alice, "bob": e.bob} {
+		i := assigned(who)
 		got, err := e.svc.UpdateIssue(p, "o1", i.Key, service.IssuePatch{Assignee: &empty})
 		if err != nil {
 			t.Fatalf("%s 清掉角色指派要成功(不是 403):%v", who, err)
@@ -98,6 +102,16 @@ func TestUpdateClearRoleAssigneeAnyMember(t *testing.T) {
 		if commentsWith(cur, "已放回") != 0 { // 角色指派不是接受,不留放回留言
 			t.Fatalf("清掉角色指派不該留放回留言:%+v", cur.Comments)
 		}
+	}
+	i := assigned("pm")
+	_, err := e.svc.UpdateIssue(e.pm, "o1", i.Key, service.IssuePatch{Assignee: &empty})
+	wantCode(t, "角色憑證清掉指派", err, 403)
+	var se *service.Error
+	if !errors.As(err, &se) || se.Data["code"] != service.AgentIssueForbiddenCode {
+		t.Fatalf("要帶機器碼:%v", err)
+	}
+	if cur, _ := e.svc.GetIssue(e.boss, "o1", i.Key); cur == nil || cur.Assignee != "cto" {
+		t.Fatalf("403 之後負責人要還在:%+v", cur)
 	}
 }
 

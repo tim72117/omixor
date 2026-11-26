@@ -39,18 +39,20 @@ struct WorkspaceView: View {
     @StateObject private var channels: ChannelsStore
     @StateObject private var issues: IssuesStore
     @StateObject private var dispatch: DispatchStore
+    @StateObject private var decisions: DecisionsStore
     @StateObject private var directory = Directory()
     @EnvironmentObject var session: Session
     let org: Org
 
-    enum Tab: Hashable { case chat, issues, dispatch, settings }
+    enum Tab: Hashable { case chat, issues, decisions, dispatch, settings }
     @State private var tab: Tab = WorkspaceView.debugTab ?? .chat
 
-    /// 開發用:`-OmixorTab chat|issues|dispatch|settings` 指定一開始的分頁(截圖、自動化測試用)
+    /// 開發用:`-OmixorTab chat|issues|decisions|dispatch|settings` 指定一開始的分頁(截圖、自動化測試用)
     static var debugTab: Tab? {
         #if DEBUG
         switch UserDefaults.standard.string(forKey: "OmixorTab") {
         case "issues": return .issues
+        case "decisions": return .decisions
         case "dispatch": return .dispatch
         case "settings": return .settings
         case "chat": return .chat
@@ -66,6 +68,7 @@ struct WorkspaceView: View {
         _channels = StateObject(wrappedValue: ChannelsStore(session: session, org: org.id))
         _issues = StateObject(wrappedValue: IssuesStore(session: session, org: org.id))
         _dispatch = StateObject(wrappedValue: DispatchStore(session: session, org: org.id))
+        _decisions = StateObject(wrappedValue: DecisionsStore(session: session, org: org.id))
     }
 
     var body: some View {
@@ -77,6 +80,10 @@ struct WorkspaceView: View {
             IssueListView(store: issues)
                 .tabItem { Label("Issue", systemImage: "exclamationmark.circle") }
                 .tag(Tab.issues)
+            DecisionsView(store: decisions)
+                .tabItem { Label("待決定", systemImage: "questionmark.bubble") }
+                .badge(decisions.openCount)
+                .tag(Tab.decisions)
             DispatchView(store: dispatch)
                 .tabItem { Label("派發", systemImage: "person.2.badge.gearshape") }
                 .badge(dispatch.stuckCount())
@@ -86,17 +93,20 @@ struct WorkspaceView: View {
                 .tag(Tab.settings)
         }
         .environmentObject(directory)
+        .environmentObject(decisions)
         .task {
             if let api = session.api { await directory.load(api: api, org: org.id) }
             // 角標要有數字:先把各分頁的資料載一次
             async let a: Void = channels.refresh()
             async let b: Void = dispatch.refresh()
-            _ = await (a, b)
+            async let c: Void = decisions.refresh()
+            _ = await (a, b, c)
         }
         // 不在那一頁時,角標(未讀、卡住的任務)也要更新
         .foregroundPolling(every: 30) {
             await channels.refresh()
             await dispatch.refresh()
+            await decisions.refresh()
         }
     }
 }

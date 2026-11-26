@@ -87,9 +87,7 @@ final class MCPHandler {
             // 以角色身分派任務:core 的人類端點不接受 agent(ISS-36,回 400),角色端點也沒有 agent_task_create;
             // 角色派工的路是依組織鏈委派(agent_task_delegate,App 自己的實作走 REST /agent-tasks/delegate),先告訴用戶端改用它
             // 同 core 的 RejectAgentArg:有給 agent 且(不是字串——含 null、數字——或去掉空白後非空)就擋;沒給、空字串、空白放行
-            if Self.legacyToolName(raw) == "agent_task_create",
-               let who = (params["arguments"] as? [String: Any])?["agent"],
-               !((who as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false) {
+            if Self.legacyToolName(raw) == "agent_task_create", Self.hasAgentArg(params["arguments"] as? [String: Any] ?? [:]) {
                 app.mcp.lastTool = "agent_task_create"
                 return result(id: id, MCPResult.error(message: Self.agentTaskCreateAsAgentError, status: 400))
             }
@@ -139,6 +137,15 @@ final class MCPHandler {
     /// agent_task_create 帶了 agent(以角色身分派任務)時的錯誤
     static let agentTaskCreateAsAgentError = "agent_task_create cannot take agent to create a task as a role (tasks are always attributed to the signed-in person; use assign_to to choose the role that receives the task). "
         + "To hand work from one role to another, use agent_task_delegate (agent = the delegating role, to = the receiving role; the org chain must have agent:<delegator> -> agent:<receiver>)"
+
+    /// 人類端點收到身分假冒型 agent 參數的錯誤句子;逐字同 core 的 coremcp.IdentityAgentError(core/mcp/identity_agent.go)
+    static let identityAgentError = "An agent identity cannot be specified here; to work as an agent, first claim a task (agent_task_claim) to get an agent credential, then connect to the agent endpoint (/mcp/agent)"
+
+    /// 同 core 的 RejectAgentArg:有給 agent 且(不是字串——含 null、數字——或去掉空白後非空);沒給、空字串、空白不算
+    static func hasAgentArg(_ args: [String: Any]) -> Bool {
+        guard let who = args["agent"] else { return false }
+        return !((who as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false)
+    }
 
     /// 連 server 時也留在 App 處理的工具:App 自己的組織清單(含本機與各伺服器)、版本
     static let keepLocal: Set<String> = ["orgs", "server"]
@@ -382,7 +389,7 @@ final class MCPHandler {
     When you find a problem worth tracking (for example a spike in error logs), save it as an Issue with issue_create; search with issues first to avoid duplicates, and if one exists, add a comment with issue_update.
     Narration publishing and site visitor statistics are optional features, off by default: they work only after a person enables them in omixor and configures them. When narration publishing is set up, a voice batch can be dispatched with voice_submit: omixor polls periodically and collects the results, then a person auditions them in the app and presses publish (there is no MCP tool for publishing). When site visitor statistics are set up, site_visitors reads them from the selected website connection.
     Message channels (channels, channel_messages, channel_post, channel_create) bring people and roles into one conversation; @-mentioning a role only notifies it and does not queue a task. When working as a role, the mentions field of agent_context lists unread messages that mention it; reading (channel_messages) and replying (channel_post) as a role must be done on the role endpoint.
-    Facebook Pages (fb_pages, fb_posts, fb_insights, fb_drafts) are read-only; fb_draft_save can only create or edit drafts (pass agent when writing as a role); publishing and scheduling can only be done by a person in the app under AI Automation > Pages.
+    Facebook Pages (fb_pages, fb_posts, fb_insights, fb_drafts) are read-only; fb_draft_save can only create or edit drafts (signed as the signed-in account; an agent identity cannot be specified); publishing and scheduling can only be done by a person in the app under AI Automation > Pages.
     """
 
     // MARK: - 工具定義
@@ -643,7 +650,7 @@ final class MCPHandler {
                  "limit": prop("integer", "Maximum number of records, default 30"),
              ], required: [], readOnly: true),
         Tool(name: "fb_draft_save", title: "Save a Facebook draft",
-             description: "Create or edit a Facebook post draft (without id it creates one). Only saves drafts and never publishes: publishing and scheduling can only be done by a person in omixor AI Automation > Pages. Scheduled or published drafts cannot be edited. When working as a role, pass agent and the draft is attributed to that role.",
+             description: "Create or edit a Facebook post draft (without id it creates one). Only saves drafts and never publishes: publishing and scheduling can only be done by a person in omixor AI Automation > Pages. Scheduled or published drafts cannot be edited.",
              properties: [
                  "id": prop("string", "Id of the draft to edit; omitted creates a new one"),
                  "page": prop("string", "Which Page to post to (id or name); when creating, defaults to the first managed Page"),
@@ -652,7 +659,6 @@ final class MCPHandler {
                  "image_url": prop("string", "Image URL (http or https; when there is an image, the link is appended after the text)"),
                  "proposed_time": prop("string", "Suggested publish time (ISO 8601, for example 2026-11-20T20:00:00+08:00); only a suggestion, a person decides the actual schedule"),
                  "source": prop("string", "Where the draft came from, for example doc:DOC-3, task:T-5"),
-                 "agent": prop("string", "When working as a virtual role, the role id or name; the draft is attributed to that role"),
              ], required: []),
     ]
 
@@ -1023,15 +1029,6 @@ final class MCPHandler {
                 "orgs": app.orgs.map { ["id": $0.id, "name": $0.name, "note": $0.note, "current": $0.id == app.currentOrgId] }]
     }
 
-    // MARK: 署名
-
-    /// 署名(fb_draft_save 用):有給 agent 就是該角色,否則是 MCP 用戶端:有給 agent 就是該角色,否則是 MCP 用戶端
-    private func issueAuthor(_ a: MCPArgs) throws -> String {
-        guard let name = a.string("agent"), !name.isEmpty else { return IssueStore.mcpAuthor }
-        guard let g = agentStore.agent(name) else { throw MCPToolError.notFound("Role not found: \(name)") }
-        return IssueStore.agentPrefix + g.id
-    }
-
     private func siteVisitors(_ a: MCPArgs) async throws -> Any {
         let r = a.string("range") ?? "1d"
         let range = r == "all" ? SiteRange.all : SiteRange(rawValue: r)
@@ -1400,7 +1397,8 @@ final class MCPHandler {
 
     private func fbDraftSave(_ a: MCPArgs) throws -> Any {
         let f = fb
-        let author = try issueAuthor(a)
+        if Self.hasAgentArg(a.raw) { throw MCPToolError(Self.identityAgentError, status: 400) }
+        let author = IssueStore.mcpAuthor
         for k in ["link", "image_url"] {
             if let u = a.string(k), !u.isEmpty, !(u.lowercased().hasPrefix("https://") || u.lowercased().hasPrefix("http://")) {
                 throw MCPToolError("\(k) must be an http or https URL")

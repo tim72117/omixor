@@ -72,11 +72,11 @@ func (s *Service) AddItem(p *model.Principal, org, issueRef string, in ItemInput
 		return nil, itemStoreErr(err, in.Title)
 	}
 	s.Audit(p, "issue_item.add", org, map[string]any{"id": saved.ID, "issue": c.issue.ID, "key": itemKey(c.issue, *saved), "assignee": assignee})
-	return s.presentOne(org, c.issue, saved.ID)
+	return s.presentOne(p, org, c.issue, saved.ID)
 }
 
 // presentOne 重新讀這張 Issue 的子項(拿到最新的),輸出指定的那筆
-func (s *Service) presentOne(org string, issue *model.Issue, id string) (*model.IssueItem, error) {
+func (s *Service) presentOne(p *model.Principal, org string, issue *model.Issue, id string) (*model.IssueItem, error) {
 	all, err := s.Store.ListIssueItems(org, issue.ID)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func (s *Service) presentOne(org string, issue *model.Issue, id string) (*model.
 	if it == nil {
 		return nil, itemNotFound(id)
 	}
-	out, err := s.presentItems(org, issue, all, []model.IssueItem{*it})
+	out, err := s.presentItems(p, org, issue, all, []model.IssueItem{*it})
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (s *Service) ListItems(p *model.Principal, org, issueRef string, q ItemList
 		}
 		pick = append(pick, it)
 	}
-	return s.presentItems(org, c.issue, c.list, pick)
+	return s.presentItems(p, org, c.issue, c.list, pick)
 }
 
 // GetItem 看一筆(itemRef:key、序號或 id)
@@ -122,7 +122,7 @@ func (s *Service) GetItem(p *model.Principal, org, issueRef, itemRef string) (*m
 	if err != nil {
 		return nil, err
 	}
-	out, err := s.presentItems(org, c.issue, c.list, []model.IssueItem{*c.it})
+	out, err := s.presentItems(p, org, c.issue, c.list, []model.IssueItem{*c.it})
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func (s *Service) UpdateItem(p *model.Principal, org, issueRef, itemRef string, 
 		return nil, itemStoreErr(err, key)
 	}
 	s.Audit(p, "issue_item.update", org, map[string]any{"id": cur.ID, "key": key})
-	return s.presentOne(org, c.issue, cur.ID)
+	return s.presentOne(p, org, c.issue, cur.ID)
 }
 
 // DeleteItem 刪除子項(建立者或組織管理員;只有人)。綁定的任務還沒結束就取消。序號不重用,別的子項對它的依賴會被清掉

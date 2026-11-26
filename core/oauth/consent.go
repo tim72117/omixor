@@ -64,6 +64,7 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <label class="opt"><input type="radio" name="grant" form="consent" value="read" checked><strong>唯讀(建議)</strong><br><span class="note">{{.Scope}}:只能讀取,不能修改任何資料。</span></label>
 <label class="opt w"><input type="radio" name="grant" form="consent" value="write"><strong>讀寫(進階)</strong>
 <p class="warn">這個應用程式將能以你的身分修改資料。</p>
+<p class="note">讀寫只作用於你是成員的組織(讀寫授權沒有伺服器管理員的權力,不是成員的組織看不到也不能寫)。</p>
 <span class="note">可寫入的只有協作類工具,權限仍受你在組織裡的角色限制:</span>
 <ul><li>建立、更新、接受或放回 Issue</li><li>提出與處理待決定、需要協助,由待決定開出 Issue</li><li>新增、修改、回報 Issue 子項,把子項提升為 Issue</li><li>存文件到文件櫃</li><li>建立對話頻道、在頻道發訊息</li><li>回報任務(不能指派任務給角色)</li></ul>
 <span class="note">不能做:管理角色、組織鏈、專案與文件櫃結構、事件、領取角色憑證、伺服器管理員的操作(即使你是伺服器管理員也一樣),也不能管理 token 或使用者。</span><br>

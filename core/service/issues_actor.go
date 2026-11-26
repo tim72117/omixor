@@ -143,6 +143,17 @@ func (s *Service) syncIssueAssignee(p *model.Principal, org string, issue model.
 	s.syncAssignee(p, org, issue, n.Legacy(old, model.LegacyAgentID), by)
 }
 
+// closeIssueTasks 呼叫 cancelClosedIssueTasks(同 syncIssueAssignee:actor id 換成角色 handle)
+func (s *Service) closeIssueTasks(p *model.Principal, org string, issue model.Issue) {
+	n, err := s.LoadActors(issue.Assignee)
+	if err != nil {
+		s.Audit(p, "issue.assign.error", org, map[string]any{"issue": issue.ID, "error": auditErrText(err)})
+		return
+	}
+	issue.Assignee = n.Legacy(issue.Assignee, model.LegacyAgentID)
+	s.cancelClosedIssueTasks(p, org, issue)
+}
+
 // presentDocs 文件作者 actor id → 相容字串(整批一次查詢);回傳新的切片,不動傳入的
 func (s *Service) presentDocs(list []model.CabinetDoc) ([]model.CabinetDoc, error) {
 	ids := make([]string, 0, len(list))

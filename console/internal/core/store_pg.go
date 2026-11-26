@@ -6,7 +6,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -232,11 +231,11 @@ func ensurePGSchema(ctx context.Context, q pgExecer) error {
 	return nil
 }
 
-// OpenDB 連上資料庫、建表,並把存放處與密鑰都改到資料庫。key 是 base64 的 32 bytes(OMIXOR_SECRET_KEY)。
+// OpenDB 連上資料庫、建表,並把存放處與密鑰都改到資料庫。key 是 32 bytes 的金鑰(OMIXOR_SECRET_KEY),格式同 config.DecodeKey(hex 或 base64)。
 func OpenDB(url, key string) error {
-	k, err := base64.StdEncoding.DecodeString(strings.TrimSpace(key))
-	if err != nil || len(k) != 32 {
-		return errors.New("OMIXOR_SECRET_KEY 要是 base64 的 32 bytes,可以用 openssl rand -base64 32 產生")
+	k, err := config.DecodeKey(key)
+	if err != nil {
+		return errors.New("OMIXOR_SECRET_KEY 要是 32 bytes 的金鑰(64 個 hex 字元或 base64),可以用 openssl rand -base64 32 產生")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

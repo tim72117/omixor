@@ -80,9 +80,9 @@ func TestIssueAssigneeByAgentFollowsChain(t *testing.T) {
 	svc, _, boss, _, _ := chainEnv(t)
 	_, cto := claimAs(t, svc, boss, "cto", "開 Issue")
 
-	// 沒設定組織鏈:角色可以指派(維持原本行為)
-	if _, err := svc.CreateIssue(cto, "o1", service.IssueInput{Title: "無鏈", Assignee: "pm"}); err != nil {
-		t.Fatal("沒設組織鏈時角色要能指派:", err)
+	// 沒設定組織鏈:角色不能指派(人可以,角色一定要有明確的邊;ISS-7)
+	if _, err := svc.CreateIssue(cto, "o1", service.IssueInput{Title: "無鏈", Assignee: "pm"}); code(err) != 403 {
+		t.Fatal("沒設組織鏈時角色不能指派,要 403:", err)
 	}
 	if _, err := svc.SaveChain(boss, "o1", edges("agent:cto>agent:pm>產品")); err != nil {
 		t.Fatal(err)

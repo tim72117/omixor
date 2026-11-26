@@ -7,6 +7,7 @@ package service
 //
 // 規則:
 //   - 接受:人與角色憑證都可以(權限同讀取、留言 Issue;受限專案看不到的 Issue 404),接受者一律是呼叫者本人。
+//     角色憑證另外只能接受本來就是自己的(指派給自己、自己建立、目前任務連到;checkAgentAccept),否則 403。
 //     Issue 已關閉(closed)409;已被別人接受(assignee 有值且不是自己)409(要先放回,或用 issue_update 的 assignee 轉交給角色);
 //     已是自己 = 冪等(不改、不留言)。成功後 assignee = 自己,並在 Issue 留一則系統留言、寫稽核 issue.accept。
 //     角色接受自己時不排任務(它已經在做了);沒有組織鏈的檢查(只能指派給自己)。
@@ -179,6 +180,9 @@ func (s *Service) setAcceptor(p *model.Principal, acc *projectAccess, org, id, r
 		}
 		if cur.Assignee != "" {
 			return nil, "", false, fail(409, "%s 已被%s接受;要先請對方放回,或用 issue_update 的 assignee 轉交", key, s.presentWho(cur.Assignee))
+		}
+		if err := s.checkAgentAccept(p, org, cur); err != nil {
+			return nil, "", false, err
 		}
 		if p.Agent != nil { // 受限專案:角色要是專案成員(通常看得到就是成員,這裡和指派走同一個檢查)
 			if err := s.checkAssigneeProject(org, cur.Project, me); err != nil {

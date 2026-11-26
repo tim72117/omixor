@@ -56,7 +56,7 @@ func CoreToolDefs() []any {
 	defs := []any{
 		coreDef("orgs", "Lists the organizations you can use (current marks the organization this connection belongs to).", true, obj(map[string]any{})),
 		coreDef("issue_create",
-			"Saves a finding or to-do as an issue. Write the body in Markdown with the observed behavior, evidence (numbers, URLs, time range) and a suggestion. Search with issues first to avoid duplicates. Giving assignee (an agent id) automatically queues a task for that agent.", false,
+			"Saves a finding or to-do as an issue. Write the body in Markdown with the observed behavior, evidence (numbers, URLs, time range) and a suggestion. Search with issues first to avoid duplicates. Giving assignee (an agent id) automatically queues a task for that agent; on the agent endpoint you can assign only to an agent downstream of you on the organization chain.", false,
 			obj(map[string]any{
 				"assignee": pStr("Id of the agent to assign to; a task is queued for it automatically (the agent must exist)"),
 				"body":     pStr("Body (Markdown)"),
@@ -81,7 +81,8 @@ func CoreToolDefs() []any {
 				"return":        pEnum("Response size: ack (default) = compact receipt {key, id, status, version, updatedAt, changed, comment_id?, deduplicated}; full = the whole issue plus deduplicated", "ack", "full"),
 			}, "title")),
 		coreDef("issue_update",
-			"Updates an issue: change the title, body, priority, labels, repository, assignee or project (move), add a comment, or close/reopen it. Give only the fields to change. id may be a key or an internal id; the returned key is the display number.", false,
+			"Updates an issue: change the title, body, priority, labels, repository, assignee or project (move), add a comment, or close/reopen it. Give only the fields to change. id may be a key or an internal id; the returned key is the display number. Closing cancels the assigned agent's still-unclaimed tasks for the issue. "+
+				"On the agent endpoint: comment on any visible issue; status and append_body only on your own issues (assigned to you, linked by your current task, or created by you); title, body, priority, labels, project, repo and unassigning are refused; assignee only on your own issues and only to a downstream agent on the organization chain.", false,
 			obj(map[string]any{
 				"add_labels":  pStrs("Labels to add"),
 				"append_body": pStr("Text to append after the body"),
@@ -107,7 +108,7 @@ func CoreToolDefs() []any {
 		coreDef("issue_accept",
 			"Accepts an issue: you become the issue's owner (assignee), the issue moves to \"in progress\", and a system comment is added. Use it when \"I own this and will analyze and break it down\"; usually there are no items yet at that point, and you then use issue_item_add to split it into items, each of which is claimed and executed with issue_item_claim (the two levels are not mutually exclusive). "+
 				"Already accepted by you: no-op (idempotent); already accepted by someone else: 409 (ask them to release it, or hand it to an agent with the assignee of issue_update); issue closed: 409. "+
-				"release=true releases it: clears the owner and returns the issue to pending (only the current acceptor or an organization admin; no-op if nobody has accepted it). Usable from both the human and the agent endpoints; the acceptor is always the caller.", false,
+				"release=true releases it: clears the owner and returns the issue to pending (only the current acceptor or an organization admin; no-op if nobody has accepted it). Usable from both the human and the agent endpoints; the acceptor is always the caller. "+agentAcceptLimit+" Anything else returns 403.", false,
 			obj(map[string]any{
 				"id":      pStr("Issue number: a key (e.g. ISS-3, APP-12) or an internal id"),
 				"release": pBool("true = release (clear the owner, return to pending); default false = accept"),
@@ -150,7 +151,7 @@ func CoreToolDefs() []any {
 				"id":    pStr("Task id (optional)"),
 			}, "agent")),
 		coreDef("agent_task_report",
-			"Reports task progress or result. note is a progress log; result is the final result (Markdown); set status=done when finished, or blocked when a human decision is needed and explain it in note. After done or blocked the agent credential is revoked immediately.", false,
+			"Reports task progress or result. note is a progress log; result is the final result (Markdown); set status=done when finished, or blocked when a human decision is needed and explain it in note. After done or blocked the agent credential is revoked immediately. When a task linked to an issue (not an item task) becomes done, the result (or note) is posted to that issue as the agent's comment, so do not post it again.", false,
 			obj(map[string]any{
 				"id":     pStr("Task id"),
 				"links":  pStrs("Related issue ids or URLs"),
@@ -334,7 +335,7 @@ func WorkerToolDefs() []any {
 			obj(map[string]any{})),
 		coreDef("dispatch_report",
 			"Reports on a task I am working on (no agent credential needed; the server confirms I am the claimer and reports as that agent): status inProgress (with note to report progress and renew the lease), "+
-				"blocked (a human decision is needed; ask in note) or done (write the result in result). After done or blocked the task ends and the credential is revoked. The task must be in progress and the lease not yet expired.", false,
+				"blocked (a human decision is needed; ask in note) or done (write the result in result; for a task linked to an issue, not an item task, it is posted to that issue as the agent's comment, so do not post it again with dispatch_comment). After done or blocked the task ends and the credential is revoked. The task must be in progress and the lease not yet expired.", false,
 			obj(map[string]any{
 				"id":     pStr("Task id, e.g. T-3"),
 				"code":   pStr("Claim verification code (credential.code returned by dispatch_claim, 6 digits)"),

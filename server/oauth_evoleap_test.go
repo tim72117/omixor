@@ -300,8 +300,12 @@ func TestEvoleapCallbackRejections(t *testing.T) {
 	a := generic(o.callback(id, "c", nil), "沒有 cookie")
 	b := generic(o.callback(id, "c", &http.Cookie{Name: ck.Name, Value: "wrong"}), "cookie 不對")
 	c := generic(o.callback("unknown-id", "c", ck), "不認得的 id")
-	if a != b || b != c {
-		t.Fatal("錯誤要一樣(通用)")
+	// 沒帶 cookie 在查交易之前就擋掉(不透露 id 存不存在),可以有自己的說明;查了交易之後的兩種要一字不差
+	if !strings.Contains(a, "cookie") {
+		t.Fatal("沒有 cookie 要說明是瀏覽器端的原因", a)
+	}
+	if b != c {
+		t.Fatal("cookie 不對與不認得的 id 錯誤要一樣(通用)")
 	}
 	if _, ex, _ := f.counts(); ex != 0 {
 		t.Fatal("cookie 不對不能去換 token")

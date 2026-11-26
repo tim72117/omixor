@@ -17,6 +17,9 @@ final class FakeOmixorServer: URLProtocol {
     nonisolated(unsafe) static var inbox: [[String: Any]] = []
     nonisolated(unsafe) static var chain: [[String: Any]] = []
 
+    /// worker/report 要回的狀態碼(200 正常;409 角色停用、404 舊 server 沒有這個路由)
+    nonisolated(unsafe) static var workerReportStatus = 200
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -31,6 +34,7 @@ final class FakeOmixorServer: URLProtocol {
         tasks = []
         issues = []
         requests = []
+        workerReportStatus = 200
         inbox = []
         chain = []
         layout = [["id": "overview", "label": "總覽", "path": "", "tabs": []],
@@ -46,6 +50,17 @@ final class FakeOmixorServer: URLProtocol {
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: obj))
         client?.urlProtocolDidFinishLoading(self)
+    }
+
+    /// report 與 worker/report 共用:狀態、結果、備註
+    private static func applyReport(_ i: Int, _ body: [String: Any]) {
+        if let s = body["status"] { tasks[i]["status"] = s }
+        if let r = body["result"] { tasks[i]["result"] = r }
+        if let n = body["note"] as? String {
+            var notes = tasks[i]["notes"] as? [[String: Any]] ?? []
+            notes.append(["id": "n\(notes.count + 1)", "author": "程式設計師", "text": n, "at": now])
+            tasks[i]["notes"] = notes
+        }
     }
 
     private func ok(_ v: Any) { reply(200, ["result": v]) }
@@ -191,18 +206,19 @@ final class FakeOmixorServer: URLProtocol {
             Self.tasks[i]["lockedUntil"] = "2026-11-12T11:50:51Z"
             let agent = Self.agents.first { $0["id"] as? String == body["agentId"] as? String } ?? [:]
             ok(["agent": agent, "task": Self.tasks[i],
-                "credential": ["agentId": body["agentId"]!, "taskId": Self.tasks[i]["id"]!, "secret": "s3cret", "expiresAt": "2026-11-12T11:50:51Z"]])
+                "credential": ["agentId": body["agentId"]!, "taskId": Self.tasks[i]["id"]!, "secret": "s3cret", "code": "123456",
+                               "expiresAt": "2026-11-12T11:50:51Z"]])
+        case ("agent-tasks", "POST", 3) where rest[1] == "worker" && rest[2] == "report":
+            guard Self.workerReportStatus == 200 else { return fail(Self.workerReportStatus, "worker/report 不可用") }
+            guard body["code"] as? String == "123456" else { return fail(403, "領取驗證碼不符") }
+            guard let i = Self.tasks.firstIndex(where: { $0["id"] as? String == rest[0] }) else { return fail(404, "找不到任務 \(rest[0])") }
+            Self.applyReport(i, body)
+            ok(Self.tasks[i])
         case ("agent-tasks", "POST", 2):
             guard let i = Self.tasks.firstIndex(where: { $0["id"] as? String == rest[0] }) else { return fail(404, "找不到任務 \(rest[0])") }
             switch rest[1] {
             case "report":
-                if let s = body["status"] { Self.tasks[i]["status"] = s }
-                if let r = body["result"] { Self.tasks[i]["result"] = r }
-                if let n = body["note"] as? String {
-                    var notes = Self.tasks[i]["notes"] as? [[String: Any]] ?? []
-                    notes.append(["id": "n\(notes.count + 1)", "author": "程式設計師", "text": n, "at": Self.now])
-                    Self.tasks[i]["notes"] = notes
-                }
+                Self.applyReport(i, body)
             case "reply":
                 var notes = Self.tasks[i]["notes"] as? [[String: Any]] ?? []
                 notes.append(["id": "n\(notes.count + 1)", "author": "我", "text": body["text"] as? String ?? "", "at": Self.now])

@@ -99,12 +99,14 @@ swift build -c release --product omixor-mcp   # 產生 .build/release/omixor-mcp
 | `orgs` | 列出組織與目前使用中的組織 |
 | `gcp` / `gcp_logs` / `gcp_metrics` | Cloud Run 服務與 Job 狀態、版本、執行;Cloud Logging 日誌;Cloud Monitoring 請求量、5xx、p95 延遲(只讀) |
 | `github` / `github_runs` / `github_run` / `github_pull` | GitHub 概況、Actions 執行、執行的工作步驟與失敗紀錄、PR 詳情(只讀) |
-| `cabinet` / `docs` / `doc_save` | 文件櫃結構、查文件、存文件(帶 agent 時依角色的存取範圍把關) |
+| `cabinet` / `docs` / `doc_save` | 文件櫃結構、查文件、存文件(一般連線不接受 `agent`,帶了會被拒絕;角色的存取範圍由角色端點的憑證決定) |
 | `wireframe_render` / `flowchart_render` | 用描述畫線框圖、流程圖(JSON 或 Mermaid flowchart)回傳 SVG,可順便存進文件櫃;core 的工具,App 連 server 時轉送 |
 | `fb_pages` / `fb_posts` / `fb_insights` / `fb_drafts` | Facebook 粉絲專頁清單、最近與已排程貼文(含成效)、專頁成效、貼文草稿(只讀) |
-| `fb_draft_save` | 新增或修改貼文草稿(帶 agent 時署名該角色);發佈與排程只能由人在 app 裡按 |
+| `fb_draft_save` | 新增或修改貼文草稿(署名是登入的人,不接受 `agent`,帶了回 400 並說明改走角色端點);發佈與排程只能由人在 app 裡按 |
 
 依 AI 治理原則,**核准 AI 請求、核准部署、回滾、調整自動化自主程度、切換整合、發佈 Facebook 貼文**只能由人在 app 裡做。MCP 用戶端需要這類變更時,用 `request_approval` 送出請求,之後用 `get approvals` 查結果。
+
+MCP 對 core 工具的處理:`issue_decisions` 等 core 工具由 App 原樣轉給 core server,工具定義(含 `_meta.ui`)照 server 回的清單列出,`resources/list`、`resources/read`(`ui://` 畫面)也原樣轉送,App 不改內容。與 console 的差異(以程式為準):`issue_decision_withdraw`、`issue_decision_reopen` 是 console 自己登記的工具,App 的核心工具清單沒有;`agent_task_delegate` 是 App 自己的實作(走 REST `/agent-tasks/delegate`,`agent` 是委派者),console 的人類端點則直接隱藏並拒絕它。
 
 程式在 `Sources/Omixor/MCP/`:`MCPHandler` 是協定與工具(直接讀寫 `AppState`),`MCPServer` 是 HTTP 傳輸;`Sources/OmixorMCP/` 是 stdio 轉接。測試:`swift test`。
 
@@ -156,7 +158,7 @@ AI 自動化另有「需要處理」「執行日誌」分頁(對應 console 的�
 
 - 側邊欄最上方切換組織;設定 › 組織 可以新增(全新空白,或複製目前組織的角色、文件櫃結構與連線設定)、改名、換圖示、刪除(資料夾移到垃圾桶)。
 - 目前組織的工作空間都能重新設定:虛擬角色、文件櫃結構(區塊與頁籤可新增、改名、排序、刪除,有文件的不能刪)、連線、Issue。
-- 舊版直接放在資料夾根目錄的檔案,第一次啟動時會複製到預設組織「evoleap」(原檔保留)。
+- 舊版直接放在資料夾根目錄的檔案,第一次啟動時會複製到預設組織(原檔保留):升級上來、資料夾裡已有舊資料的沿用舊名「evoleap」,全新安裝叫「omixor」。
 - MCP 一律作用在目前的組織,`orgs` 看是哪一個;切換組織只能由人在 app 裡做。
 - 跑測試卻沒指定 `OMIXOR_APP_DATA_DIR` 時,資料夾會改用暫存資料夾,不會碰到真正的資料。
 
@@ -178,7 +180,7 @@ AI 自動化另有「需要處理」「執行日誌」分頁(對應 console 的�
 
 ## 文件櫃(側邊欄 › 文件櫃)
 
-純文字(Markdown)文件;```wireframe、```flowchart 與 flowchart 語法的 ```mermaid 區塊會畫成圖(core server 的 `wireframe_render` / `flowchart_render` 渲染,App 只把 SVG 當圖片顯示,失敗時顯示錯誤與原始描述)。預設組織依 evoleap 研發基地 `/studio` 的區塊(總覽、待辦、會員、課程、開發、構想、文件、工具)與頁籤分類;結構照 shuttle 的 `web/src/studio/proposal/ProposalLayout.tsx` 與 `studio/articles/registry.ts`,研發基地改版時要改 `Sources/Omixor/Cabinet/Cabinet.swift`。每個角色在「編輯…」設定文件櫃存取範圍(區塊或頁籤,可讀/可讀寫;頁籤優先於區塊),也可用 `agent_upsert` 的 `doc_access` 調整。AI 以角色身分讀寫文件時帶 `agent`,超出範圍會被拒絕;不帶 `agent` 視為 MCP 用戶端,全部可讀寫。結構可在文件櫃左下「編輯結構」修改(每個組織各自一份)。結構與文件存在 omixor-local 或 omixor server。
+純文字(Markdown)文件;```wireframe、```flowchart 與 flowchart 語法的 ```mermaid 區塊會畫成圖(core server 的 `wireframe_render` / `flowchart_render` 渲染,App 只把 SVG 當圖片顯示,失敗時顯示錯誤與原始描述)。預設組織依 evoleap 研發基地 `/studio` 的區塊(總覽、待辦、會員、課程、開發、構想、文件、工具)與頁籤分類;結構照 shuttle 的 `web/src/studio/proposal/ProposalLayout.tsx` 與 `studio/articles/registry.ts`,研發基地改版時要改 `Sources/Omixor/Cabinet/Cabinet.swift`。每個角色在「編輯…」設定文件櫃存取範圍(區塊或頁籤,可讀/可讀寫;頁籤優先於區塊),也可用 `agent_upsert` 的 `doc_access` 調整。一般 MCP 連線(人類端點)不接受 `agent`:身分假冒型工具(含 `doc_save`、`docs`、`cabinet`、`fb_draft_save`,清單見 core 的 `IdentityAgentTools`)帶了就回 400,署名一律是登入的人;AI 要以角色身分讀寫文件,先用 `agent_task_claim` 領任務拿角色憑證,再連角色端點(`/mcp/agent`),範圍由憑證的角色決定,超出範圍會被拒絕。結構可在文件櫃左下「編輯結構」修改(每個組織各自一份)。結構與文件存在 omixor-local 或 omixor server。
 
 
 ## Facebook 粉絲專頁(AI 自動化 › 粉絲專頁)

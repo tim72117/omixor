@@ -98,3 +98,14 @@ func TestConsentAdminDisabledForNonAdmin(t *testing.T) {
 		t.Error("沒要求 mcp:admin 不該出現管理員選項")
 	}
 }
+
+// ISS-64:讀寫選項底下有靜態說明「讀寫只作用於你是成員的組織」;只讀的同意畫面沒有
+func TestConsentWriteOptionMembershipHint(t *testing.T) {
+	const hint = "讀寫只作用於你是成員的組織"
+	if page := renderConsentPage(t, consentView{Scope: "mcp:read", RequestedScope: "mcp:read mcp:write", WriteRequested: true}); !strings.Contains(page, hint) {
+		t.Errorf("讀寫選項缺少說明 %q", hint)
+	}
+	if page := renderConsentPage(t, consentView{Scope: "mcp:read", RequestedScope: "mcp:read"}); strings.Contains(page, hint) {
+		t.Error("只讀的同意畫面不該有讀寫說明")
+	}
+}

@@ -99,3 +99,15 @@ final class RoleMCP {
         return c
     }
 }
+
+/// 失敗結果的錯誤句子:統一格式是 {"error":{"message":...}}(text 與 structuredContent 同內容);不是這個形狀就原樣回傳
+enum MCPErrorText {
+    static func message(_ text: String) -> String {
+        guard let obj = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { return text }
+        return message(obj)
+    }
+
+    static func message(_ obj: [String: Any]) -> String {
+        (obj["error"] as? [String: Any])?["message"] as? String ?? ""
+    }
+}

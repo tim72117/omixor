@@ -117,6 +117,7 @@ func TestGuards(t *testing.T) {
 }
 
 func TestLDAPLoginFlowAndAttribution(t *testing.T) {
+	resetAuthJSON(t)
 	f := authtest.Start(t)
 	au := auth.New(&auth.MemorySecrets{})
 	c, app := newServer(t, au)

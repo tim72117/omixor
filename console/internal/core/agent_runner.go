@@ -661,7 +661,7 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 	st.mu.Lock()
 	st.rec = runRec
 	st.mu.Unlock()
-	result, costUSD, runErr := a.execClaude(runCtx, org, g, task, c, bin, cred, runRec.onEvent, func(text string) {
+	result, costUSD, runErr := a.execClaude(runCtx, org, g, task, c, bin, cred, res.AutoPostsResult, runRec.onEvent, func(text string) {
 		st.mu.Lock()
 		if st.current != nil {
 			st.current.LastOutput = tailRunes(scrub(text), runnerOutputMaxRunes)
@@ -717,7 +717,7 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 			}
 			rep, rec.Outcome = service.TaskReport{Status: &status, Result: &text}, "done"
 		}
-		if _, err := ops.ReportTask(org, task.ID, rep); err != nil {
+		if err := reportForRole(ops, org, task.ID, cred.Code, rep); err != nil {
 			rec.Outcome = "error"
 			rec.Error = scrub("回報失敗:" + err.Error())
 		}
@@ -742,6 +742,20 @@ func (a *App) runTask(ctx context.Context, org string, t AgentTask, c AgentRunCo
 	return true, nil
 }
 
+// reportForRole runner 代角色回報(Claude 自己沒回報):用領取驗證碼走 WorkerReport,server 才知道是角色的回報(完成留言署名角色)。
+// 沒有驗證碼、或 worker 回報失敗(角色中途停用、租約到期、舊 server 沒有這個路由…)退回一般回報:署名會變成本人,但結果不能掉
+func reportForRole(ops AgentOps, org, taskID, code string, in service.TaskReport) error {
+	if code != "" {
+		_, err := ops.WorkerReport(org, taskID, code, in)
+		if err == nil {
+			return nil
+		}
+		runnerLogf("%s 以角色身分回報失敗,改用一般回報:%v", taskID, err)
+	}
+	_, err := ops.ReportTask(org, taskID, in)
+	return err
+}
+
 // logRunnerFinal Claude 自己回報 done/blocked 時,在動態牆補一筆(走 web 的 ReportTask 才會自動記)
 func (a *App) logRunnerFinal(g Agent, t AgentTask) {
 	o := a.AgentOps()
@@ -754,12 +768,12 @@ func (a *App) logRunnerFinal(g Agent, t AgentTask) {
 }
 
 // runnerOptions 組出這次執行的 Claude 參數(MCP 設定檔路徑另外帶;憑證不在這裡)
-func runnerOptions(g Agent, c AgentRunConfig, bin, mcpConfig, scratch string) claude.Options {
+func runnerOptions(g Agent, c AgentRunConfig, bin, mcpConfig, scratch string, autoPostsResult bool) claude.Options {
 	o := claude.Options{
 		Model: c.Model, Effort: c.Effort, Bin: bin,
 		Lean: true, NoPersist: true,
 		AllowedTools:       []string{"mcp__omixor"},
-		AppendSystemPrompt: runnerSystemPrompt(g, c),
+		AppendSystemPrompt: runnerSystemPrompt(g, c, autoPostsResult),
 		ExtraArgs:          []string{"--mcp-config", mcpConfig},
 		Env:                claude.WaitForMCPEnv(runnerMCPConnectWaitMs),
 	}
@@ -778,7 +792,18 @@ func runnerOptions(g Agent, c AgentRunConfig, bin, mcpConfig, scratch string) cl
 	return o
 }
 
-func runnerSystemPrompt(g Agent, c AgentRunConfig) string {
+// runnerReportRules 規則第 3、4 條:server 在領取回應明示會把結果貼到 Issue(service.ClaimResult.AutoPostsResult)時,叫角色不要重複留言;
+// 沒明示(舊 server)就不會貼,角色要自己留言
+func runnerReportRules(autoPostsResult bool) string {
+	if autoPostsResult {
+		return "3. 過程中需要在 Issue 說明時,用 issue_update 留言;任務結果不用另外留言(見下一條)。\n" +
+			"4. 做完用 agent_task_report 回報 status=done,結果寫在 agent_task_report 的 result。任務有連到 Issue 時(子項任務除外),系統會自動把 result 貼到該 Issue 的留言,不要用 issue_update 重複留言。需要人決定時回報 status=blocked,在 note 寫要問的問題,然後結束。\n"
+	}
+	return "3. 需要在 Issue 說明時,用 issue_update 留言。\n" +
+		"4. 做完用 agent_task_report 回報 status=done,在 result 寫結果;需要人決定時回報 status=blocked,在 note 寫要問的問題,然後結束。\n"
+}
+
+func runnerSystemPrompt(g Agent, c AgentRunConfig, autoPostsResult bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "你是 omixor 的虛擬角色「%s」(id: %s),由這台 Mac 上的 omixor 自動執行,旁邊沒有人即時回答問題。\n", g.Name, g.ID)
 	if g.Role != "" {
@@ -790,8 +815,7 @@ func runnerSystemPrompt(g Agent, c AgentRunConfig) string {
 	b.WriteString("\n## 規則\n\n")
 	b.WriteString("1. 先用 agent_context 讀角色設定與任務。\n")
 	b.WriteString("2. 照任務說明完成。\n")
-	b.WriteString("3. 需要在 Issue 說明時,用 issue_update 留言。\n")
-	b.WriteString("4. 做完用 agent_task_report 回報 status=done,在 result 寫結果;需要人決定時回報 status=blocked,在 note 寫要問的問題,然後結束。\n")
+	b.WriteString(runnerReportRules(autoPostsResult))
 	b.WriteString("5. 不要把任何憑證、密碼、token 或金鑰寫進 Issue、留言、文件或回報。\n")
 	if c.Workdir != "" {
 		fmt.Fprintf(&b, "6. 工作資料夾是 %s,檔案只在這個資料夾裡讀寫。\n", c.Workdir)
@@ -815,7 +839,7 @@ func runnerPrompt(t AgentTask) string {
 }
 
 // execClaude 寫 MCP 設定檔、啟動 Claude、執行中續約;回傳最後的回覆、估計花費與錯誤(錯誤訊息可能要再過濾憑證)
-func (a *App) execClaude(ctx context.Context, org string, g Agent, t AgentTask, c AgentRunConfig, bin string, cred model.AgentGrant, onEvent func(claude.Event), onText func(string)) (string, float64, error) {
+func (a *App) execClaude(ctx context.Context, org string, g Agent, t AgentTask, c AgentRunConfig, bin string, cred model.AgentGrant, autoPostsResult bool, onEvent func(claude.Event), onText func(string)) (string, float64, error) {
 	c, err := normalizeRunConfig(c)
 	if err != nil {
 		return "", 0, fmt.Errorf("自動執行設定不正確:%v", err)
@@ -844,7 +868,7 @@ func (a *App) execClaude(ctx context.Context, org string, g Agent, t AgentTask, 
 	}
 	defer os.Remove(cfgPath)
 
-	o := runnerOptions(g, c, bin, cfgPath, scratch)
+	o := runnerOptions(g, c, bin, cfgPath, scratch, autoPostsResult)
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(c.TimeoutMinutes)*time.Minute)
 	defer cancel()
 

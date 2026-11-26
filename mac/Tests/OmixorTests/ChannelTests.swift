@@ -264,7 +264,7 @@ final class ChannelTests: XCTestCase {
         // App 的 MCP(人類端點)不能用 agent 參數指定角色身分(core ISS-36);以角色身分要領任務拿憑證、連角色端點
         (_, text, err) = try await call(mcp, "channel_post", ["channel": "CH-1", "text": "x", "agent": "marketing"])
         XCTAssertTrue(err)
-        XCTAssertTrue(text.contains("不能指定角色身分"), text)
+        XCTAssertTrue(text.contains("An agent identity cannot be specified"), text)
         let role = RoleMCP(app: app)
         (_, text, err) = try await role.call("course-dev", "channel_post", ["channel": "CH-1", "text": "我不是成員"])
         XCTAssertTrue(err, "角色要是頻道成員")

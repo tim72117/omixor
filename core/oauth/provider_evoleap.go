@@ -74,10 +74,11 @@ func (p *EvoleapProvider) callback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var oe *service.OAuthError
 		if !errors.As(err, &oe) {
+			d["error"], d["detail"] = "server_error", err.Error() // 內部錯誤:頁面不外露,log 留原因
 			renderFatal(w, 500, "伺服器錯誤,請稍後再試")
 			return
 		}
-		d["error"], d["pairing_result"] = oe.Code, oe.Reason
+		noteError(r, oe)
 		if res != nil && res.RedirectURI != "" && !oe.NoRedirect {
 			redirectTo(w, res.RedirectURI, "error", oe.Code, "error_description", oe.Desc, "state", res.State)
 			return
@@ -87,4 +88,17 @@ func (p *EvoleapProvider) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	d["pairing_result"] = "ok"
 	redirectTo(w, res.RedirectURI, "code", res.Code, "state", res.State)
+}
+
+// Check 啟動自我檢查(見 diagnose.go):要登記在 evoleap 的回呼網址;沒啟用時說明為什麼(沒設 EVOLEAP_URL、或被 OMIXOR_OAUTH_EVOLEAP_LOGIN=false 關掉)。
+// 沒啟用本身不是問題(可能只用 GitLab 或 LDAP);剩下哪些登入方式由 loginProblems 判斷
+func (p *EvoleapProvider) Check(public string) []Problem {
+	if p.Enabled() {
+		return []Problem{{Level: Info, Msg: "evoleap 登入已啟用,要在 evoleap 登記回呼網址 " + callbackURL(public, p.ID())}}
+	}
+	why, fix := "沒有 evoleap 網址", "設 EVOLEAP_URL"
+	if p.Svc.OAuthEvoleapOff {
+		why, fix = "被 OMIXOR_OAUTH_EVOLEAP_LOGIN=false 關掉", "要用 evoleap 登入就拿掉這個設定"
+	}
+	return []Problem{{Level: Info, Msg: "evoleap 登入沒有啟用(" + why + ")", Fix: fix}}
 }

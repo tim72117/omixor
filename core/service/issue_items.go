@@ -26,6 +26,7 @@ import (
 //	刪除(DeleteItem):建立者或組織管理員;角色憑證 403
 //	署名:建立者、負責人、領取者一律 actor(SelfActor、ResolveWho);人類端點不接受冒名;輸出帶相容字串加 xxxActor 物件(批次 LoadActors)
 //	輸出:Key = Issue 顯示編號 + "." + 序號;dependsOn、waitFor(種類 item)輸出成被指的子項 key,輸入時 key、序號、id 都接受
+//	證據查核:輸出時計算 evidenceCheck(issue_items_evidence.go),只標示、不擋回報、不改狀態
 //	稽核:issue_item.add / update / claim / release / report / block / unblock / cancel / promote / delete
 //	鎖順序:agents.mu → issueLock(同 reassignIssue);子項的寫入一律先拿 agents.mu(領取要建任務、完成要回寫任務)
 
@@ -211,7 +212,7 @@ func itemKey(issue *model.Issue, it model.IssueItem) string {
 
 // presentItems store 的子項 → 輸出:Key、actor 相容字串與物件(整批一次 LoadActors)、dependsOn / waitFor(item)換成子項 key。
 // all 是同一張 Issue 的全部子項(換 key 用),pick 是要輸出的。不改傳入的資料
-func (s *Service) presentItems(org string, issue *model.Issue, all, pick []model.IssueItem) ([]model.IssueItem, error) {
+func (s *Service) presentItems(p *model.Principal, org string, issue *model.Issue, all, pick []model.IssueItem) ([]model.IssueItem, error) {
 	var ids []string
 	for _, it := range pick {
 		ids = append(ids, it.Assignee, it.ClaimedBy, it.CreatedBy)
@@ -245,6 +246,9 @@ func (s *Service) presentItems(org string, issue *model.Issue, all, pick []model
 			}
 		}
 		out[k] = it
+	}
+	if err := s.checkEvidence(p, org, issue, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

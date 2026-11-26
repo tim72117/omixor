@@ -19,7 +19,7 @@ package service
 //
 //	s.agents.mu → s.channelMu   DeleteAgent 在 agents.mu 內呼叫 pruneChannelNode
 //	s.agents.mu → s.mcpMu       DeleteAgent 在 agents.mu 內呼叫 pruneAgentMCPGrants;SaveMCPGrants 也照這個順序先拿 agents.mu
-//	s.agents.mu → issueLock     DeleteAgent 在 agents.mu 內呼叫 reassignIssue(UpdateIssue 的 syncAssignee 在 Issue 的鎖外才拿 agents.mu)
+//	s.agents.mu → issueLock     DeleteAgent 在 agents.mu 內呼叫 reassignIssue、ReportTask 呼叫 noteTaskResult(UpdateIssue 的 syncAssignee、關閉時的取消任務在 Issue 的鎖外才拿 agents.mu)
 //	s.agents.mu → s.cabinetMu   DeleteProject 先拿 agents.mu 再拿 cabinetMu(刪專案、清角色的 docAccess)
 //
 // 其餘的鎖(issueLock、issueMu、cabinetMu、incidentMu、decisionMu、ModuleLock、moduleMu、systemMu、failMu、rateWindow.mu、failCounter.mu)都是最內層:拿著時不再拿任何鎖。

@@ -33,7 +33,7 @@ func listOf(t *testing.T, out map[string]any) []any {
 
 // 專案代號、project 篩選與 counts、軟刪除、垃圾桶(看、還原、永久刪除)
 func TestProjectKeyIssueQueryAndTrash(t *testing.T) {
-	os.Remove(core.DataRoot() + "/auth.json")
+	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir()) // 下面照件數比對:自己一份資料庫,不看別的測試建的 Issue
 	c, app := newServer(t, auth.New(&auth.MemorySecrets{}))
 	app.Mu.Lock()
 	org := app.CurrentOrgID()
@@ -151,6 +151,7 @@ func TestTrashActionsAdminOnly(t *testing.T) {
 	if _, ok := adminActions["issue_delete"]; ok {
 		t.Error("issue_delete 一般成員可以做,不要列進 adminActions")
 	}
+	resetAuthJSON(t)
 	f := authtest.Start(t)
 	au := auth.New(&auth.MemorySecrets{})
 	c, app := newServer(t, au)

@@ -117,11 +117,8 @@ func Run() {
 	if h := cfg.Float(config.AgentCredHours); h > 0 {
 		svc.AgentCredTTL = time.Duration(h * float64(time.Hour))
 	}
-	if err := configureLDAP(svc, cfg.Getenv); err != nil {
-		log.Fatalf("LDAP 設定:%v", cfg.Redact(err.Error()))
-	}
-	if err := configureGitLab(svc, cfg.Getenv, cfg.Str(config.PublicURL)); err != nil {
-		log.Fatalf("GitLab 設定:%v", cfg.Redact(err.Error()))
+	if err := configureLogins(svc, cfg, log.Printf); err != nil { // LDAP、GitLab,最後是 OAuth 啟動自我檢查
+		log.Fatal(err)
 	}
 	if err := svc.EnsureOrgsForIssues(); err != nil {
 		log.Fatalf("補建組織失敗:%v", err)

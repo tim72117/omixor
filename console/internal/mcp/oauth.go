@@ -54,24 +54,18 @@ func useWebEntry(cfg *config.Config) bool {
 	return !cfg.IsSet(config.OAuthAddr) && cfg.IsSet(config.PublicURL) && webEntryProblem(cfg, core.DB() != nil, core.IsRemote()) == ""
 }
 
-// checkOAuthRuntime 執行期才知道的條件(設定檔層級的在 config.webOAuthRule):要連 PostgreSQL、不是遠端模式
-func checkOAuthRuntime(hasDB, remote bool) error {
-	switch {
-	case remote:
-		return errors.New("OMIXOR_OAUTH_ADDR 不能用在遠端模式:授權與使用者在那台 omixor server,請改在 server 設 OMIXOR_PUBLIC_URL")
-	case !hasDB:
-		return errors.New("OMIXOR_OAUTH_ADDR 需要 PostgreSQL:請設 OMIXOR_DATABASE_URL 與 OMIXOR_SECRET_KEY")
-	}
-	return nil
+// oauthEnv 啟動自我檢查的輸入(檢查本身在 core/oauth 的 Diagnose,server 共用):執行期的事實(要連 PostgreSQL、不是遠端模式)在這裡取
+func oauthEnv(cfg *config.Config, providers []oauth.IdentityProvider) oauth.Env {
+	return oauth.Env{Cfg: cfg, Prog: config.Web, Providers: providers, HasDB: core.DB() != nil, Remote: core.IsRemote()}
 }
 
 // PrepareOAuth 要開 MCP 入口時,在建核心(core.New)之前呼叫:檢查條件、讓核心的 service 套上 evoleap 與 GitLab 登入設定。
-// OMIXOR_OAUTH_ADDR 條件不合回錯誤(拒絕啟動);只設 OMIXOR_PUBLIC_URL 而條件不合只警告。兩個都沒設什麼都不做
+// OMIXOR_OAUTH_ADDR 條件不合(oauth.Diagnose 的致命項目;摘要等 StartOAuth 一起印)回錯誤(拒絕啟動);只設 OMIXOR_PUBLIC_URL 而條件不合只警告。兩個都沒設什麼都不做
 func PrepareOAuth(cfg *config.Config) error {
 	separate := cfg.IsSet(config.OAuthAddr)
 	switch {
 	case separate:
-		if err := checkOAuthRuntime(core.DB() != nil, core.IsRemote()); err != nil {
+		if err := oauth.FatalError(oauth.Diagnose(oauthEnv(cfg, nil))); err != nil {
 			return err
 		}
 	case cfg.IsSet(config.PublicURL):
@@ -102,13 +96,29 @@ func WebEntry(app *core.App, cfg *config.Config, ldap LDAPSource) http.Handler {
 	if !useWebEntry(cfg) {
 		return nil
 	}
-	if core.AgentService() == nil {
+	log.Printf("MCP 入口:%s/mcp(掛在畫面連接埠;反向代理要轉發 /mcp、/oauth/、/.well-known/)", publicURL(cfg))
+	if svc := core.AgentService(); svc == nil {
 		log.Printf("警告:核心還沒準備好(PostgreSQL 連不上?),MCP 入口暫時回 503")
+		warnNoLogin(cfg, ldap) // 沒有 service 跑不了自我檢查,只看設定
+	} else if err := selfCheck(svc, cfg, ldap); err != nil {
+		log.Printf("警告:%v", err)
 	}
-	warnNoLogin(cfg, ldap)
-	public := publicURL(cfg)
-	log.Printf("MCP 入口:%s/mcp(掛在畫面連接埠;反向代理要轉發 /mcp、/oauth/、/.well-known/)", public)
 	return newOAuthPort(core.AgentService, func(svc *service.Service) http.Handler { return newOAuthHandler(app, svc, cfg, ldap) })
+}
+
+// selfCheck 印 OAuth 啟動自我檢查摘要(看的登入方式和授權頁是同一份 consoleProviders),回傳致命問題
+func selfCheck(svc *service.Service, cfg *config.Config, ldap LDAPSource) error {
+	return oauth.Startup(oauthEnv(cfg, consoleProviders(svc, publicURL(cfg), ldap)), log.Printf)
+}
+
+// consoleProviders 同意畫面證明身分的方式:evoleap、GitLab,以及有給 ldap 時的 LDAP 帳號密碼。
+// 配對碼是從 console 這邊產生的,兌換出來可能是本機管理員 omixor-console,所以不提供(見 omixor 文件櫃 DOC-35《docs/authorization.md》)
+func consoleProviders(svc *service.Service, public string, ldap LDAPSource) []oauth.IdentityProvider {
+	providers := oauth.LoginProviders(svc, public)
+	if ldap != nil {
+		providers = append(providers, &oauth.LDAPProvider{Svc: svc, Public: public, Settings: ldap})
+	}
+	return providers
 }
 
 // warnNoLogin 授權頁一種登入方式都沒有時提醒(LDAP 之後在認證設定啟用就會出現,不必重啟)
@@ -144,12 +154,15 @@ func StartOAuth(app *core.App, cfg *config.Config, ldap LDAPSource) error {
 	if core.AgentService() == nil {
 		return errors.New("OMIXOR_OAUTH_ADDR:核心沒有準備好(PostgreSQL 連不上?)")
 	}
+	// 啟動自我檢查摘要(含要登記的回呼網址、沒有任何登入方式的警告);致命的條件在 PrepareOAuth 已經擋下,這裡先看 provider 層的,再開連接埠
+	if err := selfCheck(core.AgentService(), cfg, ldap); err != nil {
+		return err
+	}
 	addr := cfg.Str(config.OAuthAddr)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("對外 MCP 連接埠 %s 開不了:%w", addr, err)
 	}
-	warnNoLogin(cfg, ldap)
 	srv := &http.Server{Handler: newOAuthPort(core.AgentService, func(svc *service.Service) http.Handler { return newOAuthHandler(app, svc, cfg, ldap) }), ReadHeaderTimeout: 10 * time.Second}
 	go func() { log.Printf("對外 MCP 連接埠異常停止:%v", srv.Serve(ln)) }()
 	log.Printf("對外 MCP:%s(對外 %s/mcp;登入回呼 %s/oauth/evoleap/callback,啟用 GitLab 時另有 /oauth/gitlab/callback)", addr, publicURL(cfg), publicURL(cfg))
@@ -199,13 +212,12 @@ func publicURL(cfg *config.Config) string { return strings.TrimRight(cfg.Str(con
 // newOAuthHandler 對外 MCP 連接埠的路由。整個連接埠先過 Host 白名單(對外網址的主機名稱與本機名稱;不符 403,擋 DNS rebinding)
 func newOAuthHandler(app *core.App, svc *service.Service, cfg *config.Config, ldap ...LDAPSource) http.Handler {
 	public := publicURL(cfg)
-	// 同意畫面證明身分是 evoleap、GitLab 與 LDAP:配對碼是從 console 這邊產生的,兌換出來可能是本機管理員 omixor-console,所以不提供(見 omixor 文件櫃 DOC-35《docs/authorization.md》)
-	providers := oauth.LoginProviders(svc, public)
+	var src LDAPSource
 	if len(ldap) > 0 && ldap[0] != nil {
-		svc.SetLDAPSource(ldap[0]) // token 端點續期時也要向目前的目錄確認
-		providers = append(providers, &oauth.LDAPProvider{Svc: svc, Public: public, Settings: ldap[0]})
+		src = ldap[0]
+		svc.SetLDAPSource(src) // token 端點續期時也要向目前的目錄確認
 	}
-	oa := oauth.NewWith(oauth.Config{Svc: svc, Public: public, Providers: providers})
+	oa := oauth.NewWith(oauth.Config{Svc: svc, Public: public, Providers: consoleProviders(svc, public, src)})
 	mux := http.NewServeMux()
 	oa.Mount(mux)
 	act := &activity{a: app, writes: isWriteTool}

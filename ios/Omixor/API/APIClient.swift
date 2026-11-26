@@ -1,15 +1,36 @@
 import Foundation
 
 // omixor core REST 的小用戶端(只打 core 的 /api/…,見 core/api/api.go 檔頭的路由說明)。
-// 回應格式:成功 {"result": …}(登入、配對與 /api/auth/me 例外,欄位在最上層),失敗 {"error": "…"} 加狀態碼。
+// 回應格式:成功 {"result": …}(登入、配對與 /api/auth/me 例外,欄位在最上層),失敗 {"error": "…", …附加欄位} 加狀態碼
+// (core 的 REST 是平的:error 是字串、附加欄位如 code、currentVersion 在同一層;MCP 的 {error:{code,message,status,data}} 也讀得懂)。
 
 struct APIError: LocalizedError, Equatable {
     var message: String
     /// 伺服器回的 HTTP 狀態(0 = 沒連上)
     var status: Int = 0
     var errorDescription: String? { message }
+    /// 伺服器給的機器可讀代碼(如 agentHasTasks;沒有是空字串)
+    var code: String = ""
+    /// 版本衝突(409)時伺服器目前的 Issue 版本;沒有是 nil
+    var currentVersion: Int?
     /// 登入失效(token 被撤銷、過期):要回配對畫面
     var isUnauthorized: Bool { status == 401 }
+    /// 樂觀鎖衝突:別人先改了,要重讀再改
+    var isVersionConflict: Bool { status == 409 && currentVersion != nil }
+
+    /// 從錯誤回應的 JSON 讀出訊息與附加欄位;不是錯誤回應(沒有 error)回 nil
+    static func parse(_ dict: [String: Any]?, status: Int) -> APIError? {
+        guard let raw = dict?["error"] else { return nil }
+        var extra = dict ?? [:]
+        var message = raw as? String ?? ""
+        if let e = raw as? [String: Any] { // {error:{code,message,status,data}}
+            message = e["message"] as? String ?? ""
+            extra = (e["data"] as? [String: Any] ?? [:]).merging(["code": e["code"] as Any]) { a, _ in a }
+        }
+        if message.isEmpty { message = "omixor server 回應不對(HTTP \(status))" }
+        let ver = (extra["currentVersion"] as? NSNumber)?.intValue
+        return APIError(message: message, status: status, code: extra["code"] as? String ?? "", currentVersion: ver)
+    }
 }
 
 struct APIClient: Sendable {
@@ -81,7 +102,7 @@ struct APIClient: Sendable {
     static func unwrap(_ data: Data, status: Int) throws -> Data {
         let obj = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
         let dict = obj as? [String: Any]
-        if let e = dict?["error"] as? String { throw APIError(message: e, status: status) }
+        if let e = APIError.parse(dict, status: status) { throw e }
         guard (200..<300).contains(status) else {
             throw APIError(message: "omixor server 回應不對(HTTP \(status))", status: status)
         }
@@ -159,6 +180,34 @@ struct APIClient: Sendable {
     /// author 一般成員一律記成登入的人;伺服器管理員只能代角色或系統署名,給別的使用者或找不到的名字也是記成登入的人
     func addComment(org: String, issue id: String, text: String, author: String) async throws -> Issue {
         try await post(orgPath(org, "issues", id, "comments"), ["text": text, "author": author])
+    }
+
+    /// 接受 Issue:呼叫者成為負責人、Issue 進行中。已關閉或已被別人接受 409,已是自己冪等。回傳 Issue
+    func acceptIssue(org: String, id: String) async throws -> Issue { try await post(orgPath(org, "issues", id, "accept")) }
+    /// 放回:取消負責人、退回待處理(目前的接受者或組織管理員,別人 403;沒人接受冪等)。回傳 Issue
+    func releaseIssue(org: String, id: String) async throws -> Issue { try await post(orgPath(org, "issues", id, "release")) }
+
+    /// Issue 連結的 commits(最近連結的在前;total 是全部筆數,limit 預設 10)
+    func issueCommits(org: String, id: String, limit: Int? = nil) async throws -> IssueCommits {
+        try await get(orgPath(org, "issues", id, "commits"), query: ["limit": limit.map(String.init) ?? ""])
+    }
+
+    // MARK: 待決定 / 需要協助
+
+    /// status open|decided|…、kind decision|help、issue = 來源 Issue、mine = 只列我提的或要我處理的(空 = 不篩)
+    func decisions(org: String, status: String = "", kind: String = "", issue: String = "", mine: Bool = false) async throws -> [Decision] {
+        try await get(orgPath(org, "decisions"), query: ["status": status, "kind": kind, "issue": issue, "mine": mine ? "1" : ""])
+    }
+    func decision(org: String, id: String) async throws -> Decision { try await get(orgPath(org, "decisions", id)) }
+    /// 來源 Issue key → open / decided 筆數
+    func decisionSummary(org: String) async throws -> [String: DecisionCount] { try await get(orgPath(org, "decisions", "summary")) }
+
+    /// 處理(只有人):decision 的 answer 是選項 id 或 Decision.answerOther(要附 note);help 是 done 或 declined(declined 要附 note)
+    func answerDecision(org: String, id: String, answer: String, note: String = "", evidence: String = "") async throws -> Decision {
+        var b: [String: Any] = ["answer": answer]
+        if !note.isEmpty { b["note"] = note }
+        if !evidence.isEmpty { b["evidence"] = evidence }
+        return try await post(orgPath(org, "decisions", id, "answer"), b)
     }
 
     // MARK: 派發

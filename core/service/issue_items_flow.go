@@ -61,11 +61,11 @@ func (s *Service) ClaimItem(p *model.Principal, org, issueRef, itemRef string, i
 	if err != nil {
 		return nil, err
 	}
-	return s.claimOut(org, c.issue, res)
+	return s.claimOut(p, org, c.issue, res)
 }
 
-func (s *Service) claimOut(org string, issue *model.Issue, res *ItemClaimResult) (*ItemClaimResult, error) {
-	out, err := s.presentOne(org, issue, res.Item.ID)
+func (s *Service) claimOut(p *model.Principal, org string, issue *model.Issue, res *ItemClaimResult) (*ItemClaimResult, error) {
+	out, err := s.presentOne(p, org, issue, res.Item.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func (s *Service) ReleaseItem(p *model.Principal, org, issueRef, itemRef string)
 	}
 	s.cancelItemTask(org, cur)
 	s.Audit(p, "issue_item.release", org, map[string]any{"id": cur.ID, "key": key})
-	return s.presentOne(org, c.issue, cur.ID)
+	return s.presentOne(p, org, c.issue, cur.ID)
 }
 
 // normalizeEvidence 證據輸入:空 → nil;JSON 字串 → {"summary": …};物件照用。Note 併進 note
@@ -272,7 +272,7 @@ func (s *Service) reportLocked(p *model.Principal, org string, c *itemCtx, role,
 			if err != nil {
 				return nil, "", err
 			}
-			out, err := s.presentOne(org, c.issue, res.Item.ID)
+			out, err := s.presentOne(p, org, c.issue, res.Item.ID)
 			return out, "", err
 		case cur.Status != model.ItemDoing:
 			return nil, "", fail(409, "%s 目前是%s,不是進行中", key, itemStatusLabel(cur.Status))
@@ -296,7 +296,7 @@ func (s *Service) reportLocked(p *model.Principal, org string, c *itemCtx, role,
 			}
 			s.cancelItemTask(org, cur)
 			s.Audit(p, "issue_item.release", org, map[string]any{"id": cur.ID, "key": key})
-			out, err := s.presentOne(org, c.issue, cur.ID)
+			out, err := s.presentOne(p, org, c.issue, cur.ID)
 			return out, "", err
 		case model.ItemBlocked:
 			clearBlock(cur)
@@ -304,7 +304,7 @@ func (s *Service) reportLocked(p *model.Principal, org string, c *itemCtx, role,
 			s.Audit(p, "issue_item.unblock", org, map[string]any{"id": cur.ID, "key": key})
 			text = fmt.Sprintf("子項 %s「%s」解除卡住", key, cur.Title)
 		default:
-			out, err := s.presentOne(org, c.issue, cur.ID)
+			out, err := s.presentOne(p, org, c.issue, cur.ID)
 			return out, "", err
 		}
 	case model.ItemBlocked:
@@ -367,7 +367,7 @@ func (s *Service) reportLocked(p *model.Principal, org string, c *itemCtx, role,
 		action = "issue_item.block"
 	}
 	s.Audit(p, action, org, map[string]any{"id": cur.ID, "key": key, "status": cur.Status})
-	out, err := s.presentOne(org, c.issue, cur.ID)
+	out, err := s.presentOne(p, org, c.issue, cur.ID)
 	return out, text, err
 }
 
@@ -426,7 +426,7 @@ func (s *Service) UnblockItem(p *model.Principal, org, issueRef, itemRef string)
 	}
 	s.Audit(p, "issue_item.unblock", org, map[string]any{"id": cur.ID, "key": key})
 	s.issueNote(org, c.issue.ID, by.ID, fmt.Sprintf("子項 %s「%s」解除卡住", key, cur.Title))
-	return s.presentOne(org, c.issue, cur.ID)
+	return s.presentOne(p, org, c.issue, cur.ID)
 }
 
 // CancelItem 取消(放棄這項工作,不用刪除表示;只有人)。綁定的任務一併取消。已經取消回目前的樣子,已完成 409
@@ -450,7 +450,7 @@ func (s *Service) CancelItem(p *model.Principal, org, issueRef, itemRef string) 
 	}
 	switch cur.Status {
 	case model.ItemCanceled:
-		return s.presentOne(org, c.issue, cur.ID)
+		return s.presentOne(p, org, c.issue, cur.ID)
 	case model.ItemDone:
 		return nil, fail(409, "%s 已經完成,不能取消", key)
 	}
@@ -462,7 +462,7 @@ func (s *Service) CancelItem(p *model.Principal, org, issueRef, itemRef string) 
 	}
 	s.cancelItemTask(org, cur)
 	s.Audit(p, "issue_item.cancel", org, map[string]any{"id": cur.ID, "key": key})
-	return s.presentOne(org, c.issue, cur.ID)
+	return s.presentOne(p, org, c.issue, cur.ID)
 }
 
 // PromoteItem 提升為獨立 Issue(只有人):建立新 Issue(標題 = 子項標題、內文帶說明、驗收條件、檔案與來源),
@@ -536,7 +536,7 @@ func (s *Service) PromoteItem(p *model.Principal, org, issueRef, itemRef string,
 	s.Audit(p, "issue_item.promote", org, map[string]any{"id": cur.ID, "key": key, "issue": issue.Key})
 	s.issueNote(org, issue.ID, by.ID, fmt.Sprintf("由 %s 子項「%s」提升而來(原 Issue %s)", key, cur.Title, c.issue.Display()))
 	s.issueNote(org, c.issue.ID, by.ID, fmt.Sprintf("子項 %s「%s」已提升為 %s", key, cur.Title, issue.Display()))
-	out, err := s.presentOne(org, c.issue, cur.ID)
+	out, err := s.presentOne(p, org, c.issue, cur.ID)
 	if err != nil {
 		return nil, err
 	}

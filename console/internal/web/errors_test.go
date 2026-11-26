@@ -23,6 +23,7 @@ func captureWebLog(t *testing.T) *strings.Builder {
 	var sb strings.Builder
 	old := httperr.Logf
 	httperr.Logf = func(f string, a ...any) { fmt.Fprintf(&sb, f, a...) }
+	httperr.ResetThrottle() // 相同錯誤的 log 會節流:不受前面測試(或 -count 的前一輪)影響
 	t.Cleanup(func() { httperr.Logf = old })
 	return &sb
 }

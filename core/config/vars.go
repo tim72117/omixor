@@ -44,6 +44,18 @@ var (
 		Doc:        "連哪一台 omixor server。cli:--server 旗標優先於它;web:設了就是遠端模式,授權、組織、Issue 交給那台"})
 )
 
+// ---- 共用:加密機密用的金鑰(目前只有 console 的機密表在用;core/secretbox 還沒有呼叫端) ----
+
+var (
+	SecretKey = add(&Var{Name: "OMIXOR_SECRET_KEY", Legacy: []string{"OPS_SECRET_KEY"}, Kind: Key, Secret: true, Group: GroupShared, Programs: progs(Server, Web),
+		Doc: "加密機密用的金鑰:32 bytes,寫成 64 個 hex 字元或 base64(openssl rand -base64 32)。console 用資料庫時必填(加密 token 與密碼);" +
+			"伺服器目前只檢查格式,還沒有用它加密任何資料。" +
+			"要固定保存:console 只用這一把解密,換掉後已存的密鑰會解不開(就算把舊的放進 OMIXOR_SECRET_KEYS_OLD 也一樣)"})
+	SecretKeysOld = add(&Var{Name: "OMIXOR_SECRET_KEYS_OLD", Kind: KeyList, Secret: true, Group: GroupShared, Programs: progs(Server, Web),
+		DefaultDoc: "沒有舊金鑰", Doc: "保留給金鑰輪替的舊金鑰清單,逗號分隔、格式同 OMIXOR_SECRET_KEY。目前只檢查格式:console 不讀它、伺服器也還沒有用到," +
+			"不能靠它更換金鑰"})
+)
+
 // ---- 伺服器 ----
 
 var (
@@ -162,8 +174,6 @@ var (
 // ---- 畫面與 API(console / omixor-web) ----
 
 var (
-	SecretKey = add(&Var{Name: "OMIXOR_SECRET_KEY", Legacy: []string{"OPS_SECRET_KEY"}, Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web),
-		Doc: "用資料庫時必填:base64 的 32 bytes(openssl rand -base64 32),加密 token 與密碼;換掉後已存的會解不開"})
 	ServerToken = add(&Var{Name: "OMIXOR_SERVER_TOKEN", Legacy: []string{"OPS_ISSUE_SERVER_TOKEN"}, Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web),
 		Doc: "遠端模式連 OMIXOR_SERVER 用的固定 token(沒設就用存著的登入、401 時走 evoleap 換)"})
 	Servers = add(&Var{Name: "OMIXOR_SERVERS", Kind: String, Secret: true, Group: GroupWeb, Programs: progs(Web),

@@ -3,6 +3,18 @@ import XCTest
 
 @MainActor
 final class AgentTests: XCTestCase {
+    // 舊 server 不會把任務結果貼到 Issue:只有領取回應明示會貼,提示詞才叫角色不要自己留言
+    func testSystemPromptFollowsServerCapability() {
+        let auto = "系統會自動把 result 貼到該 Issue 的留言", manual = "需要在相關 Issue 說明時,用 issue_update 留言;"
+        let new = AgentRunner.systemPrompt(name: "工程", agent: nil, workdir: nil, autoPostsResult: true)
+        XCTAssertTrue(new.contains(auto))
+        XCTAssertFalse(new.contains("\n- " + manual))
+        let old = AgentRunner.systemPrompt(name: "工程", agent: nil, workdir: nil)
+        XCTAssertTrue(old.contains("\n- " + manual))
+        XCTAssertFalse(old.contains(auto))
+        for p in [new, old] { XCTAssertTrue(p.contains("\n- 不要把任何憑證"), p) }
+    }
+
     var dataDir: URL!
     override func setUp() async throws {
         try TestCore.start(self)   // 資料一律透過 core server:每個測試一個新的本機守護服務
@@ -34,7 +46,7 @@ final class AgentTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: app.dataDir.appendingPathComponent("agents.json").path), "沒有角色就不寫檔")
     }
 
-    /// App 的 agent_task_create 攔截(指向 agent_task_delegate)只在 agent 是非空白字串時(同 core 的 TrimSpace);
+    /// App 的 agent_task_create 攔截(提示改用 assign_to)只在 agent 是非空白字串時(同 core 的 TrimSpace);
     /// 空白字串放行;null、非字串交給 core 判斷(core 的 RejectAgentArg 會以「不能指定角色身分」拒絕)
     func testAgentTaskCreateRejectsAgentLikeCore() async throws {
         let app = AppState()
@@ -46,11 +58,11 @@ final class AgentTests: XCTestCase {
         for who: Any in [NSNull(), 3] {
             (d, err) = try await call(mcp, "agent_task_create", ["agent": who, "assign_to": "marketing", "title": "x"])
             XCTAssertTrue(err, "agent=\(who) 要擋:\(d)")
-            XCTAssertTrue((d["text"] as? String ?? "").contains("agent_task_delegate"), "agent=\(who) 由 App 攔截:\(d)")
+            XCTAssertTrue(MCPErrorText.message(d).contains("agent_task_create cannot take agent"), "agent=\(who) 由 App 攔截:\(d)")
         }
         (d, err) = try await call(mcp, "agent_task_create", ["agent": " course-dev ", "assign_to": "marketing", "title": "x"])
         XCTAssertTrue(err)
-        XCTAssertTrue((d["text"] as? String ?? "").contains("agent_task_delegate"), "\(d)")
+        XCTAssertTrue(MCPErrorText.message(d).contains("agent_task_create cannot take agent"), "\(d)")
     }
 
     func testAssignClaimReportFlow() async throws {
@@ -70,7 +82,7 @@ final class AgentTests: XCTestCase {
         // 改走依組織鏈委派(agent_task_delegate,App 走 REST /agent-tasks/delegate)
         (d, err) = try await call(mcp, "agent_task_create", ["agent": "course-dev", "assign_to": "marketing", "title": "寫貼文"])
         XCTAssertTrue(err)
-        XCTAssertTrue((d["text"] as? String ?? "").contains("agent_task_delegate"), "\(d)")
+        XCTAssertTrue(MCPErrorText.message(d).contains("agent_task_create cannot take agent"), "\(d)")
         (d, err) = try await call(mcp, "agent_task_delegate", ["agent": "course-dev", "to": "marketing", "title": "寫貼文"])
         XCTAssertTrue(err, "組織鏈上沒有 course-dev → marketing 不能委派:\(d)")
         try store.saveChain([ChainEdge(from: "agent:course-dev", to: "agent:marketing", label: "")])

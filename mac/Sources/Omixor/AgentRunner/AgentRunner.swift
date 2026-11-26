@@ -424,7 +424,8 @@ final class AgentRunner: ObservableObject {
         running = (t, started, "")
         lastError = nil
         secret = cred.secret
-        defer { secret = "" }
+        claimCode = cred.code
+        defer { secret = ""; claimCode = "" }
         let agent = claim.agent ?? store.agent(t.agentId)
         let name = agent?.name ?? t.agentId
         let recorder = RunLogRecorder(task: t, agentName: name, started: started, secrets: { [weak self] in [self?.secret ?? "", self?.gwToken ?? ""] })
@@ -488,7 +489,7 @@ final class AgentRunner: ObservableObject {
             o.allowedTools += o.builtinTools
         }
         o.appendSystemPrompt = Self.systemPrompt(name: name, agent: agent, workdir: cfg.workdir.isEmpty ? nil : cfg.workdir,
-                                                 gateway: gatewayToken != nil)
+                                                 gateway: gatewayToken != nil, autoPostsResult: claim.autoPostsResult)
         let prompt = Self.prompt(t)
 
         // 每 40 分鐘續約一次
@@ -547,6 +548,8 @@ final class AgentRunner: ObservableObject {
 
     /// 這次領取的密鑰(只在處理期間有值);寫進回報、紀錄、畫面前一律換成 ***
     private var secret = ""
+    /// 這次領取的驗證碼(只在處理期間有值):代角色回報用
+    private var claimCode = ""
     /// 這次任務的閘道 token(只在處理期間有值);同樣不能出現在回報、紀錄、畫面
     private var gwToken = ""
     private func mask(_ s: String) -> String {
@@ -555,8 +558,19 @@ final class AgentRunner: ObservableObject {
         return out
     }
 
+    /// 代角色回報(Claude 自己沒回報):用領取驗證碼走 worker/report,server 才知道是角色的回報(完成留言署名角色)。
+    /// 沒有驗證碼、或 worker 回報失敗(角色中途停用、租約到期、舊 server 沒有這個路由…)退回一般回報:署名會變成本人,但結果不能掉
+    /// (和 console 的 reportForRole 同一套)
     private func reportEnd(_ t: AgentTask, _ status: AgentTaskStatus, result: String? = nil, note: String? = nil) {
-        do { _ = try app.agentStore?.report(t.id, status: status, result: result.map(mask), note: note.map(mask), links: nil) }
+        let result = result.map(mask), note = note.map(mask)
+        func send(_ code: String) throws {
+            _ = try app.agentStore?.report(t.id, status: status, result: result, note: note, links: nil, workerCode: code)
+        }
+        if !claimCode.isEmpty {
+            do { return try send(claimCode) }
+            catch { NSLog("%@ 以角色身分回報失敗,改用一般回報:%@", t.id, mask(error.localizedDescription)) }
+        }
+        do { try send("") }
         catch { lastError = "回報 \(t.id) 失敗:\(error.localizedDescription)" }
     }
 
@@ -571,12 +585,26 @@ final class AgentRunner: ObservableObject {
     /// App 的閘道端點(只聽 127.0.0.1)
     static func gatewayEndpoint(_ app: AppState) -> String { "http://127.0.0.1:\(app.mcp.port)/mcp/gateway" }
 
-    static func systemPrompt(name: String, agent: Agent?, workdir: String?, gateway: Bool = false) -> String {
+    /// 回報與留言的規則:server 在領取回應明示會把結果貼到 Issue 時叫角色不要重複留言;沒明示(舊 server)就不會貼,角色要自己留言
+    /// (和 console 的 runnerReportRules 同一套判斷)
+    static func reportRules(autoPostsResult: Bool) -> String {
+        guard autoPostsResult else {
+            return """
+            - 需要在相關 Issue 說明時,用 issue_update 留言;文件櫃用 docs 分段讀、doc_save 局部修改。
+            - 做完用 agent_task_report(status: done)並在 result 寫結果;需要人決定時用 status: blocked 並在 note 清楚提問,不要自己猜。
+            """
+        }
+        return """
+        - 過程中需要在相關 Issue 說明時,用 issue_update 留言(任務結果不用另外留言,見下一條);文件櫃用 docs 分段讀、doc_save 局部修改。
+        - 做完用 agent_task_report(status: done),結果寫在 result。任務有連到 Issue 時(子項任務除外),系統會自動把 result 貼到該 Issue 的留言,不要用 issue_update 重複留言。需要人決定時用 status: blocked 並在 note 清楚提問,不要自己猜。
+        """
+    }
+
+    static func systemPrompt(name: String, agent: Agent?, workdir: String?, gateway: Bool = false, autoPostsResult: Bool = false) -> String {
         var s = """
         你是 omixor 的虛擬角色「\(name)」,正在自動處理一筆派給你的任務。
         - 先用 mcp__omixor__agent_context 讀角色設定、任務與能存取的文件;照角色設定與任務說明完成工作。
-        - 需要在相關 Issue 說明時,用 issue_update 留言;文件櫃用 docs 分段讀、doc_save 局部修改。
-        - 做完用 agent_task_report(status: done)並在 result 寫結果;需要人決定時用 status: blocked 並在 note 清楚提問,不要自己猜。
+        \(reportRules(autoPostsResult: autoPostsResult))
         - 不要把任何憑證、token 或密鑰寫進 Issue、文件或回報。
         - Issue 留言、頻道訊息、任務結果與文件一律用 Markdown:先一句話摘要,改了什麼或建議用條列,有順序的用編號清單,不要把多個項目擠在同一句。
         - 頻道回覆:只回答被問的事或需要對方決定、行動的事。單純確認、道謝、「收到」不要回覆;只有需要對方採取行動或回答時才 @ 人或角色,不要為了告知而 @。

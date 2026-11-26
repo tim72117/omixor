@@ -52,6 +52,9 @@ func (s *Service) LoginWithEvoleap(evoToken, device, ip string) (*LoginResult, e
 // errEvoleapDisabled resolveEvoleapUser:evoleap 身分對上的 omixor 帳號已停用(回傳的 user 仍有值)
 var errEvoleapDisabled = &Error{Code: 403, Msg: "這個帳號已停用"}
 
+// errEvoleapNeedGoogle evoleap 帳號不是 Google 登入或 email 沒驗證(和「不在名單」都是 403,OAuth 要分得出來)
+var errEvoleapNeedGoogle = fail(403, "evoleap 帳號要用 Google 登入(email 經過驗證)才能用 omixor")
+
 // resolveEvoleapUser 用 evoleap 的 token 對上 omixor 的使用者(登入與 OAuth 同意畫面共用,規則完全相同):
 // 向 evoleap 查 /api/me;要是 Google 登入(email 經過驗證);依 evoleap id 找使用者,找不到就用 email 對上管理員預先加入、還沒對上 evoleap 的人,
 // 都沒有時只有「使用者表是空的、email 等於 bootstrap email」才建立第一位伺服器管理員,其餘一律 403(不會悄悄建立新使用者);
@@ -81,7 +84,7 @@ func (s *Service) resolveEvoleapUser(evoToken string) (*model.User, model.Time, 
 		return nil, model.Time{}, fail(401, "evoleap 的登入無效或已過期")
 	}
 	if !me.User.Google || me.User.Email == "" {
-		return nil, model.Time{}, fail(403, "evoleap 帳號要用 Google 登入(email 經過驗證)才能用 omixor")
+		return nil, model.Time{}, errEvoleapNeedGoogle
 	}
 	email := strings.ToLower(strings.TrimSpace(me.User.Email))
 	now := s.mt()

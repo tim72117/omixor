@@ -14,6 +14,64 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(String(decoding: try APIClient.unwrap(Data(#"{"user":{}}"#.utf8), status: 200), as: UTF8.self), #"{"user":{}}"#)
     }
 
+    /// core REST 的錯誤是平的:{error:"…", code, currentVersion…};MCP 風格的 {error:{…}} 也讀得懂
+    func testErrorBodies() throws {
+        let flat = #"{"error":"名下還有任務","code":"agentHasTasks","total":3}"#
+        XCTAssertThrowsError(try APIClient.unwrap(Data(flat.utf8), status: 409)) { e in
+            XCTAssertEqual(e as? APIError, APIError(message: "名下還有任務", status: 409, code: "agentHasTasks"))
+        }
+        let conflict = #"{"error":"Issue 已被別人修改","current":{"id":"x"},"currentVersion":7}"#
+        XCTAssertThrowsError(try APIClient.unwrap(Data(conflict.utf8), status: 409)) { e in
+            let err = e as? APIError
+            XCTAssertEqual(err?.currentVersion, 7)
+            XCTAssertEqual(err?.isVersionConflict, true)
+        }
+        let envelope = #"{"error":{"code":"conflict","message":"已被別人接受","status":409,"data":{"currentVersion":4}}}"#
+        XCTAssertThrowsError(try APIClient.unwrap(Data(envelope.utf8), status: 409)) { e in
+            XCTAssertEqual(e as? APIError, APIError(message: "已被別人接受", status: 409, code: "conflict", currentVersion: 4))
+        }
+        let noMessage = #"{"error":{"code":"internal"}}"#
+        XCTAssertThrowsError(try APIClient.unwrap(Data(noMessage.utf8), status: 500)) { e in
+            XCTAssertEqual((e as? APIError)?.message, "omixor server 回應不對(HTTP 500)")
+        }
+        XCTAssertFalse(APIError(message: "x", status: 409).isVersionConflict, "409 沒帶版本不是樂觀鎖衝突")
+    }
+
+    func testIssueCommits() async throws {
+        StubProtocol.reset { req, _ in
+            XCTAssertEqual(req.url?.path, "/api/orgs/o1/issues/APP-3/commits")
+            XCTAssertEqual(req.url?.query, "limit=5")
+            return .init(status: 200, body: #"{"result":{"issue":"APP-3","total":7,"commits":[{"issue":"APP-3","issueId":"019a","repo":"github:acme/web","sha":"0123456789abcdef","sha7":"0123456","subject":"修 Safari 白畫面","kind":"fixes","origin":"auto","url":"https://github.com/acme/web/commit/0123456","authorName":"Tim","authoredAt":"2026-11-03T08:00:00Z","linkedAt":"2026-11-03T08:01:00Z","verified":true,"linkedByActor":{"id":"usr_1","kind":"user","handle":"tim@x","name":"Tim","status":"active"}},{"issue":"APP-3","repo":"github:acme/web","sha":"fedcba9876","subject":"","kind":"manual","origin":"manual","linkedAt":"2026-11-03T09:00:00Z","verified":false}]}}"#)
+        }
+        let r = try await api().issueCommits(org: "o1", id: "APP-3", limit: 5)
+        XCTAssertEqual(r.total, 7)
+        XCTAssertEqual(r.commits.count, 2)
+        XCTAssertEqual(r.commits[0].sha7, "0123456")
+        XCTAssertEqual(r.commits[0].kind, "fixes")
+        XCTAssertTrue(r.commits[0].verified)
+        XCTAssertNotNil(r.commits[0].authoredAt)
+        XCTAssertEqual(r.commits[1].sha7, "fedcba9", "沒給 sha7 就取 sha 前 7 碼")
+        XCTAssertFalse(r.commits[1].verified)
+        XCTAssertNotEqual(r.commits[0].id, r.commits[1].id)
+    }
+
+    /// 伺服器多給沒看過的欄位、值是沒看過的分類時照樣解得開
+    func testTolerantDecoding() throws {
+        let i = #"{"id":"u1","key":"X-1","number":1,"version":2,"status":"someNewStatus","priority":"p0","newField":{"a":1},"assigneeActor":{"id":"a","kind":"robot","status":"quantum"}}"#
+        let issue = try APIClient.decoder.decode(Issue.self, from: Data(i.utf8))
+        XCTAssertEqual(issue.status, "someNewStatus")
+        XCTAssertEqual(issue.assigneeActor?.kind, "robot")
+        let d = try APIClient.decoder.decode(Decision.self, from: Data(#"{"id":"DEC-9","kind":"poll","status":"parked","options":null,"blocks":null}"#.utf8))
+        XCTAssertEqual(d.kind, "poll")
+        XCTAssertEqual(d.options, [])
+        XCTAssertTrue(d.blocks.isEmpty)
+        // 舊的回應(沒有 key、version):編號退回 id
+        let old = try APIClient.decoder.decode(Issue.self, from: Data(#"{"id":"ISS-12","title":"x"}"#.utf8))
+        XCTAssertEqual(old.displayKey, "ISS-12")
+        XCTAssertEqual(old.number, 12)
+        XCTAssertEqual(old.version, 0)
+    }
+
     func testPathsAndQuery() async throws {
         StubProtocol.reset { req, _ in
             XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer omx_t")

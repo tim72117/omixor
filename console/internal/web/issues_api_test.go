@@ -139,10 +139,10 @@ func TestIssueAPIOtherOrg(t *testing.T) {
 
 // 啟用 LDAP 後:沒登入要 401;OMIXOR_API_TOKEN 可以用(作者照 body);登入者呼叫時作者是登入者
 func TestIssueAPIAuth(t *testing.T) {
+	resetAuthJSON(t)
 	f := authtest.Start(t)
 	au := auth.New(&auth.MemorySecrets{})
 	c, app := newServer(t, au)
-	defer func() { os.Remove(core.DataRoot() + "/auth.json") }()
 	_, out := c.do("POST", "/api/auth/config", map[string]any{"config": ldapCfg(f), "bindPassword": "svc-pw", "testUsername": "alice", "testPassword": "alice-pw"}, nil)
 	if out["error"] != nil {
 		t.Fatal(out)

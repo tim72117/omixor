@@ -2,6 +2,7 @@ package web
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"omixor-web/internal/core"
@@ -44,10 +45,15 @@ func TestEveryActionAndToolIsClassified(t *testing.T) {
 	}
 }
 
+// 測試用的未分類 action:全域登記表不能重複登記(go test -count=N 會再跑一次)
+var registerUnclassified = sync.OnceFunc(func() {
+	core.RegisterAction("zz_unclassified", func(*core.App, map[string]any) (any, error) { return nil, nil })
+})
+
 // 沒分類的(之後新增、忘了列的)只有管理員能用;不存在的名稱照舊 404
 func TestUnclassifiedIsAdminOnly(t *testing.T) {
 	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir()) // 認證設定存在資料夾:不和別的測試共用
-	core.RegisterAction("zz_unclassified", func(*core.App, map[string]any) (any, error) { return nil, nil })
+	registerUnclassified()
 	bob, alice, _ := adminTestClients(t)
 	if code, out := bob.do("POST", "/api/action/zz_unclassified", map[string]any{}, nil); code != 403 {
 		t.Errorf("沒分類的 action,非管理員要 403:%d %v", code, out)

@@ -53,6 +53,9 @@ type ClaimResult struct {
 	Agent      *model.Agent      `json:"agent,omitempty"`
 	Task       *model.AgentTask  `json:"task"`
 	Credential *model.AgentGrant `json:"credential,omitempty"`
+	// AutoPostsResult 這個 server 在任務完成時會自己把結果貼到連到的 Issue(子項任務除外,見 noteTaskResult)。
+	// runner 靠它決定要不要叫角色自己留言:舊 server 沒有這個欄位,不會貼
+	AutoPostsResult bool `json:"autoPostsResult,omitempty"`
 }
 
 func priorityRank(p string) int {
@@ -444,13 +447,7 @@ func (s *Service) syncAssignee(p *model.Principal, org string, issue model.Issue
 		return
 	}
 	if old != "" && old != issue.Assignee {
-		for _, t := range tasks {
-			if t.AgentID == old && t.Status == "queued" && s.linksIssue(org, t.Links, issue) {
-				if _, err := s.saveTaskChange(org, t, func(x *model.AgentTask) { x.Status = "canceled" }); err != nil {
-					s.Audit(p, "issue.assign.error", org, map[string]any{"issue": issue.ID, "error": auditErrText(err)})
-				}
-			}
-		}
+		s.cancelQueuedTasks(p, org, issue, old, tasks)
 	}
 	if issue.Assignee == "" || issue.Status != "open" {
 		return
@@ -465,7 +462,8 @@ func (s *Service) syncAssignee(p *model.Principal, org string, issue model.Issue
 			return // 這個 Issue 已經有一筆未結束的任務,不重複排
 		}
 	}
-	instr := fmt.Sprintf("請處理 Issue %s「%s」(優先度 %s)。\n\n%s\n\n用 issues(id: %s)讀完整內容與留言;處理完在 Issue 留言說明結果,再用 agent_task_report 回報這筆任務。",
+	instr := fmt.Sprintf("請處理 Issue %s「%s」(優先度 %s)。\n\n%s\n\n用 issues(id: %s)讀完整內容與留言;處理完用 agent_task_report 回報這筆任務,結果寫在 result。"+
+		"回報 done 時系統會自動把結果貼到這張 Issue 的留言,不要再自己留一次相同的內容。",
 		issue.Display(), issue.Title, issue.Priority, truncRunes(strings.TrimSpace(issue.Body), 1000), issue.Display())
 	byID, err := s.taskLegacyActorID(org, by) // 呼叫端給的署名(actor id 或舊字串)→ actor id
 	if err != nil {

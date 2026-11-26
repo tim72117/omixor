@@ -86,6 +86,8 @@ type IssueItem struct {
 	Files      []string        `json:"files,omitempty"`
 	Acceptance string          `json:"acceptance,omitempty"`
 	Evidence   json.RawMessage `json:"evidence,omitempty"`
+	// EvidenceCheck 系統對 Evidence 的查核(輸出時由 service 計算,不存庫);沒有證據且還沒完成是 nil
+	EvidenceCheck *EvidenceCheck `json:"evidenceCheck,omitempty"`
 
 	BlockReason string `json:"blockReason,omitempty"`
 	WaitForKind string `json:"waitForKind,omitempty"`
@@ -103,6 +105,25 @@ type IssueItem struct {
 	CreatedAt      Time       `json:"createdAt"`
 	UpdatedAt      Time       `json:"updatedAt"`
 	CompletedAt    *Time      `json:"completedAt,omitempty"`
+}
+
+// evidence.commit 的查核結果代碼(穩定的機器碼)
+const (
+	EvidenceConfirmed    = "confirmed"    // 這個 repo 回報過這筆 commit
+	EvidenceNotFound     = "not_found"    // repo 有回報過的 commit,但沒有這一筆
+	EvidenceUnverifiable = "unverifiable" // repo 沒有任何回報過的 commit,無從查核
+	EvidenceInvalidSHA   = "invalid_sha"  // 不是 7~40 位十六進位
+	EvidenceNotVisible   = "not_visible"  // 呼叫者不能看這個結果(角色憑證看自己子項以外的),不查
+)
+
+// EvidenceCheck 把「系統查到的」和「回報者自己說的」分開
+type EvidenceCheck struct {
+	// Commit evidence.commit 的查核結果;空 = 證據沒有 commit
+	Commit string `json:"commit,omitempty"`
+	// SelfReported 系統沒有查核、只是回報者自述的 evidence 欄位名(排序;commit 沒有 confirmed 時也算在內)
+	SelfReported []string `json:"selfReported,omitempty"`
+	// NeedsVerification 已完成,但沒有可確認的 commit,也沒有用 unverified 說明哪些沒驗證
+	NeedsVerification bool `json:"needsVerification,omitempty"`
 }
 
 // Clone 深拷貝(Files、Evidence、時間指標)

@@ -14,6 +14,7 @@ import (
 // 啟用 LDAP,回傳已登入 bob(非管理員)的 client 與另一個登入 alice(管理員)的 client
 func adminTestClients(t *testing.T) (bob, alice *client, app *core.App) {
 	t.Helper()
+	resetAuthJSON(t)
 	f := authtest.Start(t)
 	au := auth.New(&auth.MemorySecrets{})
 	c, app := newServer(t, au)

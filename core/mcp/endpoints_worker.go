@@ -38,7 +38,7 @@ type WorkerEndpointConfig struct {
 const workerInstructions = "This is omixor's worker (dispatch) endpoint, for LLMs that claim tasks: " +
 	"dispatch_queue shows which tasks can be claimed, dispatch_claim claims one (returning the agent instructions and next steps), dispatch_status shows the tasks I am working on, " +
 	"dispatch_report reports as the agent (inProgress renews the lease, blocked asks a question, done closes the task), dispatch_comment comments on an issue as the agent, dispatch_delegate delegates to a downstream agent along the organization chain, and dispatch_release abandons a claim. " +
-	"Standard flow: queue → claim → work following the agent instructions and task description → periodically dispatch_report (inProgress) to renew the lease → dispatch_comment on the related issue to explain the result → dispatch_report done or blocked. " +
+	"Standard flow: queue → claim → work following the agent instructions and task description → periodically dispatch_report (inProgress) to renew the lease → dispatch_report done (with result) or blocked. A done result of a task linked to an issue is posted to that issue automatically, so use dispatch_comment only for other things worth noting there. " +
 	"All these tools act as your signed-in omixor identity; the server confirms you are the claimer and signs as the agent, so you do not need to, and must not, use the secret of the agent credential." + protocolInstructions
 
 // WorkerEndpoint 執行者專用 MCP 的 http.Handler(雲端掛在 /mcp/worker/{org},本機 web 掛在 /mcp/worker):

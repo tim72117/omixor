@@ -66,7 +66,7 @@ var unifiedInstructions = "This is omixor's unified MCP entry point: one connect
 	" " + strings.Replace(adminInstructions, "of the current organization", "of the organization named by the org parameter", 1)
 
 // orgDenied 缺 org、org 不合法、不存在、不是成員都用同一句(不洩漏組織存不存在),並列出呼叫者可用的組織
-func orgDenied(why string, avail []model.Org) error {
+func orgDenied(why string, avail []model.Org, bk any) error {
 	parts := make([]string, 0, len(avail))
 	for _, o := range avail {
 		if o.Name != "" && o.Name != o.ID {
@@ -76,6 +76,9 @@ func orgDenied(why string, avail []model.Org) error {
 		}
 	}
 	list := "There are no organizations available"
+	if h := noOrgsHint(bk, avail); h != "" {
+		list = h
+	}
 	if len(parts) > 0 {
 		list = "Available organizations: " + strings.Join(parts, ", ")
 	}
@@ -90,16 +93,16 @@ func UnifiedOrg(b backend.Backend, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return unifiedOrgIn(avail, args)
+	return unifiedOrgIn(b, avail, args)
 }
 
-// unifiedOrgIn 同 UnifiedOrg,但用已查好的可用組織清單
-func unifiedOrgIn(avail []model.Org, args map[string]any) (string, error) {
+// unifiedOrgIn 同 UnifiedOrg,但用已查好的可用組織清單(bk 只用來判斷授權種類,決定「沒有組織」時的說明)
+func unifiedOrgIn(bk any, avail []model.Org, args map[string]any) (string, error) {
 	v, has := args["org"]
 	s, isStr := v.(string)
 	s = strings.TrimSpace(s)
 	if !has || !isStr || s == "" {
-		e := orgDenied("The unified entry point requires the org parameter (organization id) on every call", avail).(ToolError)
+		e := orgDenied("The unified entry point requires the org parameter (organization id) on every call", avail, bk).(ToolError)
 		e.Status = 400
 		return "", e
 	}
@@ -110,7 +113,7 @@ func unifiedOrgIn(avail []model.Org, args map[string]any) (string, error) {
 			}
 		}
 	}
-	return "", orgDenied("You do not have access to organization "+s+" (or it does not exist)", avail)
+	return "", orgDenied("You do not have access to organization "+s+" (or it does not exist)", avail, bk)
 }
 
 // WithOrgParam 統一入口的規格:需要組織的工具加上必填的 org 屬性(複製,不改共用的規格);
@@ -223,7 +226,7 @@ func UnifiedEndpoint(cfg UnifiedEndpointConfig) http.Handler {
 				if err != nil {
 					return nil, nil, err
 				}
-				org, err := unifiedOrgIn(avail, args)
+				org, err := unifiedOrgIn(bk, avail, args)
 				if err != nil {
 					return nil, nil, err
 				}

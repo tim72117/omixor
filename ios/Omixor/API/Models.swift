@@ -2,6 +2,37 @@ import Foundation
 
 // core 的資料(core/model)在 iOS 這邊需要的欄位。沒列的欄位解碼時略過;選填的都給預設值,伺服器少給也不會壞。
 
+/// 「誰」的 actor 物件(core model.ActorView):旁邊並存相容字串(createdBy、author…);查不到的舊資料整個欄位省略。
+/// kind、status 保持字串:伺服器新增值時不會解碼失敗。
+struct ActorView: Codable, Hashable, Sendable {
+    var id: String
+    var kind: String = ""
+    var handle: String = ""
+    var name: String = ""
+    var email: String = ""
+    var status: String = ""
+
+    var displayName: String { name.isEmpty ? handle : name }
+    var isAgent: Bool { kind == "agent" }
+
+    enum CodingKeys: String, CodingKey { case id, kind, handle, name, email, status }
+    init(id: String, kind: String = "", handle: String = "", name: String = "") {
+        self.id = id; self.kind = kind; self.handle = handle; self.name = name
+    }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        kind = c.string(.kind); handle = c.string(.handle); name = c.string(.name)
+        email = c.string(.email); status = c.string(.status)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// 選填字串:沒給、null 或型別不對都是空字串(新模型用;不必每個欄位寫 decodeIfPresent ?? "")
+    func string(_ key: Key) -> String { (try? decodeIfPresent(String.self, forKey: key)) ?? "" }
+    func list<T: Decodable>(_ key: Key) -> [T] { (try? decodeIfPresent([T].self, forKey: key)) ?? [] }
+}
+
 struct User: Codable, Equatable, Sendable {
     var id: String
     var email: String
@@ -178,8 +209,9 @@ struct IssueComment: Codable, Identifiable, Hashable, Sendable {
     var author: String
     var text: String
     var at: Date?
+    var authorActor: ActorView?
 
-    enum CodingKeys: String, CodingKey { case id, author, text, at }
+    enum CodingKeys: String, CodingKey { case id, author, text, at, authorActor }
     init(id: String, author: String, text: String, at: Date? = nil) { self.id = id; self.author = author; self.text = text; self.at = at }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -187,11 +219,18 @@ struct IssueComment: Codable, Identifiable, Hashable, Sendable {
         author = try c.decodeIfPresent(String.self, forKey: .author) ?? ""
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
         at = try c.decodeIfPresent(Date.self, forKey: .at)
+        authorActor = try? c.decodeIfPresent(ActorView.self, forKey: .authorActor)
     }
 }
 
+/// id 是內部 id(UUIDv7,永遠不變、不顯示);給人看的編號是 key(ISS-<n> 或 <專案代號>-<n>)。
+/// 打 API 時 id 或目前、舊的 key 都收;version 是樂觀鎖的版本(修改時帶回去,不符 409)。
 struct Issue: Codable, Identifiable, Hashable, Sendable {
     var id: String
+    var key: String = ""
+    var project: String = ""
+    var serverNumber: Int = 0
+    var version: Int = 0
     var title: String
     var body: String = ""
     var status: String = "open"
@@ -202,9 +241,24 @@ struct Issue: Codable, Identifiable, Hashable, Sendable {
     var createdAt: Date?
     var updatedAt: Date?
     var comments: [IssueComment] = []
+    var repo: String = ""
+    var link: String = ""
+    var source: String = ""
+    var closedAt: Date?
+    var assigneeActor: ActorView?
+    var createdByActor: ActorView?
+    /// 工作項目數(列表上只有有項目的 Issue 才有)
+    var itemsOpen: Int = 0
+    var itemsTotal: Int = 0
 
     var isOpen: Bool { status != "closed" }
-    var number: Int { Int(id.uppercased().replacingOccurrences(of: "ISS-", with: "")) ?? 0 }
+    /// 顯示用編號(沒有 key 的舊回應退回 id)
+    var displayKey: String { key.isEmpty ? id : key }
+    /// 流水號:伺服器給的 number,沒有時從 key / id 的尾端數字推
+    var number: Int {
+        if serverNumber > 0 { return serverNumber }
+        return Int(displayKey.split(separator: "-").last ?? "") ?? 0
+    }
 
     var priorityLabel: String {
         switch priority {
@@ -215,9 +269,13 @@ struct Issue: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
-    enum CodingKeys: String, CodingKey { case id, title, body, status, priority, labels, assignee, createdBy, createdAt, updatedAt, comments }
-    init(id: String, title: String, body: String = "", status: String = "open", labels: [String] = []) {
-        self.id = id; self.title = title; self.body = body; self.status = status; self.labels = labels
+    enum CodingKeys: String, CodingKey {
+        case id, key, project, version, title, body, status, priority, labels, assignee, createdBy, createdAt, updatedAt, comments
+        case repo, link, source, closedAt, assigneeActor, createdByActor, itemsOpen, itemsTotal
+        case serverNumber = "number"
+    }
+    init(id: String, title: String, body: String = "", status: String = "open", labels: [String] = [], key: String = "", version: Int = 0) {
+        self.id = id; self.title = title; self.body = body; self.status = status; self.labels = labels; self.key = key; self.version = version
     }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -232,6 +290,15 @@ struct Issue: Codable, Identifiable, Hashable, Sendable {
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
         comments = try c.decodeIfPresent([IssueComment].self, forKey: .comments) ?? []
+        key = c.string(.key); project = c.string(.project); repo = c.string(.repo)
+        link = c.string(.link); source = c.string(.source)
+        serverNumber = (try? c.decodeIfPresent(Int.self, forKey: .serverNumber)) ?? 0
+        version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 0
+        itemsOpen = (try? c.decodeIfPresent(Int.self, forKey: .itemsOpen)) ?? 0
+        itemsTotal = (try? c.decodeIfPresent(Int.self, forKey: .itemsTotal)) ?? 0
+        closedAt = try? c.decodeIfPresent(Date.self, forKey: .closedAt)
+        assigneeActor = try? c.decodeIfPresent(ActorView.self, forKey: .assigneeActor)
+        createdByActor = try? c.decodeIfPresent(ActorView.self, forKey: .createdByActor)
     }
 }
 

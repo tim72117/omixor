@@ -333,6 +333,9 @@ type Store interface {
 	ListCommitLinks(org, repo string, shas []string) (map[string][]model.IssueCommit, error)
 	// FindCommitRepos 這個組織裡已存的、路徑(去掉 github:/gitlab: 前綴後)等於 path 的 repo key(最多三個:沒前綴、github:、gitlab:;已排序)。path 要是小寫、無前綴
 	FindCommitRepos(org, path string) ([]string, error)
+	// LookupReportedCommits 批次查「回報過內容」的 commit(裸參照不算)。repos 空 = 整個組織;prefixes 是小寫十六進位的 sha 前綴。
+	// found 只含有對到 commit 的前綴;hasData = 範圍內有任何回報過的 commit
+	LookupReportedCommits(org string, repos, prefixes []string) (found map[string]bool, hasData bool, err error)
 	// IssueCommitStats 一張 Issue 目前的連結數(Total)、其中裸參照數(Bare:commit 的 subject 是空字串)、以及 (repo, sha) 這條連結是否已存在(Linked)
 	IssueCommitStats(org, issueID, repo, sha string) (IssueCommitStats, error)
 	GetRepoSync(org, repo string) (*model.RepoSync, error) // 沒有回 ErrNotFound

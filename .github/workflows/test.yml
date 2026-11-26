@@ -1,7 +1,7 @@
 # 測試:push 與 pull_request 都跑,不部署。
 # go:模組(core、server、console)矩陣。每格:go build/vet/test ./...,再用 -tags omixor_minimal 跑一次同樣的組合
 #     (確認選用模組拔得乾淨);server 另外交叉編譯 Windows 版的 omixor-local。
-#     web 的畫面(console/ui/dist)不進版控,只留 .keep 讓 go:embed 編得過;Go 測試不需要建好的畫面。
+#     web 的畫面(console/ui/dist)不進版控;console 這格會先 npm ci && npm run build 再編 Go(go:embed all:dist 需要 dist 有檔案)。
 # web-ui:console/ui 前端做型別檢查(tsc --noEmit),不 build;npm test 跑跨語言契約測試(console/ui/contract,讀 core/model/testdata/contract)。
 # apple:macOS App(mac/,SwiftPM)swift build && swift test;App 測試要連真的 omixor-local(見 mac/Tests/OmixorTests/TestCore.swift),
 #     先編好放進 OMIXOR_LOCAL_BIN;最小版(-tags omixor_minimal)由測試自己用 go build 編,所以這個 job 也要裝 Go。
@@ -62,6 +62,20 @@ jobs:
           cache-dependency-path: |
             core/go.sum
             ${{ matrix.module }}/go.sum
+      # console 的 go:embed all:dist 需要建好的畫面(.keep 不在版控時 dist 為空會編不過),所以先 build 前端
+      - uses: actions/setup-node@v6
+        if: matrix.module == 'console'
+        with:
+          # 同 console/Dockerfile 的 node:22
+          node-version: 22
+          cache: npm
+          cache-dependency-path: console/ui/package-lock.json
+      - name: console/ui npm ci && npm run build
+        if: matrix.module == 'console'
+        working-directory: console/ui
+        run: |
+          npm ci
+          npm run build
       - name: go build
         run: go build ./...
       - name: go vet

@@ -429,6 +429,29 @@ final class FacebookTests: XCTestCase {
         return try XCTUnwrap(out as? [String: Any])
     }
 
+    /// Mac 版對應 console/internal/mcp/identity_spec_test.go:fb_draft_save 在 core 的 IdentityAgentTools 裡,
+    /// 人類端點的規格沒有 agent 參數,帶了就回與 core 同句的 400(不靜默忽略、也不建草稿)
+    func testDraftSaveRejectsAgentIdentity() async throws {
+        try await connect()
+        let r = try await rpc("tools/list")
+        let tools = try XCTUnwrap((r["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        let spec = try XCTUnwrap(tools.first { $0["name"] as? String == "fb_draft_save" })
+        let props = try XCTUnwrap((spec["inputSchema"] as? [String: Any])?["properties"] as? [String: Any])
+        XCTAssertNil(props["agent"])
+        XCTAssertFalse((spec["description"] as? String ?? "").lowercased().contains("pass agent"))
+        XCTAssertFalse(MCPHandler.instructions.lowercased().contains("pass agent"))
+
+        let before = app.fbSettings.drafts.count
+        for who: Any in ["marketing", "nobody", NSNull(), 7] {
+            let (out, isError) = try await tool("fb_draft_save", ["message": "x", "agent": who])
+            XCTAssertTrue(isError, "\(who)")
+            XCTAssertTrue((out as? String)?.contains(MCPHandler.identityAgentError) == true, "\(out)")
+        }
+        XCTAssertEqual(app.fbSettings.drafts.count, before, "被擋的呼叫不建草稿")
+        // 空字串、空白視同沒給
+        for blank in ["", "  "] { _ = try await ok("fb_draft_save", ["message": "y", "agent": blank]) }
+    }
+
     func testMCPToolDefinitionsHaveNoPublish() async throws {
         let r = try await rpc("tools/list")
         let tools = try XCTUnwrap((r["result"] as? [String: Any])?["tools"] as? [[String: Any]])
@@ -447,7 +470,7 @@ final class FacebookTests: XCTestCase {
         for name in ["fb_pages", "fb_posts", "fb_insights"] {
             let (out, isError) = try await tool(name)
             XCTAssertTrue(isError, name)
-            XCTAssertTrue((out as? String)?.contains("AI 自動化 › 粉絲專頁") == true, name)
+            XCTAssertTrue((out as? String)?.contains("AI Automation > Pages") == true, name)
         }
         // 草稿是本機資料,沒連線也能用
         let (_, isError) = try await tool("fb_drafts")
@@ -487,39 +510,34 @@ final class FacebookTests: XCTestCase {
         XCTAssertTrue(graphPosts.isEmpty, "讀取工具不會送出 POST")
     }
 
-    func testMCPDraftSaveSignsAgentAndCannotPublish() async throws {
+    func testMCPDraftSaveSignsCallerAndCannotPublish() async throws {
         try await connect()
         let d = try await ok("fb_draft_save", ["message": "週末限定", "link": "https://evoleap.io",
-                                                    "proposed_time": "2026-11-20T20:00:00+08:00", "agent": "marketing"])
+                                                    "proposed_time": "2026-11-20T20:00:00+08:00"])
         let id = try XCTUnwrap(d["id"] as? String)
-        XCTAssertEqual(d["author"] as? String, "agent:marketing")
-        XCTAssertEqual(d["authorName"] as? String, "行銷")
+        XCTAssertEqual(d["author"] as? String, "mcp")
         XCTAssertEqual(d["status"] as? String, "draft")
         XCTAssertEqual(d["pageId"] as? String, Self.page1)
         XCTAssertEqual(d["proposedTime"] as? String, "2026-11-20T12:00:00Z")
         XCTAssertNotNil(d["note"])
-        XCTAssertEqual(app.activity[0].actor, .ai("marketing"))
         XCTAssertTrue(app.activity[0].text.contains("新增 Facebook 草稿"))
 
         // 修改
         let u = try await ok("fb_draft_save", ["id": id, "message": "週末限定!"])
         XCTAssertEqual(u["message"] as? String, "週末限定!")
-        XCTAssertEqual(u["author"] as? String, "agent:marketing", "修改不換撰寫者")
+        XCTAssertEqual(u["author"] as? String, "mcp", "修改不換撰寫者")
 
-        // 沒帶 agent 署名 MCP 用戶端
         let m = try await ok("fb_draft_save", ["message": "另一篇"])
         XCTAssertEqual(m["author"] as? String, "mcp")
 
-        // 錯誤:未知角色、空白、壞網址、已發佈的不能改
-        var (out, isError) = try await tool("fb_draft_save", ["message": "x", "agent": "nobody"])
-        XCTAssertTrue(isError); XCTAssertTrue((out as? String)?.contains("找不到角色") == true)
-        (out, isError) = try await tool("fb_draft_save", [:])
+        // 錯誤:空白、壞網址、已發佈的不能改
+        var (out, isError) = try await tool("fb_draft_save", [:])
         XCTAssertTrue(isError)
         (out, isError) = try await tool("fb_draft_save", ["message": "x", "link": "javascript:alert(1)"])
         XCTAssertTrue(isError)
         _ = try await fb.publish(id)
         (out, isError) = try await tool("fb_draft_save", ["id": id, "message": "改"])
-        XCTAssertTrue(isError); XCTAssertTrue((out as? String)?.contains("不能修改") == true)
+        XCTAssertTrue(isError); XCTAssertTrue((out as? String)?.contains("cannot be edited") == true)
 
         // MCP 存草稿不會碰 Graph API 的寫入
         XCTAssertEqual(graphPosts.count, 1, "只有人按的那一次發佈")

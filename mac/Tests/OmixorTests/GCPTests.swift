@@ -224,7 +224,7 @@ final class GCPTests: XCTestCase {
         XCTAssertEqual(MCPHandler.tools.filter { $0.name.hasPrefix("gcp") }.count, 3)
         let (msg, isErr) = try await tool("gcp")
         XCTAssertTrue(isErr)
-        XCTAssertTrue("\(msg)".contains("還沒登入 Google Cloud"))
+        XCTAssertTrue("\(msg)".contains("not signed in to Google Cloud"))
 
         await login()
         let sumOut = try await tool("gcp", ["refresh": true, "service": "shuttle-server", "job": "shuttle-course-sync"]).0

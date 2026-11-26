@@ -365,6 +365,24 @@ func TestOAuthApproveGuards(t *testing.T) {
 	}
 }
 
+// redirect_uri 不符的錯誤頁要說出收到的與這個用戶端註冊的(各自的網址),缺少時另一句話;錯誤碼仍是 invalid_request
+func TestOAuthRedirectMismatchMessage(t *testing.T) {
+	e := newOAuthEnv(t)
+	cl := e.client()
+	req := service.OAuthAuthRequest{ClientID: cl.ID, RedirectURI: "https://evil.example/cb", ResponseType: "code", CodeChallenge: oaChallenge(oaVerifier),
+		CodeChallengeMethod: "S256", Resources: []string{oaResource}, Org: "o"}
+	_, err := e.svc.CheckOAuthAuthorize(req)
+	var oe *service.OAuthError
+	if !errors.As(err, &oe) || oe.Code != "invalid_request" || oe.Reason != "redirect_uri_mismatch" ||
+		!strings.Contains(oe.Desc, "https://evil.example/cb") || !strings.Contains(oe.Desc, oaCallback) {
+		t.Fatal(err)
+	}
+	req.RedirectURI = ""
+	if _, err = e.svc.CheckOAuthAuthorize(req); !errors.As(err, &oe) || oe.Reason != "redirect_uri_missing" || !strings.Contains(oe.Desc, "缺少") {
+		t.Fatal(err)
+	}
+}
+
 func TestOAuthAuthorizeRequestChecks(t *testing.T) {
 	e := newOAuthEnv(t)
 	cl := e.client()

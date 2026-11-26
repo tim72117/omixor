@@ -53,6 +53,18 @@ type OAuthError struct {
 	NoRedirect bool
 	// Reason 觀測用的細分原因(只進 log,不外露):locked / disabled / not_member
 	Reason string
+	// Detail 觀測用的原因細節(只進 log,不外露;不放 email、token 等識別資料),例如 evoleap 連線失敗的錯誤
+	Detail string
+}
+
+// withReason 複製一份帶細分原因與細節的錯誤(不改共用的錯誤變數);desc 非空時換掉給使用者看的說明
+func (e *OAuthError) withReason(reason, desc, detail string) *OAuthError {
+	c := *e
+	c.Reason, c.Detail = reason, detail
+	if desc != "" {
+		c.Desc = desc
+	}
+	return &c
 }
 
 func (e *OAuthError) Error() string { return e.Code + ": " + e.Desc }
@@ -321,6 +333,50 @@ func scopeLevel(scope string) int {
 	return 0
 }
 
+func redirectURIRegistered(registered []string, got string) bool {
+	for _, u := range registered {
+		if u == got && got != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// redirectMismatchErr redirect_uri 不在這個用戶端註冊的清單內:錯誤頁說清楚是缺還是不符、列出這個用戶端自己註冊的網址
+// (用戶端註冊時自己送出的,不是機密;最多列 3 個、每個截短),讓設定連接器的人一眼看出是哪個網址不對
+func redirectMismatchErr(registered []string, got string) *OAuthError {
+	e := &OAuthError{Status: 400, Code: "invalid_request", NoRedirect: true, Reason: "redirect_uri_mismatch"}
+	if got == "" {
+		e.Desc, e.Reason = "缺少 redirect_uri(授權請求要帶這個用戶端註冊過的 redirect_uri)", "redirect_uri_missing"
+		return e
+	}
+	e.Desc = "redirect_uri 與這個用戶端註冊的不符:收到 " + clipURI(got) + ",註冊的是 " + joinURIs(registered) + "。請在用戶端(連接器)重新註冊,或確認它送的 redirect_uri"
+	e.Detail = "got=" + clipURI(got) + " registered=" + joinURIs(registered)
+	return e
+}
+
+func clipURI(u string) string {
+	if r := []rune(u); len(r) > 120 {
+		return string(r[:120]) + "…"
+	}
+	return u
+}
+
+func joinURIs(us []string) string {
+	if len(us) == 0 {
+		return "(沒有)"
+	}
+	var out []string
+	for i, u := range us {
+		if i >= 3 {
+			out = append(out, "…共 "+strconv.Itoa(len(us))+" 個")
+			break
+		}
+		out = append(out, clipURI(u))
+	}
+	return strings.Join(out, "、")
+}
+
 // CheckOAuthAuthorize 驗證授權請求;client_id 或 redirect_uri 不可信的錯誤帶 NoRedirect
 func (s *Service) CheckOAuthAuthorize(r OAuthAuthRequest) (*OAuthAuthChecked, error) {
 	bad := func(code, desc string) error { return oerr(400, code, desc) }
@@ -331,14 +387,8 @@ func (s *Service) CheckOAuthAuthorize(r OAuthAuthRequest) (*OAuthAuthChecked, er
 		}
 		return nil, err
 	}
-	okURI := false
-	for _, u := range cl.RedirectURIs {
-		if u == r.RedirectURI && r.RedirectURI != "" {
-			okURI = true
-		}
-	}
-	if !okURI {
-		return nil, &OAuthError{Status: 400, Code: "invalid_request", Desc: "redirect_uri 與註冊的不符", NoRedirect: true}
+	if !redirectURIRegistered(cl.RedirectURIs, r.RedirectURI) {
+		return nil, redirectMismatchErr(cl.RedirectURIs, r.RedirectURI)
 	}
 	if r.ResponseType != "code" {
 		return nil, bad("unsupported_response_type", "只支援 response_type=code")

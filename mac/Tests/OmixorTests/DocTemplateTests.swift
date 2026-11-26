@@ -83,7 +83,7 @@ final class DocTemplateTests: XCTestCase {
         // 有範本後檢查必填欄位
         (_, text, err) = try await call(mcp, "doc_save", ["section": "levels", "title": "缺欄位", "body": "---\nkind: lesson\ncourse: L0\n---\n# x"])
         XCTAssertTrue(err)
-        XCTAssertEqual(text, "kind: lesson 的文件缺少欄位:lesson(見範本 \(tplId))")
+        XCTAssertEqual(MCPErrorText.message(text), "kind: lesson 的文件缺少欄位:lesson(見範本 \(tplId))")
         (d, text, err) = try await call(mcp, "doc_save", ["section": "levels", "title": "序章", "body": Self.lesson])
         XCTAssertFalse(err, text)
         let id = try XCTUnwrap(d["id"] as? String)

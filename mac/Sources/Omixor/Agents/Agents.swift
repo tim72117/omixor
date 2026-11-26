@@ -288,6 +288,8 @@ struct AgentCredential: Hashable {
     var expiresAt: String
     /// 角色端點(<server>/mcp/agent),用 Authorization: Bearer <agentId>:<secret> 連
     var endpoint: String
+    /// 這次領取的驗證碼:執行者用它以角色身分回報(worker/report);舊 server 沒給就是空字串
+    var code = ""
 }
 
 /// 領取結果:沒有可領的任務時 task 是 nil;本機模式沒有 credential
@@ -295,6 +297,8 @@ struct AgentClaim {
     var agent: Agent?
     var task: AgentTask?
     var credential: AgentCredential?
+    /// server 會自己把完成任務的結果貼到連到的 Issue(舊 server 沒有這個欄位,不會貼)
+    var autoPostsResult = false
 }
 
 struct AgentData: Codable {
@@ -588,10 +592,11 @@ final class AgentStore {
         }
     }
 
-    func report(_ id: String, status: AgentTaskStatus?, result: String?, note: String?, links: [String]?) throws -> AgentTask? {
+    /// workerCode 非空:以角色身分回報(領取者用領取驗證碼);空字串是一般回報(署名是登入的人)
+    func report(_ id: String, status: AgentTaskStatus?, result: String?, note: String?, links: [String]?, workerCode: String = "") throws -> AgentTask? {
         do {
             let before = task(id)
-            let t = try remote.reportTask(org: app.currentOrgId, id: id, status: status, result: result, note: note, links: links)
+            let t = try remote.reportTask(org: app.currentOrgId, id: id, status: status, result: result, note: note, links: links, workerCode: workerCode)
             remoteError = nil
             merge(t)
             if let status, status != before?.status, let a = agent(t.agentId) {

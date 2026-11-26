@@ -67,7 +67,7 @@ func TestIssueAcceptTool(t *testing.T) {
 	ok(t, admin, "", "issue_accept", map[string]any{"id": k, "release": true}) // 沒人接受:冪等
 
 	// 角色端點:用任務憑證接受,別人接受不了、一般成員放不回
-	ta, err := svc.AssignTask(boss, "lab", service.TaskInput{AgentID: "cto", Title: "做事"})
+	ta, err := svc.AssignTask(boss, "lab", service.TaskInput{AgentID: "cto", Title: "做事", Issue: k})
 	if err != nil {
 		t.Fatal(err)
 	}

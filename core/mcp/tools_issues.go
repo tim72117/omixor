@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"omixor-core/backend"
+	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
 )
@@ -59,6 +60,23 @@ func addIssueComment(bk backend.Backend, org, id, text, author string) (*model.I
 	}
 	comments := append(slices.Clone(cur.Comments), model.Comment{ID: uuid(), Author: author, Text: text, At: model.Time{Time: time.Now().UTC()}})
 	return bk.UpdateIssue(org, id, service.IssuePatch{Comments: &comments, Author: author})
+}
+
+// issueWriteErr issue_create / issue_update / issue_accept 的寫入錯誤:角色權限的拒絕(看服務回的機器碼,不讀原文)換成英文,其餘照 prefixErr
+func issueWriteErr(prefix string, err error) error {
+	in := httperr.Classify(err)
+	msg := ""
+	switch in.Data["code"] {
+	case service.AgentIssueForbiddenCode:
+		msg = "Not allowed for an agent: " + strings.Join(dataStrings(in.Data["fields"]), ", ") + ". " + agentIssueLimits
+	case service.AgentAssignForbiddenCode:
+		msg = "Not allowed for an agent: the organization chain has no edge from you to that agent (see chain.downstream of agent_context)."
+	case service.AgentAcceptForbiddenCode:
+		msg = "Not allowed for an agent: " + agentAcceptLimit + " Comment on it instead, or ask a person to assign it to you."
+	default:
+		return prefixErr(prefix, err)
+	}
+	return ToolError{Message: prefix + msg, Status: 403, Data: map[string]any{"code": in.Data["code"]}}
 }
 
 // ReturnModes issue_create / issue_update / issue_accept 的 return 參數:ack = 精簡回執(預設),full = 完整 Issue
@@ -151,7 +169,7 @@ func RegisterIssueTools(s *Server) {
 			Labels: labels, Source: c.Args.Str("source"), Link: c.Args.Str("link"), Repo: c.Args.Str("repo"), Author: author, Assignee: c.Args.Str("assignee"),
 			Project: c.Args.Opt("project")}) // 沒給 = 依 repo 的專案連結預設;空字串 = 不分專案
 		if err != nil { // Issue 伺服器連不上(同 Swift)
-			return nil, prefixErr("The issue was not saved: ", err)
+			return nil, issueWriteErr("The issue was not saved: ", err)
 		}
 		if !full {
 			return issueAck(*issue, []string{"created"}, ""), nil
@@ -264,7 +282,7 @@ func RegisterIssueTools(s *Server) {
 		}
 		updated, err := bk.UpdateIssue(org, id, patch)
 		if err != nil {
-			return nil, prefixErr("The issue was not changed: ", err)
+			return nil, issueWriteErr("The issue was not changed: ", err)
 		}
 		commentID := ""
 		if cm := c.Args.Opt("comment"); cm != nil {
@@ -325,7 +343,7 @@ func RegisterIssueTools(s *Server) {
 				return nil, Errorf("Issue %s not found", id)
 			}
 			if service.Code(err) == 409 || service.Code(err) == 403 {
-				return nil, prefixErr("Failed: ", err)
+				return nil, issueWriteErr("Failed: ", err)
 			}
 			return nil, terr(err)
 		}
