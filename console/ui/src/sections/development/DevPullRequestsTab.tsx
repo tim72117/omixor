@@ -278,8 +278,8 @@ function PRMoreMenu({ pr, acts }: { pr: PullRequest; acts: ReturnType<typeof use
   const o = useOmixor();
   return (
     <MenuButton className="btn" align="right" label={<SIcon name="ellipsis.circle" />} items={[
-      // me 還沒讀到(登入者未知)時不提供「加入審查」(原本預設成 "tim")
-      ...(o.me && !pr.reviewers.includes(o.me) ? [{ label: "加入審查", onClick: () => acts.joinReview(pr) }] : []),
+      // me 還沒讀到(登入者未知)時不提供「加入審查」(原本預設成 "tim");沒啟用登入又沒有對應人員時也不提供
+      ...(o.assignable && !pr.reviewers.includes(o.me) ? [{ label: "加入審查", onClick: () => acts.joinReview(pr) }] : []),
       { label: "請 AI 助理說明這個 PR", onClick: () => window.dispatchEvent(new CustomEvent("omixor-show-assistant", { detail: { section: "development", prompt: `說明 PR #${pr.id}` } })) },
       "sep",
       { label: "關閉 PR", danger: true, onClick: () => acts.close(pr) },

@@ -4,7 +4,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"omixor-core/config"
 	"strconv"
 	"strings"
 )
@@ -16,18 +15,8 @@ import (
 //   - 帶 Origin 的請求只接受本機來源(防 DNS rebinding)
 //   - body 最大 4 MB;不接受 chunked(411)
 
-const (
-	DefaultPort = 3765
-	MaxBody     = 4 << 20
-)
-
-// ConfiguredPort:環境變數 OMIXOR_MCP_PORT,否則 3765
-func ConfiguredPort() int {
-	if p, err := strconv.Atoi(config.Current().Str(config.MCPPort)); err == nil && p > 0 && p < 65536 {
-		return p
-	}
-	return DefaultPort
-}
+// MaxBody 一則請求內容的上限
+const MaxBody = 4 << 20
 
 // HTTPHandler 回傳處理 MCP 的 http.Handler;handle 處理一個請求的 body(回傳 nil 表示只有通知)
 func HTTPHandler(handle func(body []byte) []byte) http.Handler {

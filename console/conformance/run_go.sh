@@ -1,16 +1,14 @@
 #!/bin/bash
-# 用全新的暫存資料夾啟動 Go 版給比對用(會先重新編譯)。
-#   conformance/run_go.sh <MCP 連接埠> <畫面連接埠> [資料夾]
+# 用全新的暫存資料夾啟動 Go 版給比對用(會先重新編譯)。正式的 console 沒有免登入的 MCP,這裡用開發工具 tools/conformance-mcp
+# (只聽 127.0.0.1、只有範本資料)。
+#   conformance/run_go.sh <MCP 連接埠> [資料夾]
 # 停掉:conformance/stop.sh <MCP 連接埠>
 set -e
 PORT=${1:?要給 MCP 連接埠}
-WEB=${2:?要給畫面連接埠}
 cd "$(dirname "$0")/.."
-DIR=${3:-$(mktemp -d /tmp/omixor-conf-go-$PORT.XXXX)}
-BIN=/tmp/omixor-web-conf-$PORT
-# console 的 MCP 連接埠一律要 Bearer 權杖:沒設 OMIXOR_CONSOLE_MCP_TOKEN 時 console 第一次啟動會自己產生,存在資料夾的 mcp_token
-go build -o $BIN ./cmd/omixor-web
-OMIXOR_TEMPLATES=1 OMIXOR_NO_BROWSER=1 OMIXOR_CONSOLE_DATA_DIR="$DIR" OMIXOR_MCP_PORT=$PORT OMIXOR_WEB_PORT=$WEB $BIN >/tmp/omixor-web-conf-$PORT.log 2>&1 &
+DIR=${2:-$(mktemp -d /tmp/omixor-conf-go-$PORT.XXXX)}
+BIN=/tmp/omixor-conformance-$PORT
+go build -o $BIN ./tools/conformance-mcp
+OMIXOR_TEMPLATES=1 OMIXOR_CONSOLE_DATA_DIR="$DIR" $BIN -port $PORT >/tmp/omixor-conformance-$PORT.log 2>&1 &
 for i in $(seq 1 75); do curl -s -o /dev/null -X POST -d '{}' http://127.0.0.1:$PORT/mcp && break; sleep 0.2; done
-echo "Go 版 MCP:http://127.0.0.1:$PORT/mcp  畫面:http://127.0.0.1:$WEB  資料夾:$DIR  紀錄:/tmp/omixor-web-conf-$PORT.log"
-echo "權杖:$DIR/mcp_token(compare.py 加 --go-data-dir $DIR 會自己讀;自己設了 OMIXOR_CONSOLE_MCP_TOKEN 就用那一把)"
+echo "Go 版 MCP:http://127.0.0.1:$PORT/mcp  資料夾:$DIR  紀錄:/tmp/omixor-conformance-$PORT.log"

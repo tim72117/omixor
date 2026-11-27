@@ -1,9 +1,6 @@
 package service
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/base64"
 	"errors"
 	"net/url"
 	"regexp"
@@ -263,6 +260,8 @@ type OAuthAuthRequest struct {
 	Resources                           []string
 	Org                                 string
 	Account                             bool
+	// Worker = HTTP 層確認 resource 是執行者端點 <public>/mcp/worker/{org}(Org 是那個組織)
+	Worker bool
 }
 
 // OAuthAuthChecked 驗證過的授權請求
@@ -278,6 +277,8 @@ type OAuthAuthChecked struct {
 	WriteRequested bool
 	// AdminRequested 客戶端的 scope 參數有要求 mcp:admin,而且是帳號層級授權(同意畫面才會提供「組織管理員」選項;組織層級授權不支援 admin,忽略)
 	AdminRequested bool
+	// Worker 執行者端點專用授權:授予的 scope 固定是 mcp:worker(不看客戶端要求的 scope、同意畫面沒有等級可選)
+	Worker bool
 }
 
 // OAuth 授權等級(同意畫面的 grant 欄位;scope 越高包含越低的)
@@ -285,6 +286,8 @@ const (
 	OAuthGrantRead  = "read"
 	OAuthGrantWrite = "write"
 	OAuthGrantAdmin = "admin"
+	// OAuthGrantWorker 執行者端點專用授權:只有 resource 是 /mcp/worker/{org} 的授權請求能用,而且只能是這個
+	OAuthGrantWorker = "worker"
 )
 
 // requestedWrite scope 參數(空白分隔)有沒有要求 mcp:write(或隱含它的 mcp:admin);不認得的 scope 忽略
@@ -295,6 +298,8 @@ func requestedWrite(scope string) bool {
 // normalizeScope 授予的 scope 字串:有 mcp:admin → "mcp:read mcp:write mcp:admin";有 mcp:write → "mcp:read mcp:write";否則 "mcp:read"(其他一律不給)
 func normalizeScope(scope string) string {
 	switch {
+	case hasScope(scope, model.OAuthScopeWorker): // 執行者授權不和其他 scope 混用
+		return scopeOfGrant(OAuthGrantWorker)
 	case hasScope(scope, model.OAuthScopeAdmin):
 		return scopeOfGrant(OAuthGrantAdmin)
 	case hasScope(scope, model.OAuthScopeWrite):
@@ -306,6 +311,8 @@ func normalizeScope(scope string) string {
 // scopeOfGrant 授權等級對應的 scope 字串(不認得的等級 = 唯讀)
 func scopeOfGrant(grant string) string {
 	switch grant {
+	case OAuthGrantWorker:
+		return model.OAuthScopeWorker
 	case OAuthGrantAdmin:
 		return model.OAuthScopeRead + " " + model.OAuthScopeWrite + " " + model.OAuthScopeAdmin
 	case OAuthGrantWrite:
@@ -402,8 +409,11 @@ func (s *Service) CheckOAuthAuthorize(r OAuthAuthRequest) (*OAuthAuthChecked, er
 	if !pkceChallengeRE.MatchString(r.CodeChallenge) {
 		return nil, bad("invalid_request", "code_challenge 格式不對")
 	}
-	if len(r.Resources) != 1 || (r.Org == "") == !r.Account { // 恰好一種:組織(Org 非空)或帳號層級(Account)
-		return nil, bad("invalid_target", "resource 必須是這個伺服器的 MCP 網址(統一入口 /mcp,或組織 MCP 網址 /mcp/org/{組織})")
+	if len(r.Resources) != 1 || (r.Org == "") == !r.Account || (r.Worker && r.Org == "") { // 恰好一種:組織(Org 非空,含執行者端點)或帳號層級(Account)
+		return nil, bad("invalid_target", "resource 必須是這個伺服器的 MCP 網址(統一入口 /mcp、組織 MCP 網址 /mcp/org/{組織},或執行者端點 /mcp/worker/{組織})")
+	}
+	if r.Worker {
+		return &OAuthAuthChecked{Client: cl, RedirectURI: r.RedirectURI, Resource: r.Resources[0], Org: r.Org, Worker: true, Scope: model.OAuthScopeWorker}, nil
 	}
 	return &OAuthAuthChecked{Client: cl, RedirectURI: r.RedirectURI, Resource: r.Resources[0], Org: r.Org, Account: r.Account, Scope: model.OAuthScopeRead,
 		WriteRequested: requestedWrite(r.Scope), AdminRequested: r.Account && hasScope(r.Scope, model.OAuthScopeAdmin)}, nil
@@ -500,7 +510,8 @@ func (s *Service) ApproveOAuthIdentity(c *OAuthAuthChecked, challenge, grant str
 		return "", err
 	}
 	scope := scopeOfGrant(grant)
-	grantWrite := grant == OAuthGrantWrite || grant == OAuthGrantAdmin
+	// 執行者授權和讀寫授權一樣:不是伺服器管理員,要是那個組織的成員
+	grantWrite := grant == OAuthGrantWrite || grant == OAuthGrantAdmin || grant == OAuthGrantWorker
 	// 唯讀授權:伺服器管理員照舊(本來就只能讀);讀寫授權:p.ServerAdmin() 對 OAuth 寫入身分是 false,組織層級要真的是成員
 	p := &model.Principal{User: *u, Via: model.ViaOAuth, ReadOnly: !grantWrite, OAuthAdmin: grant == OAuthGrantAdmin}
 	if grant == OAuthGrantAdmin {
@@ -554,6 +565,9 @@ var ErrOAuthNotOrgAdmin = oerrR(403, "access_denied", "你不是任何組織的�
 
 // CheckOAuthGrant 授權等級不能超出客戶端要求的:讀寫要有要求 mcp:write(或 mcp:admin),管理員要有要求 mcp:admin 且是帳號層級;偽造的表單 = 400 invalid_scope
 func CheckOAuthGrant(c *OAuthAuthChecked, grant string) error {
+	if c.Worker != (grant == OAuthGrantWorker) {
+		return oerr(400, "invalid_scope", "執行者端點只能授予執行者授權,其他端點不能授予它")
+	}
 	switch grant {
 	case OAuthGrantAdmin:
 		if !c.AdminRequested {
@@ -579,347 +593,4 @@ func (s *Service) isAnyOrgAdmin(userID string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// ---------------- token 端點 ----------------
-
-// OAuthTokenResponse RFC 6749 的 token 回應
-type OAuthTokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
-	Scope        string `json:"scope"`
-}
-
-// OAuthTokenRequest POST /oauth/token 的參數(application/x-www-form-urlencoded)
-type OAuthTokenRequest struct {
-	GrantType, ClientID, Code, RedirectURI, CodeVerifier, RefreshToken, Scope string
-	Resources                                                                 []string
-}
-
-func pkceOK(verifier, challenge string) bool {
-	sum := sha256.Sum256([]byte(verifier))
-	got := base64.RawURLEncoding.EncodeToString(sum[:])
-	return subtle.ConstantTimeCompare([]byte(got), []byte(challenge)) == 1
-}
-
-// oauthIssue 由上一代(授權碼或被輪替的 refresh)簽發新的 access 與 refresh;scope 一律沿用上一代的(只能相同或更窄,不會升級)
-func (s *Service) oauthIssue(t model.OAuthToken, scope string, now time.Time) (access, refresh model.OAuthToken, resp *OAuthTokenResponse) {
-	scope = normalizeScope(scope)
-	a, r := RandID(oauthPrefixAccess, 32), RandID(oauthPrefixRefresh, 32)
-	access = model.OAuthToken{ID: RandID("oa_", 9), Kind: model.OAuthKindAccess, Hash: oauthHash(model.OAuthKindAccess, a), ClientID: t.ClientID, UserID: t.UserID,
-		Org: t.Org, Scope: scope, Resource: t.Resource, FamilyID: t.FamilyID, CreatedAt: now, ExpiresAt: now.Add(OAuthAccessTTL)}
-	refresh = model.OAuthToken{ID: RandID("oa_", 9), Kind: model.OAuthKindRefresh, Hash: oauthHash(model.OAuthKindRefresh, r), ClientID: t.ClientID, UserID: t.UserID,
-		Org: t.Org, Scope: scope, Resource: t.Resource, FamilyID: t.FamilyID, CreatedAt: now, ExpiresAt: now.Add(OAuthRefreshTTL)}
-	resp = &OAuthTokenResponse{AccessToken: a, TokenType: "Bearer", ExpiresIn: int(OAuthAccessTTL / time.Second), RefreshToken: r, Scope: scope}
-	return
-}
-
-// refreshScope refresh 請求的 scope 參數對照原本授權的 scope(granted):沒帶 = 沿用原本的;帶了就不能超出原本授權(超出或不認得 → ok=false,invalid_scope);
-// 只帶 mcp:read 而原本是讀寫 = 縮小成唯讀(之後這一族都是唯讀,不能再升回去)
-func refreshScope(want, granted string) (string, bool) {
-	granted = normalizeScope(granted)
-	fields := strings.Fields(want)
-	if len(fields) == 0 {
-		return granted, true
-	}
-	asked, level := false, 0
-	for _, x := range fields {
-		switch x {
-		case model.OAuthScopeOffline:
-		case model.OAuthScopeRead:
-			asked = true
-		case model.OAuthScopeWrite:
-			asked = true
-			if scopeLevel(granted) < 1 {
-				return "", false
-			}
-			level = max(level, 1)
-		case model.OAuthScopeAdmin:
-			asked = true
-			if scopeLevel(granted) < 2 {
-				return "", false
-			}
-			level = 2
-		default:
-			return "", false
-		}
-	}
-	if !asked { // 只帶 offline_access:沿用
-		return granted, true
-	}
-	// 帶了什麼就縮到那一級(最高的那個);write 隱含 read、admin 隱含 write
-	return scopeOfGrant([]string{OAuthGrantRead, OAuthGrantWrite, OAuthGrantAdmin}[level]), true
-}
-
-func resourceMismatch(sent []string, bound string) bool {
-	if len(sent) == 0 {
-		return false
-	}
-	return len(sent) != 1 || sent[0] != bound
-}
-
-// OAuthToken 換 token:authorization_code(PKCE)或 refresh_token(輪替;用過的 refresh 再出現 = 整個家族撤銷)
-func (s *Service) OAuthToken(r OAuthTokenRequest, ip string) (*OAuthTokenResponse, error) {
-	resp, _, err := s.OAuthTokenObserved(r, ip)
-	return resp, err
-}
-
-// OAuthTokenObs token 端點的觀測資訊(只進 log):Result = issued / refreshed / reuse_detected / error;
-// AccessRemainingS = refresh 當下,上一個 access token 還剩幾秒(未知或已過期 0)
-type OAuthTokenObs struct {
-	Result           string
-	AccessRemainingS int
-}
-
-// OAuthTokenObserved 同 OAuthToken,另回傳觀測資訊
-func (s *Service) OAuthTokenObserved(r OAuthTokenRequest, ip string) (*OAuthTokenResponse, OAuthTokenObs, error) {
-	obs := OAuthTokenObs{Result: "error"}
-	resp, err := s.oauthToken(r, &obs)
-	if err != nil && obs.Result != "reuse_detected" {
-		obs.Result = "error"
-	}
-	return resp, obs, err
-}
-
-func (s *Service) oauthToken(r OAuthTokenRequest, obs *OAuthTokenObs) (*OAuthTokenResponse, error) {
-	cl, err := s.oauthStore().OAuthClientByID(r.ClientID)
-	if err != nil {
-		if r.ClientID == "" || errors.Is(err, store.ErrNotFound) {
-			return nil, oerr(401, "invalid_client", "未知的 client_id")
-		}
-		return nil, err
-	}
-	switch r.GrantType {
-	case "authorization_code":
-		resp, err := s.oauthCodeGrant(cl, r)
-		if err == nil {
-			obs.Result = "issued"
-		}
-		return resp, err
-	case "refresh_token":
-		return s.oauthRefreshGrant(cl, r, obs)
-	}
-	return nil, oerr(400, "unsupported_grant_type", "只支援 authorization_code 與 refresh_token")
-}
-
-func (s *Service) oauthCodeGrant(cl *model.OAuthClient, r OAuthTokenRequest) (*OAuthTokenResponse, error) {
-	if r.Code == "" {
-		return nil, oerr(400, "invalid_request", "缺少 code")
-	}
-	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindCode, oauthHash(model.OAuthKindCode, r.Code))
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return nil, oerr(400, "invalid_grant", "code 無效或已過期")
-		}
-		return nil, err
-	}
-	now := s.now()
-	if t.UsedAt != nil { // 重用:撤銷這個 code 換出來的 token
-		_ = s.oauthStore().RevokeOAuthFamily(t.FamilyID, now)
-		return nil, oerr(400, "invalid_grant", "code 已經用過")
-	}
-	// 不論後面驗證成敗,code 都只能用一次(驗證失敗也作廢,擋住猜 verifier)
-	burn := func(e *OAuthError) (*OAuthTokenResponse, error) {
-		_ = s.oauthStore().ExchangeOAuthToken(t.ID, now, nil)
-		return nil, e
-	}
-	if t.RevokedAt != nil || !now.Before(t.ExpiresAt) {
-		return burn(oerr(400, "invalid_grant", "code 無效或已過期"))
-	}
-	if t.ClientID != cl.ID {
-		return burn(oerr(400, "invalid_grant", "code 不是發給這個用戶端的"))
-	}
-	if r.RedirectURI != t.RedirectURI {
-		return burn(oerr(400, "invalid_grant", "redirect_uri 與授權請求的不同"))
-	}
-	if r.CodeVerifier == "" {
-		return burn(oerr(400, "invalid_request", "缺少 code_verifier"))
-	}
-	if !pkceVerifierRE.MatchString(r.CodeVerifier) || !pkceOK(r.CodeVerifier, t.CodeChallenge) {
-		return burn(oerr(400, "invalid_grant", "PKCE 驗證失敗"))
-	}
-	if resourceMismatch(r.Resources, t.Resource) {
-		return burn(oerr(400, "invalid_target", "resource 與授權請求的不同"))
-	}
-	u, err := s.Store.UserByID(t.UserID)
-	if err != nil || u.Disabled {
-		return burn(oerr(400, "invalid_grant", "帳號無法使用"))
-	}
-	access, refresh, resp := s.oauthIssue(*t, t.Scope, now) // 授權碼的 scope 就是使用者同意的,換 token 時不能改
-	capOAuthExpiry(&access, &refresh, resp, s.ldapCodeDeadline(u, now), now)
-	if err := s.oauthStore().ExchangeOAuthToken(t.ID, now, []model.OAuthToken{access, refresh}); err != nil {
-		if errors.Is(err, store.ErrStale) { // 同時有另一個請求先換走了
-			_ = s.oauthStore().RevokeOAuthFamily(t.FamilyID, now)
-			return nil, oerr(400, "invalid_grant", "code 已經用過")
-		}
-		return nil, err
-	}
-	return resp, nil
-}
-
-func (s *Service) oauthRefreshGrant(cl *model.OAuthClient, r OAuthTokenRequest, obs *OAuthTokenObs) (*OAuthTokenResponse, error) {
-	if r.RefreshToken == "" {
-		return nil, oerr(400, "invalid_request", "缺少 refresh_token")
-	}
-	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindRefresh, oauthHash(model.OAuthKindRefresh, r.RefreshToken))
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return nil, oerr(400, "invalid_grant", "refresh_token 無效")
-		}
-		return nil, err
-	}
-	now := s.now()
-	if t.ClientID != cl.ID {
-		return nil, oerr(400, "invalid_grant", "refresh_token 不是發給這個用戶端的")
-	}
-	if t.UsedAt != nil { // 已輪替掉的再被拿來用:可能被偷了,整個家族撤銷
-		_ = s.oauthStore().RevokeOAuthFamily(t.FamilyID, now)
-		obs.Result = "reuse_detected"
-		s.Audit(&model.Principal{User: model.User{ID: t.UserID}, Via: model.ViaOAuth}, "oauth.refresh_reuse", t.Org, map[string]any{"client": cl.ID})
-		return nil, oerr(400, "invalid_grant", "refresh_token 已經用過,這組授權已全部撤銷,請重新連線")
-	}
-	if t.RevokedAt != nil || !now.Before(t.ExpiresAt) {
-		return nil, oerr(400, "invalid_grant", "refresh_token 無效或已過期")
-	}
-	if resourceMismatch(r.Resources, t.Resource) {
-		return nil, oerr(400, "invalid_target", "resource 與授權的不同")
-	}
-	newScope, ok := refreshScope(r.Scope, t.Scope)
-	if !ok {
-		return nil, oerr(400, "invalid_scope", "scope 超出原本授權")
-	}
-	u, err := s.Store.UserByID(t.UserID)
-	if err != nil || u.Disabled {
-		return nil, oerr(400, "invalid_grant", "帳號無法使用")
-	}
-	// 上一個 access token 和這個 refresh 同時簽發(oauthIssue 用同一個 now),所以到期 = refresh 建立時間 + OAuthAccessTTL
-	if left := t.CreatedAt.Add(OAuthAccessTTL).Sub(now); left > 0 {
-		obs.AccessRemainingS = int(left / time.Second)
-	}
-	deadline, err := s.ldapRefresh(u, t, now) // 目錄身分:每次續期都要向目錄確認(見 oauth_ldap.go)
-	if err != nil {
-		return nil, err
-	}
-	access, refresh, resp := s.oauthIssue(*t, newScope, now)
-	capOAuthExpiry(&access, &refresh, resp, deadline, now)
-	if err := s.oauthStore().ExchangeOAuthToken(t.ID, now, []model.OAuthToken{access, refresh}); err != nil {
-		if errors.Is(err, store.ErrStale) { // 並行的另一個請求先輪替了:算重用
-			obs.Result = "reuse_detected"
-			_ = s.oauthStore().RevokeOAuthFamily(t.FamilyID, now)
-			return nil, oerr(400, "invalid_grant", "refresh_token 已經用過,這組授權已全部撤銷,請重新連線")
-		}
-		return nil, err
-	}
-	obs.Result = "refreshed"
-	return resp, nil
-}
-
-// ---------------- 驗證 access token ----------------
-
-// ErrOAuthInvalidToken access token 無效、過期、撤銷、不是這個資源的(MCP 端點回 401 invalid_token)
-var ErrOAuthInvalidToken = fail(401, "OAuth 的 access token 無效、已過期或不屬於這個端點")
-
-// AuthenticateOAuth 驗證 access token(omo_…):要綁定 resource(這個端點的網址)、scope 含 mcp:read(或 mcp:write,隱含 read)、沒過期沒撤銷、帳號沒停用。
-// resource 必須與簽發時綁定的字串完全相同:組織 token(/mcp/org/x)不能用在統一入口(/mcp),帳號層級 token(/mcp)也不能用在組織端點。
-// token 的 Org 欄位不是授權依據(帳號層級的 Org 是空字串,不代表「所有組織」):組織存取一律由 MCP 端點以即時成員資格決定。
-// 回傳的身分:scope 只有 mcp:read → ReadOnly(MCP 端點只開放唯讀工具);含 mcp:write → ReadOnly=false 但 Via=ViaOAuth
-// (MCP 端點只開放 ReadOnly ∪ OAuthWriteTools,Principal.ServerAdmin 一律 false,service 層照一般成員檢查);
-// 含 mcp:admin(要同時含 mcp:write,否則視為不認得的組合,只當 mcp:write 以下)→ OAuthAdmin=true,多開 OAuthAdminTools(每次呼叫即時檢查該組織的管理員身分)
-func (s *Service) AuthenticateOAuth(raw, resource string) (*model.Principal, error) {
-	raw = strings.TrimSpace(raw)
-	if !strings.HasPrefix(raw, oauthPrefixAccess) || resource == "" {
-		return nil, ErrOAuthInvalidToken
-	}
-	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return nil, ErrOAuthInvalidToken
-		}
-		return nil, err
-	}
-	now := s.now()
-	if t.RevokedAt != nil || !now.Before(t.ExpiresAt) || t.Resource != resource || !oauthScopeValid(t.Scope) {
-		return nil, ErrOAuthInvalidToken
-	}
-	u, err := s.Store.UserByID(t.UserID)
-	if err != nil {
-		return nil, ErrOAuthInvalidToken
-	}
-	if u.Disabled {
-		return nil, fail(403, "這個帳號已停用")
-	}
-	actor, err := s.userActorRef(u)
-	if err != nil {
-		return nil, err
-	}
-	return &model.Principal{User: *u, Token: model.Token{ID: t.ID, UserID: u.ID, Device: "OAuth", Email: u.Email, CreatedAt: model.Time{Time: t.CreatedAt}},
-		Actor: actor, Via: model.ViaOAuth, ReadOnly: !hasScope(t.Scope, model.OAuthScopeWrite), OAuthAdmin: hasScope(t.Scope, model.OAuthScopeAdmin)}, nil
-}
-
-// OAuthAccessState 觀測用:access token 目前的狀態(valid / missing / invalid / expired / revoked / wrong_resource),不寫入、不回身分
-func (s *Service) OAuthAccessState(raw, resource string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "missing"
-	}
-	if !strings.HasPrefix(raw, oauthPrefixAccess) {
-		return "invalid"
-	}
-	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
-	if err != nil {
-		return "invalid"
-	}
-	switch {
-	case t.RevokedAt != nil:
-		return "revoked"
-	case !s.now().Before(t.ExpiresAt):
-		return "expired"
-	case t.Resource != resource:
-		return "wrong_resource"
-	case !oauthScopeValid(t.Scope):
-		return "invalid"
-	}
-	return "valid"
-}
-
-// CleanOAuthClientName 對外用的 client_name 清理(同註冊時的規則)
-func CleanOAuthClientName(v any) string {
-	s, _ := v.(string)
-	return cleanClientName(s)
-}
-
-func hasScope(scope, want string) bool {
-	for _, x := range strings.Fields(scope) {
-		if x == want {
-			return true
-		}
-	}
-	return false
-}
-
-// oauthScopeValid token 的 scope 認得:含 mcp:read 或 mcp:write(write 隱含 read)
-func oauthScopeValid(scope string) bool {
-	return hasScope(scope, model.OAuthScopeRead) || hasScope(scope, model.OAuthScopeWrite)
-}
-
-// OAuthAccessWrite 觀測用:access token 是不是有效且帶 mcp:write(不寫入、不回身分)
-func (s *Service) OAuthAccessWrite(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if !strings.HasPrefix(raw, oauthPrefixAccess) {
-		return false
-	}
-	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
-	return err == nil && hasScope(t.Scope, model.OAuthScopeWrite)
-}
-
-// OAuthAccessAdmin 觀測用:access token 是不是有效且帶 mcp:admin(不寫入、不回身分)
-func (s *Service) OAuthAccessAdmin(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if !strings.HasPrefix(raw, oauthPrefixAccess) {
-		return false
-	}
-	t, err := s.oauthStore().OAuthTokenByHash(model.OAuthKindAccess, oauthHash(model.OAuthKindAccess, raw))
-	return err == nil && hasScope(t.Scope, model.OAuthScopeAdmin)
 }

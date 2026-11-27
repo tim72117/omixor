@@ -209,7 +209,7 @@ function FollowUps({ inc }: { inc: Incident }) {
   const add = () => run(async () => {
     const tt = title.trim();
     if (!tt) return;
-    await tool("work_item_create", { title: tt, type: "incident", status: "todo", incident_id: inc.id, points: 2, ...(dir.me ? { assignee: dir.me } : {}), ...(inc.services[0] ? { service: inc.services[0] } : {}) });
+    await tool("work_item_create", { title: tt, type: "incident", status: "todo", incident_id: inc.id, points: 2, ...(dir.assignable ? { assignee: dir.assignable } : {}), ...(inc.services[0] ? { service: inc.services[0] } : {}) });
     setTitle(""); setAdding(false);
   });
   return (

@@ -98,6 +98,12 @@ textarea { overflow-x: hidden; resize: none; }
 .btn.purple { background: var(--purple); border-color: var(--purple); color: white; }
 .btn.indigo { background: var(--indigo); border-color: var(--indigo); color: white; }
 .btn.green { background: var(--green); border-color: var(--green); color: white; }
+/* 實心按鈕滑過時保留自己的底色(.btn:hover 的權重比 .btn.primary 高,不重寫的話底色變淺、字看不見),只調亮 */
+.btn.primary:hover:not(:disabled) { background: var(--accent-fill); }
+.btn.red:hover:not(:disabled) { background: var(--danger-fill); }
+.btn.purple:hover:not(:disabled) { background: var(--purple); }
+.btn.indigo:hover:not(:disabled) { background: var(--indigo); }
+.btn.green:hover:not(:disabled) { background: var(--green); }
 .btn.primary:hover:not(:disabled), .btn.purple:hover:not(:disabled), .btn.green:hover:not(:disabled), .btn.red:hover:not(:disabled), .btn.indigo:hover:not(:disabled) { filter: brightness(1.08); }
 .btn.link:hover:not(:disabled) { background: none; text-decoration: underline; }
 /* 鍵盤焦點:按鈕、可點的列、分段控制、連結都看得到(滑鼠點擊不顯示) */

@@ -15,7 +15,9 @@ import (
 //	/mcp/agent          角色端點:角色憑證(Bearer <agentId>:<secret>)
 //	/mcp/org/{org}      組織端點:omx_ 使用者 token 或(有 OAuth 時)綁這個網址的 OAuth access token(omo_)
 //	/mcp                統一入口:omx_ 使用者 token 或(有 OAuth 時)綁 <public>/mcp 的 omo_
-//	/mcp/worker/{org}   執行者端點:omx_ 使用者 token
+//	/mcp/worker/{org}   執行者端點:omx_ 使用者 token 或(有 OAuth 時)綁這個網址、scope 是 mcp:worker 的 omo_
+//
+// 瀏覽器的 web session(也是 omx_,裝置名稱 web:…)在任何 MCP 端點都不收
 //
 // 雲端伺服器與別的宿主(本機 console 的對外 MCP 連接埠)共用這一份,兩邊的認證與權限因此一致;
 // 宿主只決定:有沒有 OAuth、Backend 怎麼來、每個請求要不要多做事、哪些使用者不准從這裡進來
@@ -70,12 +72,17 @@ func (m *MCPMount) principal(tok, resource string) (*model.Principal, error) {
 	return m.accept(m.Svc.Authenticate(tok))
 }
 
-// accept 套用 Reject:被擋的使用者和無效的 token 回同一個錯誤(不透露差別)
+// accept 套用 Reject 與「web session 不能當 MCP token」:被擋的和無效的 token 回同一個錯誤(不透露差別)
 func (m *MCPMount) accept(p *model.Principal, err error) (*model.Principal, error) {
-	if err == nil && m.Reject != nil && m.Reject(p) {
+	if err == nil && (isWebSession(p) || m.Reject != nil && m.Reject(p)) {
 		return nil, service.ErrOAuthInvalidToken
 	}
 	return p, err
+}
+
+// isWebSession 瀏覽器 cookie 用的 session token(service/websession.go):只給畫面與 REST,不能搬去當 MCP 的 token
+func isWebSession(p *model.Principal) bool {
+	return p.Via == model.ViaLogin && strings.HasPrefix(p.Token.Device, service.WebDevicePrefix)
 }
 
 // backendOf 認證成功之後建這次連線的 Backend
@@ -86,21 +93,41 @@ func (m *MCPMount) backendOf(p *model.Principal) backend.Backend {
 	return &backend.Local{Svc: m.Svc, P: p}
 }
 
-// workerEndpoint 執行者端點 /mcp/worker/{org}:只收 omx_ 使用者 token(omo_ 在 Authenticate 一律 403)
+// workerEndpoint 執行者端點 /mcp/worker/{org}:omx_ 使用者 token,或(有 OAuth 時)執行者專用授權的 omo_(AuthenticateOAuthWorker);
+// 沒有 OAuth 時 omo_ 在 Authenticate 一律 403
 func (m *MCPMount) workerEndpoint() http.Handler {
-	return mcp.WorkerEndpoint(mcp.WorkerEndpointConfig{
+	cfg := mcp.WorkerEndpointConfig{
 		AgentEndpoint: m.AgentEndpoint,
 		Begin:         m.Begin,
 		Tool:          m.Tool,
 		Resolve: func(r *http.Request) (backend.Backend, string, error) {
-			tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			p, err := m.accept(m.Svc.Authenticate(tok))
+			tok, _ := mcp.BearerToken(r)
+			org := r.PathValue("org")
+			var p *model.Principal
+			var err error
+			if m.OAuth != nil && strings.HasPrefix(tok, model.OAuthTokenPrefix) {
+				if !model.ValidOrgID(org) {
+					return nil, "", service.ErrOAuthInvalidToken
+				}
+				p, err = m.accept(m.Svc.AuthenticateOAuthWorker(tok, m.OAuth.WorkerURL(org)))
+			} else {
+				p, err = m.accept(m.Svc.Authenticate(tok))
+			}
 			if err != nil {
 				return nil, "", err
 			}
-			return m.backendOf(p), r.PathValue("org"), nil
+			return m.backendOf(p), org, nil
 		},
-	})
+	}
+	if m.OAuth != nil {
+		cfg.ResourceMetadata = func(r *http.Request) string {
+			if !model.ValidOrgID(r.PathValue("org")) {
+				return ""
+			}
+			return m.OAuth.WorkerResourceMetadataURL(r.PathValue("org"))
+		}
+	}
+	return mcp.WorkerEndpoint(cfg)
 }
 
 // adminEndpoint 組織端點 /mcp/org/{org}:OAuth access token 只收綁定「這個組織的 MCP 網址」的

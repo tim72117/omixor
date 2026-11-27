@@ -59,7 +59,8 @@ export async function getJSON<T>(url: string): Promise<{ data: T; version?: numb
 export async function postJSON<T>(url: string, args: unknown): Promise<{ data: T; version?: number }> {
   const r = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...orgHeaders() },
+    // X-Omixor-CSRF:/api/orgs… 等核心 REST API 用 cookie 寫入時要帶
+    headers: { "Content-Type": "application/json", "X-Omixor-CSRF": "1", ...orgHeaders() },
     body: JSON.stringify(args ?? {}),
   });
   const body = await readBody(r);

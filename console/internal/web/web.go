@@ -6,11 +6,12 @@
 //	POST /api/tool/<工具名稱>   以目前使用者身分執行 MCP 工具(body 是工具參數)
 //	POST /api/action/<名稱>    只有畫面能做的動作(見 core.RegisterAction)
 //	/api/auth/…               登入(LDAP)、登出、認證設定(見 auth.go)
+//	/api/orgs…、/api/admin/…   和 omixor server 同一套的 REST API(core/api;開放範圍與限制見 coreapi.go)
 //	/api/issues/<組織>…        Issue 資料(給 macOS App(Swift 版)遠端存放用,見 issues_api.go)
 //	/api/office/…、/office/    3D 虛擬辦公室:下命令、SSE、檢視器回報、狀態;檢視器靜態檔(見 office.go)
 //	其他路徑                   React 畫面(ui/dist)
 //
-// 啟用 LDAP 時,/api 除了 /api/auth/status、/api/auth/login 都要登入(/api/issues/ 也可以用 OMIXOR_API_TOKEN);畫面的動作以登入者署名
+// 啟用 LDAP 時,/api 除了 /api/auth/web/* 都要登入(/api/issues/ 也可以用 OMIXOR_API_TOKEN);畫面的動作以登入者署名
 // (寫進核心的資料也是,見 core/caller.go)。非管理員只能讀寫自己是成員的組織,不是任何組織成員的人不能登入(見 membership.go)。
 // 工具與動作分一般成員 / 管理員(見 access.go);非管理員的 /api/issues 只限目前的組織。
 package web
@@ -66,7 +67,7 @@ func IsLoopbackAddr(addr string) bool {
 // Handler:dist 是 React 建好的檔案(可以是 nil,只開 API)
 func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 	// 啟用 LDAP 時每位登入者有自己的畫面(換頁等,見 core/nav_user.go)
-	app.SetPerUserUI(func() bool { return au != nil && au.Enabled() && !core.IsRemote() })
+	app.SetPerUserUI(func() bool { return au != nil && au.Enabled() })
 	// MCP 入口的專有工具用同一份管理員名單(沒啟用 LDAP 時沒有名單,見 mcp/oauth_tools.go)
 	app.SetConsoleAdmins(func(account string) bool { return au != nil && au.Config().IsAdminAccount(account) })
 	mux := http.NewServeMux()
@@ -85,16 +86,27 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		if app.IsScoped() && name == "incidents" { // 事件快取一次性的 App 還沒有:先讀
 			app.IncidentsRefresh(app.CurrentOrgNow())
 		}
-		v, ok := core.ViewFor(app, name, callerOf(r, au))
+		// 呼叫者看不到的受限專案資料拿掉(見 restricted.go);衍生的數字與清單在算的時候就篩(hidden)
+		set, unk, active := restrictedSetFor(r, app, au, "")
+		var hidden *core.Hidden
+		if active {
+			hidden = app.NewHidden(app.CurrentOrgNow(), callerOf(r, au), set, unk)
+		}
+		v, ok := core.ViewFor(app, name, callerOf(r, au), hidden)
+		if name == "me" { // 有登入就是登入者本人,不是系統身分
+			if u, signedIn := ctxUser(r); signedIn {
+				v = map[string]any{"id": u.ID, "name": u.Name, "signedIn": true}
+			}
+		}
 		if !ok {
 			writeJSON(w, 404, map[string]any{"error": "沒有這個 view:" + name})
 			return
 		}
-		if name == "system" || name == "members" || name == "account" {
+		if name == "system" || name == "members" {
 			v = forViewer(name, v, isAdmin(r, app, au))
 		}
-		if set, unk, active := restrictedSetFor(r, app, au, ""); active { // 不是 web 管理員:受限專案的資料拿掉(見 restricted.go)
-			nv, drop := scrubRestricted(core.Object(v), set, unk)
+		if active {
+			nv, drop := core.ScrubRestricted(core.Object(v), set, unk)
 			if drop {
 				notFoundRestricted(w)
 				return
@@ -119,11 +131,15 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			return
 		}
 		set, unk, active := restrictedSetFor(r, app, au, "")
-		if active && (restrictedArg(args, set, unk) || restrictedTarget(app, r.PathValue("name"), args, set, unk)) {
+		if active && gateRestricted(app, r.PathValue("name"), args, set, unk, callerOf(r, au)) {
 			notFoundRestricted(w)
 			return
 		}
-		out, err := mcp.RunAs(app, r.PathValue("name"), args, core.Person(userID(r, app)), callerOf(r, au))
+		var hidden *core.Hidden
+		if active {
+			hidden = app.NewHidden(app.CurrentOrgNow(), callerOf(r, au), set, unk)
+		}
+		out, err := mcp.RunHidden(app, r.PathValue("name"), args, core.Person(userID(r, app)), callerOf(r, au), hidden)
 		if err != nil {
 			writeFail(w, r, err)
 			return
@@ -131,7 +147,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		res := core.Object(out)
 		if active {
 			var drop bool
-			if res, drop = scrubRestricted(res, set, unk); drop {
+			if res, drop = core.ScrubRestricted(res, set, unk); drop {
 				notFoundRestricted(w)
 				return
 			}
@@ -154,7 +170,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			return
 		}
 		set, unk, active := restrictedSetFor(r, app, au, "")
-		if active && (restrictedArg(args, set, unk) || restrictedTarget(app, name, args, set, unk)) {
+		if active && gateRestricted(app, name, args, set, unk, callerOf(r, au)) {
 			notFoundRestricted(w)
 			return
 		}
@@ -167,6 +183,10 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		// 「複製目前組織的設定」複製的是系統工作組織:登入者選的是別的組織時不照做,免得複製到沒打算複製的東西(action 在鎖裡核對)
 		if org := r.Header.Get(orgHeader); name == "org_create" && args["template"] == "copyCurrent" && callerOf(r, au) != nil && org != "" {
 			args[core.ExpectSystemOrgKey] = org
+		}
+		delete(args, core.HiddenKey) // 只認伺服器放的
+		if active {
+			args[core.HiddenKey] = app.NewHidden(app.CurrentOrgNow(), callerOf(r, au), set, unk)
 		}
 		args[core.UserKey] = userID(r, app)
 		delete(args, core.CallerKey) // 只認伺服器放的
@@ -182,7 +202,7 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 		res := core.Object(out)
 		if active {
 			var drop bool
-			if res, drop = scrubRestricted(res, set, unk); drop {
+			if res, drop = core.ScrubRestricted(res, set, unk); drop {
 				notFoundRestricted(w)
 				return
 			}
@@ -234,9 +254,9 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 					orgs = append(orgs, o.ID)
 				}
 			}
-			data, mime, err = core.ReadAttachmentAmong(r.PathValue("id"), orgs)
+			data, mime, err = core.ReadAttachmentAmong(r.PathValue("id"), orgs, callerOf(r, au))
 		} else {
-			data, mime, err = core.ReadAttachment(app, r.PathValue("id"))
+			data, mime, err = core.ReadAttachment(app, r.PathValue("id"), callerOf(r, au))
 		}
 		if err != nil {
 			http.NotFound(w, r)
@@ -302,14 +322,15 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			files.ServeHTTP(w, r)
 		})
 	}
-	return guard(membershipGate(mux, app, au), au)
+	return guard(withCoreAPI(app, au, membershipGate(mux, app, au)), au)
 }
 
 // guard:
 //   - Host 只接受本機名稱與 OMIXOR_WEB_HOSTS 列的主機(防 DNS rebinding)
 //   - 帶 Origin 的請求,Origin 也要是這些主機(防其他網站跨站呼叫)
 //   - POST /api 一律要 Content-Type: application/json(表單無法跨站送,等於 CSRF 防護)
-//   - 啟用 LDAP 時,/api 要登入(/api/auth/status、/api/auth/login 除外);登入後依組織成員身分的檢查見 membership.go
+//   - 啟用 LDAP 時,/api 要登入(/api/auth/web/* 除外);登入後依組織成員身分的檢查見 membership.go
+//   - core/api 的路徑(coreapi.go)只套用上面的 Host、Origin、JSON 規則,認證與權限由它自己做
 func guard(next http.Handler, au *auth.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !AllowedHost(hostOnly(r.Host)) {
@@ -328,12 +349,15 @@ func guard(next http.Handler, au *auth.Service) http.Handler {
 				writeJSON(w, 415, map[string]any{"error": "要用 Content-Type: application/json"})
 				return
 			}
-			public := r.URL.Path == "/api/auth/status" || r.URL.Path == "/api/auth/login"
-			if au != nil && au.Enabled() && !public {
-				u, ok := sessionUser(r, au)
-				if !ok && strings.HasPrefix(r.URL.Path, "/api/issues/") && apiToken(r) {
+			if au != nil && au.Enabled() && !loginOnly[r.URL.Path] && !isCorePath(r.URL.Path) {
+				u, ok, err := lookupSession(r, au)
+				if !ok && err == nil && strings.HasPrefix(r.URL.Path, "/api/issues/") && apiToken(r) {
 					// Issue 資料 API 可以用 OMIXOR_API_TOKEN(給 macOS App(Swift 版)連)
 					next.ServeHTTP(w, r)
+					return
+				}
+				if err != nil {
+					writeFail(w, r, err)
 					return
 				}
 				if !ok {

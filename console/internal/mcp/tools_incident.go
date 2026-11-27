@@ -41,15 +41,22 @@ func (b appBackend) DeclareIncident(org string, in service.IncidentInput) (*mode
 		if !scoped {
 			if strings.TrimSpace(in.Commander) == "" {
 				in.Commander = a.Me
+				if b.who != nil { // 有登入者:沒有值班時是他本人,不是系統的本機身分
+					in.Commander = b.who.Account()
+				}
 				if oc := a.CurrentOnCall(); oc != nil {
 					in.Commander = core.Str(oc, "person")
 				}
 			}
 			_, person := a.Find("people", in.Commander)
-			if person == nil || core.Str(person, "id") != in.Commander {
+			switch {
+			case person != nil && core.Str(person, "id") == in.Commander:
+				in.CommanderName = core.Str(person, "name")
+			case b.who.IsSelf(in.Commander): // 登入者本人不一定在人員清單;核心記的就是呼叫者
+				in.CommanderName = b.who.Name()
+			default:
 				return Errorf("Person %s not found", in.Commander)
 			}
-			in.CommanderName = core.Str(person, "name")
 		}
 		for k, s := range in.Services {
 			id, err := serviceID(a, s)

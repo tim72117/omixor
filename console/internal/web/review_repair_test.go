@@ -32,11 +32,11 @@ func TestAdminRepairSession(t *testing.T) {
 	app.Mu.Unlock()
 
 	alice := &client{t: t, srv: c.srv, c: newJarClient()}
-	code, out := alice.do("POST", "/api/auth/login", map[string]any{"username": "alice", "password": "alice-pw"}, nil)
+	code, out := alice.do("POST", "/api/auth/web/login", map[string]any{"username": "alice", "password": "alice-pw"}, nil)
 	if msg, _ := out["denied"].(string); code != 200 || out["repair"] != true || !strings.Contains(msg, "trustMail") {
 		t.Fatal(code, out)
 	}
-	_, st := alice.do("GET", "/api/auth/status", nil, nil)
+	_, st := alice.do("GET", "/api/auth/web/status", nil, nil)
 	if st["loggedIn"] != false || st["repair"] != true || st["denied"] == nil || st["user"] == nil {
 		t.Fatal(st)
 	}
@@ -64,7 +64,7 @@ func TestAdminRepairSession(t *testing.T) {
 	if _, out := alice.do("POST", "/api/auth/config", map[string]any{"config": cfg, "testUsername": "alice", "testPassword": "alice-pw"}, nil); out["error"] != nil {
 		t.Fatal(out)
 	}
-	code, out = alice.do("POST", "/api/auth/login", map[string]any{"username": "alice", "password": "alice-pw"}, nil)
+	code, out = alice.do("POST", "/api/auth/web/login", map[string]any{"username": "alice", "password": "alice-pw"}, nil)
 	if code != 200 || out["repair"] != nil {
 		t.Fatal("修好後正常登入", code, out)
 	}
@@ -84,7 +84,7 @@ func TestAdminRepairSession(t *testing.T) {
 	if code, out := alice.do("GET", "/api/auth/config", nil, nil); code != 401 {
 		t.Fatal("停用的管理員", code, out)
 	}
-	if code, out := alice.do("POST", "/api/auth/login", map[string]any{"username": "alice", "password": "alice-pw"}, nil); code != 403 {
+	if code, out := alice.do("POST", "/api/auth/web/login", map[string]any{"username": "alice", "password": "alice-pw"}, nil); code != 403 {
 		t.Fatal("停用的管理員不能登入", code, out)
 	}
 	if w := strings.Join(core.UpgradeLoginWarnings([]string{"alice"}), "\n"); !strings.Contains(w, "管理員 alice") {

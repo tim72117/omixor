@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// 這台機器的設定與狀態(連線、模式、語音工作…的 JSON 檔)的存放處,不是組織 / Issue / 成員 / 角色 / 文件櫃的資料來源
+// 這台機器的設定與狀態(連線、語音工作…的 JSON 檔)的存放處,不是組織 / Issue / 成員 / 角色 / 文件櫃的資料來源
 // (那些一律在核心 service + PostgreSQL,沒有資料庫就回 errNoDB,不退回存檔案)。
-// 預設是 DataRoot() 資料夾裡的 JSON 檔(遠端模式沒有資料庫時就是這樣);設了 OMIXOR_DATABASE_URL 就改存 PostgreSQL 的
+// 預設是 DataRoot() 資料夾裡的 JSON 檔(沒有資料庫時);設了 OMIXOR_DATABASE_URL 就改存 PostgreSQL 的
 // omixor_documents(store_pg.go)。各功能一律透過 ReadJSON / WriteJSON / ReadData / RenameData / DataExists… 讀寫,
 // 路徑用 DataRoot() 底下的檔案路徑,由存放處決定實際存哪。
 //

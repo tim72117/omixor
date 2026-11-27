@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -175,8 +178,16 @@ func TestPerUserCurrentOrg(t *testing.T) {
 	if code, _ := text(t, bob, "GET", url, "", nil); code != 404 {
 		t.Fatal("別的組織的附件", code)
 	}
+	// 同一份存放:畫面上傳的,同埠的 REST API 讀得到;非成員照核心的權限擋
+	rest := "/api/orgs/" + beta + "/attachments/" + strings.TrimPrefix(url, "/api/attachments/")
+	if code, out := carol.do("GET", rest, nil, nil); code != 200 || !strings.Contains(core2s(out), png) {
+		t.Fatal("REST 讀畫面上傳的附件", code, out)
+	}
+	if code, _ := bob.do("GET", rest, nil, nil); code != 403 {
+		t.Fatal("REST 讀別的組織的附件", code)
+	}
 
-	// 切換只影響自己;系統身分(3765)仍是系統工作組織
+	// 切換只影響自己;系統身分仍是系統工作組織
 	if code, out := alice.do("POST", "/api/action/org_switch", map[string]any{"id": beta}, nil); code != 200 || core2s(out) == "" || out["result"].(map[string]any)["current"] != beta {
 		t.Fatal(code, out)
 	}
@@ -265,5 +276,30 @@ func TestOrgScopeNamesExist(t *testing.T) {
 				t.Error("沒有這個工具", n)
 			}
 		}
+	}
+}
+
+// 畫面「任何組織都能讀的 view」清單(ui/src/lib/orgScope.ts)要和這裡的 orgViews、hostViews 一致
+func TestOrgViewListMatchesUI(t *testing.T) {
+	src, err := os.ReadFile("../../ui/src/lib/orgScope.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?s)ANY_ORG_VIEWS = new Set<string>\(\[(.*?)\]\)`).FindStringSubmatch(string(src))
+	if m == nil {
+		t.Fatal("orgScope.ts 找不到 ANY_ORG_VIEWS")
+	}
+	got := map[string]bool{}
+	for _, x := range regexp.MustCompile(`"([a-z_]+)"`).FindAllStringSubmatch(m[1], -1) {
+		got[x[1]] = true
+	}
+	want := map[string]bool{}
+	for _, set := range []map[string]bool{orgViews, hostViews} {
+		for k := range set {
+			want[k] = true
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("畫面 %v;後端 %v", got, want)
 	}
 }

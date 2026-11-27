@@ -12,6 +12,9 @@ import (
 
 // ---------------- 同意畫面 ----------------
 
+// workerConsentWarn 確認頁(GitLab、LDAP)上執行者授權的警語
+const workerConsentWarn = "這個應用程式將能以你的身分領取任務,並以角色名義回報、留言與委派。"
+
 const consentCSS = `:root{color-scheme:light dark;--bg:#fff;--fg:#1f2328;--fg2:#656d76;--bd:#d0d7de;--bg2:#f6f8fa;--ac:#0969da;--er:#cf222e}
 @media(prefers-color-scheme:dark){:root{--bg:#161618;--fg:#e8e8ea;--fg2:#a0a0a8;--bd:#3a3a3e;--bg2:#222226;--ac:#4493f8;--er:#ff7b72}}
 *{box-sizing:border-box}
@@ -52,14 +55,18 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <body><main>
 {{if .Fatal}}<h1>無法授權</h1><p>{{.Fatal}}</p>{{else}}
 <h1>授權連線確認</h1>
-{{if .WriteRequested}}{{if .Account}}<p class="note">有一個應用程式想連到你帳號能存取的所有組織(之後你加入或退出組織,範圍會跟著變)。你可以只授予唯讀,或明確選擇讀寫(見下方,預設唯讀)。若你不是剛剛自己新增這個連線,請按「拒絕」。</p>{{else}}<p class="note">有一個應用程式想連到你的 omixor。你可以只授予唯讀,或明確選擇讀寫(見下方,預設唯讀)。若你不是剛剛自己在 Claude 新增這個 connector,請按「拒絕」。</p>{{end}}
+{{if .Worker}}<p class="note">有一個應用程式想當「任務執行者」:領取下面這個組織裡派給角色的任務,並以角色身分回報。若你不是剛剛自己在設定執行者,請按「拒絕」。</p>
+{{else if .WriteRequested}}{{if .Account}}<p class="note">有一個應用程式想連到你帳號能存取的所有組織(之後你加入或退出組織,範圍會跟著變)。你可以只授予唯讀,或明確選擇讀寫(見下方,預設唯讀)。若你不是剛剛自己新增這個連線,請按「拒絕」。</p>{{else}}<p class="note">有一個應用程式想連到你的 omixor。你可以只授予唯讀,或明確選擇讀寫(見下方,預設唯讀)。若你不是剛剛自己在 Claude 新增這個 connector,請按「拒絕」。</p>{{end}}
 {{else}}{{if .Account}}<p class="note">授權這個應用程式以唯讀方式讀取你帳號能存取的所有組織(之後你加入或退出組織,可讀取的範圍會跟著變)。若你不是剛剛自己新增這個連線,請按「拒絕」。</p>{{else}}<p class="note">有一個應用程式想用唯讀的方式連到你的 omixor。若你不是剛剛自己在 Claude 新增這個 connector,請按「拒絕」。</p>{{end}}{{end}}
 <div class="box"><dl>
 <dt>應用程式名稱(對方自行申報,未經驗證)</dt><dd>{{.ClientName}}</dd>
 <dt>授權完成後會回到</dt><dd>{{.RedirectHost}}</dd>
 {{if .Account}}<dt>範圍</dt><dd>你帳號能存取的所有組織(包含之後加入的組織)</dd>{{else}}<dt>組織</dt><dd>{{.Org}}</dd>{{end}}
-{{if not .WriteRequested}}<dt>要求的權限</dt><dd>{{.Scope}}(只能讀取,不能修改任何資料)</dd>{{end}}
+{{if .Worker}}<dt>要求的權限</dt><dd>{{.Scope}}(任務執行者)</dd>
+{{else if not .WriteRequested}}<dt>要求的權限</dt><dd>{{.Scope}}(只能讀取,不能修改任何資料)</dd>{{end}}
 </dl></div>
+{{if .Worker}}<p class="warn">這個應用程式將能以你的身分領取任務、以該角色的名義回報與留言、沿組織鏈委派給下游角色,以及放棄領取。</p>
+<p class="note">只能用在這個組織的執行者端點;拿不到角色憑證的密鑰,也不能讀寫其他資料。權限仍受你在組織裡的角色限制,沒有伺服器管理員的權力。存取權杖 10 分鐘到期,續期權杖最久 30 天。</p>{{end}}
 {{if .WriteRequested}}<fieldset><legend>這個應用程式要求{{if .AdminRequested}}「組織管理員」{{else}}「讀寫」{{end}}權限,請選擇要授予的權限(預設只授予唯讀)</legend>
 <label class="opt"><input type="radio" name="grant" form="consent" value="read" checked><strong>唯讀(建議)</strong><br><span class="note">{{.Scope}}:只能讀取,不能修改任何資料。</span></label>
 <label class="opt w"><input type="radio" name="grant" form="consent" value="write"><strong>讀寫(進階)</strong>
@@ -104,7 +111,7 @@ type consentView struct {
 	ClientName, RedirectHost, Org, Scope                    string
 	CSRF, ClientID, RedirectURI, Challenge, State, Resource string
 	RequestedScope                                          string
-	Account, WriteRequested                                 bool
+	Account, WriteRequested, Worker                         bool
 	AdminRequested, AdminDenied                             bool           // AdminRequested:客戶端要求 mcp:admin(提供「組織管理員」選項);AdminDenied:剛剛證明身分的使用者不是任何組織的管理員(選項停用)
 	Buttons, Forms                                          []providerView // 證明身分的方式:Buttons 是純按鈕(導去外部登入),Forms 是要填欄位的
 	Retry                                                   bool           // 剛剛沒過:有欄位的方式預設展開(收在 <details> 時)
@@ -198,7 +205,7 @@ func (h *Handler) renderConsent(w http.ResponseWriter, status int, c *service.OA
 	buttons, forms := h.providerViews()
 	pageHeaders(w, formAction(origin, buttons, forms))
 	w.WriteHeader(status)
-	_ = consentTmpl.Execute(w, consentView{Title: "授權確認", Error: errMsg, ClientName: c.Client.Name, RedirectHost: host, Org: c.Org, Scope: c.Scope, Account: c.Account, WriteRequested: c.WriteRequested, AdminRequested: c.AdminRequested, AdminDenied: len(adminDenied) > 0 && adminDenied[0],
+	_ = consentTmpl.Execute(w, consentView{Title: "授權確認", Error: errMsg, ClientName: c.Client.Name, RedirectHost: host, Org: c.Org, Scope: c.Scope, Account: c.Account, Worker: c.Worker, WriteRequested: c.WriteRequested, AdminRequested: c.AdminRequested, AdminDenied: len(adminDenied) > 0 && adminDenied[0],
 		CSRF: csrf, ClientID: c.Client.ID, RedirectURI: c.RedirectURI, Challenge: req.CodeChallenge, State: req.State, Resource: c.Resource,
 		RequestedScope: req.Scope, Buttons: buttons, Forms: forms, Retry: errMsg != ""})
 }

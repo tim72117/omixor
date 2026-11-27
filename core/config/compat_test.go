@@ -107,7 +107,7 @@ func TestValuePrintHidesRaw(t *testing.T) {
 
 func TestRedactJSONAndShortSecrets(t *testing.T) {
 	servers := `[{"name":"a","url":"https://x","token":"tok-AAAA-1"},{"name":"b","auth":{"password":"pw-BBBB-2"},"secret":"sec-CCCC-3"}]`
-	c := LoadFrom(mapEnv(map[string]string{"OMIXOR_SERVERS": servers}))
+	c := LoadFrom(mapEnv(map[string]string{"OMIXOR_LDAP_BIND_PASSWORD": servers}))
 	for _, leak := range []string{"tok-AAAA-1", "pw-BBBB-2", "sec-CCCC-3"} {
 		if got := c.Redact("401 Unauthorized: bad token " + leak + " rejected"); strings.Contains(got, leak) {
 			t.Errorf("單獨一個 token 沒被遮:%s", got)

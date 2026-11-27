@@ -41,19 +41,19 @@ func (p Problem) String() string {
 // checker provider 可以選擇性地實作:回這個 provider 的條件與要登記的回呼網址(public 是對外網址,不含結尾斜線);沒實作 = 沒有條件
 type checker interface{ Check(public string) []Problem }
 
-// Env 檢查需要的輸入。HasDB、Remote 是執行期才知道的事(只有 console 的獨立 OAuth 連接埠用)
+// Env 檢查需要的輸入。HasDB 是執行期才知道的事(只有 console 的獨立 OAuth 連接埠用)
 type Env struct {
-	Cfg           *config.Config
-	Prog          config.Program // config.Server 或 config.Web
-	Providers     []IdentityProvider
-	HasDB, Remote bool
+	Cfg       *config.Config
+	Prog      config.Program // config.Server 或 config.Web
+	Providers []IdentityProvider
+	HasDB     bool
 }
 
 // separatePort console 用獨立的 OAuth 連接埠(OMIXOR_OAUTH_ADDR):條件不合就不能啟動
 func (e Env) separatePort() bool { return e.Prog == config.Web && e.Cfg.IsSet(config.OAuthAddr) }
 
 // enabled 這個程式有沒有啟用 OAuth:設了對外網址(console 是掛在畫面連接埠),或 console 開了獨立連接埠。
-// 掛在畫面連接埠的條件(PostgreSQL、非遠端模式)由宿主決定掛不掛,真的掛上才呼叫檢查
+// 掛在畫面連接埠的條件(PostgreSQL)由宿主決定掛不掛,真的掛上才呼叫檢查
 func (e Env) enabled() bool { return e.separatePort() || e.Cfg.IsSet(config.PublicURL) }
 
 // Diagnose 逐項檢查,回傳全部項目(含正常的);沒啟用 OAuth 時 console 回 nil、server 回一則提示
@@ -124,15 +124,11 @@ func publicProblems(e Env, public string) []Problem {
 	return []Problem{{Level: Info, Msg: "對外網址 " + public}}
 }
 
-// webProblems console 的獨立 OAuth 連接埠才有的條件:設定層級(config.WebOAuthIssues)與執行期(要連 PostgreSQL、不是遠端模式)
+// webProblems console 的獨立 OAuth 連接埠才有的條件:設定層級(config.WebOAuthIssues)與執行期(要連 PostgreSQL)
 func webProblems(e Env) []Problem {
 	var ps []Problem
 	for _, is := range e.Cfg.WebOAuthIssues() {
 		ps = append(ps, Problem{Level: Fatal, Msg: "OMIXOR_OAUTH_ADDR:" + is})
-	}
-	if e.Remote && !e.Cfg.IsSet(config.ServerURL) { // 設定層級已經回報過遠端模式(OMIXOR_SERVER)
-		ps = append(ps, Problem{Level: Fatal, Msg: "OMIXOR_OAUTH_ADDR 不能用在遠端模式:授權與使用者在那台 omixor server",
-			Fix: "改在 server 設 OMIXOR_PUBLIC_URL"})
 	}
 	if !e.HasDB {
 		ps = append(ps, Problem{Level: Fatal, Msg: "OMIXOR_OAUTH_ADDR 需要 PostgreSQL", Fix: "設 OMIXOR_DATABASE_URL 與 OMIXOR_SECRET_KEY"})

@@ -2,7 +2,6 @@ package core
 
 import (
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -147,13 +146,6 @@ type jiraIssue struct {
 	atts   []jiraAtt
 }
 
-// jiraAtt Jira 的附件:圖片下載存成本機附件(url 是 /api/attachments/…),其他檔案(或下載失敗)連回 Jira
-type jiraAtt struct {
-	name  string
-	url   string
-	image bool
-}
-
 // JiraImport 匯入這些專案的 Issue;includeClosed 為 false 時只匯入還沒完成的(statusCategory != Done)
 // who 是網頁的呼叫者(沒給 = 系統身分)
 func JiraImport(a *App, projects []string, includeClosed bool, who ...*Caller) (JiraImportResult, error) {
@@ -171,14 +163,12 @@ func JiraImport(a *App, projects []string, includeClosed bool, who ...*Caller) (
 	if len(keys) == 0 {
 		return res, UserError{"要選至少一個專案"}
 	}
-	// 附件存到開始匯入時的組織
-	a.Mu.Lock()
-	orgDir := a.DataDir()
-	a.Mu.Unlock()
+	// 圖片存到開始匯入時的組織
+	images := jiraImageStoreFor(a, firstCaller(who))
 	// 網路請求在鎖外做,全部讀完再一次寫進 Issue
 	var all []jiraIssue
 	for _, k := range keys {
-		items, err := jiraFetchProject(a, k, includeClosed, c.TrimmedBase(), orgDir)
+		items, err := jiraFetchProject(a, k, includeClosed, c.TrimmedBase(), images)
 		if err != nil {
 			res.Errors[k] = err.Error()
 			continue
@@ -253,8 +243,8 @@ func JiraImport(a *App, projects []string, includeClosed bool, who ...*Caller) (
 	return res, nil
 }
 
-// jiraFetchProject 讀一個專案的全部 Issue(含留言;圖片附件下載存到 orgDir)
-func jiraFetchProject(a *App, key string, includeClosed bool, base, orgDir string) ([]jiraIssue, error) {
+// jiraFetchProject 讀一個專案的全部 Issue(含留言;圖片附件下載存到 images)
+func jiraFetchProject(a *App, key string, includeClosed bool, base string, images jiraImageStore) ([]jiraIssue, error) {
 	jql := `project = "` + strings.ReplaceAll(key, `"`, `\"`) + `"`
 	if !includeClosed {
 		jql += " AND statusCategory != Done"
@@ -275,83 +265,10 @@ func jiraFetchProject(a *App, key string, includeClosed bool, base, orgDir strin
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, jiraIssue{key: k, fields: f, notes: notes, atts: jiraAttachments(a, base, orgDir, f)})
+		out = append(out, jiraIssue{key: k, fields: f, notes: notes, atts: jiraAttachments(a, base, images, f)})
 	}
 	return out, nil
 }
-
-// jiraAttachments 圖片附件下載存成本機附件(再匯入時已有就不重下載);其他檔案或下載失敗的連回 Jira
-func jiraAttachments(a *App, base, orgDir string, f map[string]any) []jiraAtt {
-	list, _ := f["attachment"].([]any)
-	out := []jiraAtt{}
-	for _, it := range list {
-		m, _ := it.(map[string]any)
-		name, content := jiraStr(m["filename"]), jiraStr(m["content"])
-		if name == "" || content == "" {
-			continue
-		}
-		at := jiraAtt{name: name, url: content}
-		mime := strings.ToLower(jiraStr(m["mimeType"]))
-		size := jiraInt(m["size"])
-		if _, ok := attachmentTypes[mime]; ok && size <= MaxAttachment {
-			seed := "jira:" + base + ":" + jiraStr(m["id"])
-			if id := AttachmentIDFor(orgDir, seed); id != "" {
-				at.url, at.image = AttachmentURL(id), true
-			} else if data, err := jiraDownload(a, base, content); err == nil {
-				if id, err := SaveAttachmentIn(orgDir, data, seed); err == nil {
-					at.url, at.image = AttachmentURL(id), true
-				}
-			}
-		}
-		out = append(out, at)
-	}
-	return out
-}
-
-// jiraDownload 下載附件內容(同網域的網址才帶 token)
-func jiraDownload(a *App, base, content string) ([]byte, error) {
-	path := content
-	if strings.HasPrefix(content, base+"/") {
-		path = strings.TrimPrefix(content, base)
-	}
-	r, err := ConnRequestWith(a, JiraConnID, "GET", path, nil, map[string]string{"Accept": "*/*"})
-	if err != nil {
-		return nil, err
-	}
-	if !r.OK() {
-		return nil, connErr("下載附件失敗(HTTP " + strconv.Itoa(r.Status) + ")")
-	}
-	return r.Data, nil
-}
-
-// jiraImageRe Jira wiki 語法的圖片:!檔名! 或 !檔名|thumbnail! / !檔名|width=300!
-var jiraImageRe = regexp.MustCompile(`!([^!|\n]+?)(\|[^!\n]*)?!`)
-
-// jiraRenderImages 把內文裡引用的附件圖片換成 Markdown 圖片;回傳換過的文字與被引用到的檔名
-func jiraRenderImages(text string, atts []jiraAtt, used map[string]bool) string {
-	byName := map[string]jiraAtt{}
-	for _, at := range atts {
-		byName[at.name] = at
-	}
-	return jiraImageRe.ReplaceAllStringFunc(text, func(s string) string {
-		m := jiraImageRe.FindStringSubmatch(s)
-		name := strings.TrimSpace(m[1])
-		if at, ok := byName[name]; ok {
-			used[name] = true
-			if at.image {
-				return "![" + mdAlt(name) + "](" + at.url + ")"
-			}
-			return "[" + mdAlt(name) + "](" + at.url + ")"
-		}
-		if strings.HasPrefix(name, "http://") || strings.HasPrefix(name, "https://") {
-			return "[圖片](" + name + ")"
-		}
-		return s
-	})
-}
-
-// mdAlt 檔名放進 Markdown 的 [] 裡:拿掉會破壞語法的字元
-func mdAlt(s string) string { return strings.NewReplacer("[", "(", "]", ")", "\n", " ").Replace(s) }
 
 // jiraMaxIssues 一個專案最多讀幾筆(避免設定錯誤時無限翻頁)
 const jiraMaxIssues = 20000

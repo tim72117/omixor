@@ -14,7 +14,7 @@ func TestWorkerFiles(t *testing.T) {
 		t.Fatal("沒有頻道程式與端點要回錯誤")
 	}
 	files, err := mcp.WorkerFiles(mcp.WorkerOptions{ChannelCommand: "C:/x/omixor-mcp.exe", ChannelArgs: []string{"--channel", "--auto"},
-		MCPURL: "http://127.0.0.1:3765/mcp", MCPToken: "omx_t", AgentID: "dev", Subagent: true})
+		MCPURL: "http://127.0.0.1:5191/mcp/worker/o", AgentID: "dev", Subagent: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,11 +38,11 @@ func TestWorkerFiles(t *testing.T) {
 		t.Fatal("啟動參數的名稱要和 .mcp.json 一致")
 	}
 	ox := cfg.MCPServers["omixor"]
-	if ox.Type != "http" || ox.URL != "http://127.0.0.1:3765/mcp" || ox.Headers["Authorization"] != "Bearer omx_t" {
+	if ox.Type != "http" || ox.URL != "http://127.0.0.1:5191/mcp/worker/o" || len(ox.Headers) != 0 {
 		t.Fatalf("omixor MCP:%+v", ox)
 	}
 	md := files["CLAUDE.md"]
-	for _, want := range []string{"without asking me", "agent_task_claim", "always pass agent and id", "sub-agent", "agent_task_report", "agent `dev`", mcp.WorkerStartCommand()} {
+	for _, want := range []string{"without asking me", "dispatch_claim", "pass agent and id", "sub-agent", "dispatch_report", "agent `dev`", mcp.WorkerStartCommand()} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("CLAUDE.md 要有 %q:\n%s", want, md)
 		}
@@ -50,6 +50,9 @@ func TestWorkerFiles(t *testing.T) {
 	noSub, _ := mcp.WorkerFiles(mcp.WorkerOptions{ChannelCommand: "x", MCPURL: "http://h/mcp"})
 	if strings.Contains(noSub["CLAUDE.md"], "Agent tool") || strings.Contains(noSub[".mcp.json"], "headers") {
 		t.Fatal("不用子代理、沒有 token 時不該出現")
+	}
+	if strings.Contains(md, "agent_task_claim") || strings.Contains(md, "agent_task_report") {
+		t.Fatal("執行者端點沒有 agent_task_ 工具")
 	}
 	if _, has := noSub[".claude/settings.json"]; has || strings.Contains(noSub["CLAUDE.md"], "repos/") {
 		t.Fatal("沒給 repo 時不該有權限設定與 repo 段落")

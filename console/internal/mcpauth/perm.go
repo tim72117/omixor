@@ -1,4 +1,4 @@
-package mcptoken
+package mcpauth
 
 import (
 	"fmt"

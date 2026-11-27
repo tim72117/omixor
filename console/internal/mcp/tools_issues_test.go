@@ -9,7 +9,7 @@ import (
 	"omixor-web/internal/core"
 )
 
-// iaApp 測試用的 App:自己的暫存資料夾;本機模式時核心(記憶體)裡放好測試用的 5 個角色(../core/testdata/agents.json)
+// iaApp 測試用的 App:自己的暫存資料夾;核心裡放好測試用的 5 個角色(../core/testdata/agents.json)
 func iaApp(t *testing.T) *core.App {
 	t.Helper()
 	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir())
@@ -21,12 +21,9 @@ func iaApp(t *testing.T) *core.App {
 	return a
 }
 
-// seedAgents 本機模式時,把測試用的角色存進目前組織的核心(遠端模式的測試:角色在假的雲端,不放)
+// seedAgents 把測試用的角色存進目前組織的核心
 func seedAgents(t *testing.T, a *core.App) {
 	t.Helper()
-	if core.IsRemote() {
-		return
-	}
 	a.Mu.Lock()
 	org := a.CurrentOrgID()
 	a.Mu.Unlock()

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log"
 	"sort"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,8 +18,6 @@ import (
 //
 //	系統層(整台伺服器一份;伺服器管理員改):/api/system/features —— 系統頁
 //	組織層(每個組織一份;組織管理員改):/api/orgs/{org}/system —— 設定 › 功能
-//	本機模式:內建核心 + 本機 PostgreSQL;遠端模式:omixor server
-//
 // 實際可用 = 系統層開放 && 組織層開 && 頁面規則(核心算好放在組織層清單的 enabled)。
 // 組織層的清單只列系統層有開放的功能:沒列出的登記功能(系統層沒開放)就當作沒有,不顯示。
 // 這裡是轉接層(同 macOS App 的 System/SystemSettings.swift):
@@ -44,7 +41,7 @@ const (
 // alwaysOnSections 永遠顯示的頁面(核心登記為必要功能;清單讀不到時也一樣)
 var alwaysOnSections = map[string]bool{"overview": true, "settings": true, "system": true}
 
-// systemBackend 測試可以換掉(預設是目前模式的核心)
+// systemBackend 測試可以換掉(預設是系統身分的核心)
 var systemBackend = agentBackend
 
 // systemWriteBackend 改功能開關用的核心:有呼叫者用他在 org 的身分
@@ -52,24 +49,23 @@ func systemWriteBackend(who *Caller, org string) (backend.Backend, error) {
 	if who == nil {
 		return systemBackend()
 	}
-	return coreBackendFor(who, "", org)
+	return coreBackendFor(who, org)
 }
 
 type sysState struct {
 	mu sync.Mutex
-	// key 目前這份屬於哪一個(模式 + 組織)
+	// key 目前這份屬於哪個組織
 	key    string
 	view   *service.SystemSettingsView
 	source string
 	err    string
 	// lastGood 這次執行裡核心回傳過的最後一份(key → 設定)
 	lastGood map[string]*service.SystemSettingsView
-	// 系統層(整台伺服器一份;和組織層一起讀)。serverLast 這次執行裡核心回傳過的最後一份(IssueRemoteURL → 設定)
+	// 系統層(整台伺服器一份;和組織層一起讀)。serverLast 這次執行裡核心回傳過的最後一份
 	server       *service.ServerFeaturesView
 	serverSource string
 	serverErr    string
-	serverFor    string
-	serverLast   map[string]*service.ServerFeaturesView
+	serverLast   *service.ServerFeaturesView
 	// 提示(目前所在頁被關掉、跳到關掉的頁面):每次加一,畫面看到新的才顯示
 	noticeSeq  int
 	noticeText string
@@ -89,11 +85,8 @@ func sysOf(a *App) *sysState {
 }
 
 func newSysState() *sysState {
-	return &sysState{lastGood: map[string]*service.SystemSettingsView{}, serverLast: map[string]*service.ServerFeaturesView{}}
+	return &sysState{lastGood: map[string]*service.SystemSettingsView{}}
 }
-
-// sysKey 模式 + 組織(換了 server 或組織就是另一份)
-func sysKey(org string) string { return IssueRemoteURL() + "|" + org }
 
 // SystemFallback 保守預設:兩層都用預設值(系統層只開放原本正式版的功能;組織層已實作的開、實驗的關)
 func SystemFallback() *service.SystemSettingsView { return service.DefaultSystemView() }
@@ -101,7 +94,7 @@ func SystemFallback() *service.SystemSettingsView { return service.DefaultSystem
 // ServerFallback 系統層的保守預設(原本正式版的功能開放,其他不開放)
 func ServerFallback() *service.ServerFeaturesView { return service.DefaultServerFeaturesView() }
 
-// ensureKey 換了組織或模式:先用最後一份(沒有就保守預設),標成讀取中(拿著 st.mu 呼叫)
+// ensureKey 換了組織:先用最後一份(沒有就保守預設),標成讀取中(拿著 st.mu 呼叫)
 func (st *sysState) ensureKey(key string) {
 	if st.key == key && st.view != nil {
 		return
@@ -112,10 +105,10 @@ func (st *sysState) ensureKey(key string) {
 	} else {
 		st.view, st.source = SystemFallback(), SysSourceLoading
 	}
-	// 換了 server(模式)時系統層也換;同一台 server 換組織時系統層不變
-	if sk := sysServerKey(key); st.server == nil || st.serverFor != sk {
-		st.serverFor, st.serverErr = sk, ""
-		if x := st.serverLast[sk]; x != nil {
+	// 系統層整台一份,換組織時不變
+	if st.server == nil {
+		st.serverErr = ""
+		if x := st.serverLast; x != nil {
 			st.server, st.serverSource = x, SysSourceLoading
 		} else {
 			st.server, st.serverSource = ServerFallback(), SysSourceLoading
@@ -123,17 +116,9 @@ func (st *sysState) ensureKey(key string) {
 	}
 }
 
-// sysServerKey 系統層的 key(sysKey 的 server 部分)
-func sysServerKey(key string) string {
-	if i := strings.LastIndex(key, "|"); i >= 0 {
-		return key[:i]
-	}
-	return key
-}
-
 // current 目前組織的功能開關(拿著 st.mu 呼叫)
 func (st *sysState) current(org string) *service.SystemSettingsView {
-	st.ensureKey(sysKey(org))
+	st.ensureKey(org)
 	return st.view
 }
 
@@ -261,13 +246,12 @@ func sysErrText(err error) string {
 
 // sysBegin 開始一次讀或寫:同時拿 Mu 與 st.mu(順序:先 Mu),取得目前組織、把 st.key 換成它,回傳序號與寫入次數。
 // 之後在 st.mu 裡比對 st.key 就知道期間有沒有換組織(換組織的 OnOrgLoad 會在同一把 Mu 裡改掉 st.key)
-func (a *App) sysBegin() (org, key string, seq, writes int) {
+func (a *App) sysBegin() (org string, seq, writes int) {
 	st := sysOf(a)
 	a.Mu.Lock()
 	org = a.CurrentOrgID()
-	key = sysKey(org)
 	st.mu.Lock()
-	st.ensureKey(key)
+	st.ensureKey(org)
 	st.reqSeq++
 	seq, writes = st.reqSeq, st.writes
 	st.mu.Unlock()
@@ -277,7 +261,7 @@ func (a *App) sysBegin() (org, key string, seq, writes int) {
 
 // SystemRefresh 從核心重讀目前組織的功能開關,回傳畫面要不要更新(不拿 Mu 呼叫)
 func (a *App) SystemRefresh() bool {
-	org, key, seq, writes := a.sysBegin()
+	org, seq, writes := a.sysBegin()
 	st := sysOf(a)
 
 	var x *service.SystemSettingsView
@@ -287,7 +271,7 @@ func (a *App) SystemRefresh() bool {
 	if err == nil {
 		srv, srvErr = be.GetServerFeatures()
 		if org == "" {
-			// 還沒有組織(例如本機模式沒有資料庫時組織清單是空的):用保守預設並說明
+			// 還沒有組織(例如沒有資料庫時組織清單是空的):用保守預設並說明
 			err = errors.New("還沒有組織,先在 設定 › 組織 建立或選一個")
 		} else {
 			x, err = be.GetSystemSettings(org)
@@ -297,26 +281,26 @@ func (a *App) SystemRefresh() bool {
 	st.mu.Lock()
 	// 都在 st.mu 裡判斷(不另外拿 Mu):讀的期間有人寫過、換了組織(st.key 被 OnOrgLoad 換掉),
 	// 或比這次晚開始的重讀已經套用過 → 這次的結果過期,不套用
-	if st.writes != writes || st.key != key || seq <= st.applied {
+	if st.writes != writes || st.key != org || seq <= st.applied {
 		st.mu.Unlock()
 		return false
 	}
 	st.applied = seq
 	before := string(Marshal(map[string]any{"v": st.view, "s": st.source, "e": st.err, "sv": st.server, "ss": st.serverSource, "se": st.serverErr}))
-	st.applyServer(sysServerKey(key), srv, srvErr)
+	st.applyServer(srv, srvErr)
 	if err != nil {
 		msg := sysErrText(err)
 		if msg != st.err {
 			log.Printf("系統設定(核心):%s", msg)
 		}
 		st.err = msg
-		if g := st.lastGood[key]; g != nil {
+		if g := st.lastGood[org]; g != nil {
 			st.view, st.source = g, SysSourceCached
 		} else {
 			st.view, st.source = SystemFallback(), SysSourceFallback
 		}
 	} else {
-		st.lastGood[key] = x
+		st.lastGood[org] = x
 		st.view, st.source, st.err = x, SysSourceCore, ""
 	}
 	after := string(Marshal(map[string]any{"v": st.view, "s": st.source, "e": st.err, "sv": st.server, "ss": st.serverSource, "se": st.serverErr}))
@@ -330,21 +314,21 @@ func (a *App) SystemRefresh() bool {
 }
 
 // applyServer 套用讀到的系統層(拿著 st.mu 呼叫);讀不到時用最後一份或保守預設
-func (st *sysState) applyServer(sk string, x *service.ServerFeaturesView, err error) {
+func (st *sysState) applyServer(x *service.ServerFeaturesView, err error) {
 	if err != nil {
 		msg := sysErrText(err)
 		if msg != st.serverErr {
 			log.Printf("系統層的功能設定(核心):%s", msg)
 		}
 		st.serverErr = msg
-		if g := st.serverLast[sk]; g != nil {
+		if g := st.serverLast; g != nil {
 			st.server, st.serverSource = g, SysSourceCached
 		} else {
 			st.server, st.serverSource = ServerFallback(), SysSourceFallback
 		}
 		return
 	}
-	st.serverLast[sk] = x
+	st.serverLast = x
 	st.server, st.serverSource, st.serverErr = x, SysSourceCore, ""
 }
 
@@ -354,7 +338,7 @@ func (a *App) ServerFeaturesSave(features map[string]bool, reset []string, who .
 	if len(features) == 0 && len(reset) == 0 {
 		return nil, UserError{"沒有要改的功能"}
 	}
-	_, key, _, _ := a.sysBegin()
+	a.sysBegin()
 	be, err := systemWriteBackend(firstCaller(who), "")
 	if err != nil {
 		return nil, UserError{sysErrText(err)}
@@ -365,11 +349,8 @@ func (a *App) ServerFeaturesSave(features map[string]bool, reset []string, who .
 	}
 	st := sysOf(a)
 	st.mu.Lock()
-	sk := sysServerKey(key)
-	st.serverLast[sk] = x
-	if sysServerKey(st.key) == sk {
-		st.server, st.serverSource, st.serverErr = x, SysSourceCore, ""
-	}
+	st.serverLast = x
+	st.server, st.serverSource, st.serverErr = x, SysSourceCore, ""
 	st.mu.Unlock()
 	a.Changed("system")
 	a.InvalidateScoped() // 系統層換了:各組織快取的組織層清單也跟著變
@@ -393,7 +374,7 @@ func (a *App) SystemSaveFor(expectOrg string, features map[string]bool, reset []
 	if len(features) == 0 && len(reset) == 0 {
 		return nil, UserError{"沒有要改的功能"}
 	}
-	org, key, _, _ := a.sysBegin()
+	org, _, _ := a.sysBegin()
 	if expectOrg != "" && expectOrg != org {
 		return nil, errOrgChanged(expectOrg, org)
 	}
@@ -411,9 +392,9 @@ func (a *App) SystemSaveFor(expectOrg string, features map[string]bool, reset []
 	st := sysOf(a)
 	st.mu.Lock()
 	st.writes++
-	st.lastGood[key] = x
+	st.lastGood[org] = x
 	// 存的期間換了組織:只記在那個組織的最後一份,不蓋掉現在組織的畫面
-	if st.key == key {
+	if st.key == org {
 		st.view, st.source, st.err = x, SysSourceCore, ""
 	}
 	st.mu.Unlock()
@@ -429,8 +410,6 @@ type SystemViewData struct {
 	Source string `json:"source"`
 	// Error 讀不到核心的原因("" = 正常)
 	Error string `json:"error"`
-	// Mode local(本機核心)/ remote(omixor server)
-	Mode string `json:"mode"`
 	// Server 系統層(這台伺服器開放哪些功能;系統頁用)
 	Server ServerViewData `json:"server"`
 	// Org 這份設定屬於哪個組織(畫面存的時候帶回來,和目前的組織不同就拒絕)
@@ -477,11 +456,8 @@ func (a *App) systemViewData() SystemViewData {
 	if sv.Features == nil {
 		sv.Features = []service.ServerFeatureState{}
 	}
-	out := SystemViewData{SystemSettingsView: &v, Source: st.source, Error: st.err, Mode: "local", Org: org,
+	out := SystemViewData{SystemSettingsView: &v, Source: st.source, Error: st.err, Org: org,
 		Server: ServerViewData{ServerFeaturesView: &sv, Source: st.serverSource, Error: st.serverErr}}
-	if IsRemote() {
-		out.Mode = "remote"
-	}
 	for k := range alwaysOnSections {
 		out.AlwaysOn = append(out.AlwaysOn, k)
 	}
@@ -561,7 +537,7 @@ func init() {
 		// 拿著 Mu 呼叫:先換成這個組織的最後一份(或預設),再到背景讀。測試不在背景讀(要的時候自己呼叫 SystemRefresh)
 		st := sysOf(a)
 		st.mu.Lock()
-		st.ensureKey(sysKey(a.CurrentOrgID()))
+		st.ensureKey(a.CurrentOrgID())
 		st.mu.Unlock()
 		if testing.Testing() {
 			return

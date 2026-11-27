@@ -193,14 +193,14 @@ function OrgSwitcher() {
   );
 }
 
-// MCP 的位址與用法在 設定 › 整合;側欄只在 MCP 沒有正常執行時提醒,按了跳過去看
+// MCP 的位址與用法在 設定 › 整合;側欄只在這個部署沒有 MCP 入口時提醒,按了跳過去看原因
 function McpStatus() {
-  const [m] = useView<{ status: { state: string; error?: string; requests: number }; url: string }>("mcp");
-  if (!m || m.status.state === "listening" || m.status.state === "starting") return null;
+  const [m] = useView<{ status: { state: string; error?: string }; url: string }>("mcp");
+  if (!m || m.status.state === "listening") return null;
   return (
     <button className="btn link mcp-status" title={m.status.error ?? m.status.state} onClick={() => go("settings", "integrations")}>
       <StatusDot c="orange" size={7} />
-      <span className="caption">MCP 未啟動</span>
+      <span className="caption">沒有 MCP 入口</span>
     </button>
   );
 }

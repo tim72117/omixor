@@ -9,11 +9,8 @@ import (
 	"omixor-core/store"
 )
 
-// UpgradeLoginWarnings 啟用 LDAP 時啟動要提醒的事:誰會登入不了(本機模式;規則見 caller_access.go)。admins 是管理員帳號名單
+// UpgradeLoginWarnings 啟用 LDAP 時啟動要提醒的事:誰會登入不了(規則見 caller_access.go)。admins 是管理員帳號名單
 func UpgradeLoginWarnings(admins []string) []string {
-	if IsRemote() {
-		return nil
-	}
 	out := []string{"啟用 LDAP 時,只有對得上 omixor 使用者、沒停用,而且是某個組織成員(或管理員名單上)的帳號能登入;" +
 		"救援方式見 console/README.md「升級與救援」"}
 	l := localCore()

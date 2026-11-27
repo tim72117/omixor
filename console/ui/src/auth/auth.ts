@@ -13,8 +13,16 @@ const subs = new Set<(s: AuthStatus) => void>();
 // 這個分頁看過的登入者
 let seenUser = "";
 
+const loginSubs = new Set<(loggedIn: boolean) => void>();
+
+/** 登入狀態從登入變成登出、或登出變成登入時通知(第一次問到的狀態不算) */
+export function onLoginChange(f: (loggedIn: boolean) => void): () => void {
+  loginSubs.add(f);
+  return () => void loginSubs.delete(f);
+}
+
 export async function refreshAuth(): Promise<AuthStatus> {
-  const r = await fetch("/api/auth/status");
+  const r = await fetch("/api/auth/web/status");
   const next = (await r.json()) as AuthStatus;
   const id = next.loggedIn ? next.user?.id ?? "" : "";
   // 同一個分頁換了人登入:整頁重新載入,不能沿用上一個人的快取(view 快取、他選的組織)
@@ -23,8 +31,10 @@ export async function refreshAuth(): Promise<AuthStatus> {
     return next;
   }
   if (id) seenUser = id;
+  const was = current?.loggedIn;
   current = next;
   subs.forEach((f) => f(current!));
+  if (was !== undefined && was !== next.loggedIn) loginSubs.forEach((f) => f(next.loggedIn));
   return current;
 }
 
@@ -38,18 +48,24 @@ export function useAuth(): AuthStatus | undefined {
   return s;
 }
 
+/** 目前的網頁使用者是不是 web 管理員(沒啟用 LDAP 時一律是) */
+export function useIsWebAdmin() {
+  const auth = useAuth();
+  return auth?.mode !== "ldap" || (auth.loggedIn && !!auth.user?.admin);
+}
+
 async function post(path: string, body: unknown) {
-  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-Omixor-CSRF": "1" }, body: JSON.stringify(body) });
   return parseAuthResponse(r.status, r.ok, r.headers.get("Retry-After"), await r.text());
 }
 
 export async function login(username: string, password: string) {
-  await post("/api/auth/login", { username, password });
+  await post("/api/auth/web/login", { username, password });
   await refreshAuth();
 }
 
 export async function logout() {
-  await post("/api/auth/logout", {});
+  await post("/api/auth/web/logout", {});
   await refreshAuth();
 }
 

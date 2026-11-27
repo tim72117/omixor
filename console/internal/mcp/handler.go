@@ -33,6 +33,8 @@ type Call struct {
 	Who *core.Caller
 	// OAuth 呼叫(oauth_tools.go)的核心後端,身分是授權的那個人;不是 nil 時核心的寫入一律用它,不看 Who
 	OAuth *backend.Local
+	// Hidden 呼叫者看不到的受限專案資料(算清單、計數之前要先篩);nil = 不必篩
+	Hidden *core.Hidden
 }
 
 type ToolFunc func(c *Call) (any, error)
@@ -45,6 +47,8 @@ type callCtx struct {
 	who *core.Caller
 	// oauth 見 Call.OAuth
 	oauth *backend.Local
+	// hidden 見 Call.Hidden
+	hidden *core.Hidden
 	// locked 現在是不是拿著 App.Mu(Env 的 Lock/Unlock 設定):Issue 工具會上鎖,核心的角色工具不上鎖,
 	// 同一個 callCtx 的方法兩種情況都會被呼叫,要靠它知道能不能再鎖(見 tools_core.go 的 withMu)
 	locked bool
@@ -176,7 +180,7 @@ func mustServer() *coremcp.Server {
 func Register(name string, f ToolFunc) {
 	srv.Register(name, func(c *coremcp.Call) (any, error) {
 		x := c.Ctx.(*callCtx)
-		return f(&Call{App: x.App, Args: c.Args, Actor: x.Actor, Who: x.who, OAuth: x.oauth})
+		return f(&Call{App: x.App, Args: c.Args, Actor: x.Actor, Who: x.who, OAuth: x.oauth, Hidden: x.hidden})
 	})
 }
 
@@ -231,6 +235,11 @@ func Run(a *core.App, name string, args map[string]any, actor core.Actor) (any, 
 
 // RunAs 同 Run,核心的寫入以網頁呼叫者 who 的身分執行(/api/tool;nil = 系統身分)
 func RunAs(a *core.App, name string, args map[string]any, actor core.Actor, who *core.Caller) (any, error) {
+	return RunHidden(a, name, args, actor, who, nil)
+}
+
+// RunHidden 同 RunAs;hidden 不是 nil 時讀取先拿掉受限專案的資料,清單的 total 與計數才不會算進去
+func RunHidden(a *core.App, name string, args map[string]any, actor core.Actor, who *core.Caller, hidden *core.Hidden) (any, error) {
 	if err := rejectIdentity(name, args); err != nil {
 		return nil, err
 	}
@@ -239,5 +248,5 @@ func RunAs(a *core.App, name string, args map[string]any, actor core.Actor, who 
 			return nil, err
 		}
 	}
-	return srv.Run(name, args, &callCtx{App: a, Actor: actor, who: who})
+	return srv.Run(name, args, &callCtx{App: a, Actor: actor, who: who, hidden: hidden})
 }

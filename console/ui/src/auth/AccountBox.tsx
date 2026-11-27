@@ -1,103 +1,34 @@
-// 側欄左下角:資料來源與帳號。本機(本機資料與本機登入)和遠端(設定好的 omixor server,用 evoleap 等方式授權)完全分開,
-// 切換時組織清單、Issue 等都換成另一邊的。沒有設定遠端就只有「本機」。
-// 有可以登出的東西(遠端登入、LDAP、或有設定遠端)時,一直看得到「登出」:登出後回到選擇連接對象或 LDAP 登入頁。
-import { useState } from "react";
-import { action, useRun, useView } from "../api";
+// 側欄左下角:目前是誰(LDAP 登入的帳號,或沒啟用登入時的本機使用者)與資料庫狀態;有 LDAP 登入時可以登出。
+import { useRun, useView } from "../api";
 import { Icon } from "../components/Icon";
+import type { Account } from "./account";
 import css from "./auth.module.css";
 import { logout, useAuth } from "./auth";
-import { useCanSwitchTarget, useConnect, type Account, type AccountServer } from "./ConnectGate";
-import { Dropdown, menuItemClass } from "../components/Menu";
 
 export function AccountBox() {
   const [acc] = useView<Account>("account", ["account", "orgs"]);
   const auth = useAuth();
-  const [open, setOpen] = useState(false);
-  const [choosing, setChoosing] = useState<AccountServer>(); // 有多種授權的 server:二次選擇
-  const { busy, error, pending, connect } = useConnect();
   const out = useRun();
-  const canSwitch = useCanSwitchTarget();
   if (!acc) return null;
-  const remote = acc.mode === "remote";
   const ldap = auth?.mode === "ldap" && !!auth.loggedIn;
-  const hasServers = acc.servers.length > 0;
-  const cur = acc.servers.find((s) => s.id === acc.serverId);
-  // 一個區塊顯示「我是誰、資料從哪來」:遠端是遠端登入的帳號;本機是這個網頁的本機使用者(LDAP 登入的帳號或預設使用者)
   const me = auth?.user;
-  const label = remote ? (acc.loggedIn ? acc.email : `${cur?.name ?? "遠端"}:未登入`) : (me?.name ?? "本機使用者");
-  const sub = remote
-    ? (cur?.name ?? "遠端") + (acc.loggedIn ? (acc.role === "admin" ? " · 管理員" : " · 成員") : "")
-    : "本機 · " + (acc.localStorage === "postgres" ? "資料庫" : "檔案") + (ldap && me?.admin ? " · 管理員" : "");
-  const done = () => { setOpen(false); setChoosing(undefined); };
-  const go = async (mode: "local" | "remote", s?: AccountServer, authId?: string, authLabel?: string) => {
-    await connect(mode, s?.id, authId, authLabel);
-    done();
-  };
-  const pickServer = (s: AccountServer) => {
-    if (s.auth.length > 1) setChoosing(s);
-    else void go("remote", s, s.auth[0]?.id, s.auth[0]?.label ?? s.name);
-  };
-  // 登出:遠端先撤銷 token 並切回本機;有設定遠端就回到「選擇連接對象」;最後 LDAP 登出(登出後就不能再呼叫 action)。
-  // 連接對象是大家共用的,只有 web 管理員能動;其他人只登出自己的 LDAP
-  const canLogout = ldap || (canSwitch && (remote || hasServers));
-  const doLogout = () =>
-    out.run(async () => {
-      if (canSwitch && remote) await action("remote_logout");
-      if (canSwitch && (remote || hasServers)) await action("gate_reset");
-      if (ldap) await logout();
-      done();
-    });
-  const err = error ?? out.error ?? (remote ? acc.error : undefined);
+  const sub = (acc.localStorage === "postgres" ? "資料庫" : "沒有資料庫") + (ldap && me?.admin ? " · 管理員" : "");
   return (
     <div className={css.box}>
-      <button className={css.current} onClick={() => { setChoosing(undefined); setOpen(!open); }} title={acc.error ?? undefined}>
-        <Icon name={remote ? "cloud" : "person.crop.circle"} size={16} />
+      <div className={css.current} title={acc.error}>
+        <Icon name="person.crop.circle" size={16} />
         <div className={"col grow " + css.currentText}>
-          <span className="ellipsis">{label}</span>
+          <span className="ellipsis">{me?.name ?? "本機使用者"}</span>
           <span className="caption muted ellipsis">{sub}</span>
         </div>
         {acc.error && <span className={css.errDot} />}
-        <Icon name="chevron.up.chevron.down" size={12} className="muted" />
-      </button>
-      {canLogout && (
-        <button className={css.logout} disabled={out.busy || busy} onClick={() => void doLogout()} title="登出並回到選擇連接對象或登入頁">
+      </div>
+      {ldap && (
+        <button className={css.logout} disabled={out.busy} onClick={() => void out.run(logout)}>
           <Icon name="rectangle.portrait.and.arrow.right" size={13} /> 登出
         </button>
       )}
-      {open && (
-        <Dropdown className={css.menu}>
-          {busy ? (
-            <div className={"caption muted " + css.note6}>請在瀏覽器完成{pending ? ` ${pending} ` : ""}核准…</div>
-          ) : choosing ? (
-            <>
-              <div className={"caption muted " + css.note4}>{choosing.name}:選擇登入方式</div>
-              {choosing.auth.map((a) => (
-                <button key={a.id} className={menuItemClass + " " + css.wrap} onClick={() => void go("remote", choosing, a.id, a.label)}>
-                  <Icon name="key.horizontal" size={14} /> {a.label}
-                </button>
-              ))}
-              <button className={menuItemClass + " " + css.wrap} onClick={() => setChoosing(undefined)}><Icon name="chevron.left" size={14} /> 返回</button>
-            </>
-          ) : (
-            <>
-              <button className={menuItemClass + " " + css.wrap} onClick={() => (remote ? void go("local") : done())}>
-                <Icon name="internaldrive" size={14} /> 本機 {!remote && <span className="muted">✓</span>}
-                <span className="caption muted">本機資料與登入</span>
-              </button>
-              {acc.servers.map((s) => (
-                <button key={s.id} className={menuItemClass + " " + css.wrap} onClick={() => (remote && s.id === acc.serverId ? done() : pickServer(s))}>
-                  <Icon name="cloud" size={14} /> {s.name} {remote && s.id === acc.serverId && <span className="muted">✓</span>}
-                </button>
-              ))}
-              {remote && acc.loggedIn && (
-                <div className={"caption muted " + css.note2}>{acc.name ? acc.name + " · " : ""}{acc.role === "admin" ? "伺服器管理員" : "成員"}</div>
-              )}
-            </>
-          )}
-          {err && <div className={"caption " + css.err}>{err}</div>}
-        </Dropdown>
-      )}
-      {!open && out.error && <div className={"caption " + css.err}>{out.error}</div>}
+      {out.error && <div className={"caption " + css.err}>{out.error}</div>}
     </div>
   );
 }

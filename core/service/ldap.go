@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -28,6 +29,10 @@ type LDAPSettings struct {
 	TrustMail   bool
 	// Failures 失敗鎖定;nil = 這個 service 自己的(宿主另有登入途徑時傳同一個進來共用)
 	Failures *LoginFailures
+	// KeepCase 帳號照輸入的大小寫交給目錄(目錄自己轉小寫當 ID;console 的網頁登入要保留大小寫);false = 先轉小寫
+	KeepCase bool
+	// Rate 這個入口自己的頻率限制,密碼驗證通過不佔名額;nil = 和其他 LDAP 入口共用、成功也計(server 一律 nil)
+	Rate *LoginRate
 	// UncheckedMaxAge 目錄查不了帳號時,一次 OAuth 授權最長可以用多久(0 = DefaultUncheckedLDAPAge),見 oauth_ldap.go
 	UncheckedMaxAge time.Duration
 }
@@ -52,13 +57,44 @@ func (s *Service) LoginWithLDAP(username, password, device, ip string) (*LoginRe
 // ProveLDAP 用目錄帳號密碼證明身分、回傳對上的 omixor 使用者(不發 token;REST 登入與 OAuth 同意頁共用,
 // 因此兩邊的每來源頻率限制、帳號失敗鎖定與稽核是同一份)。密碼不寫進任何紀錄
 func (s *Service) ProveLDAP(set LDAPSettings, username, password, ip string) (*model.User, error) {
+	id, err := s.VerifyDirectory(set, username, password, ip)
+	if err != nil {
+		var de *DirectoryError
+		if errors.As(err, &de) { // 連線、服務帳號、BaseDN 這類設定問題:細節只留在伺服器紀錄,不給登入的人
+			log.Printf("LDAP 驗證失敗(帳號 %s):%v", strings.ToLower(strings.TrimSpace(username)), de.Cause)
+			return nil, fail(502, "LDAP 驗證失敗,請聯絡管理員")
+		}
+		return nil, err
+	}
+	return s.resolveDirectory(set, DirectoryIdentity{ID: id.ID, Email: id.Email, Name: id.Name}, set.isAdmin(id.ID))
+}
+
+// DirectoryError 目錄連線或設定的問題(不代表帳號密碼不對)。Cause 只給宿主寫紀錄、分類成固定句子,不能原樣給登入的人
+type DirectoryError struct{ Cause error }
+
+func (e *DirectoryError) Error() string { return "LDAP 驗證失敗:" + e.Cause.Error() }
+func (e *DirectoryError) Unwrap() error { return e.Cause }
+
+// VerifyDirectory 只驗證目錄帳號密碼、不對應 omixor 使用者:所有目錄登入(REST、OAuth 同意頁、console 網頁)共用的
+// 每來源頻率限制(ip)、帳號失敗鎖定與稽核都在這裡。錯誤:帳密錯 401、不在群組 403、鎖定與太頻繁 429(Data.retryAfter 秒)、
+// 目錄故障或設定問題 *DirectoryError。需要「密碼對了但對不到使用者」要另外處理的宿主用它,再自己呼叫 ResolveDirectoryUserWith
+func (s *Service) VerifyDirectory(set LDAPSettings, username, password, ip string) (*ldapauth.Identity, error) {
 	if set.Dir == nil {
 		return nil, fail(404, "這台伺服器沒有啟用 LDAP 登入")
 	}
-	if !s.allowLogin(&s.logins.ldap, ip) {
-		return nil, fail(429, "登入嘗試太頻繁,請一分鐘後再試")
+	rate := &s.logins.ldap
+	if set.Rate != nil {
+		rate = &set.Rate.w
 	}
-	username = strings.ToLower(strings.TrimSpace(username))
+	window, allowed := s.takeLogin(rate, ip)
+	if !allowed {
+		return nil, &Error{Code: 429, Msg: "登入嘗試太頻繁,請一分鐘後再試", Data: map[string]any{"retryAfter": 60}}
+	}
+	typed := strings.TrimSpace(username)
+	username = strings.ToLower(typed) // 計數與紀錄一律用小寫
+	if !set.KeepCase {
+		typed = username
+	}
 	if username == "" || password == "" {
 		return nil, fail(400, "要給帳號與密碼")
 	}
@@ -71,9 +107,10 @@ func (s *Service) ProveLDAP(set LDAPSettings, username, password, ip string) (*m
 	}
 	if wait, ok := fails.reserve(username, s.now(), max, win); !ok {
 		s.Audit(nil, "login.denied", "", map[string]any{"via": "ldap", "username": username, "reason": "too-many-failures"})
-		return nil, fail(429, "這個帳號連續輸錯太多次,請 %d 分鐘後再試", int(wait/time.Minute)+1)
+		return nil, &Error{Code: 429, Msg: fmt.Sprintf("這個帳號連續輸錯太多次,請 %d 分鐘後再試", int(wait/time.Minute)+1),
+			Data: map[string]any{"retryAfter": max1(int(wait.Seconds()))}}
 	}
-	id, err := set.Dir.Authenticate(username, password)
+	id, err := set.Dir.Authenticate(typed, password)
 	if err != nil {
 		if errors.Is(err, ldapauth.ErrInvalidCredentials) {
 			s.Audit(nil, "login.denied", "", map[string]any{"via": "ldap", "username": username, "reason": "credentials"})
@@ -84,13 +121,21 @@ func (s *Service) ProveLDAP(set LDAPSettings, username, password, ip string) (*m
 			s.Audit(nil, "login.denied", "", map[string]any{"via": "ldap", "username": username, "reason": "not-in-group"})
 			return nil, fail(403, "%s", ldapauth.ErrNotInGroup.Error())
 		}
-		// 連線、服務帳號、BaseDN 這類設定問題:細節只留在伺服器紀錄,不給登入的人
 		fails.Abort(username)
-		log.Printf("LDAP 驗證失敗(帳號 %s):%v", username, err)
-		return nil, fail(502, "LDAP 驗證失敗,請聯絡管理員")
+		return nil, &DirectoryError{Cause: err}
 	}
 	fails.Succeeded(username)
-	return s.resolveDirectory(set, DirectoryIdentity{ID: id.ID, Email: id.Email, Name: id.Name}, set.isAdmin(id.ID))
+	if set.Rate != nil {
+		rate.refund(window, limitKey(ip))
+	}
+	return id, nil
+}
+
+func max1(n int) int {
+	if n < 1 {
+		return 1
+	}
+	return n
 }
 
 // DirectoryIdentity 目錄(LDAP / AD,或宿主自己的帳號目錄)已經驗證過的身分:ID 是穩定的小寫帳號,Email、Name 可以是空的

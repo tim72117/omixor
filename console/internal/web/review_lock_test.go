@@ -69,7 +69,7 @@ func TestSystemOrgLockNeverFreezes(t *testing.T) {
 	t.Cleanup(func() { core.SystemSwitchWait = old })
 	lock := app.SystemOrgLock()
 	lock.RLock()
-	for _, n := range []string{"system_org_set", "org_delete", "org_create", "mode_set"} {
+	for _, n := range []string{"system_org_set", "org_delete", "org_create"} {
 		quick("非管理員 "+n, bob, "POST", "/api/action/"+n, map[string]any{"id": second}, 403)
 	}
 	switchTo(second, 409)

@@ -5,7 +5,7 @@ import type { useAct } from "../../components/Toast";
 import { whoName } from "./itemModel";
 import { acceptIssue, releaseIssue } from "./issueAcceptApi";
 import { useView } from "../../api";
-import type { Account } from "../../auth/ConnectGate";
+import type { Account } from "../../auth/account";
 import { useIsOrgAdmin } from "./issueApi";
 import { acceptState, canRelease, supportsAccept } from "./issueAcceptModel";
 import type { Issue } from "./issueModel";

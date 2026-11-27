@@ -32,6 +32,16 @@ func searchCfg(f *authtest.Fake) Config {
 
 func newSvc(pw string) *Service { return New(&MemorySecrets{PW: pw}) }
 
+// signIn 驗證帳密後建 console 自己的 session(session 的行為;web 的一般登入改用核心的 web session,見 web 套件的測試)
+func signIn(s *Service, user, pw, ip string) (string, User, error) {
+	u, err := s.Verify(user, pw, ip)
+	if err != nil {
+		return "", User{}, err
+	}
+	tok, err := s.StartSession(u, false)
+	return tok, u, err
+}
+
 // MARK: 測試
 
 func TestSearchBindLoginWithGroups(t *testing.T) {
@@ -40,7 +50,7 @@ func TestSearchBindLoginWithGroups(t *testing.T) {
 	if err := s.Save(searchCfg(f), nil); err != nil {
 		t.Fatal(err)
 	}
-	tok, u, err := s.Login("alice", "alice-pw", "127.0.0.1")
+	tok, u, err := signIn(s, "alice", "alice-pw", "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,12 +61,12 @@ func TestSearchBindLoginWithGroups(t *testing.T) {
 		t.Fatal("session 找不到")
 	}
 	// bob 在使用者群組但不是管理員
-	_, u, err = s.Login("bob", "bob-pw", "127.0.0.1")
+	_, u, err = signIn(s, "bob", "bob-pw", "127.0.0.1")
 	if err != nil || u.Admin {
 		t.Fatalf("bob:%+v %v", u, err)
 	}
 	// carol 不在允許的群組
-	if _, _, err := s.Login("carol", "carol-pw", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "不在允許使用") {
+	if _, _, err := signIn(s, "carol", "carol-pw", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "不在允許使用") {
 		t.Fatalf("carol 應該被擋:%v", err)
 	}
 	s.Logout(tok)
@@ -69,8 +79,9 @@ func TestBadPasswordsAndLockout(t *testing.T) {
 	f := authtest.Start(t)
 	s := newSvc("svc-pw")
 	_ = s.Save(searchCfg(f), nil)
+	s.failures.Window = 3 * time.Second
 	for _, c := range []struct{ u, p string }{{"alice", "wrong"}, {"nobody", "x"}, {"alice", ""}, {"", "x"}} {
-		if _, _, err := s.Login(c.u, c.p, "10.0.0.1"); err != ErrBadLogin {
+		if _, _, err := signIn(s, c.u, c.p, "10.0.0.1"); err != ErrBadLogin {
 			t.Fatalf("%q/%q 應該是帳密錯誤,得到 %v", c.u, c.p, err)
 		}
 	}
@@ -78,7 +89,7 @@ func TestBadPasswordsAndLockout(t *testing.T) {
 	f.Mu.Lock()
 	n := len(f.Binds)
 	f.Mu.Unlock()
-	_, _, _ = s.Login("bob", "", "10.0.0.9")
+	_, _, _ = signIn(s, "bob", "", "10.0.0.9")
 	f.Mu.Lock()
 	if len(f.Binds) != n {
 		t.Fatal("空密碼不該送出 bind")
@@ -86,18 +97,18 @@ func TestBadPasswordsAndLockout(t *testing.T) {
 	f.Mu.Unlock()
 	// 同一帳號失敗 5 次就鎖 10 分鐘(換來源也一樣;和 MCP 授權共用同一份計數)
 	for i := 0; i < 5; i++ {
-		_, _, _ = s.Login("bob", "nope", "10.0.0.2")
+		_, _, _ = signIn(s, "bob", "nope", "10.0.0.2")
 	}
 	for _, u := range []string{"bob", "BOB", `CORP\bob`, "bob@corp.test"} {
-		if _, _, err := s.Login(u, "bob-pw", "10.0.0.3"); err == nil || !strings.Contains(err.Error(), "太多次") {
+		if _, _, err := signIn(s, u, "bob-pw", "10.0.0.3"); err == nil || !strings.Contains(err.Error(), "太多次") {
 			t.Fatalf("%q 應該被鎖:%v", u, err)
 		}
 	}
 	if set, _ := s.LDAPSettings(); set.Failures != &s.failures {
 		t.Fatal("MCP 授權要用同一份計數")
 	}
-	s.now = func() time.Time { return time.Now().Add(11 * time.Minute) }
-	if _, _, err := s.Login("bob", "bob-pw", "10.0.0.2"); err != nil {
+	time.Sleep(s.failures.Window) // 測試把鎖定時間縮短了(核心的時鐘換不掉)
+	if _, _, err := signIn(s, "bob", "bob-pw", "10.0.0.2"); err != nil {
 		t.Fatalf("10 分鐘後應該可以登入:%v", err)
 	}
 }
@@ -108,7 +119,7 @@ func TestFilterInjectionIsEscaped(t *testing.T) {
 	_ = s.Save(searchCfg(f), nil)
 	// 想用 * 或 ) 改寫篩選來配對任何人:要被跳脫
 	for _, u := range []string{"*", "alice)(uid=*", "al*"} {
-		if _, _, err := s.Login(u, "alice-pw", "127.0.0.1"); err != ErrBadLogin {
+		if _, _, err := signIn(s, u, "alice-pw", "127.0.0.1"); err != ErrBadLogin {
 			t.Fatalf("%q 應該登不進去:%v", u, err)
 		}
 	}
@@ -128,15 +139,15 @@ func TestDirectBindTemplate(t *testing.T) {
 	if err := s.Save(cfg, nil); err != nil {
 		t.Fatal(err)
 	}
-	_, u, err := s.Login("alice", "alice-pw", "127.0.0.1")
+	_, u, err := signIn(s, "alice", "alice-pw", "127.0.0.1")
 	if err != nil || u.Name != "Alice Chen" || !u.Admin {
 		t.Fatalf("%+v %v", u, err)
 	}
-	if _, _, err := s.Login("alice", "x", "127.0.0.1"); err != ErrBadLogin {
+	if _, _, err := signIn(s, "alice", "x", "127.0.0.1"); err != ErrBadLogin {
 		t.Fatal(err)
 	}
 	// 帳號裡的 DN 特殊字元要跳脫,不能變成別的 DN
-	if _, _, err := s.Login("alice,ou=people", "alice-pw", "127.0.0.1"); err != ErrBadLogin {
+	if _, _, err := signIn(s, "alice,ou=people", "alice-pw", "127.0.0.1"); err != ErrBadLogin {
 		t.Fatal(err)
 	}
 }
@@ -147,7 +158,7 @@ func TestSessionExpiry(t *testing.T) {
 	cfg := searchCfg(f)
 	cfg.SessionHours = 1
 	_ = s.Save(cfg, nil)
-	tok, _, err := s.Login("alice", "alice-pw", "127.0.0.1")
+	tok, _, err := signIn(s, "alice", "alice-pw", "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +226,7 @@ func TestLoginDoesNotLeakLDAPDetails(t *testing.T) {
 	if err := s.Save(cfg, nil); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := s.Login("alice", "pw", "10.1.1.1")
+	_, _, err := signIn(s, "alice", "pw", "10.1.1.1")
 	if err == nil {
 		t.Fatal("要失敗")
 	}

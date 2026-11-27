@@ -136,6 +136,11 @@ func (s *Service) resolveEvoleapUser(evoToken string) (*model.User, model.Time, 
 
 // issueToken 替通過驗證的使用者發一個 omixor token(登入的共同尾段;via 是身分來源,只記在操作紀錄,"" 不記)
 func (s *Service) issueToken(u *model.User, device string, now model.Time, via string) (*LoginResult, error) {
+	return s.issueTokenTTL(u, device, now, via, s.TTL)
+}
+
+// issueTokenTTL 同 issueToken,有效時間另外指定(0 = 不到期)
+func (s *Service) issueTokenTTL(u *model.User, device string, now model.Time, via string, ttl time.Duration) (*LoginResult, error) {
 	device = strings.TrimSpace(device)
 	if device == "" {
 		device = "未命名裝置"
@@ -145,8 +150,8 @@ func (s *Service) issueToken(u *model.User, device string, now model.Time, via s
 	}
 	raw := RandID(TokenPrefix, 32)
 	t := model.Token{ID: RandID("t_", 9), UserID: u.ID, Device: device, CreatedAt: now, Hash: HashToken(raw)}
-	if s.TTL > 0 {
-		exp := model.Time{Time: now.Add(s.TTL)}
+	if ttl > 0 {
+		exp := model.Time{Time: now.Add(ttl)}
 		t.ExpiresAt = &exp
 	}
 	if err := s.Store.CreateToken(t); err != nil {

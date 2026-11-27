@@ -52,7 +52,7 @@ func (a *API) chainRoutes(mux *http.ServeMux) {
 func (a *API) authedOrAgent(h handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		if !strings.HasPrefix(tok, service.TokenPrefix) {
+		if !strings.HasPrefix(tok, service.TokenPrefix) && (a.Session == nil || !a.Session.NoAgentCredentials) {
 			if id, secret, ok := strings.Cut(tok, ":"); ok {
 				p, err := a.Svc.AuthenticateAgent(id, secret, service.ClientIP(r))
 				if err != nil {

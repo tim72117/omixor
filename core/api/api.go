@@ -183,7 +183,11 @@ import (
 	"omixor-core/service"
 )
 
-type API struct{ Svc *service.Service }
+type API struct {
+	Svc *service.Service
+	// Session 宿主(console)才設的瀏覽器 session 與限制;nil = 只收 Bearer(omixor server,行為不變),見 websession.go
+	Session *Session
+}
 
 func New(svc *service.Service) *API { return &API{Svc: svc} }
 
@@ -266,8 +270,7 @@ type handler func(w http.ResponseWriter, r *http.Request, p *model.Principal)
 
 func (a *API) authed(h handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		p, err := a.Svc.Authenticate(tok)
+		p, err := a.principal(r)
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -276,8 +279,8 @@ func (a *API) authed(h handler) http.HandlerFunc {
 	}
 }
 
-func (a *API) Handler() http.Handler {
-	mux := http.NewServeMux()
+// loginRoutes 不用登入就能呼叫的登入端點與手機配對(宿主可以整組不掛,見 Session.NoLoginRoutes)
+func (a *API) loginRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/evoleap", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Token  string `json:"token"`
@@ -332,6 +335,13 @@ func (a *API) Handler() http.Handler {
 		}
 		writeJSON(w, 200, res)
 	})
+}
+
+func (a *API) Handler() http.Handler {
+	mux := http.NewServeMux()
+	if a.Session == nil || !a.Session.NoLoginRoutes {
+		a.loginRoutes(mux)
+	}
 	mux.HandleFunc("GET /api/auth/me", a.authed(func(w http.ResponseWriter, r *http.Request, p *model.Principal) {
 		writeJSON(w, 200, map[string]any{"user": p.User, "token": p.Token})
 	}))

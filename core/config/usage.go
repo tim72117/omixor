@@ -150,7 +150,6 @@ func Markdown() string {
 // behaviorChanges 與舊版行為不同的啟動驗證(名稱、以前、現在);產生 docs/configuration.md 的「與舊版行為不同」一節,給 release note 用
 var behaviorChanges = [][3]string{
 	{"`PORT`(server)", "不檢查,原樣當成監聽位址(0 = 隨機埠、不合法的值到監聽時才失敗)", "要是 1–65535 的整數,否則啟動失敗"},
-	{"`OMIXOR_MCP_PORT`(web、mcp)", "不合法的值靜默改用預設 3765", "要是 1–65535 的整數(0 與超出範圍都拒絕),否則啟動失敗"},
 	{"`OMIXOR_WEB_PORT`(web)", "不合法的值靜默改用預設 5191", "要是 1–65535 的整數,否則啟動失敗"},
 	{"`OMIXOR_TOKEN_DAYS`(server)", "非整數當 0(token 不到期),負數照用", "要是 0–36500 的整數(0 仍是不到期),負數、非整數啟動失敗"},
 	{"`OMIXOR_AGENT_CRED_HOURS`(server)", "不是數字就忽略、用預設", "不是數字啟動失敗(0 或負數仍是「用預設」)"},

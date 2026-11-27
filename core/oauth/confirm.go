@@ -41,6 +41,8 @@ type confirmView struct {
 func renderConfirm(w http.ResponseWriter, provider string, c *service.OAuthConfirmPage) {
 	v := confirmView{OAuthConfirmPage: c, Provider: provider, RedirectHost: "?", Permission: c.Scope + ":唯讀(只能讀取,不能修改任何資料)"}
 	switch c.Grant {
+	case service.OAuthGrantWorker:
+		v.Permission, v.Warn = c.Scope+":任務執行者(只能用派發工具)", workerConsentWarn
 	case service.OAuthGrantWrite:
 		v.Permission, v.Warn = c.Scope+":讀寫(協作類工具)", "這個應用程式將能以你的身分修改資料。"
 	case service.OAuthGrantAdmin:

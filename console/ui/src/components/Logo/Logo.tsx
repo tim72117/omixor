@@ -1,4 +1,4 @@
-// omixor 標誌:跟形象網站(site/favicon.svg)同一個圖,登入、選擇連接對象的畫面用。
+// omixor 標誌:跟形象網站(site/favicon.svg)同一個圖,登入等畫面用。
 // 底色透明,只畫圓環與圓點;顏色挑過,淺色與深色佈景下都看得清楚。
 export function Logo({ size = 28 }: { size?: number }) {
   return (

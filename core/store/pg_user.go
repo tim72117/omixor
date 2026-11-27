@@ -148,6 +148,17 @@ func (p *PG) RevokeToken(id string, at time.Time) error {
 	return err
 }
 
+// RevokeTokensByDevicePrefix 見 Store
+func (p *PG) RevokeTokensByDevicePrefix(prefix string, at time.Time) (int, error) {
+	c, cancel := ctx()
+	defer cancel()
+	tag, err := p.pool.Exec(c, `update omixor_tokens set revoked_at = $2 where revoked_at is null and left(device, length($1::text)) = $1::text`, prefix, at)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 func (p *PG) ListTokens(now time.Time) ([]model.Token, error) {
 	c, cancel := ctx()
 	defer cancel()

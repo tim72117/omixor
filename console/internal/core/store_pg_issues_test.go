@@ -37,7 +37,7 @@ func TestPGIssuesTable(t *testing.T) {
 	org := a.CurrentOrgID()
 	i1 := a.CreateIssue("第一筆", "內文", "high", []string{"a", "b"}, "src", "https://x", "mcp")
 	i2 := a.CreateIssue("第二筆", "", "", nil, "", "", "tim")
-	if b, err := coreBackend(""); err != nil { // 角色署名要先有這個角色
+	if b, err := coreBackend(); err != nil { // 角色署名要先有這個角色
 		t.Fatal(err)
 	} else if _, err := b.SaveAgent(org, model.Agent{ID: "pm", Name: "PM", Active: true}); err != nil {
 		t.Fatal(err)

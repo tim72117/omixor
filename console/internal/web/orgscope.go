@@ -8,7 +8,7 @@ import "strings"
 type orgScopeKind int
 
 const (
-	// scopeSystem 資料在整台一份的狀態裡(整合、範例資料、旁白、助理、自動執行、MCP 權杖以外的設定…):
+	// scopeSystem 資料在整台一份的狀態裡(整合、範例資料、旁白、助理、自動執行等設定…):
 	// 請求的組織是系統工作組織才能用
 	scopeSystem orgScopeKind = iota
 	// scopeOrg 核心資料:照請求帶的組織(X-Omixor-Org)
@@ -42,8 +42,7 @@ var orgActions = nameSet(
 
 var hostActions = nameSet(
 	"org_switch", "org_create", "org_update", "org_delete", "system_org_set", "diagram_svg", "wireframe_svg",
-	"server_features_save", "user_disable", "user_oauth_revoke", "mcp_token_reveal", "mcp_token_rotate",
-	"mode_set", "remote_logout", "gate_reset",
+	"server_features_save", "user_disable", "user_oauth_revoke",
 )
 
 var orgTools = nameSet(

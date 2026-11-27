@@ -82,7 +82,6 @@ export type SystemView = {
   /** core 剛讀到 / cached 用最後一份 / fallback 保守預設 / loading 還在讀 */
   source: "core" | "cached" | "fallback" | "loading";
   error: string;
-  mode: "local" | "remote";
   alwaysOn: string[];
   notice: { seq: number; text: string };
   /** 後端編進來的選用模組(例如 integrations;舊版後端沒有這個欄位時當作全部都有) */

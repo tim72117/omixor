@@ -62,7 +62,7 @@ func (s *Service) FinishOAuthConfirm(kind, token, binding string, allow bool, ex
 	}
 	chk, err := s.CheckOAuthAuthorize(OAuthAuthRequest{ClientID: t.ClientID, RedirectURI: t.RedirectURI, ResponseType: "code",
 		CodeChallenge: t.CodeChallenge, CodeChallengeMethod: "S256", State: state, Scope: t.Scope, Resources: []string{t.Resource},
-		Org: t.Org, Account: t.Org == ""})
+		Org: t.Org, Account: t.Org == "", Worker: hasScope(t.Scope, model.OAuthScopeWorker)})
 	if err != nil {
 		return nil, ErrOAuthConfirmInvalid
 	}

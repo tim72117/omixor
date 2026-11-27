@@ -1,6 +1,6 @@
 // 文件裡的圖表程式碼區塊:```wireframe(線框圖 JSON)、```flowchart(流程圖 JSON 或 Mermaid)、
 // 以及 flowchart / graph 語法的 ```mermaid(其他 Mermaid 圖型照原本顯示程式碼)。
-// 渲染在後端(POST /api/action/diagram_svg {kind, spec} → omixor-core/tools/wireframe、flowchart;本機與遠端模式都在本機算),
+// 渲染在後端(POST /api/action/diagram_svg {kind, spec} → omixor-core/tools/wireframe、flowchart;都在這台伺服器上算),
 // 前端只用 <img src="data:image/svg+xml,…"> 顯示:img 裡的 SVG 不會執行腳本、不會載入外部資源,
 // 所以不用 dangerouslySetInnerHTML。點圖切換「版面寬度 / 原始大小」,圖下方可以展開原始描述;編輯文件時照舊改原文。
 import { useEffect, useState } from "react";

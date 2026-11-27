@@ -34,6 +34,8 @@ func (s *Service) NewOAuthCSRF(c *OAuthAuthChecked, challenge, ip, browser strin
 // csrfScope CSRF token 綁定的 scope 範圍:客戶端有要求管理員 = 管理員,有要求寫入 = 讀寫,否則唯讀
 func csrfScope(c *OAuthAuthChecked) string {
 	switch {
+	case c.Worker:
+		return scopeOfGrant(OAuthGrantWorker)
 	case c.AdminRequested:
 		return scopeOfGrant(OAuthGrantAdmin)
 	case c.WriteRequested:

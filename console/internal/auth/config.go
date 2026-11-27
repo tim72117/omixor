@@ -178,7 +178,7 @@ func (c Config) Warnings() []string {
 	}
 	var out []string
 	if len(c.AdminList()) == 0 {
-		msg := "LDAP 登入已啟用但管理員帳號名單是空的:沒有任何人是網頁管理員(改認證與連線、憑證、查看 MCP 權杖、對外發佈等一律 403);不是任何組織成員的人也不能登入,沒有管理員就沒有人能加成員。" + NoAdminsHelp
+		msg := "LDAP 登入已啟用但管理員帳號名單是空的:沒有任何人是網頁管理員(改認證與連線、憑證、對外發佈等一律 403);不是任何組織成員的人也不能登入,沒有管理員就沒有人能加成員。" + NoAdminsHelp
 		if strings.TrimSpace(c.LDAP.AdminGroup) != "" {
 			msg += "。原本設定的管理員群組已經不使用"
 		}

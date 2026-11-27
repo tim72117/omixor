@@ -12,7 +12,7 @@ import (
 // (omixor-core/model/doctemplates.go;service 存檔前檢查,雲端與本機一致),這裡只負責顯示用的整頁 HTML:
 //   - 有對應範本的文件,畫面用網頁顯示(sandbox 的 iframe);轉換器是 templates/doc/docrender.js(和 Swift 版共用,
 //     由 internal/templates 從 repo 的 templates/ 讀),沒有就照舊顯示 Markdown
-//   - 整頁 HTML 由 web 用核心給的文件與範本產生(本機與遠端模式都一樣),核心不產生 HTML:
+//   - 整頁 HTML 由 web 用核心給的文件與範本產生,核心不產生 HTML:
 //     docrender.js 只有一份(templates/doc/,app 也用同一份),核心模組不需要讀 repo 的 templates/
 
 const DocTemplateKind = model.DocTemplateKind
@@ -54,7 +54,7 @@ func DocPage(md string, t DocTemplate) string {
 }
 
 func init() {
-	// 文件與範本取自核心的文件櫃(未分專案讀快取,專案的文件問核心;本機與遠端模式都一樣)
+	// 文件與範本取自核心的文件櫃(未分專案讀快取,專案的文件問核心)
 	RegisterAction("cabinet_doc_html", func(a *App, args map[string]any) (any, error) {
 		id, _ := args["id"].(string)
 		a.Mu.Lock()
@@ -63,9 +63,9 @@ func init() {
 		a.Mu.Unlock()
 		if d == nil {
 			// 不在快取(未分專案)裡:可能是專案的文件,問核心(鎖外;範本取自那個專案與未分專案的文件)
-			ops := a.CabinetOps()
+			ops := a.CabinetOpsFor(CallerOf(args)) // 專案的文件照呼叫者看得到的
 			x, err := ops.GetDoc(org, id)
-			if err != nil || x == nil || x.Project == "" {
+			if err != nil || x == nil || x.Project == "" || HiddenOf(args).Project(x.Project) {
 				return map[string]any{"html": nil}, nil
 			}
 			d = x

@@ -46,8 +46,10 @@ type ChannelConfig struct {
 	AgentID  string                 // 只通知這個角色的任務;空 = 全部角色
 	Interval time.Duration          // 查詢間隔;0 = 30 秒,最少 5 秒
 	Auto     bool                   // true:指示 Claude 收到就領取並以角色身分處理;false:只告訴使用者、等使用者決定
-	Name     string                 // 伺服器名稱(serverInfo);空 = omixor-tasks
-	Logf     func(format string, a ...any)
+	// Worker 搭配的 omixor MCP 是執行者端點 /mcp/worker/{org}:說明改用 dispatch_*(那裡沒有 server、agent_task_claim)
+	Worker bool
+	Name   string // 伺服器名稱(serverInfo);空 = omixor-tasks
+	Logf   func(format string, a ...any)
 }
 
 // channelProtocol 回給 Claude Code 的協定版本(用文件範例 SDK 會談成的版本)
@@ -66,6 +68,16 @@ func (c ChannelConfig) instructions() string {
 		where = "These tasks are on " + c.Server + ". "
 	}
 	fmt.Fprintf(b, " %sThe org attribute of each notification is the organization the task belongs to. Before claiming, use the server tool of the omixor MCP to confirm it is connected to the same omixor service (one service may have different URLs, e.g. a custom domain and a run.app URL; judge by the version or organization list that server reports) and that the current organization matches the notification's org (on a cloud connection the organization id may appear as ~<server>~<org>); if they do not match, do not claim it and tell the user.", where)
+	if c.Worker {
+		fmt.Fprintf(b, " %sThe org attribute of each notification is the organization the task belongs to. The omixor MCP of this session is that organization's worker endpoint: before claiming, use dispatch_queue to confirm the task is listed there; if it is not, do not claim it and tell the user.", where)
+		claim := "dispatch_claim (parameters agent=<agent_id>, id=<task_id>)"
+		if c.Auto {
+			b.WriteString(" After confirming, claim with " + claim + ", work as that agent following the returned agent instructions and task description, and report with dispatch_report using the claim code; report blocked when a human decision is needed. If it has already been claimed by someone else (409), skip it.")
+		} else {
+			b.WriteString(" On receipt, tell the user in one or two sentences which new tasks there are (number, agent, title, priority) and ask whether to claim them; only if the user agrees, claim with " + claim + ".")
+		}
+		return b.String()
+	}
 	claim := "agent_task_claim (parameters agent=<agent_id>, id=<task_id>; always pass id, otherwise it claims that agent's highest-priority task instead)"
 	if c.Auto {
 		b.WriteString(" After confirming, claim with " + claim + ", work as that agent following the returned agent instructions and task description, and report with agent_task_report; report blocked when a human decision is needed. If it has already been claimed by someone else (409), skip it.")

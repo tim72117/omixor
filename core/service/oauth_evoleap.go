@@ -58,6 +58,8 @@ func oauthEvoleapGrantLabel(clientName, grant string) string {
 		suffix = " (read-write)"
 	case OAuthGrantAdmin:
 		suffix = " (org-admin)"
+	case OAuthGrantWorker:
+		suffix = " (task-worker)"
 	}
 	prefix := oauthEvoleapName + ": "
 	name := []rune(cleanClientName(clientName))
@@ -173,10 +175,10 @@ func (s *Service) CompleteOAuthEvoleap(evoID, evoCode, binding string) (*OAuthEv
 		return nil, err
 	}
 	// 交易核對過:轉址是當初驗證過的。再驗一次整個授權請求(用戶端、redirect_uri 還在不在註冊清單、resource、PKCE 格式、scope)
-	grant := []string{OAuthGrantRead, OAuthGrantWrite, OAuthGrantAdmin}[scopeLevel(t.Scope)]
+	grant := grantOfScope(t.Scope)
 	chk, err := s.CheckOAuthAuthorize(OAuthAuthRequest{ClientID: t.ClientID, RedirectURI: t.RedirectURI, ResponseType: "code",
 		CodeChallenge: t.CodeChallenge, CodeChallengeMethod: "S256", State: state, Scope: t.Scope, Resources: []string{t.Resource},
-		Org: t.Org, Account: t.Org == ""})
+		Org: t.Org, Account: t.Org == "", Worker: hasScope(t.Scope, model.OAuthScopeWorker)})
 	if err != nil {
 		var oe *OAuthError
 		if errors.As(err, &oe) && !oe.NoRedirect {

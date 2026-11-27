@@ -38,9 +38,7 @@ func TestRestrictedNoLeakByAliasOrDerivedReads(t *testing.T) {
 		if code, out := bob.do("POST", "/api/issues/"+org+"/"+ref+"/delete", map[string]any{}, nil); code != 404 {
 			t.Fatalf("刪除 %s:%d %v", ref, code, out)
 		}
-		if code, out := bob.do("POST", "/api/tool/issues", map[string]any{"id": ref}, nil); code != 404 {
-			t.Fatalf("tool issues %s:%d %v", ref, code, out)
-		}
+		toolLikeMissing(t, bob, "issues", ref, nil)
 	}
 	code, out := bob.do("POST", "/api/action/issue_resolve", map[string]any{"ref": oldKey}, nil)
 	if code != 404 {

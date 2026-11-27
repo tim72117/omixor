@@ -19,14 +19,10 @@ import (
 	"omixor-web/internal/core"
 )
 
-// 和 omixor server 相同的單一 MCP 入口(OAuth),讓遠端 MCP 用戶端(Claude Code、claude.ai 等)連到這台 console。掛在哪裡:
-//   - 有設 OMIXOR_PUBLIC_URL、沒設 OMIXOR_OAUTH_ADDR:掛在畫面連接埠(同 server 的同埠作法,見 WebEntry)
-//   - 有設 OMIXOR_OAUTH_ADDR:掛在那個獨立連接埠(舊作法,行為不變,見 StartOAuth)
-//   - 都沒設:沒有
+// 和 omixor server 相同的單一 MCP 入口(OAuth)。掛在哪裡見 entry.go;設了 OMIXOR_OAUTH_ADDR 時完整入口在獨立連接埠(StartOAuth)。
 //
 // 只服務:/oauth/*、/.well-known/*,以及四種 MCP 端點 /mcp、/mcp/org/{org}、/mcp/agent、/mcp/worker/{org}(core/oauth 的 MCPMount,和 server/server.go 同一份)。
-// console 專有工具也掛在這個入口的 /mcp(只給 OAuth,見 oauth_tools.go)。
-// console 自己的 MCP 連接埠(3765,Bearer omxm_)完全不變;這個入口不收 omxm_ 權杖,也沒有配對碼(server 的 /api/* 一概沒有)。
+// console 專有工具也掛在這個入口的 /mcp(只給 OAuth,見 oauth_tools.go)。沒有配對碼(server 的 /api/pair 這類一概沒有)。
 // 同意畫面證明身分:evoleap、GitLab,以及 console 認證設定啟用 LDAP 時的 LDAP 帳號密碼(對應核心使用者 ldap:<帳號>)。
 // 授權、使用者、組織與工具全是核心的(core/oauth、core/service、core/mcp):這裡只接 console 的核心 service(同一個實例,使用者與組織共用)
 // 與畫面快取。console 才有的工具對 omx_ token、/mcp/org、角色與執行者端點都不開放。
@@ -35,49 +31,26 @@ import (
 // LDAPSource 目前的 LDAP 登入設定與是否啟用(console 的認證設定可以在執行中改)
 type LDAPSource = func() (service.LDAPSettings, bool)
 
-// webEntryProblem 設了 OMIXOR_PUBLIC_URL、要在畫面連接埠掛入口時哪裡不合(空字串 = 可以掛)。
-// 這個值以前在沒有 OMIXOR_OAUTH_ADDR 時沒有作用,所以條件不合只警告、不啟用,不擋啟動
-func webEntryProblem(cfg *config.Config, hasDB, remote bool) string {
-	if p := config.WebPublicURLProblem(cfg); p != "" {
-		return p
-	}
-	switch {
-	case remote:
-		return "遠端模式沒有 MCP 入口:授權與使用者在那台 omixor server"
-	case !hasDB:
-		return "需要 PostgreSQL(OMIXOR_DATABASE_URL 與 OMIXOR_SECRET_KEY)"
-	}
-	return ""
-}
-
-// useWebEntry 入口要不要掛在畫面連接埠
-func useWebEntry(cfg *config.Config) bool {
-	return !cfg.IsSet(config.OAuthAddr) && cfg.IsSet(config.PublicURL) && webEntryProblem(cfg, core.DB() != nil, core.IsRemote()) == ""
-}
-
-// oauthEnv 啟動自我檢查的輸入(檢查本身在 core/oauth 的 Diagnose,server 共用):執行期的事實(要連 PostgreSQL、不是遠端模式)在這裡取
+// oauthEnv 啟動自我檢查的輸入(檢查本身在 core/oauth 的 Diagnose,server 共用):執行期的事實(要連 PostgreSQL)在這裡取
 func oauthEnv(cfg *config.Config, providers []oauth.IdentityProvider) oauth.Env {
-	return oauth.Env{Cfg: cfg, Prog: config.Web, Providers: providers, HasDB: core.DB() != nil, Remote: core.IsRemote()}
+	return oauth.Env{Cfg: cfg, Prog: config.Web, Providers: providers, HasDB: core.DB() != nil}
 }
 
 // PrepareOAuth 要開 MCP 入口時,在建核心(core.New)之前呼叫:檢查條件、讓核心的 service 套上 evoleap 與 GitLab 登入設定。
-// OMIXOR_OAUTH_ADDR 條件不合(oauth.Diagnose 的致命項目;摘要等 StartOAuth 一起印)回錯誤(拒絕啟動);只設 OMIXOR_PUBLIC_URL 而條件不合只警告。兩個都沒設什麼都不做
+// OMIXOR_OAUTH_ADDR 條件不合(oauth.Diagnose 的致命項目;摘要等 StartOAuth 一起印)回錯誤(拒絕啟動);沒有入口(沒有資料庫等)什麼都不做
 func PrepareOAuth(cfg *config.Config) error {
 	separate := cfg.IsSet(config.OAuthAddr)
-	switch {
-	case separate:
+	if separate {
 		if err := oauth.FatalError(oauth.Diagnose(oauthEnv(cfg, nil))); err != nil {
 			return err
 		}
-	case cfg.IsSet(config.PublicURL):
-		if p := webEntryProblem(cfg, core.DB() != nil, core.IsRemote()); p != "" {
-			log.Printf("警告:設了 OMIXOR_PUBLIC_URL,但畫面連接埠不啟用 MCP 入口:%s", p)
-			return nil
-		}
-	default:
+	}
+	plan := planEntry(cfg, core.DB() != nil)
+	if plan.mode == entryNone {
 		return nil
 	}
-	gitlab, err := consoleGitLab(cfg)
+	eff := entryConfig(cfg, plan)
+	gitlab, err := consoleGitLab(eff)
 	if err != nil {
 		if separate {
 			return err
@@ -86,30 +59,10 @@ func PrepareOAuth(cfg *config.Config) error {
 		gitlab = nil
 	}
 	core.ConfigureLocalService(func(svc *service.Service) {
-		oauth.ConfigureService(svc, cfg)
+		oauth.ConfigureService(svc, eff)
 		svc.GitLab = gitlab
 	})
 	return nil
-}
-
-// WebEntry 掛在畫面連接埠的 MCP 入口;不該掛(沒設 OMIXOR_PUBLIC_URL、改用 OMIXOR_OAUTH_ADDR、條件不合)回 nil
-func WebEntry(app *core.App, cfg *config.Config, ldap LDAPSource) http.Handler {
-	if !useWebEntry(cfg) {
-		return nil
-	}
-	log.Printf("MCP 入口:%s/mcp(掛在畫面連接埠;反向代理要轉發 /mcp、/oauth/、/.well-known/)", publicURL(cfg))
-	if svc := core.AgentService(); svc == nil {
-		log.Printf("警告:核心還沒準備好(PostgreSQL 連不上?),MCP 入口暫時回 503")
-		warnNoLogin(cfg, ldap) // 沒有 service 跑不了自我檢查,只看設定
-	} else if err := selfCheck(svc, cfg, ldap); err != nil {
-		log.Printf("警告:%v", err)
-	}
-	return newOAuthPort(core.AgentService, func(svc *service.Service) http.Handler { return newOAuthHandler(app, svc, cfg, ldap) })
-}
-
-// selfCheck 印 OAuth 啟動自我檢查摘要(看的登入方式和授權頁是同一份 consoleProviders),回傳致命問題
-func selfCheck(svc *service.Service, cfg *config.Config, ldap LDAPSource) error {
-	return oauth.Startup(oauthEnv(cfg, consoleProviders(svc, publicURL(cfg), ldap)), log.Printf)
 }
 
 // consoleProviders 同意畫面證明身分的方式:evoleap、GitLab,以及有給 ldap 時的 LDAP 帳號密碼。
@@ -227,7 +180,7 @@ func newOAuthHandler(app *core.App, svc *service.Service, cfg *config.Config, ld
 		Begin: act.Begin, Tool: act.Tool,
 		HostTools: oauthHostTools(app), // console 專有工具,依分級只給 OAuth(oauth_tools.go)
 		Reject:    func(p *model.Principal) bool { return core.IsLocalUser(p.User) },
-		// 和本機連接埠的 /mcp/agent 共用同一個 service:失敗次數分開計,遠端猜錯憑證(反向代理後面來源常是 127.0.0.1)不會把本機的角色擋掉
+		// 和本機的 /mcp/agent 共用同一個 service:失敗次數分開計,遠端猜錯憑證(反向代理後面來源常是 127.0.0.1)不會把本機的角色擋掉
 		AgentSource: remoteAgentSource,
 		AgentDone: func(role coremcp.Role, tool string, err error) {
 			app.RoleCallDone(role.Org, role.TaskID, tool, err)
@@ -245,7 +198,8 @@ func remoteAgentSource(r *http.Request) string {
 	return "remote:" + service.LimitKey(service.ClientIP(r))
 }
 
-// isWriteTool 不是唯讀登記的工具就當會寫入(寫入後要重讀 console 的快取;核心工具見 coremcp.ReadOnlyTools,專有工具見 oauthConsoleTools)
+// isWriteTool 不是唯讀登記的工具就當會寫入(寫入後要重讀 console 的快取;核心工具見 coremcp.ReadOnlyTools,專有工具見 oauthConsoleTools)。
+// dispatch_queue、dispatch_status 只讀(任務頻道會定時呼叫,不能每次都重讀)
 func isWriteTool(name string) bool {
-	return !coremcp.ReadOnlyTools[name] && oauthConsoleTools[name].Tier != coremcp.TierRead
+	return !coremcp.ReadOnlyTools[name] && oauthConsoleTools[name].Tier != coremcp.TierRead && name != "dispatch_queue" && name != "dispatch_status"
 }

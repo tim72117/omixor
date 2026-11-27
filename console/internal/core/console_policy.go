@@ -19,7 +19,7 @@ func (a *App) ConsoleAdmins() (isAdmin func(account string) bool, ok bool) {
 // SystemOrgLock 系統工作組織的讀寫鎖(見 system_gate.go)
 func (a *App) SystemOrgLock() *SystemGate { return &a.root().systemGate }
 
-// 受限專案的輸出篩選(給不是網頁管理員的人;為什麼是輸出層篩選見 web/restricted.go)
+// 受限專案的輸出篩選(set = 呼叫者看不到的專案,見 restricted_visibility.go;為什麼是輸出層篩選見 web/restricted.go)
 
 // ScrubRestricted 把 JSON 值(Object 轉出來的)裡屬於受限專案的物件拿掉。
 // 回傳 (新的值, 這個值本身是不是受限專案的物件)。物件的判斷:project 欄位是受限專案 id(Issue、文件、頻道綁定…);
@@ -30,12 +30,16 @@ func ScrubRestricted(v any, set map[string]bool, unknown bool) (any, bool) {
 		if p, ok := x["project"].(string); ok && p != "" && (unknown || set[p]) {
 			return nil, true
 		}
-		if b, ok := x["restricted"].(bool); ok && b {
-			if id, _ := x["id"].(string); unknown || set[id] {
+		// 專案物件:以這次查到的清單為準,不看物件上的旗標(快取可能還是改成受限之前的 restricted = false)
+		if b, ok := x["restricted"].(bool); ok {
+			if id, _ := x["id"].(string); set[id] || unknown && b {
 				return nil, true
 			}
 		}
 		for k, y := range x {
+			if k == "query" { // 呼叫者自己送的條件原樣回顯(issue_query):拿掉反而看得出那個專案存在
+				continue
+			}
 			ny, drop := ScrubRestricted(y, set, unknown)
 			if drop {
 				delete(x, k) // 欄位值本身是受限的物件(例如 {"project": {...}}):整個欄位拿掉

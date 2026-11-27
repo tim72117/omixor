@@ -17,7 +17,7 @@ func TestAdminsByAccountList(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Save(Config{Mode: "off"}, nil) })
-	tok, u, err := s.Login("alice", "alice-pw", "127.0.0.1")
+	tok, u, err := signIn(s, "alice", "alice-pw", "127.0.0.1")
 	if err != nil || u.Admin {
 		t.Fatalf("名單空白不該有管理員:%+v %v", u, err)
 	}

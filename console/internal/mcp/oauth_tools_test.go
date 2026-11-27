@@ -200,7 +200,7 @@ func TestOAuthConsoleToolsMembershipAndOrg(t *testing.T) {
 	// 整台一份的功能只能用系統工作組織:換自己的組織拿不到
 	r.expectError(carol, "list", map[string]any{"org": r.beta, "collection": "alerts"}, "system working organization")
 	r.expectError(r.token("alice", "admin"), "log_append", map[string]any{"org": r.beta}, "system working organization")
-	// 遠端模式、web 層沒接上:拒絕
+	// web 層沒接上:拒絕
 	r.app.SetPerUserUI(func() bool { return true })
 	fresh := iaApp(t)
 	if _, err := identifyOAuth(fresh, model.User{EvoleapID: "ldap:alice"}); err == nil {

@@ -13,7 +13,7 @@ import (
 // CabinetOps 文件櫃的寫入。呼叫時不要拿著 Mu
 type CabinetOps struct {
 	a *App
-	// who 網頁的呼叫者;nil = 系統身分(舊資料匯入、MCP 3765)
+	// who 網頁的呼叫者;nil = 系統身分(舊資料匯入、沒有登入者的呼叫)
 	who *Caller
 }
 
@@ -23,7 +23,7 @@ func (a *App) CabinetOps() CabinetOps { return CabinetOps{a: a} }
 func (a *App) CabinetOpsFor(who *Caller) CabinetOps { return CabinetOps{a: a, who: who} }
 
 // be 寫入用的核心:呼叫者在 org 的身分
-func (o CabinetOps) be(org string) (backend.Backend, error) { return coreBackendFor(o.who, "", org) }
+func (o CabinetOps) be(org string) (backend.Backend, error) { return coreBackendFor(o.who, org) }
 
 // projectsDone 專案或成員寫入成功後:受限專案快取作廢、清單換新、通知畫面
 func (o CabinetOps) projectsDone(org string) {
@@ -125,7 +125,7 @@ func (o CabinetOps) DeleteDoc(org, id string) error {
 	return err
 }
 
-// SaveLayout 存未分專案的新結構(核心檢查:被拿掉的區塊、頁籤裡不能還有文件;遠端模式要組織管理員)
+// SaveLayout 存未分專案的新結構(核心檢查:被拿掉的區塊、頁籤裡不能還有文件)
 // expected 非 nil 是樂觀鎖(版本不符 409,訊息「結構已被別人更新,請重新載入」);nil 是無鎖覆蓋
 func (o CabinetOps) SaveLayout(org string, layout []CabinetSection, expected *int64) ([]CabinetSection, error) {
 	return o.SaveProjectLayout(org, "", layout, expected)

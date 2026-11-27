@@ -13,9 +13,9 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 
 | 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
 |---|---|---|---|---|---|---|---|
-| `OMIXOR_DATABASE_URL` | `OPS_DATABASE_URL` | 網址或 key=value(postgres/postgresql) |  | server | 是 | server、local、web | PostgreSQL 連線設定,網址形式(postgres://使用者:密碼@主機/資料庫,可有多個主機、unix socket)或 key=value 形式(host=/cloudsql/專案:區域:執行個體 user=… password=… dbname=…,Cloud SQL 常用);密碼(網址的密碼、query 的 password/sslpassword、key=value 的 password=)會被遮蔽。server 必填;local 沒設就啟動內建的 PostgreSQL;web 的本機模式必填(沒設就不能用);遠端模式沒設時,本機設定存成資料夾裡的 JSON 檔。獨立模式的 omixor-local 也會使用它(例如開發用的 docker-compose 為 omixor-web 設的) |
+| `OMIXOR_DATABASE_URL` | `OPS_DATABASE_URL` | 網址或 key=value(postgres/postgresql) |  | server | 是 | server、local、web | PostgreSQL 連線設定,網址形式(postgres://使用者:密碼@主機/資料庫,可有多個主機、unix socket)或 key=value 形式(host=/cloudsql/專案:區域:執行個體 user=… password=… dbname=…,Cloud SQL 常用);密碼(網址的密碼、query 的 password/sslpassword、key=value 的 password=)會被遮蔽。server 必填;local 沒設就啟動內建的 PostgreSQL;web 也必填(沒設就不能用組織與 Issue 等)。獨立模式的 omixor-local 也會使用它(例如開發用的 docker-compose 為 omixor-web 設的) |
 | `OMIXOR_ADDR` |  | 字串 | server: :$PORT(沒有 PORT 就 :8080);local:獨立模式 127.0.0.1:8770、App 模式 127.0.0.1:0 |  |  | server、local | HTTP 監聽位址。local 只接受本機位址 |
-| `OMIXOR_SERVER` | `OPS_ISSUE_SERVER` | 網址(http/https) | cli:上次登入的、舊版登入資料的、正式站 |  |  | cli、web | 連哪一台 omixor server。cli:--server 旗標優先於它;web:設了就是遠端模式,授權、組織、Issue 交給那台 |
+| `OMIXOR_SERVER` | `OPS_ISSUE_SERVER` | 網址(http/https) | cli:上次登入的、舊版登入資料的、正式站 |  |  | cli、web | 連哪一台 omixor server。cli:--server 旗標優先於它。web:不再使用(遠端模式已移除);升級前只靠它進遠端模式的安裝會拒絕啟動,執行一次 omixor-web leave-remote 或拿掉這個變數 |
 | `OMIXOR_SECRET_KEY` | `OPS_SECRET_KEY` | 金鑰(32 bytes) |  |  | 是 | server、web | 加密機密用的金鑰:32 bytes,寫成 64 個 hex 字元或 base64(openssl rand -base64 32)。console 用資料庫時必填(加密 token 與密碼);伺服器目前只檢查格式,還沒有用它加密任何資料。要固定保存:console 只用這一把解密,換掉後已存的密鑰會解不開(就算把舊的放進 OMIXOR_SECRET_KEYS_OLD 也一樣) |
 | `OMIXOR_SECRET_KEYS_OLD` |  | 金鑰清單(逗號分隔) | 沒有舊金鑰 |  | 是 | server、web | 保留給金鑰輪替的舊金鑰清單,逗號分隔、格式同 OMIXOR_SECRET_KEY。目前只檢查格式:console 不讀它、伺服器也還沒有用到,不能靠它更換金鑰 |
 | `OMIXOR_MCP_LIST_TTL_SECONDS` |  | 整數(0–86400) | `300` |  |  | server、local、web | MCP 2026-07-28 請求的快取提示:server/discover、tools/list、resources/list、resources/read 結果的 ttlMs 取自這個秒數(0 = 一律視為過期);舊版協定的回應不帶快取提示 |
@@ -24,15 +24,15 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 
 | 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
 |---|---|---|---|---|---|---|---|
-| `OMIXOR_PUBLIC_URL` |  | 網址(http/https) |  |  |  | server、web | 對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent,也是 OAuth 的 issuer 與 resource 的來源。local 啟動時自己填上。web:對外 MCP(OAuth)的網址,必須是 https(本機位址 localhost、127.0.0.1、[::1] 除外),只放網址、不放路徑。沒設 OMIXOR_OAUTH_ADDR 時,設了它就在畫面連接埠掛上和 server 相同的 MCP 入口(/mcp、/oauth/*;需要 PostgreSQL、非遠端模式,條件不合只警告、不啟用);設了 OMIXOR_OAUTH_ADDR 時入口在那個連接埠(這時必填) |
+| `OMIXOR_PUBLIC_URL` |  | 網址(http/https) |  |  |  | server、web | 對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent,也是 OAuth 的 issuer 與 resource 的來源。local 啟動時自己填上。web:對外 MCP(OAuth)的網址,必須是 https(本機位址 localhost、127.0.0.1、[::1] 除外),只放網址、不放路徑。沒設 OMIXOR_OAUTH_ADDR 時,畫面連接埠的 MCP 入口(/mcp、/oauth/*,和 server 相同;需要 PostgreSQL)以它為對外網址;沒設或不合格(只警告)時入口只收同一台電腦直接連進來的,網址是 http://127.0.0.1:<畫面連接埠>;設了 OMIXOR_OAUTH_ADDR 時入口在那個連接埠(這時必填) |
 | `OMIXOR_SITE_DIR` |  | 路徑 |  |  |  | server | 形象網站檔案所在的資料夾(Docker 映像裡是 /site);沒設或不存在就不提供網站 |
 | `OMIXOR_TOKEN_DAYS` |  | 整數(0–36500) | `90` |  |  | server | 使用者 token 的有效天數 |
 | `OMIXOR_ADMIN_BOOTSTRAP_EMAIL` |  | 字串 |  |  |  | server | 第一位管理員的 email(資料庫還沒有管理員時,這個 email 登入就成為管理員) |
 | `OMIXOR_AGENT_CRED_HOURS` |  | 小數 | 服務內建的預設 |  |  | server | 領取任務時發給角色的憑證有效小時數(要大於 0,否則用預設) |
-| `OMIXOR_TRUSTED_PROXY_HOPS` |  | 整數(0–16) | server:有 K_SERVICE(Cloud Run)是 1,否則 0;web:0 |  |  | server、web | 信任的代理層數,決定怎麼取請求來源 IP(頻率限制、稽核用;web 只有對外 MCP 連接埠用到)。0 = 不看 X-Forwarded-For,用連線位址;N = 取 X-Forwarded-For 由右數第 N 個(最右邊是離伺服器最近的代理加的;項目不足或不是合法 IP 就退回連線位址)。Cloud Run 直接對外是 1;前面再加 HTTPS 負載平衡器要設 2。設太大會讓呼叫者能自己填來源、繞過每 IP 限制;設太小會讓代理的位址被當成來源、全部人共用一個額度 |
+| `OMIXOR_TRUSTED_PROXY_HOPS` |  | 整數(0–16) | server:有 K_SERVICE(Cloud Run)是 1,否則 0;web:0 |  |  | server、web | 信任的代理層數,決定怎麼取請求來源 IP(頻率限制、稽核用;web 用在登入與 MCP 授權)。0 = 不看 X-Forwarded-For,用連線位址;N = 取 X-Forwarded-For 由右數第 N 個(最右邊是離伺服器最近的代理加的;項目不足或不是合法 IP 就退回連線位址)。Cloud Run 直接對外是 1;前面再加 HTTPS 負載平衡器要設 2。設太大會讓呼叫者能自己填來源、繞過每 IP 限制;設太小會讓代理的位址被當成來源、全部人共用一個額度 |
 | `K_SERVICE` |  | 字串 |  |  |  | server | Cloud Run 自動帶入的服務名稱(不是 omixor 專用名稱);有值就表示跑在 Cloud Run,OMIXOR_TRUSTED_PROXY_HOPS 預設 1 |
 | `PORT` |  | 整數(1–65535) | `8080` |  |  | server | Cloud Run 等平台指定的連接埠;沒設 OMIXOR_ADDR 時監聽 :$PORT(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴) |
-| `EVOLEAP_URL` |  | 網址(http/https) | `https://evoleap.io` |  |  | server、web | evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)。web:只有對外 MCP 連接埠(OMIXOR_OAUTH_ADDR)的 evoleap 登入用;遠端模式登入用的是 OMIXOR_EVOLEAP |
+| `EVOLEAP_URL` |  | 網址(http/https) | `https://evoleap.io` |  |  | server、web | evoleap 登入服務的網址(沒有 OMIXOR_ 前綴,沿用原名)。web:只有對外 MCP 連接埠(OMIXOR_OAUTH_ADDR)的 evoleap 登入用 |
 | `OMIXOR_OAUTH_EVOLEAP_LOGIN` |  | 布林 | `true` |  |  | server、web | OAuth 同意畫面提供「用 evoleap 登入並允許」(瀏覽器登入,不用配對碼;需要 OMIXOR_PUBLIC_URL)。server:設 false 關掉,同意畫面只剩配對碼;web:同意畫面是 evoleap、GitLab 與 LDAP 帳號密碼(console 的認證設定啟用 LDAP 時;不提供配對碼);只用 LDAP 時可以設 false |
 
 ## LDAP 登入(omixor-server)
@@ -87,9 +87,6 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 
 | 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
 |---|---|---|---|---|---|---|---|
-| `OMIXOR_SERVER_TOKEN` | `OPS_ISSUE_SERVER_TOKEN` | 字串 |  |  | 是 | web | 遠端模式連 OMIXOR_SERVER 用的固定 token(沒設就用存著的登入、401 時走 evoleap 換) |
-| `OMIXOR_SERVERS` |  | 字串 |  |  | 是 | web | 可以連的遠端 omixor 清單:JSON 陣列,或指向 JSON 檔的路徑(內容可能含 token,視為機密) |
-| `OMIXOR_EVOLEAP` |  | 網址(http/https) | 內建的 evoleap 連線 |  |  | web | 遠端模式登入用的 evoleap 網址 |
 | `OMIXOR_EVOLEAP_CONSOLE` |  | 網址(http/https) |  |  |  | server、web | evoleap 核准頁網址(沒設就用 evoleap 的網址)。伺服器用它把 OAuth 同意畫面的「用 evoleap 登入並允許」導去 <網址>/login/cli?id=… |
 | `OMIXOR_NO_TIMERS` | `OPS_NO_TIMERS` | 布林 |  |  |  | web | 不開背景計時器(例行任務、輪詢;測試用) |
 | `OMIXOR_NO_BROWSER` | `OPS_NO_BROWSER` | 旗標(有設就算) |  |  |  | web | 啟動時不自動開瀏覽器(Docker 映像預設開著)。有設就不開:任何非空值都算,包含 0、false |
@@ -100,11 +97,8 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | `OMIXOR_CLAUDE_BIN` |  | 路徑 | 常見安裝位置,再找 PATH |  |  | web | claude 執行檔路徑(自動執行角色任務用) |
 | `OMIXOR_OFFICE_DIR` |  | 路徑 | <執行檔>/../../office3d、<執行檔>/../office3d、<執行檔>/office3d |  |  | web | 3D 辦公室(office3d)資料夾,裡面要有 places.json |
 | `OMIXOR_TEMPLATES` |  | 字串 | 不載入範本 |  |  | web | 範本資料:1/on/true/yes/auto = 自動找 templates/;0/off/false/no = 不載入;其他值 = 範本資料夾路徑 |
-| `OMIXOR_MCP_PORT` | `OPS_MCP_PORT` | 整數(1–65535) | `3765` |  |  | web、mcp | MCP 連接埠(和 macOS App 相同;兩個同時開時給其中一個換埠);omixor-mcp 用它組出轉接位址 |
-| `OMIXOR_MCP_ADDR` | `OPS_MCP_ADDR` | 字串 | `127.0.0.1` |  |  | web | MCP 聽的位址(Docker 裡設 0.0.0.0,連接埠只發布到主機的 127.0.0.1) |
-| `OMIXOR_CONSOLE_MCP_TOKEN` |  | 字串 |  |  | 是 | web、mcp | console 的 MCP 連接埠要求的 Bearer 權杖(至少 32 字元,不能含空白或換行;結尾換行會先去掉);有設但無效時 console 與 omixor-mcp 拒絕啟動;沒設時 console 自己產生並保存(omixor-mcp 也先讀這個,再讀 console 資料夾裡的 mcp_token) |
-| `OMIXOR_OAUTH_ADDR` |  | 字串 | 不啟用 |  |  | web | 對外 MCP 連接埠的監聽位址(例如 127.0.0.1:8771);設了才啟用,讓遠端 MCP 用戶端(claude.ai 等)連到這台 console。服務 /oauth/*、/.well-known/*、/mcp、/mcp/org/{org}、/mcp/agent、/mcp/worker/{org},認證與核心工具和 omixor server 相同(OAuth 登入用 evoleap 或 GitLab,也收 omx_ 使用者 token;console 專有工具只在 /mcp 給 OAuth 連線,見 console/README.md),反向代理或 Tailscale Funnel 只轉發這個連接埠。需要 PostgreSQL(OMIXOR_DATABASE_URL)、非遠端模式、OMIXOR_PUBLIC_URL(https),evoleap 要登記回呼網址 <OMIXOR_PUBLIC_URL>/oauth/evoleap/callback |
-| `OMIXOR_WEB_PORT` | `OPS_WEB_PORT` | 整數(1–65535) | `5191` |  |  | web | 畫面與 API 的連接埠(沒設 OMIXOR_WEB_ADDR 時聽 127.0.0.1:<連接埠>) |
+| `OMIXOR_OAUTH_ADDR` |  | 字串 | 不啟用 |  |  | web | 對外 MCP 連接埠的監聽位址(例如 127.0.0.1:8771);設了才啟用,讓遠端 MCP 用戶端(claude.ai 等)連到這台 console。服務 /oauth/*、/.well-known/*、/mcp、/mcp/org/{org}、/mcp/agent、/mcp/worker/{org},認證與核心工具和 omixor server 相同(OAuth 登入用 evoleap 或 GitLab,也收 omx_ 使用者 token;console 專有工具只在 /mcp 給 OAuth 連線,見 console/README.md),反向代理或 Tailscale Funnel 只轉發這個連接埠。需要 PostgreSQL(OMIXOR_DATABASE_URL)、OMIXOR_PUBLIC_URL(https),evoleap 要登記回呼網址 <OMIXOR_PUBLIC_URL>/oauth/evoleap/callback |
+| `OMIXOR_WEB_PORT` | `OPS_WEB_PORT` | 整數(1–65535) | `5191` |  |  | web、mcp | 畫面與 API 的連接埠(沒設 OMIXOR_WEB_ADDR 時聽 127.0.0.1:<連接埠>);MCP 入口也在這個連接埠,omixor-mcp 用它組出預設網址 |
 | `OMIXOR_WEB_ADDR` | `OPS_WEB_ADDR` | 字串 | 127.0.0.1:<OMIXOR_WEB_PORT> |  |  | web | 畫面聽的位址,例如 0.0.0.0:5191;不是本機位址時必須先啟用 LDAP 登入(或設 OMIXOR_WEB_LOCAL_ONLY_PUBLISH) |
 | `OMIXOR_WEB_HOSTS` | `OPS_WEB_HOSTS` | 字串 |  |  |  | web | 允許的主機名稱(逗號分隔);反向代理的網域要列在這裡 |
 | `OMIXOR_WEB_LOCAL_ONLY_PUBLISH` | `OPS_WEB_LOCAL_ONLY_PUBLISH` | 閘門(只認 1) |  |  |  | web | 安全閘門:在 Docker 裡聽 0.0.0.0、但連接埠只發布到主機的 127.0.0.1 時設 1,可略過「不是本機位址必須啟用 LDAP」的檢查。只認精確的 1,其他值(true、yes、on…)一律視為沒設 |
@@ -114,14 +108,14 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
 |---|---|---|---|---|---|---|---|
 | `OMIXOR_CREDENTIALS` |  | 路徑 | <設定資料夾>/credentials/<伺服器>.json |  |  | cli | 登入資料檔(指定單一檔案時只用那個檔,不記「上次登入的伺服器」) |
-| `OMIXOR_CONFIG_DIR` |  | 路徑 | ~/.config/omixor |  |  | cli | CLI 設定資料夾(登入資料、目前的伺服器) |
+| `OMIXOR_CONFIG_DIR` |  | 路徑 | ~/.config/omixor |  |  | cli、mcp | CLI 設定資料夾(登入資料、目前的伺服器);omixor-mcp 的 OAuth 登入也存在它底下的 mcp/ |
 | `CI` |  | 字串 |  |  |  | cli | CI 平台(GitHub Actions、GitLab CI 等)自動帶入的標記(不是 omixor 專用名稱,所以沒有 OMIXOR_ 前綴);值為 true 時,omixor commits sync 沒給 --source 就把來源記成 ci,否則記成 cli |
 
 ## MCP 轉接(omixor-mcp)
 
 | 名稱 | 舊名稱 | 型別 | 預設 | 必填 | 機密 | 程式 | 說明 |
 |---|---|---|---|---|---|---|---|
-| `OMIXOR_MCP_URL` | `OPS_MCP_URL` | 網址(http/https) | http://127.0.0.1:<OMIXOR_MCP_PORT>/mcp |  |  | mcp | 要轉接到的 MCP 位址 |
+| `OMIXOR_MCP_URL` | `OPS_MCP_URL` | 網址(http/https) | http://127.0.0.1:<OMIXOR_WEB_PORT>/mcp |  |  | mcp | omixor 的 MCP 入口網址(統一入口,結尾是 /mcp;console 或 omixor server 的都可以)。--channel 與 --init-worker 的執行者端點是它後面接 /worker/<組織>。要和伺服器公告的網址完全相同(沒設 OMIXOR_PUBLIC_URL 的 console 是 http://127.0.0.1:<連接埠>/mcp) |
 
 ## 與舊版行為不同的啟動驗證
 
@@ -130,7 +124,6 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 | 設定 | 以前 | 現在 |
 |---|---|---|
 | `PORT`(server) | 不檢查,原樣當成監聽位址(0 = 隨機埠、不合法的值到監聽時才失敗) | 要是 1–65535 的整數,否則啟動失敗 |
-| `OMIXOR_MCP_PORT`(web、mcp) | 不合法的值靜默改用預設 3765 | 要是 1–65535 的整數(0 與超出範圍都拒絕),否則啟動失敗 |
 | `OMIXOR_WEB_PORT`(web) | 不合法的值靜默改用預設 5191 | 要是 1–65535 的整數,否則啟動失敗 |
 | `OMIXOR_TOKEN_DAYS`(server) | 非整數當 0(token 不到期),負數照用 | 要是 0–36500 的整數(0 仍是不到期),負數、非整數啟動失敗 |
 | `OMIXOR_AGENT_CRED_HOURS`(server) | 不是數字就忽略、用預設 | 不是數字啟動失敗(0 或負數仍是「用預設」) |

@@ -15,7 +15,7 @@ import (
 
 // GitHub、GitLab 的「設定」是組織層級的核心資料(omixor-core 的 service/integration.go):
 //
-//	本機模式:內建核心 + 本機 PostgreSQL(omixor_org_integrations);遠端模式:omixor server 的 /api/orgs/{org}/integrations/github|gitlab
+//	內建核心 + PostgreSQL(omixor_org_integrations)
 //
 // 核心只存非機密設定:追蹤的 repo(GitHub)、GitLab 網址與追蹤的專案。
 // 留在這台(各裝置)的:token(加密 vault)、用哪一個連線(github.json / gitlab.json 的 connection)、

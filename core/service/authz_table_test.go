@@ -140,6 +140,7 @@ func TestAuthzTableCoversEveryAPIServiceCall(t *testing.T) {
 		"StartGitLabLogin": "未登入入口(頻率限制)", "GitLabLoginRedirect": "未登入入口(交易一次性)", "GitLabLoginCallback": "未登入入口(交易一次性、cookie 綁定)",
 		"LoginWithGitLab": "未登入入口(頻率限制、一次性碼加 PKCE)", "GitLab": "讀設定(cookie 的 Secure),不是 service 操作",
 		"Authenticate": "驗證 token", "AuthenticateAgent": "驗證角色憑證",
+		"WebSession": "驗證 web session(宿主的瀏覽器登入)",
 	}
 	for _, p := range pkgs {
 		for fn, f := range p.Files {

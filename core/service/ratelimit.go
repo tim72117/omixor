@@ -19,18 +19,41 @@ type rateWindow struct {
 }
 
 func (r *rateWindow) allow(now time.Time, key string, perMax, totalMax int) bool {
+	_, ok := r.take(now, key, perMax, totalMax)
+	return ok
+}
+
+// take 同 allow,另回這次記在哪個視窗(refund 用)
+func (r *rateWindow) take(now time.Time, key string, perMax, totalMax int) (time.Time, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.per == nil || now.Sub(r.window) >= time.Minute {
 		r.window, r.per, r.all = now, map[string]int{}, 0
 	}
 	if r.per[key] >= perMax || r.all >= totalMax {
-		return false
+		return r.window, false
 	}
 	r.per[key]++
 	r.all++
-	return true
+	return r.window, true
 }
+
+// refund 退回 take 佔的那一個名額;視窗已經換掉就不用退
+func (r *rateWindow) refund(window time.Time, key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.window.Equal(window) || r.per[key] <= 0 {
+		return
+	}
+	if r.per[key]--; r.per[key] == 0 {
+		delete(r.per, key)
+	}
+	r.all--
+}
+
+// LoginRate 宿主自己的登入入口用的一份限額(上限同 allowLogin,和其他入口分開計)。
+// 密碼驗證通過的那次會退回名額,只有沒通過的(含進行中的)佔名額
+type LoginRate struct{ w rateWindow }
 
 // loginLimits 各入口各自的限額,一個被灌爆不影響別的
 type loginLimits struct {
@@ -39,6 +62,12 @@ type loginLimits struct {
 
 // allowLogin 登入類入口的限額(每個來源 LoginPerIP、每個入口 LoginTotal,預設 10 與 60,每分鐘);w 是該入口自己的視窗
 func (s *Service) allowLogin(w *rateWindow, ip string) bool {
+	_, ok := s.takeLogin(w, ip)
+	return ok
+}
+
+// takeLogin 同 allowLogin,另回記在哪個視窗(refund 用)
+func (s *Service) takeLogin(w *rateWindow, ip string) (time.Time, bool) {
 	per, total := s.LoginPerIP, s.LoginTotal
 	if per == 0 {
 		per = 10
@@ -46,7 +75,7 @@ func (s *Service) allowLogin(w *rateWindow, ip string) bool {
 	if total == 0 {
 		total = 60
 	}
-	return w.allow(s.now(), limitKey(ip), per, total)
+	return w.take(s.now(), limitKey(ip), per, total)
 }
 
 // quotaWindow 固定視窗的配額(每個鍵自己的視窗,從第一次使用起算 win);用在每個使用者每小時的上限。

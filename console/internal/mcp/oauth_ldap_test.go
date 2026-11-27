@@ -109,6 +109,22 @@ func TestConsoleLDAPOAuth(t *testing.T) {
 	if !strings.Contains(string(b), "bob@corp.test") {
 		t.Fatalf("署名要是本人:%s", b)
 	}
+	// 執行者授權走 LDAP:確認頁寫明是任務執行者,換到的 scope 只有 mcp:worker
+	query.Set("resource", oPublic+"/mcp/worker/o")
+	query.Set("scope", "mcp:worker")
+	code, body = login("bob", "bob-pw")
+	if m = ldapTxn.FindStringSubmatch(body); code != 200 || m == nil || !strings.Contains(body, "任務執行者") {
+		t.Fatalf("worker 確認頁:%d %s", code, body)
+	}
+	_, _, loc = post("/oauth/ldap/confirm", url.Values{"txn": {m[1]}, "action": {"allow"}})
+	back, _ = url.Parse(loc)
+	w = r.do("POST", "/oauth/token", url.Values{"grant_type": {"authorization_code"}, "client_id": {client}, "code": {back.Query().Get("code")},
+		"redirect_uri": {oCallback}, "code_verifier": {oVerifier}, "resource": {oPublic + "/mcp/worker/o"}}.Encode(), "Content-Type", "application/x-www-form-urlencoded")
+	if got := r.json(w)["scope"]; got != "mcp:worker" {
+		t.Fatalf("worker scope:%v %s", got, w.Body.String())
+	}
+	query.Set("resource", oPublic+"/mcp")
+	query.Set("scope", "mcp:read mcp:write")
 	if code, body := login("alice", "alice-pw"); code != 200 || !strings.Contains(body, "alice@example.com") {
 		t.Fatalf("alice:%d %s", code, body)
 	}

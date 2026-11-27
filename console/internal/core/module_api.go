@@ -37,12 +37,12 @@ func ConnStateCopy(a *App, id string) *ConnectionState { return connStateCopy(a,
 // ConnGen 目前組織資料的世代(每次重新讀組織資料加一;背景工作用來判斷是不是過期了;拿著 Mu)
 func ConnGen(a *App) int { return a.conns().Gen }
 
-// ErrNoDB 本機模式沒有資料庫
+// ErrNoDB 沒有資料庫
 var ErrNoDB = errNoDB
 
-// AgentBackend 目前的核心(遠端模式是 omixor server,本機模式是同一個程式裡的核心;本機沒有資料庫回 ErrNoDB)
+// AgentBackend 核心(系統身分;沒有資料庫回 ErrNoDB)
 //
-// 回傳的是沒有署名轉換的原始核心(authorBackend 只換署名;選用模組用型別判斷 *backend.Local / *backend.Remote 取得自己的介面,包起來會認不出來)。
+// 回傳的是沒有署名轉換的原始核心(authorBackend 只換署名;選用模組用型別判斷 *backend.Local 取得自己的介面,包起來會認不出來)。
 // 模組的輸入沒有署名欄位;要署名的操作走 AgentOps
 func AgentBackend() (backend.Backend, error) {
 	be, err := agentBackend()

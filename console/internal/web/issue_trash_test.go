@@ -167,7 +167,7 @@ func TestTrashActionsAdminOnly(t *testing.T) {
 	}
 	joinOrg(t, app, au, "bob")
 	bob := &client{t: t, srv: c.srv, c: newJarClient()}
-	if _, out := bob.do("POST", "/api/auth/login", map[string]any{"username": "bob", "password": "bob-pw"}, nil); out["error"] != nil {
+	if _, out := bob.do("POST", "/api/auth/web/login", map[string]any{"username": "bob", "password": "bob-pw"}, nil); out["error"] != nil {
 		t.Fatal(out)
 	}
 	// 軟刪除任何成員都可以(真的刪得掉);之後垃圾桶三個動作對非管理員都是 403,而且沒有動到資料

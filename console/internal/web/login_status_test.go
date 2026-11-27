@@ -17,7 +17,7 @@ import (
 func rawLogin(t *testing.T, base, user, pw string) (int, http.Header, map[string]any) {
 	t.Helper()
 	b, _ := json.Marshal(map[string]any{"username": user, "password": pw})
-	resp, err := http.Post(base+"/api/auth/login", "application/json", bytes.NewReader(b))
+	resp, err := http.Post(base+"/api/auth/web/login", "application/json", bytes.NewReader(b))
 	if err != nil {
 		t.Fatal(err)
 	}

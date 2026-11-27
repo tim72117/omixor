@@ -7,13 +7,13 @@ import (
 
 // 啟用登入時,誰可以用哪些 action(POST /api/action/…)與工具(POST /api/tool/…)。
 //
-// web 呼叫核心時不是用登入者的身分:本機模式用 localPrincipal(伺服器管理員),遠端模式大家共用 web 登入 omixor server 的權杖,
-// 所以核心那邊的權限擋不住 web 的一般使用者,要在 web 端先檢查。
+// 不是每個 action、工具都以登入者身分呼叫核心(有些用系統身分 localPrincipal = 伺服器管理員,或根本不經核心),
+// 所以核心那邊的權限擋不住全部,要在 web 端先檢查。
 //
 // 預設拒絕:每個 action、工具都要列在「一般成員」或「管理員」其中一張表;沒列到的只有 web 管理員能用
 // (auth.User.Admin;沒啟用登入時是本機使用者,視為管理員)。新增 action、工具時要在這裡分類,
 // 沒分類或表裡有不存在的名稱時 TestEveryActionAndToolIsClassified 會失敗。
-// 這裡只管畫面的 HTTP API;本機 MCP 連接埠(3765)、對外 MCP、角色端點不經過這裡。
+// 這裡只管畫面的 HTTP API;MCP 入口、角色端點不經過這裡。
 //
 // 分類原則:一般成員保留日常操作(看、Issue、子項與待決定、文件、頻道、事件、派任務與回報);
 // 管理員的是:核心要組織(或伺服器)管理員的寫入、web 共用的設定與憑證、有對外效果的發佈、
@@ -87,9 +87,6 @@ var adminActions = map[string]string{
 	"org_update":        "改組織資料",
 	"org_delete":        "刪除組織",
 	// web 伺服器共用的設定與憑證
-	"mode_set":              "改連接對象",
-	"remote_logout":         "登出 omixor server",
-	"gate_reset":            "改連接對象",
 	"connection_upsert":     "改連線設定",
 	"connection_delete":     "刪除連線",
 	"connection_secret":     "改連線的密鑰",
@@ -136,9 +133,6 @@ var adminActions = map[string]string{
 	"automation_toggle":     "開關自動化",
 	"integration_set":       "改整合狀態",
 	"alert_rule_toggle":     "開關告警規則",
-	// console 的 MCP 連接埠權杖:查看完整權杖、換新
-	"mcp_token_reveal": "查看 MCP 權杖",
-	"mcp_token_rotate": "換新 MCP 權杖",
 }
 
 // memberTools 一般成員可以透過 /api/tool 用的工具(以本機身分執行,組織一律是目前的組織)

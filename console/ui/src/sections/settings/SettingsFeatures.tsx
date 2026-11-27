@@ -65,12 +65,12 @@ export function SettingsFeatures() {
 /** 讀取狀態、權限 */
 function Status({ v }: { v: SysView }) {
   if (v.error || v.source === "fallback" || v.source === "cached") {
-    const noDB = v.mode === "local" && /OMIXOR_DATABASE_URL|OPS_DATABASE_URL/.test(v.error);
+    const noDB = /OMIXOR_DATABASE_URL|OPS_DATABASE_URL/.test(v.error);
     return (
       <Card>
         <div className={"row gap6 " + css.warn + " " + css.medium}><Icon name="exclamationmark.triangle.fill" size={14} />讀不到 omixor 的功能設定</div>
         {v.error && <div className={css.selectable}>{v.error}</div>}
-        {noDB && <div className="caption muted">本機模式的功能開關存在本機核心的資料庫(和 Issue、事件同一個);沒有資料庫時各裝置都只能用預設。</div>}
+        {noDB && <div className="caption muted">功能開關存在核心的資料庫(和 Issue、事件同一個);沒有資料庫時各裝置都只能用預設。</div>}
         <div className="caption muted">
           {v.source === "cached" ? "目前照這次執行最後一次讀到的設定顯示,暫時不能修改。" : "目前用預設:已實作的功能開、實驗功能關,暫時不能修改。"}
         </div>

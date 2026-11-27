@@ -101,6 +101,9 @@ func RegisterDispatchTools(s *Server) {
 			if t.LockedUntil != nil {
 				row["lockedUntil"] = iso(t.LockedUntil.Time)
 			}
+			if !t.UpdatedAt.IsZero() {
+				row["updatedAt"] = iso(t.UpdatedAt.Time)
+			}
 			out = append(out, row)
 		}
 		return map[string]any{"total": len(pick), "tasks": out}, nil
@@ -144,8 +147,16 @@ func RegisterDispatchTools(s *Server) {
 			name = g.Name
 		}
 		endpoint := e.EndpointURL()
+		// 執行者專用的 OAuth 授權(mcp:worker)不發憑證:只回認領碼,不回密鑰與角色端點
+		oauth := isOAuthWorkerBackend(bk)
+		if oauth {
+			endpoint = ""
+		}
 		if cr := res.Credential; cr != nil {
-			m := map[string]any{"agentId": cr.AgentID, "secret": cr.Secret, "code": cr.Code, "expiresAt": cr.ExpiresAt}
+			m := map[string]any{"agentId": cr.AgentID, "code": cr.Code, "expiresAt": cr.ExpiresAt}
+			if !oauth {
+				m["secret"] = cr.Secret
+			}
 			if endpoint != "" {
 				m["endpoint"] = endpoint
 			}
@@ -156,7 +167,11 @@ func RegisterDispatchTools(s *Server) {
 			out["lockedUntil"] = iso(t.LockedUntil.Time)
 			lock = t.LockedUntil.Time.In(time.Local).Format("15:04")
 		}
-		out["nextSteps"] = nextSteps(res, name, endpoint, lock) + delegateStep(e, res)
+		steps := nextSteps(res, name, endpoint, lock)
+		if oauth {
+			steps = strings.Replace(steps, secretNote, "you are not given any agent credential secret and do not need one.", 1)
+		}
+		out["nextSteps"] = steps + delegateStep(e, res)
 		return out, nil
 	})
 
@@ -300,6 +315,15 @@ func RegisterDispatchTools(s *Server) {
 	})
 }
 
+// secretNote nextSteps 最後一句:omx_ 連線會拿到角色憑證密鑰;執行者 OAuth 授權不會(換成另一句)
+const secretNote = "you do not need the credential secret (the secret is for programs that connect directly to the agent endpoint /mcp/agent; never write it into issues, comments, task results or files)."
+
+// isOAuthWorkerBackend 這個連線是執行者端點專用的 OAuth 授權(backend.Local 實作 OAuthWorker)
+func isOAuthWorkerBackend(bk any) bool {
+	b, ok := bk.(interface{ OAuthWorker() bool })
+	return ok && b.OAuthWorker()
+}
+
 func nextSteps(res *service.ClaimResult, agentName, endpoint, lockHHMM string) string {
 	t := res.Task
 	code := ""
@@ -317,7 +341,7 @@ func nextSteps(res *service.ClaimResult, agentName, endpoint, lockHHMM string) s
 	b.WriteString("\n3. When finished, use dispatch_report status=done and write the result in result; for a task linked to an issue (not an item task) it is posted to that issue as the agent automatically, so do not post it again (dispatch_comment(id: " + t.ID + ", code: " + code + ", issue, comment) is for other things worth noting there). If a human must decide, use status=blocked and ask in note.")
 	b.WriteString("\n4. If you do not want to do it or cannot continue (and no human decision is needed): abandon it with dispatch_release and the task returns to the queue.")
 	b.WriteString("\nClaim verification code " + code + ": always include it with dispatch_report and dispatch_comment; the server uses it to confirm you are acting on the task and agent from this claim (so the wrong one is never picked when you have claimed several).")
-	b.WriteString("\nThe tools above are called as your signed-in omixor identity; after the server confirms you are the claimer it signs as the agent for you, so you do not need the credential secret (the secret is for programs that connect directly to the agent endpoint /mcp/agent; never write it into issues, comments, task results or files).")
+	b.WriteString("\nThe tools above are called as your signed-in omixor identity; after the server confirms you are the claimer it signs as the agent for you, so " + secretNote)
 	return b.String()
 }
 

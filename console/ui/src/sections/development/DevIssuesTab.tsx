@@ -15,6 +15,7 @@ import { useOmixor } from "../../lib/directory";
 import { monthDayTime } from "../../lib/format";
 import { useList } from "../../lib/hooks";
 import { go } from "../../lib/nav";
+import { useOutsideSystemOrg } from "../../lib/switchOrg";
 import { relative } from "../../fmt";
 import { usedRepos, useDev } from "./devShared";
 import { issueFilterDefs, usedLabels } from "./issueFilters";
@@ -49,6 +50,7 @@ type IssueQueryResult = { issues: Issue[]; total: number; counts: Record<"open" 
 
 export function DevIssuesTab() {
   const dev = useDev();
+  const outside = useOutsideSystemOrg(); // Jira 匯入用整台一份的設定
   const [issues, err, issuesReady] = useList<Issue>("issues"); // 全部(詳細資料、倉庫選單用);列表本身照 issue_query 的結果
   // 篩選和看板共用(DevModel.issueFilters,切換分頁時保留)
   const f = dev.issueFilters, set = dev.setIssueFilters;
@@ -100,7 +102,7 @@ export function DevIssuesTab() {
           <>
             <button className="btn primary" title="新增 Issue" onClick={() => setCreating(true)}><SIcon name="plus" />{!compact && "新增 Issue"}</button>
             <MenuButton label={<SIcon name="ellipsis" />} title="更多動作" align="right" items={[
-              { label: <><SIcon name="square.and.arrow.down" />從 Jira 匯入</>, onClick: () => setImporting(true) },
+              ...(outside ? [] : [{ label: <><SIcon name="square.and.arrow.down" />從 Jira 匯入</>, onClick: () => setImporting(true) }]),
               ...(isAdmin ? [{ label: <><SIcon name="trash" />垃圾桶(已刪除的 Issue)</>, onClick: () => setTrashOpen(true) }] : []),
             ]} />
           </>
@@ -110,7 +112,7 @@ export function DevIssuesTab() {
           {(err || qErr) && !res ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={qErr ?? err} />
             : !res ? null : list.length === 0 ? (
               <EmptyState title={total === 0 ? "還沒有 Issue" : "沒有符合的 Issue"} icon="exclamationmark.bubble"
-                message={total === 0 ? "按「新增 Issue」、從 ⋯ 選單匯入 Jira,或讓 AI 透過 MCP 的 issue_create 存進來。" : undefined} />
+                message={total === 0 ? `按「新增 Issue」${outside ? "" : "、從 ⋯ 選單匯入 Jira"},或讓 AI 透過 MCP 的 issue_create 存進來。` : undefined} />
             ) : (
               <div className="list">
                 {list.map((i) => <IssueRow key={i.id} issue={i} showRepo={!repo} on={i.id === dev.selectedIssue} onClick={() => dev.setSelectedIssue(i.id)} />)}

@@ -18,9 +18,9 @@ import (
 //   - 沒標 orgScoped 的是整台一份的功能:org 必須是系統工作組織
 //   - TierAdmin(網頁限管理員的):mcp:admin 授權、該組織管理員,而且是網頁管理員(管理員帳號名單;
 //     沒啟用 LDAP 時沒有名單,改要核心的伺服器管理員)
-//   - 不是網頁管理員時,受限專案的資料照網頁的規則拿掉
+//   - 受限專案照核心的規則(授權者是專案成員、組織管理員、伺服器管理員才看得到,同一入口的核心工具);管理員帳號名單不影響
 //   - navigate 只移動呼叫者自己的畫面;沒有「自己的畫面」(沒啟用 LDAP)就拒絕
-//   - 遠端模式、web 層還沒接上時一律拒絕
+//   - web 層還沒接上時一律拒絕
 //
 // 新增 console 工具要在下面兩張表之一分類,否則不會出現在入口上(TestOAuthConsoleToolsClassified)。
 
@@ -104,9 +104,6 @@ type oauthWho struct {
 }
 
 func identifyOAuth(app *core.App, u model.User) (oauthWho, error) {
-	if core.IsRemote() {
-		return oauthWho{}, oauthDenied("Host-specific tools are not available while this console is in remote mode")
-	}
 	isAdmin, ok := app.ConsoleAdmins()
 	if !ok {
 		return oauthWho{}, oauthDenied("The console is still starting; try again")
@@ -174,19 +171,17 @@ func runOAuthTool(app *core.App, name string, rule OAuthToolRule, bk *backend.Lo
 		return nil, featureClosedError(name, f)
 	}
 
-	var restricted map[string]bool
-	unknown, active := false, false
-	if !who.admin {
-		if restricted, err = target.RestrictedProjectIDs(); err != nil {
-			unknown = true
-		}
-		active = unknown || len(restricted) > 0
-	}
+	restricted, unknown := target.HiddenProjectsFor(org, bk)
+	active := unknown || len(restricted) > 0
 	notFound := ToolError{Message: "Not found", Status: 404}
 	if active && core.RestrictedArg(args, restricted, unknown) {
 		return nil, notFound
 	}
-	out, err := srv.Run(name, args, &callCtx{App: target, Actor: core.Person(who.account), who: who.caller, oauth: bk})
+	var hidden *core.Hidden
+	if active {
+		hidden = target.NewHidden(org, who.caller, restricted, unknown).ViewedBy(bk)
+	}
+	out, err := srv.Run(name, args, &callCtx{App: target, Actor: core.Person(who.account), who: who.caller, oauth: bk, hidden: hidden})
 	if err != nil || !active {
 		return out, err
 	}

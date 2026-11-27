@@ -20,7 +20,7 @@ func TestFailingEndpointsReturnRealStatus(t *testing.T) {
 	anon := &client{t: t, srv: bob.srv, c: newJarClient()}
 
 	// POST /api/auth/login:帳密不對 401
-	code, out := anon.do("POST", "/api/auth/login", map[string]any{"username": "bob", "password": "錯的"}, nil)
+	code, out := anon.do("POST", "/api/auth/web/login", map[string]any{"username": "bob", "password": "錯的"}, nil)
 	if code != 401 || out["error"] != "帳號或密碼錯誤" {
 		t.Errorf("login:%d %v", code, out)
 	}

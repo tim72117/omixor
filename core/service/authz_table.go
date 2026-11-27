@@ -144,7 +144,8 @@ var AuthzOps = []AuthzOp{
 	{ID: "actor.list", Group: "組織與成員", Scope: "org", Level: LvOrgMember, Agent: AgentNo,
 		Methods: []string{"ListOrgActors"}, Routes: []string{"GET /api/orgs/{org}/actors [a]"}},
 	{ID: "attachment.save", Group: "Issue", Scope: "org", Level: LvOrgMember, Agent: AgentNo,
-		Methods: []string{"SaveAttachment"}, Routes: []string{"POST /api/orgs/{org}/attachments [a]"}},
+		Methods: []string{"SaveAttachment", "ImportAttachment"}, Routes: []string{"POST /api/orgs/{org}/attachments [a]"},
+		Note: "ImportAttachment(指定 id)只給同一個程式裡的匯入與搬移用,沒有路由與工具"},
 	{ID: "attachment.get", Group: "Issue", Scope: "org", Level: LvOrgMember, Agent: AgentNo,
 		Methods: []string{"GetAttachment"}, Routes: []string{"GET /api/orgs/{org}/attachments/{id} [a]"}},
 

@@ -21,7 +21,7 @@ func TestLoadLegacyAndDefaults(t *testing.T) {
 		t.Fatal("新舊名稱值不同要提醒(且不印值)", c.warn)
 	}
 	c = LoadFrom(mapEnv(nil))
-	if c.Int(WebPort) != 5191 || c.Int(MCPPort) != 3765 || c.Int(TokenDays) != 90 || c.Str(MCPAddr) != "127.0.0.1" || c.Str(EvoleapURL) != "https://evoleap.io" {
+	if c.Int(WebPort) != 5191 || c.Int(TokenDays) != 90 || c.Str(EvoleapURL) != "https://evoleap.io" {
 		t.Fatal("預設值不對")
 	}
 	if c.Bool(NoTimers) || c.IsSet(NoTimers) || c.Str(DatabaseURL) != "" {
@@ -30,8 +30,8 @@ func TestLoadLegacyAndDefaults(t *testing.T) {
 }
 
 func TestTypedAccessorsLenient(t *testing.T) {
-	c := LoadFrom(mapEnv(map[string]string{"OMIXOR_WEB_PORT": "abc", "OMIXOR_MCP_PORT": "70000", "OMIXOR_NO_TIMERS": "banana", "OMIXOR_AGENT_CRED_HOURS": "1.5"}))
-	if c.Int(WebPort) != 5191 || c.Int(MCPPort) != 3765 {
+	c := LoadFrom(mapEnv(map[string]string{"OMIXOR_WEB_PORT": "abc", "OMIXOR_NO_TIMERS": "banana", "OMIXOR_AGENT_CRED_HOURS": "1.5"}))
+	if c.Int(WebPort) != 5191 {
 		t.Fatal("型別錯或超出範圍要回預設(同舊行為)")
 	}
 	if c.Bool(NoTimers) {
@@ -113,12 +113,12 @@ func TestSecretsMasked(t *testing.T) {
 	const pw, key, tok = "pw-secret-123", "key-secret-456", "tok-secret-789"
 	c := LoadFrom(mapEnv(map[string]string{
 		"OMIXOR_DATABASE_URL": "postgres://omixor:" + pw + "@db/omixor", "OMIXOR_SECRET_KEY": key, "OMIXOR_API_TOKEN": tok,
-		"OMIXOR_LDAP_BIND_PASSWORD": "ldap-secret-000", "OMIXOR_LOCAL_TOKEN": "omx_local-secret", "OMIXOR_SERVER_TOKEN": "srv-secret-111",
+		"OMIXOR_LDAP_BIND_PASSWORD": "ldap-secret-000", "OMIXOR_LOCAL_TOKEN": "omx_local-secret",
 		"OMIXOR_WEB_PORT": "5191",
 	}))
 	outs := []string{c.String(), c.GoString(), fmt.Sprintf("%v", c), fmt.Sprintf("%+v", c), fmt.Sprintf("%#v", c), fmt.Sprintf("%s", c), c.LogValue().String()}
 	for _, o := range outs {
-		for _, s := range []string{pw, key, tok, "ldap-secret-000", "omx_local-secret", "srv-secret-111"} {
+		for _, s := range []string{pw, key, tok, "ldap-secret-000", "omx_local-secret"} {
 			if strings.Contains(o, s) {
 				t.Fatalf("輸出洩漏機密 %q:\n%s", s, o)
 			}
@@ -187,7 +187,7 @@ func TestDefinitions(t *testing.T) {
 			}
 		}
 	}
-	for _, s := range []string{"OMIXOR_DATABASE_URL", "OMIXOR_SECRET_KEY", "OMIXOR_SERVER_TOKEN", "OMIXOR_API_TOKEN", "OMIXOR_LDAP_BIND_PASSWORD", "OMIXOR_LOCAL_TOKEN"} {
+	for _, s := range []string{"OMIXOR_DATABASE_URL", "OMIXOR_SECRET_KEY", "OMIXOR_API_TOKEN", "OMIXOR_LDAP_BIND_PASSWORD", "OMIXOR_LOCAL_TOKEN"} {
 		if v, _ := Lookup(s); v == nil || !v.Secret {
 			t.Errorf("%s 要標機密", s)
 		}

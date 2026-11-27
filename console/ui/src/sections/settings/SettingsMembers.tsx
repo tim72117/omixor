@@ -1,4 +1,4 @@
-// 設定 › 組織成員:接 omixor 核心的成員(角色 admin / member);本機與遠端都支援
+// 設定 › 組織成員:接 omixor 核心的成員(角色 admin / member)
 import { useState } from "react";
 import { action, useView } from "../../api";
 import { Icon } from "../../components/Icon";
@@ -8,7 +8,7 @@ import { Row, Section } from "./form";
 import css from "./settings.module.css";
 
 type Member = { org: string; userId: string; email: string; name: string; role: string; addedAt: string };
-type MembersView = { org: string; remote: boolean; canEdit: boolean; members: Member[]; error?: string };
+type MembersView = { org: string; canEdit: boolean; members: Member[]; error?: string };
 const ROLES = [{ id: "admin", label: "管理員" }, { id: "member", label: "成員" }];
 
 export function SettingsMembers() {
@@ -31,7 +31,7 @@ export function SettingsMembers() {
   };
   return (
     <Section header={`組織成員(${members.length})`}
-      footer={v.remote && !canEdit ? "你不是這個組織的管理員,只能檢視成員;要新增或移除請找組織管理員。" : "管理員可以新增、移除成員與改角色;成員只能存取組織的內容。"}>
+      footer="管理員可以新增、移除成員與改角色;成員只能存取組織的內容。">
       {v.error && <Row><span className={"row gap6 " + css.danger}><Icon name="exclamationmark.triangle" size={13} />{v.error}</span></Row>}
       {!v.error && members.length === 0 && <Row><span className="muted">尚未加入任何成員</span></Row>}
       {members.map((m) => (

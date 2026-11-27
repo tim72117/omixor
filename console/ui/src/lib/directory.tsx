@@ -19,6 +19,8 @@ export type Directory = {
   me: string;
   /** me 已經讀到 */
   ready: boolean;
+  /** me 能當指派對象、指揮官、審查者:是人員清單裡的人,或是登入者本人(後端接受本人) */
+  assignable: string;
   people: Person[];
   automations: Automation[];
   agents: Agent[];
@@ -31,12 +33,18 @@ export type Directory = {
 
 const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
-function buildDirectory(me: string, ready: boolean, people: Person[], automations: Automation[], agents: Agent[]): Directory {
+type Me = { id: string; name?: string; signedIn?: boolean };
+
+function buildDirectory(self: Me | undefined, people: Person[], automations: Automation[], agents: Agent[]): Directory {
+  const me = self?.id ?? "";
+  const ready = !!me;
   const person = (id?: string) => people.find((p) => p.id === id);
   const agent = (id?: string) => agents.find((a) => a.id === id);
+  // 登入者不在人員清單時用登入的顯示名稱
+  const selfName = (id?: string) => (self?.signedIn && id === me ? self.name : undefined);
   const name = (a?: Actor | null) => {
     if (!a) return "未指派";
-    if (a.kind === "person") return person(a.id)?.name ?? a.id ?? "?";
+    if (a.kind === "person") return person(a.id)?.name ?? selfName(a.id) ?? a.id ?? "?";
     if (a.kind === "ai") {
       return automations.find((x) => x.id === a.id)?.name ?? agent(a.id)?.name ?? (a.id === "mcp" ? "MCP 用戶端" : "AI");
     }
@@ -46,12 +54,13 @@ function buildDirectory(me: string, ready: boolean, people: Person[], automation
     if (author === "routine") return "例行排程";
     if (author.startsWith("agent:")) return agent(author.slice(6))?.name ?? author;
     if (author === "mcp") return "MCP 用戶端";
-    return person(author)?.name ?? author;
+    return person(author)?.name ?? selfName(author) ?? author;
   };
-  return { me, ready, people, automations, agents, person, agent, name, authorName };
+  const assignable = self?.signedIn || person(me) ? me : "";
+  return { me, ready, assignable, people, automations, agents, person, agent, name, authorName };
 }
 
-const EMPTY = buildDirectory("", false, [], [], []);
+const EMPTY = buildDirectory(undefined, [], [], []);
 const DirCtx = createContext<Directory | null>(null);
 
 /** 放在 App 最外層,讓頭像與名稱共用一份資料 */
@@ -59,9 +68,9 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const [people] = useView<Person[]>("people");
   const [autos] = useView<Automation[]>("automations");
   const [agents] = useView<{ agents: Agent[] }>("agents");
-  const [me] = useView<{ id: string }>("me", ["orgs"]);
+  const [me] = useView<Me>("me", ["orgs"]);
   const dir = useMemo(
-    () => buildDirectory(me?.id ?? "", !!me?.id, arr<Person>(people), arr<Automation>(autos), arr<Agent>(agents?.agents)),
+    () => buildDirectory(me, arr<Person>(people), arr<Automation>(autos), arr<Agent>(agents?.agents)),
     [me, people, autos, agents],
   );
   return <DirCtx.Provider value={dir}>{children}</DirCtx.Provider>;

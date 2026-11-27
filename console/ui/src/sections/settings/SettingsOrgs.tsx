@@ -7,8 +7,9 @@ import { iconButtonClass } from "../../components/IconButton";
 import { Modal, ModalTitle } from "../../components/Modal";
 import { Pill } from "../../components/Pill";
 import { color } from "../../lib/color";
-import { useCanSwitchTarget } from "../../auth/ConnectGate";
+import { useIsWebAdmin } from "../../auth/auth";
 import { switchOrg } from "../../lib/switchOrg";
+import { outsideSystemOrg } from "../../lib/orgScope";
 import { go } from "../../lib/nav";
 import type { AgentsView, CabinetView, ConnectionsView, Organization, OrgIndex } from "../../models";
 import { CabinetLayoutEditor } from "../cabinet/CabinetLayoutEditor";
@@ -44,7 +45,7 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
   const [deleting, setDeleting] = useState<Organization>();
   const [editingLayout, setEditingLayout] = useState(false);
   const { busy, error, run } = useRun();
-  const admin = useCanSwitchTarget(); // 沒啟用登入,或登入者是 web 管理員
+  const admin = useIsWebAdmin();
   const orgs = idx?.orgs ?? [];
   const cur = orgs.find((o) => o.id === idx?.current);
   const layout = Array.isArray(cab?.layout) ? cab!.layout : [];
@@ -78,7 +79,7 @@ export function SettingsOrgs({ setPane }: { setPane: (p: Pane) => void }) {
       <Section header={`「${cur?.name ?? ""}」的工作空間`}>
         {canGo("automation") && setup("虛擬角色", "person.2", `${n(agents?.agents)} 個角色;角色設定、例行任務、文件存取範圍`, () => go("automation", "agents"))}
         {setup("文件櫃結構", "archivebox", cab ? `${layout.length} 個區塊、${layout.reduce((s, x) => s + x.tabs.length, 0)} 個頁籤` : "—", () => setEditingLayout(true))}
-        {setup("連線", "key.horizontal", `${n(conns?.connections)} 個連線;外部服務的網址與登入`, () => setPane("connections"))}
+        {!outsideSystemOrg(idx) && setup("連線", "key.horizontal", `${n(conns?.connections)} 個連線;外部服務的網址與登入`, () => setPane("connections"))}
         {canGo("development") && featuresNow().enabled("development.issues") && setup("Issue", "exclamationmark.bubble", Array.isArray(issues) ? `${issues.filter((i) => i.status === "open").length} 件未解決` : "—", () => go("development", "issues"))}
       </Section>
       {creating && <NewOrgSheet perUser={idx?.perUser} onClose={() => setCreating(false)} />}

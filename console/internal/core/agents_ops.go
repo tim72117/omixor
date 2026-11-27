@@ -14,7 +14,7 @@ import (
 // 讀取(ListAgents 等)直接問核心,不用快取。
 type AgentOps struct {
 	a *App
-	// who 網頁的呼叫者;nil = 系統身分(背景工作、自動執行、MCP 3765)
+	// who 網頁的呼叫者;nil = 系統身分(背景工作、自動執行)
 	who *Caller
 }
 
@@ -24,7 +24,7 @@ func (a *App) AgentOps() AgentOps { return AgentOps{a: a} }
 func (a *App) AgentOpsFor(who *Caller) AgentOps { return AgentOps{a: a, who: who} }
 
 // be 寫入(與對話頻道)用的核心:呼叫者在 org 的身分
-func (o AgentOps) be(org string) (backend.Backend, error) { return coreBackendFor(o.who, "", org) }
+func (o AgentOps) be(org string) (backend.Backend, error) { return coreBackendFor(o.who, org) }
 
 // read 角色、任務、組織鏈的讀取:有呼叫者用他的身分(任務會帶受限專案 Issue 的內容),否則系統身分
 func (o AgentOps) read(org string) (backend.Backend, error) {

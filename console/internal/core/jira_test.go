@@ -170,6 +170,17 @@ func TestJiraCloudImport(t *testing.T) {
 	if data, mime, err := ReadAttachment(a, strings.TrimPrefix(img[1], "/api/attachments/")); err != nil || mime != "image/png" || string(data) != string(fakePNG) {
 		t.Fatalf("讀附件:%v %s", err, mime)
 	}
+	// 存在核心:REST(/api/orgs/{org}/attachments)讀得到
+	core, err := coreBackend()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Mu.Lock()
+	org := a.CurrentOrgID()
+	a.Mu.Unlock()
+	if data, _, err := core.GetAttachment(org, strings.TrimPrefix(img[1], "/api/attachments/")); err != nil || string(data) != string(fakePNG) {
+		t.Fatalf("核心沒有匯入的圖:%v", err)
+	}
 	is.Body = "說明"
 	if is.Title != summary || is.Priority != "high" || is.Status != "open" || is.Source != "Jira EDU-1" ||
 		is.CreatedBy != "Yuting" || len(is.Comments) != 3 || is.Comments[2].Text != "第三則" {

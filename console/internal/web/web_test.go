@@ -84,7 +84,7 @@ func ldapCfg(f *authtest.Fake) auth.Config {
 func TestLocalModeNeedsNoLogin(t *testing.T) {
 	os.Remove(core.DataRoot() + "/auth.json")
 	c, _ := newServer(t, auth.New(&auth.MemorySecrets{}))
-	code, st := c.do("GET", "/api/auth/status", nil, nil)
+	code, st := c.do("GET", "/api/auth/web/status", nil, nil)
 	if code != 200 || st["mode"] != "off" || st["loggedIn"] != true {
 		t.Fatalf("%d %v", code, st)
 	}
@@ -146,16 +146,16 @@ func TestLDAPLoginFlowAndAttribution(t *testing.T) {
 	if code, _ := c.do("GET", "/api/events", nil, nil); code != 401 {
 		t.Fatalf("SSE 也要登入:%d", code)
 	}
-	_, st := c.do("GET", "/api/auth/status", nil, nil)
+	_, st := c.do("GET", "/api/auth/web/status", nil, nil)
 	if st["mode"] != "ldap" || st["loggedIn"] != false {
 		t.Fatal(st)
 	}
-	_, out = c.do("POST", "/api/auth/login", map[string]any{"username": "bob", "password": "nope"}, nil)
+	_, out = c.do("POST", "/api/auth/web/login", map[string]any{"username": "bob", "password": "nope"}, nil)
 	if out["error"] != "帳號或密碼錯誤" {
 		t.Fatal(out)
 	}
 	joinOrg(t, app, au, "bob") // 不是任何組織成員的人不能登入
-	_, out = c.do("POST", "/api/auth/login", map[string]any{"username": "bob", "password": "bob-pw"}, nil)
+	_, out = c.do("POST", "/api/auth/web/login", map[string]any{"username": "bob", "password": "bob-pw"}, nil)
 	if out["error"] != nil {
 		t.Fatal(out)
 	}
@@ -184,12 +184,12 @@ func TestLDAPLoginFlowAndAttribution(t *testing.T) {
 	}
 
 	// 登出後又要登入
-	c.do("POST", "/api/auth/logout", map[string]any{}, nil)
+	c.do("POST", "/api/auth/web/logout", map[string]any{}, nil)
 	if code, _ := c.do("GET", "/api/view/alerts", nil, nil); code != 401 {
 		t.Fatalf("登出後應該 401:%d", code)
 	}
 	// cookie 是 HttpOnly + SameSite=Strict
-	req, _ := http.NewRequest("POST", c.srv.URL+"/api/auth/login", strings.NewReader(`{"username":"alice","password":"alice-pw"}`))
+	req, _ := http.NewRequest("POST", c.srv.URL+"/api/auth/web/login", strings.NewReader(`{"username":"alice","password":"alice-pw"}`))
 	req.Header.Set("Content-Type", "application/json")
 	resp, _ := http.DefaultClient.Do(req)
 	sc := resp.Header.Get("Set-Cookie")

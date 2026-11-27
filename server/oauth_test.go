@@ -244,11 +244,12 @@ func TestOAuthUnauthorizedHeader(t *testing.T) {
 	if w.Code != 401 || w.Header().Get("WWW-Authenticate") != want {
 		t.Fatal(w.Code, w.Header())
 	}
-	// 其他端點:沒有 resource_metadata
+	// 執行者端點:帶自己的 resource_metadata(執行者專用授權)
 	w = o.do("POST", "/mcp/worker/o", `{}`, "Content-Type", "application/json")
-	if w.Code != 401 || strings.Contains(w.Header().Get("WWW-Authenticate"), "resource_metadata") {
+	if w.Code != 401 || w.Header().Get("WWW-Authenticate") != `Bearer realm="omixor", resource_metadata="`+tPublic+`/.well-known/oauth-protected-resource/mcp/worker/o"` {
 		t.Fatal(w.Code, w.Header())
 	}
+	// 角色端點照舊(只有 realm)
 	w = o.do("POST", "/mcp/agent", `{}`)
 	if w.Code != 401 || w.Header().Get("WWW-Authenticate") != `Bearer realm="omixor-agent"` {
 		t.Fatal(w.Code, w.Header())
@@ -430,9 +431,9 @@ func TestOAuthFullFlowAndReadOnlyMCP(t *testing.T) {
 	if w := o.do("POST", "/api/auth/pair", ``, "Authorization", "Bearer "+access); w.Code != 403 {
 		t.Fatal("不能用 OAuth token 產生配對碼", w.Code)
 	}
-	// 執行者端點也不收
-	if w := o.do("POST", "/mcp/worker/o", `{}`, "Authorization", "Bearer "+access); w.Code != 403 {
-		t.Fatal("worker 端點要 403", w.Code)
+	// 執行者端點只收執行者專用授權,一般授權的 token 無效
+	if w := o.do("POST", "/mcp/worker/o", `{}`, "Authorization", "Bearer "+access); w.Code != 401 || !strings.Contains(w.Header().Get("WWW-Authenticate"), `error="invalid_token"`) {
+		t.Fatal("worker 端點要 401", w.Code)
 	}
 	// refresh token 不能當 access token 用
 	if w := o.do("POST", "/mcp/org/o", `{}`, "Authorization", "Bearer "+refresh); w.Code != 401 {

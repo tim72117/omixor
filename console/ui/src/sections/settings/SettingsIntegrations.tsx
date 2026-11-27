@@ -7,14 +7,27 @@ import { Icon } from "../../components/Icon";
 import { Modal } from "../../components/Modal";
 import { Spinner } from "../../components/Spinner";
 import { copyText } from "../../lib/clipboard";
+import { useOutsideSystemOrg } from "../../lib/switchOrg";
 import { arr, type Integration } from "../../models";
 import { Form, Row, Section } from "./form";
 import css from "./settings.module.css";
 import { StatusDot } from "../../components/StatusDot";
 
-type Mcp = { status: { state: string; error?: string; requests: number; lastClient?: string; lastTool?: string; lastRequestAt?: string }; url: string };
+type Mcp = { status: { state: string; error?: string; local?: boolean; requests: number; lastClient?: string; lastTool?: string; lastRequestAt?: string }; url: string };
 
 export function SettingsIntegrations() {
+  // 整合整台一份,只在系統工作組織;MCP 位址哪個組織都看得到
+  const outside = useOutsideSystemOrg();
+  if (!outside) return <Integrations />;
+  return (
+    <Form>
+      <McpSection />
+      <Section><Row><span className="muted">外部服務的整合是整台一份的設定,切換到系統工作組織才能查看。</span></Row></Section>
+    </Form>
+  );
+}
+
+function Integrations() {
   const [raw, err] = useView<Integration[]>("integrations");
   const [query, setQuery] = useState("");
   const [onlyConnected, setOnlyConnected] = useState(false);
@@ -88,23 +101,26 @@ function McpSection() {
   const cmd = `claude mcp add --transport http omixor ${m?.url ?? ""}`;
   const st = m?.status;
   const [text, tone] = !st ? ["…", "gray"]
-    : st.state === "listening" ? ["執行中", "green"]
-    : st.state === "starting" ? ["啟動中", "orange"]
-    : st.state === "failed" ? [`無法啟動:${st.error ?? ""}`, "red"] : ["未啟動", "gray"];
+    : st.state === "listening" ? [st.local ? "執行中(只限這台電腦)" : "執行中", "green"]
+    : [st.error ?? "沒有 MCP 入口", "orange"];
   return (
     <Section header="MCP 伺服器">
       <Row>
         <Icon name="point.3.connected.trianglepath.dotted" size={22} color="var(--accent)" />
         <div className="col grow">
           <span className="row gap6"><StatusDot c={tone} /><span className={css.strong}>{text}</span></span>
-          <span className="caption muted">MCP 用戶端可以讀取這裡的資料,並處理告警、事件、工作項目與送出待核准請求。只接受本機連線。</span>
+          <span className="caption muted">MCP 用戶端用 OAuth 登入(第一次在瀏覽器授權);授權頁的帳號是 LDAP(設定 › 認證 啟用後)、GitLab 或 evoleap,本機免登入的使用者不能授權。</span>
         </div>
       </Row>
-      <Row label="位址"><span className={"mono " + css.selectable}>{m?.url}</span></Row>
-      <Row label="加到 Claude Code">
-        <span className={"mono caption ellipsis " + css.cmd}>{cmd}</span>
-        <button className="btn small" onClick={() => copyText(cmd)}>複製</button>
-      </Row>
+      {m?.url && (
+        <>
+          <Row label="位址"><span className={"mono " + css.selectable}>{m.url}</span></Row>
+          <Row label="加到 Claude Code">
+            <span className={"mono caption ellipsis " + css.cmd}>{cmd}</span>
+            <button className="btn small" onClick={() => copyText(cmd)}>複製</button>
+          </Row>
+        </>
+      )}
       {st && st.requests > 0 && (
         <Row label="最近使用">
           <span className="muted">{[st.lastClient, st.lastTool, st.lastRequestAt && new Date(st.lastRequestAt).toLocaleTimeString("zh-TW", { hour12: false })].filter(Boolean).join(" · ")} · 共 {st.requests} 次請求</span>

@@ -45,6 +45,15 @@ func items(a *core.App, collection string) ([]any, error) {
 	return nil, ToolError{Message: "No such collection: " + collection + ". Available: " + strings.Join(collections, ", ")}
 }
 
+// visibleItems 同 items;動態牆拿掉提到受限專案資料的(其他集合是範例資料,沒有)
+func visibleItems(a *core.App, collection string, hidden *core.Hidden) ([]any, error) {
+	rows, err := items(a, collection)
+	if err == nil && collection == "activity" && hidden != nil {
+		rows = hidden.ActivityRows(rows)
+	}
+	return rows, err
+}
+
 func serviceID(a *core.App, id string) (string, error) {
 	if _, s := a.Find("services", id); s != nil {
 		return id, nil
@@ -107,8 +116,8 @@ func init() {
 				onCall = append(onCall, map[string]any{"role": s["role"], "person": p, "name": name, "until": core.ISO(end)})
 			}
 			recent := []any{}
-			for i, it := range a.C["activity"] {
-				if i >= 10 {
+			for _, it := range c.Hidden.Activity(a.C["activity"]) {
+				if len(recent) >= 10 {
 					break
 				}
 				recent = append(recent, map[string]any{"date": it["date"], "by": a.Name(core.ActorFrom(it["actor"])), "text": it["text"], "section": it["section"]})
@@ -141,7 +150,7 @@ func init() {
 			return nil, err
 		}
 		return locked(c, func(a *core.App) (any, error) {
-			rows, err := items(a, collection)
+			rows, err := visibleItems(a, collection, c.Hidden)
 			if err != nil {
 				return nil, err
 			}
@@ -199,7 +208,7 @@ func init() {
 			return nil, err
 		}
 		return locked(c, func(a *core.App) (any, error) {
-			rows, err := items(a, collection)
+			rows, err := visibleItems(a, collection, c.Hidden)
 			if err != nil {
 				return nil, err
 			}
@@ -213,7 +222,7 @@ func init() {
 		})
 	})
 
-	// navigate 只移動呼叫者自己的畫面(core/nav_user.go);啟用 LDAP 時,沒有登入者的連線(MCP 3765)移不動任何人的畫面,回應裡說明
+	// navigate 只移動呼叫者自己的畫面(core/nav_user.go);啟用 LDAP 時,沒有登入者的呼叫移不動任何人的畫面,回應裡說明
 	Register("navigate", func(c *Call) (any, error) {
 		return locked(c, func(a *core.App) (any, error) {
 			env, err := c.Args.OptionalEnum("env", core.DeployEnvs)
@@ -374,7 +383,7 @@ func init() {
 			}
 			assignee, hasAssignee := c.Args.String("assignee")
 			if hasAssignee {
-				if _, p := a.Find("people", assignee); p == nil || core.Str(p, "id") != assignee {
+				if _, p := a.Find("people", assignee); (p == nil || core.Str(p, "id") != assignee) && !c.Who.IsSelf(assignee) {
 					return nil, Errorf("Person %s not found", assignee)
 				}
 			}

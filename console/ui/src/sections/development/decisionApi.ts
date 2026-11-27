@@ -3,7 +3,7 @@
 // 權限與可見性由後端判斷。撤回(issue_decision_withdraw)、重新開啟(issue_decision_reopen)是 console 自己登記的工具(spec/tools_console.json),account view 的 features 宣告了才會開放按鈕;摘要(summaries)沒有工具。
 import { useCallback, useEffect, useState } from "react";
 import { refreshTopics, tool, useVersion, useView } from "../../api";
-import type { Account } from "../../auth/ConnectGate";
+import type { Account } from "../../auth/account";
 import type { Decision } from "../../models";
 import type { Issue } from "./issueModel";
 import { buildAddArgs, buildAnswerArgs, DECISION_LIMIT, type AnswerInput, type NewDraft } from "./decisionModel";
@@ -32,7 +32,7 @@ export function useDecisions(): { list: Decision[] | undefined; total: number; e
 export function useViewer() {
   const [acc] = useView<Account>("account", ["account"]);
   const isAdmin = useIsOrgAdmin();
-  return { viewer: { me: acc?.self ?? acc?.email, isAdmin, isHuman: true }, features: acc?.features };
+  return { viewer: { me: acc?.self, isAdmin, isHuman: true }, features: acc?.features };
 }
 
 /** 動作之後:重讀待決定,也通知 issues 主題(回答會在來源 Issue 留言、由它開 Issue 會多一張 Issue) */

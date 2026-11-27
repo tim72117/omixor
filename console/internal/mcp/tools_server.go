@@ -1,28 +1,14 @@
 package mcp
 
 import (
-	"time"
-
 	"omixor-core/version"
-	"omixor-web/internal/core"
 )
 
-// server:目前連線資訊與版本(唯讀,不含網址與密鑰)。
-// 版本:omixor web 自己的;遠端模式再查遠端 server 的 GET /api/version(逾時 3 秒,查不到就標示)。
+// server:目前連線資訊與版本(唯讀,不含網址與密鑰)
 func init() {
 	Register("server", func(c *Call) (any, error) {
 		out := c.App.ConnectionInfo()
-		ver := map[string]any{"web": version.Info()}
-		if core.IsRemote() {
-			if url := core.IssueRemoteURL(); url != "" {
-				if d, err := version.Fetch(url, 3*time.Second); err == nil { // 錯誤文字含網址,不回給呼叫端
-					ver["server"] = d
-				} else {
-					ver["server"] = map[string]any{"error": "Could not read the remote server version (unreachable, timed out or unsupported)"}
-				}
-			}
-		}
-		out["version"] = ver
+		out["version"] = map[string]any{"web": version.Info()}
 		return out, nil
 	})
 }

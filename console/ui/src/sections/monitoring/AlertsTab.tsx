@@ -83,7 +83,7 @@ export function AlertsTab({ selectedId, setSelectedId }: { selectedId?: string; 
       const sev = a.severity === "critical" ? 1 : a.severity === "warning" ? 2 : 3;
       await tool("incident_declare", {
         title: a.title, sev, impact: "由告警建立,影響範圍評估中。", services: [a.service], alert_ids: [a.id],
-        ...(dir.me ? { commander: dir.me } : {}),
+        ...(dir.assignable ? { commander: dir.assignable } : {}),
       });
       if (a.state === "firing") await tool("alert_update", { alert_id: a.id, action: "acknowledge" });
     });

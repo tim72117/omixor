@@ -1,7 +1,5 @@
 package core
 
-import "fmt"
-
 // 畫面(React)透過 /api 讀寫。各功能在 init() 登記:
 //   - View:GET /api/view/<名稱> 回傳的資料(呼叫時已拿著 Mu,不能在裡面發網路請求)
 //   - Action:POST /api/action/<名稱> 的動作,給只有人能在畫面上做、MCP 沒有工具的事
@@ -34,15 +32,27 @@ func RegisterCallerView(name string, f func(a *App, who *Caller) any) {
 	callerViews[name] = f
 }
 
-// ViewFor 同 View;who 不是 nil 而且這個 view 因人而異時,用呼叫者的身分算
-func ViewFor(a *App, name string, who *Caller) (any, bool) {
-	f, ok := callerViews[name]
-	if !ok || who == nil {
-		return View(a, name)
+// ViewFor 同 View;who 不是 nil 而且這個 view 因人而異時,用呼叫者的身分算。
+// hidden 不是 nil 時先拿掉受限專案的衍生資料(見 restricted_hidden.go)
+func ViewFor(a *App, name string, who *Caller, hidden *Hidden) (any, bool) {
+	f, ok := views[name]
+	cf, perCaller := callerViews[name]
+	perCaller = perCaller && who != nil
+	if !ok && !perCaller {
+		return nil, false
 	}
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
-	return Object(f(a, who)), true
+	var v any
+	if perCaller {
+		v = cf(a, who)
+	} else {
+		v = f(a)
+	}
+	if hf := hiddenViews[name]; hidden != nil && hf != nil {
+		v = hf(a, hidden, v)
+	}
+	return Object(v), true
 }
 
 func RegisterAction(name string, f ActionFunc) {
@@ -121,7 +131,7 @@ func init() {
 	RegisterView("nav", func(a *App) any { return a.Nav })
 	RegisterView("mcp", func(a *App) any {
 		s := a.MCP
-		return map[string]any{"status": s, "url": fmt.Sprintf("http://127.0.0.1:%d/mcp", s.Port)}
+		return map[string]any{"status": s, "url": s.URL}
 	})
 	RegisterView("me", func(a *App) any { return map[string]any{"id": a.Me, "name": a.MeName()} })
 	RegisterView("sprint", func(a *App) any { return a.Sprint })

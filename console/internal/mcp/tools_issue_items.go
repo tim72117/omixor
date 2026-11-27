@@ -6,7 +6,7 @@ import (
 )
 
 // Issue 子項工具(issue_item_add、issue_items、issue_item_update、issue_item_claim、issue_item_report、issue_item_promote)由核心提供
-// (omixor-core/mcp 的 tools_issue_items.go),資料存在核心。這裡是 appBackend 的對應部分:只轉發給核心(本機內建核心或遠端 omixor server);
+// (omixor-core/mcp 的 tools_issue_items.go),資料存在核心。這裡是 appBackend 的對應部分:只轉發給核心(內建核心);
 // 署名、授權與可見性(繼承所屬 Issue)都由核心依登入身分決定(沒有 agent、author 參數)。畫面還沒有子項的視圖;提升出的 Issue 會在下次重讀 Issue 時出現在畫面。
 // 呼叫時沒有拿著 Mu(這幾個工具不鎖 Env)。decisionBackend 見 tools_decision.go。
 

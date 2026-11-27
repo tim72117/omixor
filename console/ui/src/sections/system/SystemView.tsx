@@ -54,7 +54,7 @@ export default function SystemView(_: SectionProps) {
       <PageScroll>
         <div className={"col " + css.body}>
           {!sv ? <EmptyState title="讀取中…" icon="switch.2" /> : <>
-            <Status sv={sv} mode={flags.view?.mode} />
+            <Status sv={sv} />
             {reloadErr && <ErrorText>重新讀取失敗:{reloadErr}</ErrorText>}
             {saveErr && <Card><ErrorText>{saveErr}</ErrorText></Card>}
             <FeatureList items={items} canEdit={sv.canEdit} saving={saving} onSet={set} offWord="不開放" />
@@ -66,15 +66,14 @@ export default function SystemView(_: SectionProps) {
 }
 
 /** 讀取狀態、權限 */
-function Status({ sv, mode }: { sv: ServerView; mode?: string }) {
+function Status({ sv }: { sv: ServerView }) {
   if (sv.error || sv.source === "fallback" || sv.source === "cached") {
-    const noDB = mode === "local" && /OMIXOR_DATABASE_URL|OPS_DATABASE_URL/.test(sv.error);
+    const noDB = /OMIXOR_DATABASE_URL|OPS_DATABASE_URL/.test(sv.error);
     return (
       <Card>
         <div className={"row gap6 " + css.warn}><Icon name="exclamationmark.triangle.fill" size={14} />讀不到這台伺服器開放的功能</div>
         {sv.error && <div className={css.selectable}>{sv.error}</div>}
-        {noDB && <div className="caption muted">本機模式的功能開關存在本機核心的資料庫(和 Issue、事件同一個)。</div>}
-        {mode === "remote" && <div className="caption muted">omixor server 可能是舊版(還沒有系統層的功能設定),請更新 server。</div>}
+        {noDB && <div className="caption muted">功能開關存在核心的資料庫(和 Issue、事件同一個)。</div>}
         <div className="caption muted">
           {sv.source === "cached" ? "目前照這次執行最後一次讀到的設定顯示,暫時不能修改。" : "目前顯示預設:原本正式版的功能開放、其他不開放,暫時不能修改。"}
         </div>

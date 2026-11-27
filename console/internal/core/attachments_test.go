@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"omixor-core/service"
 )
 
 func TestAttachments(t *testing.T) {
 	a := newTestApp(t)
 	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{1}, 32)...)
 	id, err := SaveAttachment(a, png)
-	if err != nil || !attachmentIDRe.MatchString(id) || !strings.HasSuffix(id, ".png") {
+	if err != nil || !service.ValidAttachmentID(id) || !strings.HasSuffix(id, ".png") {
 		t.Fatalf("存檔:%q %v", id, err)
 	}
 	if id2, _ := SaveAttachment(a, png); id2 != id {

@@ -15,7 +15,7 @@ import (
 
 // 事件:資料與規則都在核心(omixor-core 的 service/incident.go):
 //
-//	本機模式:內建核心 + 本機 PostgreSQL(omixor_incidents);遠端模式:omixor server 的 /api/orgs/{org}/incidents
+//	內建核心 + PostgreSQL(omixor_incidents)
 //
 // 這裡是轉接層:
 //   - 讀:畫面、助理、ops_overview 照舊讀 a.C["incidents"](當成核心的快取):寫入後、切換組織時、每 5 秒從核心重讀
@@ -52,9 +52,9 @@ func coreActor(x Actor) *model.IncidentActor {
 	return &m
 }
 
-// migrateIncidents 本機模式:核心沒有事件、快取有 → 匯入一次(不拿 Mu)
+// migrateIncidents 核心沒有事件、快取有 → 匯入一次(不拿 Mu)
 func (a *App) migrateIncidents(be backend.Backend, org string) {
-	if IsRemote() || org == "" || a.IsScoped() { // 一次性 App 沒有舊資料:不能標成匯入過
+	if org == "" || a.IsScoped() { // 一次性 App 沒有舊資料:不能標成匯入過
 		return
 	}
 	if _, done := incMigrated.Load(incKey(a, org)); done {
@@ -139,7 +139,7 @@ func (a *App) DeclareIncident(org string, in service.IncidentInput, who ...*Call
 		return nil, err
 	}
 	a.migrateIncidents(be, org) // 舊資料匯入是系統的工作
-	if be, err = coreBackendFor(firstCaller(who), "", org); err != nil {
+	if be, err = coreBackendFor(firstCaller(who), org); err != nil {
 		return nil, err
 	}
 	if a.IsScoped() { // 指揮官是這個組織的真實成員:原樣給核心嚴格解析(系統工作組織的是範例人員 id,要拿掉)
@@ -175,7 +175,7 @@ func (a *App) UpdateIncidentCore(org, id string, p service.IncidentPatch, who ..
 		return nil, err
 	}
 	a.migrateIncidents(be, org)
-	if be, err = coreBackendFor(firstCaller(who), "", org); err != nil {
+	if be, err = coreBackendFor(firstCaller(who), org); err != nil {
 		return nil, err
 	}
 	if a.IsScoped() { // 同 DeclareIncident

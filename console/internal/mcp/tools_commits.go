@@ -6,7 +6,7 @@ import (
 )
 
 // commits 工具(commits_report、commits、issue_commit_link、issue_commit_unlink,ISS-69)由核心提供(omixor-core/mcp 的 tools_commits.go),
-// 資料存在核心。這裡是 appBackend 的對應部分:只轉發給核心(本機內建核心或遠端 omixor server);權限與可見性(角色身分 403、受限專案連結隱藏)
+// 資料存在核心。這裡是 appBackend 的對應部分:只轉發給核心(內建核心);權限與可見性(角色身分 403、受限專案連結隱藏)
 // 都由核心依登入身分決定。issues(id) 附的 commits 也走這裡的 ListIssueCommits(讀不到就不附)。呼叫時沒有拿著 Mu。decisionBackend 見 tools_decision.go。
 
 func (b appBackend) ReportCommits(org string, in service.CommitReport) (*service.CommitReportResult, error) {

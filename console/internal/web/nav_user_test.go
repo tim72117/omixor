@@ -10,7 +10,7 @@ import (
 )
 
 // 啟用 LDAP 時換頁只影響自己:畫面的 action、/api/tool 都只改呼叫者(在那個組織)的導覽狀態;
-// 沒有登入者的連線(MCP 3765)移不動任何人的畫面,回應裡說明
+// 沒有登入者的呼叫移不動任何人的畫面,回應裡說明
 func TestNavigateIsPerUser(t *testing.T) {
 	e := newCallerEnv(t, nil)
 	alice := e.login("alice")
@@ -61,13 +61,13 @@ func TestNavigateIsPerUser(t *testing.T) {
 	want(alice, beta, "cabinet/", "development", "Beta 換頁")
 	want(alice, jia, "development/ISS-1", "staging", "原組織不動")
 
-	// 系統身分(3765 用的是同一個 Run):不移動任何人
+	// 系統身分:不移動任何人
 	out, err := mcp.Run(e.app, "navigate", map[string]any{"section": "incidents"}, core.MCPActor)
 	if err != nil || !strings.Contains(core2s(core.Object(out)), "no one's screen was moved") {
 		t.Fatal(err, core2s(core.Object(out)))
 	}
-	want(alice, jia, "development/ISS-1", "staging", "3765 之後的 alice")
-	want(bob, jia, "cabinet/DOC-1", "production", "3765 之後的 bob")
+	want(alice, jia, "development/ISS-1", "staging", "系統呼叫之後的 alice")
+	want(bob, jia, "cabinet/DOC-1", "production", "系統呼叫之後的 bob")
 
 	// 去關掉的頁面:自己拿到提示,別人的畫面沒有提示
 	_, before := bob.do("GET", "/api/view/system", nil, nil)

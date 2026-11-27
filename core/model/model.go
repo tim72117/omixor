@@ -300,6 +300,8 @@ type Principal struct {
 	ReadOnly bool
 	// OAuthAdmin OAuth 授權帶 mcp:admin(只在 Via 是 ViaOAuth 且 ReadOnly 為 false 時有意義,見 OAuthAdminGrant)
 	OAuthAdmin bool
+	// OAuthWorker 執行者端點專用授權(scope mcp:worker,只在 Via 是 ViaOAuth 時有意義):只能用在 /mcp/worker/{org},dispatch_claim 不回角色憑證密鑰
+	OAuthWorker bool
 }
 
 // Principal.Via 的值:身分是怎麼來的

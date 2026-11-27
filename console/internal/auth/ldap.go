@@ -62,7 +62,7 @@ func (s *Service) AuthenticateWith(cfg Config, bindPassword *string, username, p
 	}
 	// 空密碼在 LDAP 是「匿名 bind」,會被當成成功:一律擋掉
 	username = strings.TrimSpace(username)
-	if username == "" || password == "" || strings.ContainsRune(username, 0) || len(username) > 256 {
+	if !validCredentials(username, password) {
 		return User{}, ErrBadLogin
 	}
 	a, err := s.authenticator(cfg, bindPassword)
@@ -73,12 +73,21 @@ func (s *Service) AuthenticateWith(cfg Config, bindPassword *string, username, p
 	if err != nil {
 		return User{}, translate(err)
 	}
+	return s.userOf(cfg, id, username), nil
+}
+
+func validCredentials(username, password string) bool {
+	return username != "" && password != "" && !strings.ContainsRune(username, 0) && len(username) <= 256
+}
+
+// userOf 目錄身分 → 登入者;管理員照 cfg 的帳號名單
+func (s *Service) userOf(cfg Config, id *ldapauth.Identity, typed string) User {
 	u := User{ID: id.Account, Name: id.Name, Email: id.Email, DN: id.DN, Groups: id.Groups}
 	if u.Name == "" {
-		u.Name = username
+		u.Name = typed
 	}
 	u.Admin = cfg.IsAdminAccount(u.ID)
-	return u, nil
+	return u
 }
 
 var errNotInGroup = core.UserError{Message: "這個帳號不在允許使用 omixor 的群組裡"}

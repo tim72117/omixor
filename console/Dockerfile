@@ -31,5 +31,5 @@ COPY --from=go /out/ /usr/local/bin/
 COPY templates /usr/local/share/omixor/templates
 USER omixor
 ENV OMIXOR_CONSOLE_DATA_DIR=/home/omixor/data OMIXOR_NO_BROWSER=1 TZ=Asia/Taipei
-EXPOSE 5191 3765
+EXPOSE 5191
 ENTRYPOINT ["/usr/local/bin/omixor-web"]

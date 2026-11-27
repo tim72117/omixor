@@ -56,12 +56,10 @@ func TestRestrictedProjectsHiddenFromNonAdminWebUsers(t *testing.T) {
 	if _, out := bob.do("POST", "/api/tool/issues", map[string]any{"status": "all"}, nil); has(out, "機密標題") || has(out, secIssue["key"].(string)) {
 		t.Fatal("tool issues 洩漏", out)
 	}
-	if code, _ := bob.do("POST", "/api/tool/issues", map[string]any{"id": secIssue["key"]}, nil); code != 404 {
-		t.Fatal("單筆受限 Issue 要 404", code)
-	}
-	if code, _ := bob.do("POST", "/api/tool/issue_update", map[string]any{"id": secIssue["key"], "comment": "偷留言"}, nil); code != 404 {
-		t.Fatal("改受限專案的 Issue 要 404", code)
-	}
+	// 單筆讀、改受限專案的 Issue:回應和不存在的編號一模一樣
+	toolLikeMissing(t, bob, "issues", secIssue["key"].(string), nil)
+	toolLikeMissing(t, bob, "issue_update", secIssue["key"].(string), map[string]any{"comment": "偷留言"})
+	toolLikeMissing(t, bob, "issue_accept", secIssue["key"].(string), nil)
 	if code, _ := bob.do("POST", "/api/tool/issue_create", map[string]any{"title": "塞", "project": sec}, nil); code != 404 {
 		t.Fatal("指到受限專案 404", code)
 	}
@@ -107,6 +105,25 @@ func TestRestrictedProjectsHiddenFromNonAdminWebUsers(t *testing.T) {
 	// 管理員看得到受限專案的單筆
 	if code, out := alice.do("POST", "/api/tool/issues", map[string]any{"id": secIssue["key"]}, nil); code != 200 || out["error"] != nil {
 		t.Fatal("管理員看得到", code, out)
+	}
+}
+
+// toolLikeMissing 工具對看不到的 Issue(ref)的回應,和對不存在的編號(同樣形式)一模一樣(只差回顯的編號),而且是失敗
+func toolLikeMissing(t *testing.T, c *client, tool, ref string, extra map[string]any) {
+	t.Helper()
+	const missing = "ISS-999999"
+	call := func(id string) (int, string) {
+		body := map[string]any{"id": id}
+		for k, v := range extra {
+			body[k] = v
+		}
+		code, out := c.do("POST", "/api/tool/"+tool, body, nil)
+		return code, strings.ReplaceAll(core2s(out), id, "<id>")
+	}
+	code, got := call(ref)
+	wantCode, want := call(missing)
+	if code == 200 || code != wantCode || got != want {
+		t.Fatalf("%s %s:%d %s,不存在的是 %d %s", tool, ref, code, got, wantCode, want)
 	}
 }
 

@@ -188,7 +188,7 @@ func TestConfigureLocalIdentityOrder(t *testing.T) {
 	}
 }
 
-// ---- 署名輸入的轉換:不把人員 id 傳給核心(本機與遠端共用 authorBackend) ----
+// ---- 署名輸入的轉換:不把人員 id 傳給核心 ----
 
 func TestCoreAuthor(t *testing.T) {
 	for in, want := range map[string]string{
@@ -321,54 +321,4 @@ func (r *recBackend) ChannelInbox(_, who string) (*service.ChannelInbox, error) 
 func (r *recBackend) DeclareIncident(_ string, in service.IncidentInput) (*model.Incident, error) {
 	r.inc = in
 	return &model.Incident{}, nil
-}
-
-// 遠端模式(backend.Remote 也包在 authorBackend 裡)不傳人員 id 的署名;角色署名照傳
-func TestAuthorBackendDoesNotSendPersonIDs(t *testing.T) {
-	r := &recBackend{}
-	b := authorBackend{r}
-	_, _ = b.CreateIssue("o", service.IssueInput{Title: "t", Author: "tim"})
-	if r.issue.Author != "" {
-		t.Fatalf("建立 Issue 不該傳人員署名:%q", r.issue.Author)
-	}
-	_, _ = b.CreateIssue("o", service.IssueInput{Title: "t", Author: "agent:pm"})
-	if r.issue.Author != "agent:pm" {
-		t.Fatalf("角色署名要保留:%q", r.issue.Author)
-	}
-	cs := []model.Comment{{ID: "c1", Author: "tim"}, {ID: "c2", Author: "agent:pm"}, {ID: "c3", Author: "bob@x.com"}}
-	_, _ = b.UpdateIssue("o", "i", service.IssuePatch{Author: "mcp", Comments: &cs})
-	if r.patch.Author != "" || (*r.patch.Comments)[0].Author != "user:"+LocalIdentity || (*r.patch.Comments)[1].Author != "agent:pm" || (*r.patch.Comments)[2].Author != "bob@x.com" {
-		t.Fatalf("整份取代的留言作者:%+v", r.patch)
-	}
-	if cs[0].Author != "tim" {
-		t.Fatal("不可改到呼叫端的切片")
-	}
-	_, _ = b.AddIssueComment("o", "i", "x", "tim")
-	if r.comment != "" {
-		t.Fatalf("留言署名:%q", r.comment)
-	}
-	_, _ = b.PostChannelMessage("o", "c", service.PostInput{Text: "x", As: "tim", Author: "mcp"})
-	if r.post.As != "" || r.post.Author != "" {
-		t.Fatalf("訊息署名:%+v", r.post)
-	}
-	_, _ = b.CreateChannel("o", service.ChannelInput{Name: "n", As: "tim", Members: []string{"user:tim", "agent:pm", "bob@x.com"}})
-	if r.chIn.As != "" || len(r.chIn.Members) != 3 || r.chIn.Members[0] != "user:"+LocalIdentity || r.chIn.Members[1] != "agent:pm" || r.chIn.Members[2] != "bob@x.com" {
-		t.Fatalf("頻道:%+v", r.chIn)
-	}
-	_, _ = b.SaveChain("o", []model.ChainEdge{{From: "user:tim", To: "agent:pm"}})
-	if r.edges[0].From != "user:"+LocalIdentity || r.edges[0].To != "agent:pm" {
-		t.Fatalf("組織鏈:%+v", r.edges)
-	}
-	_, _ = b.ChannelInbox("o", "tim")
-	if r.who != "user:"+LocalIdentity {
-		t.Fatalf("收件匣:%q", r.who)
-	}
-	_, _ = b.DeclareIncident("o", service.IncidentInput{Commander: "tim", Author: "tim", Actor: &model.IncidentActor{Kind: "person", ID: "tim"}})
-	if r.inc.Commander != "" || r.inc.Author != "" || r.inc.Actor != nil {
-		t.Fatalf("事件:%+v", r.inc)
-	}
-	_, _ = b.DeclareIncident("o", service.IncidentInput{Actor: &model.IncidentActor{Kind: "ai", ID: "pm"}})
-	if r.inc.Actor == nil || r.inc.Actor.ID != "pm" {
-		t.Fatalf("角色事件執行者要保留:%+v", r.inc)
-	}
 }

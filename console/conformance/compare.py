@@ -11,16 +11,14 @@
 比對前會先正規化:ISO 時間 → <time>、UUID → <uuid>、ISS-12 這類流水號保留(兩邊從同樣的起點開始,應該一樣)。
 工具結果的 text 是 JSON 時會先解析再比對;錯誤訊息(isError)逐字比對。
 """
-import json, os, re, sys, urllib.request, argparse
+import json, re, sys, urllib.request, argparse
 
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 UUID = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")
 
-def rpc(url, method, params, n, token=None):
+def rpc(url, method, params, n):
     body = json.dumps({"jsonrpc": "2.0", "id": n, "method": method, "params": params}).encode()
     headers = {"Content-Type": "application/json"}
-    if token:  # Go 版的 console MCP 連接埠一律要 Bearer 權杖(Swift 版不驗證,不帶)
-        headers["Authorization"] = "Bearer " + token
     req = urllib.request.Request(url, body, headers)
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.load(r)
@@ -84,13 +82,8 @@ def main():
     ap.add_argument("scenario")
     ap.add_argument("--swift", required=True)
     ap.add_argument("--go", required=True)
-    ap.add_argument("--go-token", default=os.environ.get("OMIXOR_CONSOLE_MCP_TOKEN", ""),
-                    help="Go 版 MCP 連接埠的 Bearer 權杖(預設讀環境變數 OMIXOR_CONSOLE_MCP_TOKEN)")
-    ap.add_argument("--go-data-dir", help="Go 版的資料夾(run_go.sh 印出的);沒給權杖時讀裡面的 mcp_token")
     ap.add_argument("-v", action="store_true")
     o = ap.parse_args()
-    if not o.go_token and o.go_data_dir:
-        o.go_token = open(os.path.join(o.go_data_dir, "mcp_token"), encoding="utf-8").read().strip()
     steps = json.load(open(o.scenario))["steps"]
     bad = 0
     for i, s in enumerate(steps, 1):
@@ -100,7 +93,7 @@ def main():
         else:
             method, params, label = s["method"], s.get("params", {}), s["method"]
         a = unpack(rpc(o.swift, method, params, i))
-        b = unpack(rpc(o.go, method, params, i, o.go_token))
+        b = unpack(rpc(o.go, method, params, i))
         a, b = norm(list(a)), norm(list(b))
         for p in s.get("ignore", []):
             drop(a[1], p.split(".")); drop(b[1], p.split("."))

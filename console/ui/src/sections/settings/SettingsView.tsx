@@ -9,6 +9,7 @@ import { Segmented } from "../../components/Segmented";
 import { Switch } from "../../components/Switch";
 import { useDirectory } from "../../lib/directory";
 import { useStored } from "../../lib/hooks";
+import { useOutsideSystemOrg } from "../../lib/switchOrg";
 import { useAssistantVisible } from "../../assistant/store";
 import { useAuth } from "../../auth/auth";
 import { useFeatures } from "../../features";
@@ -34,13 +35,17 @@ const PANES: { id: Pane; title: string; icon: string }[] = [
 ];
 export const PANE_KEY = "omixor.settings.pane";
 
+/** 內容整台一份的設定頁:選的不是系統工作組織時不顯示(「整合」還有 MCP 位址,留著) */
+const SYSTEM_PANES: Pane[] = ["repos", "connections", "team", "ai"];
+
 /** 屬於選用模組的設定頁(後端沒編進該模組時不顯示,見 features.ts 的 hasModule) */
 const PANE_MODULE: Partial<Record<Pane, string>> = { repos: "integrations" };
 
 export default function SettingsView({ focusId, clearFocus }: SectionProps) {
   const [stored, setPane] = useStored<Pane>(PANE_KEY, "integrations");
   const { hasModule } = useFeatures();
-  const panes = PANES.filter((p) => !PANE_MODULE[p.id] || hasModule(PANE_MODULE[p.id]!));
+  const outside = useOutsideSystemOrg();
+  const panes = PANES.filter((p) => (!PANE_MODULE[p.id] || hasModule(PANE_MODULE[p.id]!)) && !(outside && SYSTEM_PANES.includes(p.id)));
   const pane: Pane = panes.some((p) => p.id === stored) ? stored : "integrations";
   useEffect(() => {
     if (!focusId) return;

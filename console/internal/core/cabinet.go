@@ -18,11 +18,10 @@ import (
 
 // 文件櫃:資料與功能都在核心(omixor-core;結構、文件、權限、範本檢查),同 Swift 版 Cabinet/Cabinet.swift:
 //
-//	本機模式:內建核心(service)+ 本機 PostgreSQL(omixor_cabinet_layouts、omixor_docs)
-//	遠端模式:用 core/client 連線上的 omixor server(文件櫃存在雲端)
+//	內建核心(service)+ PostgreSQL(omixor_cabinet_layouts、omixor_docs)
 //
 // 這個檔案只是轉接層(同 agents.go 的做法):
-//   - 讀:畫面讀 App 的快取(cabState,自己有鎖,不依賴 Mu;本機載入時讀、每 5 秒背景重讀,遠端模式也是背景讀)
+//   - 讀:畫面讀 App 的快取(cabState,自己有鎖,不依賴 Mu;載入時讀、每 5 秒背景重讀)
 //   - 寫:CabinetOps 交給核心,成功後更新快取、寫動態、通知畫面。呼叫時不要拿著 Mu
 //   - 舊資料:本機組織資料夾裡舊的 cabinet.json / cabinet-layout.json 在組織載入時匯入核心一次
 //     (寫 cabinet-imported.json 當記號;舊檔案不刪)
@@ -53,12 +52,11 @@ func TemplateCabinetLayout() []CabinetSection {
 // ---- 快取 ----
 
 type cabState struct {
-	mu      sync.Mutex
-	org     string
-	loaded  bool
-	cab     model.Cabinet
-	syncing bool
-	err     string
+	mu     sync.Mutex
+	org    string
+	loaded bool
+	cab    model.Cabinet
+	err    string
 	// migrateErr 本機舊資料(cabinet.json)沒有匯入的原因(核心已經有文件);匯入成功前一直顯示在畫面
 	migrateErr string
 }
@@ -79,7 +77,7 @@ func emptyCabinet() model.Cabinet {
 
 // cabinetRefresh 從核心重讀 org 的文件櫃換進快取(不拿 Mu),回傳內容有沒有變
 func (a *App) cabinetRefresh(org string) bool {
-	if org == "" && !IsRemote() { // 還沒有組織:空的,不問核心
+	if org == "" { // 還沒有組織:空的,不問核心
 		st := a.cabSt()
 		st.mu.Lock()
 		defer st.mu.Unlock()
@@ -114,40 +112,14 @@ func (a *App) cabinetRefresh(org string) bool {
 	return changed
 }
 
-// cabinetSync 遠端:在背景重讀 org,有變就通知畫面(同時只跑一個)
-func (a *App) cabinetSync(org string) {
-	st := a.cabSt()
-	st.mu.Lock()
-	if st.syncing {
-		st.mu.Unlock()
-		return
-	}
-	st.syncing = true
-	st.mu.Unlock()
-	changed := a.cabinetRefresh(org)
-	st.mu.Lock()
-	st.syncing = false
-	st.mu.Unlock()
-	if changed {
-		a.Changed("cabinet")
-	}
-}
-
-// cabinetOf org 的文件櫃(快取;還沒載入:本機當場讀,遠端先給空的並在背景讀)。不需要拿 Mu
+// cabinetOf org 的文件櫃(快取;還沒載入時當場讀)。不需要拿 Mu
 func (a *App) cabinetOf(org string) model.Cabinet {
 	st := a.cabSt()
 	st.mu.Lock()
 	cur := st.loaded && st.org == org
 	st.mu.Unlock()
 	if !cur {
-		if IsRemote() {
-			st.mu.Lock()
-			st.org, st.cab, st.loaded = org, emptyCabinet(), true
-			st.mu.Unlock()
-			go a.cabinetSync(org)
-		} else {
-			a.cabinetRefresh(org)
-		}
+		a.cabinetRefresh(org)
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -259,10 +231,10 @@ func readOldCabinet(dir string) (layout []CabinetSection, docs []CabinetDoc, fou
 	return layout, docs, found
 }
 
-// migrateCabinet 本機模式:組織資料夾裡有舊的文件櫃檔案、還沒匯入過,就匯入核心一次;
-// 沒有舊檔案、核心也沒存過結構時,開了範本就存範本的結構。呼叫時可以拿著 Mu(只碰本機核心)
+// migrateCabinet 組織資料夾裡有舊的文件櫃檔案、還沒匯入過,就匯入核心一次;
+// 沒有舊檔案、核心也沒存過結構時,開了範本就存範本的結構。呼叫時可以拿著 Mu(只碰同一個程式裡的核心)
 func (a *App) migrateCabinet(org string) {
-	if IsRemote() || org == "" {
+	if org == "" {
 		return
 	}
 	if _, err := agentBackend(); err != nil {
@@ -311,27 +283,22 @@ func (a *App) migrateCabinet(org string) {
 	}
 }
 
-// cabCode 核心回的錯誤的 HTTP 狀態碼(本機與遠端一致);其他是 0
+// cabCode 核心回的錯誤的 HTTP 狀態碼;其他是 0
 func cabCode(err error) int { return backend.Code(err) }
 
 func init() {
 	OnOrgLoad(func(a *App) {
 		org := a.CurrentOrgID()
 		a.migrateCabinet(org)
-		if !IsRemote() {
-			a.cabinetRefresh(org)
-		}
+		a.cabinetRefresh(org)
 	})
 	OnOrgCreate(func(a *App, dir, template string) {
-		// 新組織的文件櫃結構:空白,或複製目前組織的(本機核心才在這裡做;遠端模式的組織在雲端)
-		if IsRemote() {
-			return
-		}
+		// 新組織的文件櫃結構:空白,或複製目前組織的
 		layout := BlankCabinetLayout()
 		if template == "copyCurrent" {
 			layout = model.CloneLayout(a.CabinetLayout())
 		}
-		if be, err := coreBackendFor(a.caller, "", filepath.Base(dir)); err == nil { // 建立組織的人
+		if be, err := coreBackendFor(a.caller, filepath.Base(dir)); err == nil { // 建立組織的人
 			zero := int64(0) // 新組織第一次存;已經有人存了(409)就不覆蓋
 			if _, err := be.SaveCabinetLayout(filepath.Base(dir), layout, &zero); err != nil && cabCode(err) != 409 {
 				log.Printf("新組織的文件櫃結構:%v", err)
@@ -342,7 +309,7 @@ func init() {
 		if config.Current().Bool(config.NoTimers) {
 			return
 		}
-		// 每 5 秒重讀目前組織的文件櫃(別的路徑改了資料、遠端的修改才看得到;網路與資料庫請求都在鎖外)
+		// 每 5 秒重讀目前組織的文件櫃(別的路徑改了資料才看得到;資料庫請求在鎖外)
 		go func() {
 			for range time.Tick(5 * time.Second) {
 				if org := a.currentOrgNow(); org != "" && a.cabinetRefresh(org) {
@@ -364,7 +331,7 @@ func init() {
 	RegisterAction("cabinet_query", func(a *App, args map[string]any) (any, error) {
 		org := a.currentOrgNow()
 		project := model.NormalizeProjectID(agentArg(args, "project"))
-		ops := a.CabinetOps()
+		ops := a.CabinetOpsFor(CallerOf(args)) // 專案的文件櫃、專案清單照呼叫者看得到的
 		var cab model.Cabinet
 		if project == "" {
 			cab = a.cabinetOf(org)
@@ -473,8 +440,8 @@ func init() {
 	})
 	// cabinet_doc_get 依 id 找文件(任何專案;畫面從別頁跳過來時用來切到文件所在的專案)。找不到回 null
 	RegisterAction("cabinet_doc_get", func(a *App, args map[string]any) (any, error) {
-		d, err := a.CabinetOps().GetDoc(a.currentOrgNow(), agentArg(args, "id"))
-		if cabCode(err) == 404 {
+		d, err := a.CabinetOpsFor(CallerOf(args)).GetDoc(a.currentOrgNow(), agentArg(args, "id"))
+		if cabCode(err) == 404 || (err == nil && d != nil && HiddenOf(args).Project(d.Project)) {
 			return nil, nil
 		}
 		if err != nil {

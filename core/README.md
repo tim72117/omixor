@@ -15,9 +15,7 @@ omixor 的核心後端模組(Go)。目前有:
 ## 架構
 
 - **核心**(本模組):授權、組織、Issue 等後端模組。
-- **web**(`omixor-web`):自己做網頁與介面,編譯時引入核心。啟動時二選一:
-  - 內建:`OMIXOR_DATABASE_URL` 連 PostgreSQL,核心在同一個程式裡跑
-  - 遠端:`OMIXOR_SERVER` 指向線上 omixor server,授權、組織、Issue 都交給它
+- **web**(`omixor-web`):自建伺服器,自己做網頁與介面,編譯時引入核心;`OMIXOR_DATABASE_URL` 連 PostgreSQL,核心在同一個程式裡跑。
 - **mac**(macOS App,Swift):介面殼層與資料快取,重要資料從 omixor server 取得。
 
 ## 選用模組
@@ -176,7 +174,6 @@ MCP:
 | 認證 | 雲端 `/mcp/org/{org}`(組織在路徑)或統一入口 `/mcp`(組織用 `org` 參數):omixor token;本機 `/mcp`:綁 127.0.0.1 | `Authorization: Bearer <agentId>:<secret>`(領取任務發的憑證,綁一筆任務) | 同管理端點:雲端 `/mcp/worker/{org}` 用 omixor token;本機 `/mcp/worker` 綁 127.0.0.1 |
 | 身分 | 呼叫者本人 | 憑證的角色(署名一律是角色) | 呼叫者本人(組織成員) |
 | 工具 | 組織、Issue、角色(含新增修改)、派任務、領取、回報、文件櫃(`cabinet`、`docs`、`doc_save`;帶 `agent` 時依該角色的 docAccess)、組織鏈(`chain`、`chain_save`)、訊息頻道(`channels`、`channel_create`、`channel_messages`、`channel_post`) | `agent_context`(含能存取的文件櫃區塊與文件、組織鏈的上下游、頻道裡提到它的未讀訊息)、`agent_tasks`、`agent_task_report`、`agent_task_delegate`、Issue 讀/建/留言、文件櫃(依憑證角色的 docAccess)、訊息頻道(`channels`、`channel_messages`、`channel_post`) | `dispatch_queue`、`dispatch_claim`、`dispatch_status`、`dispatch_report`、`dispatch_comment`、`dispatch_delegate`、`dispatch_release` |
-| 遠端模式(web) | 轉給雲端 | 一律 401(憑證在雲端,要連雲端的 `/mcp/agent`) | 轉給雲端(`credential.endpoint` 指向雲端 `/mcp/agent`) |
 
 **統一入口(雲端 `/mcp`,ISS-54)**:一個連線操作帳號下所有組織,沒有預設組織。收 `omx_` 使用者 token(可讀寫),也收 OAuth access token `omo_`(第 2 階段:**帳號層級、唯讀**;resource = `<網址>/mcp`,token 不綁組織,組織仍由每次呼叫的 `org` 與即時成員資格決定;只開放 `model.CoreTool.ReadOnly` 的工具,寫入回「此連線是唯讀授權」,寫入預設仍需 `omx_`,使用者在同意畫面明確選「讀寫」(scope `mcp:write`,預設唯讀、不會自動升級)才多開 `model.OAuthWriteTools` 的協作寫入白名單,而且該身分不是伺服器管理員(`Principal.ServerAdmin()` 對 OAuth 寫入身分一律 false)、授權表照舊檢查、稽核 `source = oauth`、沒有自助撤銷介面;同意畫面證明身分以「用 evoleap 登入並允許」(瀏覽器登入,回呼 `/oauth/evoleap/callback`,綁定瀏覽器的 cookie、單一用途交易、evoleap token 用完即撤銷;見 `service/oauth_evoleap.go`)為主,配對碼是備援;綁 `/mcp/org/{org}` 的 OAuth token 與綁 `/mcp` 的不能互用;沒設 `OMIXOR_PUBLIC_URL` 時沒有 OAuth,`omo_` 回 403)。401 帶 `resource_metadata`(`/.well-known/oauth-protected-resource/mcp`)。除 `orgs`、`schema_check` 外,每次工具呼叫都要帶 `org`(必填,讀寫一樣;tools/list 的規格會列出必填的 `org`),沒帶或不是成員的組織會被拒絕(缺 org 的訊息列出可用組織)。每次呼叫各自驗證成員資格並用各自的組織上下文(`Hooks.CallCtx`),同一批請求可混用不同組織;成功結果維持單一 text 區塊,實際使用的組織放在結果的 `_meta`(`{"omixor/org": "<id>"}`);同一個 HTTP 請求內只查一次 `ListOrgs`(請求內快取)。`/mcp/org/{org}` 不變,但帶了與路徑不同的 `org` 參數會被拒絕。`orgs` 在統一入口不標 `current`。`redirect_uri` 允許清單另含 Claude 桌面版 / Agent SDK 的 `claude://claude.ai/mcp-auth-callback/sdk`(只收完全相同的字串);scope 的 `offline_access` 一律容忍但不授予。細節見 omixor 文件櫃 DOC-35《docs/authorization.md》 §0.5。
 

@@ -340,3 +340,27 @@ func TestLDAPFailuresReservedBeforeDirectory(t *testing.T) {
 		}
 	}
 }
+
+// 宿主自己的限額(LDAPSettings.Rate):登入成功不佔名額、失敗照佔;和共用的限額分開
+func TestVerifyDirectoryOwnRate(t *testing.T) {
+	svc, _, _ := ldapEnv(t)
+	svc.LoginPerIP = 3
+	set := svc.LDAPSettings()
+	set.Rate = &service.LoginRate{}
+	for i := 0; i < 10; i++ {
+		if _, err := svc.VerifyDirectory(set, "amy", "pw-amy", "9.9.9.9"); err != nil {
+			t.Fatal(i, err)
+		}
+	}
+	for _, u := range []string{"x1", "x2", "x3"} {
+		if _, err := svc.VerifyDirectory(set, u, "wrong", "9.9.9.9"); statusOf(err) != 401 {
+			t.Fatal(u, err)
+		}
+	}
+	if _, err := svc.VerifyDirectory(set, "amy", "pw-amy", "9.9.9.9"); statusOf(err) != 429 {
+		t.Fatal("失敗滿了要 429:", err)
+	}
+	if _, err := svc.VerifyDirectory(svc.LDAPSettings(), "amy", "pw-amy", "9.9.9.9"); err != nil {
+		t.Fatal("共用的限額不受影響:", err)
+	}
+}

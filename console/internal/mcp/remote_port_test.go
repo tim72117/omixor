@@ -154,27 +154,7 @@ func TestRemotePortFourEndpoints(t *testing.T) {
 	}
 }
 
-// console 本機的 MCP 權杖(omxm_,真的那一把)與沒帶 token 在四種端點都是 401
-func TestRemotePortRejectsConsoleMCPToken(t *testing.T) {
-	t.Setenv("OMIXOR_CONSOLE_MCP_TOKEN", "")
-	r := newOAuthRig(t)
-	reveal, err := core.MCPTokenValue(r.app)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(reveal, "omxm_") || !core.MCPTokenVerify(r.app, reveal, coremcp.TokenEqual) {
-		t.Fatal("拿不到本機 MCP 權杖,測試失效")
-	}
-	for _, p := range remotePaths {
-		for _, tok := range []string{reveal, ""} {
-			if w := r.post(p, tok, listRPC); w.Code != 401 {
-				t.Errorf("%s(帶權杖 %v)要 401,實際 %d", p, tok != "", w.Code)
-			}
-		}
-	}
-}
-
-// 組織端點的 OAuth:token 綁定那個組織的網址;唯讀授權不能寫;執行者端點不收 omo_
+// 組織端點的 OAuth:token 綁定那個組織的網址;唯讀授權不能寫;執行者端點不收一般授權的 omo_
 func TestRemotePortOrgBoundOAuth(t *testing.T) {
 	r := newOAuthRig(t)
 	ro := r.connectTo("/mcp/org/o", "ev-boss", "boss@x", "mcp:read", "read")
@@ -195,8 +175,8 @@ func TestRemotePortOrgBoundOAuth(t *testing.T) {
 	if w := r.post("/mcp/org/o", unified, listRPC); w.Code != 401 {
 		t.Error("統一入口的 token 不能用在組織端點:", w.Code)
 	}
-	if w := r.post("/mcp/worker/o", ro, listRPC); w.Code != 403 {
-		t.Error("執行者端點不收 omo_:", w.Code)
+	if w := r.post("/mcp/worker/o", ro, listRPC); w.Code != 401 {
+		t.Error("執行者端點不收一般授權的 omo_:", w.Code)
 	}
 	rw := r.connectTo("/mcp/org/o", "ev-boss", "boss@x", "mcp:read mcp:write", "write")
 	if isErr, text := r.tool("/mcp/org/o", rw, "issue_create", map[string]any{"title": "ok"}); isErr {

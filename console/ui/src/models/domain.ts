@@ -235,7 +235,7 @@ export type ChainEdge = { from: string; to: string; label: string; fromActor?: A
 export type OrgChain = { edges: ChainEdge[]; updatedAt?: string };
 /** 組織鏈視圖(org_chain):鏈、組織成員(user 節點的候選)、能不能修改 */
 export type OrgChainView = {
-  org: string; remote: boolean; canEdit: boolean; chain: OrgChain;
+  org: string; canEdit: boolean; chain: OrgChain;
   members: { email: string; name: string; role: string }[]; error?: string;
 };
 
@@ -255,7 +255,7 @@ export type ChannelMessage = {
 export type ChannelPage = { messages: ChannelMessage[]; hasMore: boolean };
 /** 對話視圖(channels):我的頻道、我的節點、組織成員與角色 */
 export type ChannelsView = {
-  org: string; remote: boolean; me: string; channels: Channel[];
+  org: string; me: string; channels: Channel[];
   members: { email: string; name: string; role: string }[]; agents: Agent[]; error?: string;
 };
 

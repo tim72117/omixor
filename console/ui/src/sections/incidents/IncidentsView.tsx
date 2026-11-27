@@ -206,7 +206,7 @@ function DeclareSheet({ open, onClose, onCreated }: { open: boolean; onClose: ()
     setTitle(""); setSev(2); setSvc(new Set()); setImpact(""); setSq(""); setError(undefined);
     const now = Date.now();
     const cur = onCall.find((s) => s.role === "Primary" && tOrNow(s.start) <= now && tOrNow(s.end) > now);
-    setCommander(cur?.person ?? (dir.person(dir.me) ? dir.me : dir.people[0]?.id ?? ""));
+    setCommander(cur?.person ?? (dir.assignable || (dir.people[0]?.id ?? "")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   // MCP 的 incident_declare 要求 impact,所以影響範圍也要填(Swift 版畫面可以留空)
@@ -241,6 +241,7 @@ function DeclareSheet({ open, onClose, onCreated }: { open: boolean; onClose: ()
           <option value="">{outside ? "我自己" : "請選擇"}</option>
           {outside ? (members?.members ?? []).map((m) => <option key={m.email} value={m.email}>{m.name || m.email}</option>)
             : dir.people.map((p) => <option key={p.id} value={p.id}>{p.name}({p.role})</option>)}
+          {!outside && dir.assignable && !dir.person(dir.assignable) && <option value={dir.assignable}>{dir.name({ kind: "person", id: dir.assignable })}(我)</option>}
         </select>
       </label>
       <label className={fieldClass}><span>影響範圍</span><AutoTextarea minRows={3} value={impact} placeholder="哪些使用者、什麼功能受影響" onChange={setImpact} /></label>

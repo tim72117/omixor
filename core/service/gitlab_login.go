@@ -168,7 +168,7 @@ type OAuthGitLabConfirm struct {
 func (s *Service) gitlabConsentRequest(t *model.OAuthToken, state string) (chk *OAuthAuthChecked, res *OAuthGitLabResult, err error) {
 	chk, err = s.CheckOAuthAuthorize(OAuthAuthRequest{ClientID: t.ClientID, RedirectURI: t.RedirectURI, ResponseType: "code",
 		CodeChallenge: t.CodeChallenge, CodeChallengeMethod: "S256", State: state, Scope: t.Scope, Resources: []string{t.Resource},
-		Org: t.Org, Account: t.Org == ""})
+		Org: t.Org, Account: t.Org == "", Worker: hasScope(t.Scope, model.OAuthScopeWorker)})
 	if err != nil {
 		var oe *OAuthError
 		if errors.As(err, &oe) && !oe.NoRedirect {
@@ -184,6 +184,9 @@ func (s *Service) gitlabConsentRequest(t *model.OAuthToken, state string) (chk *
 }
 
 func grantOfScope(scope string) string {
+	if hasScope(scope, model.OAuthScopeWorker) {
+		return OAuthGrantWorker
+	}
 	return []string{OAuthGrantRead, OAuthGrantWrite, OAuthGrantAdmin}[scopeLevel(scope)]
 }
 

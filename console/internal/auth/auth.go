@@ -1,14 +1,14 @@
-// Package auth 是畫面(web)的登入:LDAP 認證 + session cookie。
+// Package auth 是畫面(web)的登入:認證設定(auth.json)、LDAP 帳密驗證與 session。
+// 驗證走核心(service.VerifyDirectory + core/ldapauth);一般登入的 session 是核心的 web session(omx_ token),
+// 沒有核心可用時(沒有資料庫)與管理員修復登入才用這裡自己的 session,見 session.go。
 //
-// MCP 不經過這裡:MCP 和 Swift 版一樣只聽 127.0.0.1、不需要登入(規格要一模一樣)。
+// MCP 不經過這裡:MCP 在畫面連接埠的 /mcp,用 OAuth 授權(見 mcp/entry.go);同一台電腦的角色端點 /mcp/agent 用角色憑證。
 //
 // 設定存在 <資料夾>/auth.json(全部組織共用);服務帳號密碼存在鑰匙圈(或 OMIXOR_LDAP_BIND_PASSWORD)。
 // 設定錯了把自己鎖在外面時:用 OMIXOR_AUTH=off 啟動,就會回到不用登入的本機模式。
 package auth
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -20,6 +20,7 @@ import (
 
 	"omixor-core/config"
 	"omixor-core/httperr"
+	"omixor-core/ldapauth"
 	"omixor-core/service"
 )
 
@@ -31,6 +32,8 @@ type User struct {
 	DN     string   `json:"dn,omitempty"`
 	Groups []string `json:"groups,omitempty"`
 	Admin  bool     `json:"admin"`
+	// Repair 管理員修復用的登入(對不上核心使用者,只能改認證設定)
+	Repair bool `json:"-"`
 }
 
 // Secrets 服務帳號密碼的存放(預設鑰匙圈;測試換成記憶體)
@@ -41,19 +44,17 @@ type Secrets interface {
 
 // Service 認證服務
 type Service struct {
-	mu       sync.Mutex
-	cfg      Config
-	secrets  Secrets
+	mu      sync.Mutex
+	cfg     Config
+	secrets Secrets
+	// sessions 沒有核心可用時與修復登入的 session(token → 內容),見 session.go
 	sessions map[string]*session
 	// failures 帳號失敗鎖定:網頁登入與 MCP 授權(LDAPSettings)共用
 	failures service.LoginFailures
+	// rate 網頁登入自己的每來源 / 全部頻率限制(登入成功不佔名額),和 MCP 授權頁分開
+	rate service.LoginRate
 	// 測試可以換掉
 	now func() time.Time
-}
-
-type session struct {
-	user    User
-	expires time.Time
 }
 
 var ErrBadLogin = core.UserError{Message: "帳號或密碼錯誤"}
@@ -100,6 +101,11 @@ func (s *Service) Save(c Config, bindPassword *string) error {
 	if c.Mode == "ldap" && c.LDAP.UserDNTemplate == "" && !c.LDAP.HasBindPassword {
 		return core.UserError{Message: "用服務帳號搜尋時,要存服務帳號密碼"}
 	}
+	// 先撤銷再存:撤銷不了就不存,舊設定登入的人才不會在新設定下繼續用
+	if err := revokeWebSessions(); err != nil {
+		httperr.LogMasked("存認證設定:撤銷 web session", err)
+		return core.StatusError{Status: 500, Message: "暫時無法讓目前的登入失效,設定沒有存,請稍後再試"}
+	}
 	if err := core.WriteJSON(configPath(), c); err != nil {
 		return err
 	}
@@ -109,6 +115,9 @@ func (s *Service) Save(c Config, bindPassword *string) error {
 	s.mu.Unlock()
 	if core.DB() != nil {
 		core.SessionClear()
+	}
+	if err := revokeWebSessions(); err != nil { // 上面撤銷到存檔之間新登入的
+		httperr.LogMasked("存認證設定:撤銷 web session", err)
 	}
 	return nil
 }
@@ -127,106 +136,98 @@ func (e LockedError) HTTPError() (int, map[string]any) {
 	return 429, map[string]any{"retryAfter": e.RetryAfter}
 }
 
-// Login 驗證帳密,成功回傳 session token。失敗的種類(狀態碼由 web 的 authLoginStatus 依型別決定):
+// Verify 驗證帳密(不建立 session)。有核心時走 service.VerifyDirectory(帳號失敗鎖定、稽核和 MCP 授權同一份;
+// 每來源 / 全部頻率限制是網頁登入自己的一份,只有沒通過的佔名額);
+// 沒有資料庫時只做帳號失敗鎖定。失敗的種類(狀態碼由 web 的 authLoginStatus 依型別決定):
 //   - 帳號不存在、密碼錯誤:同一個 ErrBadLogin(401,同一句話,不洩漏帳號存不存在)
-//   - 被鎖:LockedError(429,帶 Retry-After)
+//   - 被鎖或太頻繁:LockedError(429,帶 Retry-After)
 //   - LDAP 連不上、服務帳號錯誤等診斷類失敗:503,固定句子(細節進 log)
-//   - 存 session 失敗:500,固定句子(原文進 log)
-func (s *Service) Login(username, password, _ string) (string, User, error) {
+func (s *Service) Verify(username, password, ip string) (User, error) {
 	username = strings.TrimSpace(username)
-	cfg := s.Config()
-	if cfg.Mode != "ldap" {
-		return "", User{}, core.UserError{Message: "沒有啟用 LDAP 登入"}
+	set, ok := s.LDAPSettings()
+	if !ok {
+		return User{}, core.UserError{Message: "沒有啟用 LDAP 登入"}
 	}
-	if username == "" || password == "" { // 不會送到目錄,不計次
-		return "", User{}, ErrBadLogin
+	set.KeepCase = true
+	set.Rate = &s.rate
+	if !validCredentials(username, password) { // 不會送到目錄,不計次
+		return User{}, ErrBadLogin
 	}
-	// 先預扣再送目錄,並行嘗試也不會超過上限
-	if wait, ok := s.failures.Reserve(username, s.now()); !ok {
-		return "", User{}, LockedError{RetryAfter: max(int(wait.Seconds()), 1)}
+	var id *ldapauth.Identity
+	var err error
+	if svc := core.AgentService(); svc != nil {
+		id, err = svc.VerifyDirectory(set, username, password, ip)
+		err = loginError(err)
+	} else {
+		id, err = s.verifyWithoutCore(set, username, password)
 	}
-	u, err := s.Authenticate(cfg, username, password)
 	if err != nil {
-		var ue core.UserError
-		switch {
-		case errors.As(err, &ue) && ue == ErrBadLogin: // 帳密錯:預扣的那次算數
-		case errors.As(err, &ue) && ue == errNotInGroup: // 密碼是對的
-			s.failures.Succeeded(username)
-		default: // 目錄故障、設定問題:不算
-			s.failures.Abort(username)
-		}
-		// 連線、設定類的錯誤:一般使用者只看到固定句子(503),細節(位址、dial tcp、資料庫)進 log;
-		// 管理員診斷(測試 LDAP、存設定)走 Authenticate,照樣拿得到 diagError 的細節
-		var de diagError
-		if errors.As(err, &de) {
-			httperr.LogMasked("POST /api/auth/login LDAP", de)
-			return "", User{}, core.StatusError{Status: 503, Message: de.user}
-		}
-		return "", User{}, err
+		return User{}, err
 	}
-	s.failures.Succeeded(username)
-	tok := randomToken()
-	exp := s.now().Add(time.Duration(cfg.SessionHours) * time.Hour)
-	s.mu.Lock()
-	s.sessions[tok] = &session{user: u, expires: exp}
-	s.mu.Unlock()
-	// 有資料庫時 session 也存進去:重開 omixor-web 不用重新登入
-	if core.DB() != nil {
-		if err := core.SessionPut(tok, u, exp); err != nil {
-			httperr.LogMasked("POST /api/auth/login 存 session", err) // 資料庫錯誤只進 log,不回給(未登入的)呼叫者
-			s.mu.Lock()
-			delete(s.sessions, tok) // 沒存起來的 session 不留在記憶體(否則這次回 500,token 卻其實可用)
-			s.mu.Unlock()
-			return "", User{}, core.StatusError{Status: 500, Message: "登入暫時失敗,請稍後再試;若持續發生請聯絡管理員"}
-		}
+	return s.userOf(s.Config(), id, username), nil
+}
+
+// verifyWithoutCore 沒有核心時:鎖定規則同 service.VerifyDirectory(先預扣,密碼對清掉,目錄故障退回)
+func (s *Service) verifyWithoutCore(set service.LDAPSettings, username, password string) (*ldapauth.Identity, error) {
+	if wait, ok := s.failures.Reserve(username, s.now()); !ok {
+		return nil, LockedError{RetryAfter: max(int(wait.Seconds()), 1)}
 	}
-	return tok, u, nil
+	id, err := set.Dir.Authenticate(username, password)
+	switch {
+	case err == nil:
+		s.failures.Succeeded(username)
+		return id, nil
+	case errors.Is(err, ldapauth.ErrInvalidCredentials):
+		return nil, ErrBadLogin
+	case errors.Is(err, ldapauth.ErrNotInGroup):
+		s.failures.Succeeded(username)
+		return nil, errNotInGroup
+	}
+	s.failures.Abort(username)
+	return nil, directoryFailure(err)
+}
+
+// loginError service.VerifyDirectory 的錯誤 → 畫面的錯誤
+func loginError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var de *service.DirectoryError
+	if errors.As(err, &de) {
+		return directoryFailure(de.Cause)
+	}
+	var se *service.Error
+	if !errors.As(err, &se) {
+		return err
+	}
+	switch se.Code {
+	case 401:
+		return ErrBadLogin
+	case 403:
+		return errNotInGroup
+	case 429:
+		sec, _ := se.Data["retryAfter"].(int)
+		return LockedError{RetryAfter: max(sec, 1)}
+	}
+	return err
+}
+
+// directoryFailure 目錄或設定的問題:一般使用者只看到固定句子(503),細節(位址、dial tcp)進 log;
+// 管理員診斷(測試 LDAP、存設定)走 Authenticate,照樣拿得到 diagError 的細節
+func directoryFailure(cause error) error {
+	var de diagError
+	var ue core.UserError
+	if !errors.As(cause, &de) && !errors.As(cause, &ue) {
+		cause = translate(cause)
+	}
+	if errors.As(cause, &de) {
+		httperr.LogMasked("POST /api/auth/web/login LDAP", de)
+		return core.StatusError{Status: 503, Message: de.user}
+	}
+	return cause
 }
 
 // UserSettings 某份設定(可能還沒存)怎麼把目錄帳號對到核心使用者:email 網域與是否信任目錄的 mail(同 LDAPSettings)
 func (s *Service) UserSettings(c Config) service.LDAPSettings {
 	return service.LDAPSettings{EmailDomain: c.effectiveEmailDomain(), TrustMail: c.effectiveTrustMail()}
-}
-
-// User 由 token 找登入的人(過期回 false)
-func (s *Service) User(token string) (User, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ss, ok := s.sessions[token]
-	if !ok && core.DB() != nil && token != "" {
-		var u User
-		if exp, found := core.SessionGet(token, &u); found {
-			ss = &session{user: u, expires: exp}
-			s.sessions[token] = ss
-			ok = true
-		}
-	}
-	if !ok {
-		return User{}, false
-	}
-	if s.now().After(ss.expires) {
-		delete(s.sessions, token)
-		if core.DB() != nil {
-			go core.SessionDelete(token)
-		}
-		return User{}, false
-	}
-	u := ss.user
-	u.Admin = s.cfg.IsAdminAccount(u.ID) // 管理員照目前的名單,不用登入當下的快照
-	return u, true
-}
-
-func (s *Service) Logout(token string) {
-	s.mu.Lock()
-	delete(s.sessions, token)
-	s.mu.Unlock()
-	if core.DB() != nil {
-		core.SessionDelete(token)
-	}
-}
-
-func randomToken() string {
-	b := make([]byte, 32)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
 }

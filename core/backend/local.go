@@ -25,6 +25,9 @@ func (l *Local) OAuthWrite() bool { return l.P != nil && l.P.OAuthWrite() }
 // OAuthAdmin 這個連線是有 mcp:admin 的 OAuth 授權(隱含 OAuthWrite):統一入口再多開 OAuthAdminTools,每次呼叫即時檢查呼叫者是該組織的管理員(見 mcp.restrictOAuthAdmin);仍不是伺服器管理員
 func (l *Local) OAuthAdmin() bool { return l.P != nil && l.P.OAuthAdminGrant() }
 
+// OAuthWorker 這個連線是執行者端點專用的 OAuth 授權(mcp:worker):派發工具不回角色憑證的密鑰
+func (l *Local) OAuthWorker() bool { return l.P != nil && l.P.Via == model.ViaOAuth && l.P.OAuthWorker }
+
 // IsAgent 角色身分(角色憑證、或執行者代角色)
 func (l *Local) IsAgent() bool { return l.P != nil && l.P.Agent != nil }
 

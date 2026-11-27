@@ -16,16 +16,11 @@ import (
 	"omixor-core/service"
 )
 
-// 虛擬角色與任務:資料與功能都在核心(omixor-core):
-//
-//	本機模式:內建核心(service)+ 本機 PostgreSQL(omixor_agents、omixor_agent_tasks、omixor_agent_credentials)
-//	遠端模式:用 core/client 連線上的 omixor server(角色與任務存在雲端)
-//
+// 虛擬角色與任務:資料與功能都在核心(omixor-core 的 service + PostgreSQL:omixor_agents、omixor_agent_tasks、omixor_agent_credentials)。
 // 這個檔案只是轉接層:
-//   - 讀:畫面與工具讀 App 的快取(agentState,自己有鎖,不依賴 Mu;本機載入時讀、每 5 秒背景重讀,
-//     遠端模式也是背景讀,網路請求不在 Mu 之內)
+//   - 讀:畫面與工具讀 App 的快取(agentState,自己有鎖,不依賴 Mu;載入時讀、每 5 秒背景重讀)
 //   - 寫:AgentOps(實作 backend.Backend 的角色與任務部分)交給核心,成功後更新快取、寫動態、通知畫面。呼叫時不要拿著 Mu
-//   - 例行任務排程:本機核心每 60 秒呼叫 service.RunDueRoutines(遠端模式由雲端自己排)
+//   - 例行任務排程:每 60 秒呼叫 service.RunDueRoutines
 //
 // omixor 不自己跑 AI:任務排在核心,由 Claude Code 透過 MCP 以角色身分領取、回報。
 
@@ -49,22 +44,19 @@ func TaskIsOpen(status string) bool { return model.TaskIsOpen(status) }
 
 // ---- 核心的連線 ----
 
-// agentBackend 目前的核心:遠端模式是 omixor server,本機模式是同一個程式裡的核心;本機沒有資料庫回 errNoDB
-func agentBackend() (backend.Backend, error) { return coreBackend("") }
+// agentBackend 核心(系統身分);沒有資料庫回 errNoDB
+func agentBackend() (backend.Backend, error) { return coreBackend() }
 
-// AgentEndpointURL 領取任務時告訴呼叫端的角色端點:遠端模式是雲端的 /mcp/agent;本機是本機 MCP 的 /mcp/agent(呼叫時要拿著 Mu)
+// AgentEndpointURL 領取任務時告訴呼叫端、自動執行要連的角色端點:畫面連接埠的 /mcp/agent(呼叫時要拿著 Mu)
 func (a *App) AgentEndpointURL() string {
-	if u := IssueRemoteURL(); u != "" {
-		return strings.TrimRight(u, "/") + "/mcp/agent"
+	if a.AgentLocalEndpoint != "" {
+		return a.AgentLocalEndpoint
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d/mcp/agent", a.MCP.Port)
+	return "http://127.0.0.1:5191/mcp/agent" // 還沒掛上入口(測試、匯入指令):預設的畫面連接埠
 }
 
-// AgentService 本機核心的 service(角色端點 /mcp/agent 驗證憑證用);遠端模式或沒有資料庫回 nil
+// AgentService 核心的 service(角色端點 /mcp/agent 驗證憑證用);沒有資料庫回 nil
 func AgentService() *service.Service {
-	if IsRemote() {
-		return nil
-	}
 	if l := localCore(); l != nil {
 		return l.Svc
 	}
@@ -94,13 +86,12 @@ func (a *App) RoleCallFinished() {
 // ---- 快取 ----
 
 type agentState struct {
-	mu      sync.Mutex
-	org     string
-	loaded  bool
-	agents  []Agent
-	tasks   []AgentTask
-	syncing bool
-	err     string
+	mu     sync.Mutex
+	org    string
+	loaded bool
+	agents []Agent
+	tasks  []AgentTask
+	err    string
 }
 
 var agentStates sync.Map // *App → *agentState
@@ -142,7 +133,7 @@ func (a *App) agentRefresh(org string) bool {
 }
 
 func (a *App) agentFetch(org string) ([]Agent, []AgentTask, error) {
-	if org == "" && !IsRemote() { // 還沒有組織
+	if org == "" { // 還沒有組織
 		return nil, nil, nil
 	}
 	be, err := agentBackend()
@@ -160,40 +151,14 @@ func (a *App) agentFetch(org string) ([]Agent, []AgentTask, error) {
 	return agents, tasks, nil
 }
 
-// agentSync 遠端:在背景重讀 org,有變就通知畫面(同時只跑一個)
-func (a *App) agentSync(org string) {
-	st := a.agSt()
-	st.mu.Lock()
-	if st.syncing {
-		st.mu.Unlock()
-		return
-	}
-	st.syncing = true
-	st.mu.Unlock()
-	changed := a.agentRefresh(org)
-	st.mu.Lock()
-	st.syncing = false
-	st.mu.Unlock()
-	if changed {
-		a.Changed("agents")
-	}
-}
-
-// agentSnapshot org 的角色與任務(快取;組織還沒載入:本機當場讀,遠端先給空的並在背景讀)。不需要拿 Mu
+// agentSnapshot org 的角色與任務(快取;組織還沒載入時當場讀)。不需要拿 Mu
 func (a *App) agentSnapshot(org string) ([]Agent, []AgentTask) {
 	st := a.agSt()
 	st.mu.Lock()
 	cur := st.loaded && st.org == org
 	st.mu.Unlock()
 	if !cur {
-		if IsRemote() {
-			st.mu.Lock()
-			st.org, st.agents, st.tasks, st.loaded = org, []Agent{}, []AgentTask{}, true
-			st.mu.Unlock()
-			go a.agentSync(org)
-		} else {
-			a.agentRefresh(org)
-		}
+		a.agentRefresh(org)
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -317,12 +282,12 @@ func (a *App) currentOrgNow() string {
 
 func init() {
 	OnOrgCreate(func(a *App, dir, template string) {
-		// 複製目前組織:角色(不含任務)搬到新組織的核心。本機核心才在這裡做(遠端模式的組織在雲端,不在 Mu 之內打網路)
-		if template != "copyCurrent" || IsRemote() {
+		// 複製目前組織:角色(不含任務)搬到新組織的核心
+		if template != "copyCurrent" {
 			return
 		}
 		newOrg := filepath.Base(dir)
-		be, err := coreBackendFor(a.caller, "", newOrg) // 建立組織的人(拿著 Mu,見 AsCaller)
+		be, err := coreBackendFor(a.caller, newOrg) // 建立組織的人(拿著 Mu,見 AsCaller)
 		if err != nil {
 			return
 		}
@@ -356,22 +321,20 @@ func init() {
 		if config.Current().Bool(config.NoTimers) {
 			return
 		}
-		// 例行任務排程(本機核心:每 60 秒;遠端模式由雲端自己排)
+		// 例行任務排程(每 60 秒)
 		go func() {
 			for {
-				if !IsRemote() {
-					if l := localCore(); l != nil {
-						if created, err := l.Svc.RunDueRoutines(time.Now()); err != nil {
-							fmt.Fprintf(os.Stderr, "例行任務排程:%v\n", err)
-						} else if len(created) > 0 {
-							a.AgentsChanged()
-						}
+				if l := localCore(); l != nil {
+					if created, err := l.Svc.RunDueRoutines(time.Now()); err != nil {
+						fmt.Fprintf(os.Stderr, "例行任務排程:%v\n", err)
+					} else if len(created) > 0 {
+						a.AgentsChanged()
 					}
 				}
 				time.Sleep(60 * time.Second)
 			}
 		}()
-		// 每 5 秒重讀目前組織的角色與任務(別的路徑改了資料、遠端的修改才看得到;網路與資料庫請求都在鎖外)
+		// 每 5 秒重讀目前組織的角色與任務(別的路徑改了資料才看得到;資料庫請求在鎖外)
 		go func() {
 			for range time.Tick(5 * time.Second) {
 				if org := a.currentOrgNow(); org != "" && a.agentRefresh(org) {
@@ -431,7 +394,7 @@ func init() {
 	})
 	RegisterAction("agent_routine_run", func(a *App, args map[string]any) (any, error) {
 		a.Mu.Lock()
-		org, me := a.CurrentOrgID(), a.Me
+		org, me := a.CurrentOrgID(), UserActor(a, args).ID
 		a.Mu.Unlock()
 		_, err := a.AgentOpsFor(CallerOf(args)).RunRoutine(org, agentArg(args, "agent"), agentArg(args, "routine"), me)
 		return nil, agentUserErr(err)
@@ -445,7 +408,7 @@ func init() {
 		}
 		var t *AgentTask
 		if id := agentArg(args, "task"); id != "" {
-			if t = a.FindTask(id); t == nil {
+			if t = a.FindTask(id); t == nil || HiddenOf(args).Task(*t) {
 				return nil, UserError{"找不到任務 " + id}
 			}
 		}

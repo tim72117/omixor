@@ -1,7 +1,7 @@
 # omixor console + PostgreSQL。先複製 .env.example 成 .env 填好密碼與金鑰,再 docker compose up -d --build
-#   畫面:http://127.0.0.1:5191   MCP:http://127.0.0.1:${OMIXOR_MCP_HOST_PORT:-${OPS_MCP_HOST_PORT:-3765}}/mcp
-# 兩個連接埠都只發布到這台電腦的 127.0.0.1。要給同事用:先在 設定 › 認證 啟用 LDAP,
-# 再把 5191 改發布到 0.0.0.0(或放 HTTPS 反向代理)並設 OMIXOR_WEB_HOSTS;MCP 維持只給本機。
+#   畫面:http://127.0.0.1:5191   MCP:http://127.0.0.1:5191/mcp(OAuth 登入;要先在 設定 › 認證 啟用 LDAP 或設定 GitLab 登入)
+# 連接埠只發布到這台電腦的 127.0.0.1。要給同事用:先在 設定 › 認證 啟用 LDAP,
+# 再把 5191 改發布到 0.0.0.0(或放 HTTPS 反向代理)、設 OMIXOR_WEB_HOSTS,MCP 要用的話把 OMIXOR_PUBLIC_URL 設成對外的 https 網址。
 # .env 的變數以前叫 OPS_*(OPS_SECRET_KEY、OPS_WEB_HOSTS…),舊的 .env 照樣能用,建議改成 OMIXOR_*。
 # 資料庫名稱、使用者與 volume(ops、ops-db)沿用舊名稱:改了會變成一個新的空資料庫。
 services:
@@ -37,8 +37,9 @@ services:
       # LDAP 的管理員帳號名單與 email 網域(有設時蓋掉畫面的值;名單空白就沒有管理員,可用它救援)
       OMIXOR_LDAP_ADMINS: ${OMIXOR_LDAP_ADMINS:-}
       OMIXOR_LDAP_EMAIL_DOMAIN: ${OMIXOR_LDAP_EMAIL_DOMAIN:-}
-      # 對外網址:有設時畫面連接埠另有和 omixor server 相同的 MCP 入口(/mcp,OAuth 授權;見 README)
-      OMIXOR_PUBLIC_URL: ${OMIXOR_PUBLIC_URL:-}
+      # MCP 入口(畫面連接埠的 /mcp,OAuth 授權;見 README)的對外網址。容器裡看到的來源是 Docker 網路位址,
+      # 不算「同一台電腦」,所以沒設時預設成發布到本機的網址;要給別台電腦連就設成 https 的對外網址
+      OMIXOR_PUBLIC_URL: ${OMIXOR_PUBLIC_URL:-http://127.0.0.1:5191}
       OMIXOR_LDAP_TRUST_MAIL: ${OMIXOR_LDAP_TRUST_MAIL:-}
       # 以下都是選填(空白 = 沒設)。前面的代理層數:放在反向代理後面要設,否則每 IP 的限制會把所有人算成同一個來源
       OMIXOR_TRUSTED_PROXY_HOPS: ${OMIXOR_TRUSTED_PROXY_HOPS:-}
@@ -54,12 +55,8 @@ services:
       OMIXOR_GITLAB_ADMINS: ${OMIXOR_GITLAB_ADMINS:-}
       OMIXOR_GITLAB_EMAIL_DOMAINS: ${OMIXOR_GITLAB_EMAIL_DOMAINS:-}
       OMIXOR_GITLAB_TRUST_MAIL: ${OMIXOR_GITLAB_TRUST_MAIL:-}
-      OMIXOR_MCP_ADDR: 0.0.0.0
-      # MCP 連接埠的 Bearer 權杖;沒設時 console 自己產生並存在資料庫(畫面的 MCP 設定頁,管理員可以查看或換新)
-      OMIXOR_CONSOLE_MCP_TOKEN: ${OMIXOR_CONSOLE_MCP_TOKEN:-}
     ports:
       - "127.0.0.1:5191:5191"
-      - "127.0.0.1:${OMIXOR_MCP_HOST_PORT:-${OPS_MCP_HOST_PORT:-3765}}:3765"
     volumes:
       # 匯入 macOS App(Swift 版)資料時用:docker compose run --rm omixor-web import /import
       - ${OMIXOR_IMPORT_DIR:-${OPS_IMPORT_DIR:-./.import-empty}}:/import:ro

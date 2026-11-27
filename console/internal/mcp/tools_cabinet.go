@@ -8,7 +8,7 @@ import (
 
 // 文件櫃工具(cabinet、docs、doc_save)與 agent_context 的文件櫃欄位都在核心(omixor-core/mcp/tools_cabinet.go),
 // 管理端點 /mcp 與角色端點 /mcp/agent 共用;規格取自核心(coremcp.CoreToolDefs,見 handler.go 的 webSpec)。
-// 這裡只提供 appBackend 的文件櫃與專案部分:交給 App.CabinetOps(本機內建核心或遠端 omixor server),寫入後更新快取、寫動態、通知畫面。
+// 這裡只提供 appBackend 的文件櫃與專案部分:交給 App.CabinetOps(內建核心),寫入後更新快取、寫動態、通知畫面。
 
 func cabOrgName(a *core.App) string {
 	idx := a.Orgs()
@@ -21,7 +21,17 @@ func cabOrgName(a *core.App) string {
 }
 
 func (b appBackend) GetCabinet(org string) (*model.Cabinet, error) {
-	return b.a.CabinetOpsFor(b.who).GetCabinet(org)
+	return b.visibleCabinet(b.a.CabinetOpsFor(b.who).GetCabinet(org))
+}
+
+// visibleCabinet 拿掉呼叫者看不到的文件(在核心工具算 total 之前)
+func (b appBackend) visibleCabinet(c *model.Cabinet, err error) (*model.Cabinet, error) {
+	if err != nil || c == nil || b.hidden == nil {
+		return c, err
+	}
+	out := *c
+	out.Docs = b.hidden.Docs(c.Docs)
+	return &out, nil
 }
 func (b appBackend) SaveCabinetLayout(org string, l []model.CabinetSection, expected *int64) ([]model.CabinetSection, error) {
 	return b.a.CabinetOpsFor(b.who).SaveLayout(org, l, expected)
@@ -48,7 +58,7 @@ func (b appBackend) EditDoc(org, id string, in service.DocEdit) (*service.DocEdi
 	return b.a.CabinetOpsFor(b.who).EditDoc(org, id, in)
 }
 func (b appBackend) GetProjectCabinet(org, project string) (*model.Cabinet, error) {
-	return b.a.CabinetOpsFor(b.who).GetProjectCabinet(org, project)
+	return b.visibleCabinet(b.a.CabinetOpsFor(b.who).GetProjectCabinet(org, project))
 }
 func (b appBackend) SaveProjectCabinetLayout(org, project string, l []model.CabinetSection, expected *int64) ([]model.CabinetSection, error) {
 	return b.a.CabinetOpsFor(b.who).SaveProjectLayout(org, project, l, expected)

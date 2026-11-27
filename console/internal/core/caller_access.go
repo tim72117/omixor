@@ -2,7 +2,6 @@ package core
 
 import (
 	"errors"
-	"io/fs"
 	"log"
 	"net/http"
 	"strings"
@@ -133,9 +132,9 @@ type Access struct {
 func (x Access) Member(org string) bool { return x.Admin || x.orgs[org] }
 
 // Access 呼叫者現在能不能用網頁(不能時回給他看的 StatusError:403 不能登入、503 查不出來)。
-// c 是 nil(系統身分)或遠端模式不限制
+// c 是 nil(系統身分)不限制
 func (c *Caller) Access() (Access, error) {
-	if c == nil || IsRemote() {
+	if c == nil {
 		return Access{Admin: true}, nil
 	}
 	l := localCore()
@@ -169,7 +168,7 @@ func (c *Caller) Access() (Access, error) {
 
 // CheckLogin 登入時(與存認證設定時對測試帳號):更新核心使用者(目錄的名稱、最後登入時間),再檢查能不能用
 func (c *Caller) CheckLogin() error {
-	if c == nil || IsRemote() {
+	if c == nil {
 		return nil
 	}
 	if l := localCore(); l != nil {
@@ -186,6 +185,16 @@ func (c *Caller) CheckLogin() error {
 	}
 	_, err := c.Access()
 	return err
+}
+
+// CoreUser CheckLogin 通過後對上的核心使用者(發 web session 用);沒有回 nil
+func (c *Caller) CoreUser() *model.User {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.user
 }
 
 // visibleOrgs 組織清單只留呼叫者看得到的;目前的組織看不到時 Current 是空的(畫面的組織選單照樣可以切到自己的)
@@ -224,19 +233,6 @@ func (x Access) PickOrg(requested, system string, orgs []Organization) (string, 
 	return fallback, requested == ""
 }
 
-// ReadAttachmentAmong 依序在這些組織找附件(登入者的圖片請求帶不了組織;id 是內容雜湊,只找呼叫者能讀的組織)
-func ReadAttachmentAmong(id string, orgs []string) ([]byte, string, error) {
-	if !attachmentIDRe.MatchString(id) {
-		return nil, "", fs.ErrNotExist
-	}
-	for _, org := range orgs {
-		if data, t, err := readOrgAttachment(org, OrgDir(org), id); err == nil {
-			return data, t, nil
-		}
-	}
-	return nil, "", fs.ErrNotExist
-}
-
 // userOrgsView view「orgs」給登入者:只列自己的組織,current 是這個請求用的;perUser 表示各人自己選(畫面帶 X-Omixor-Org),
 // system 是系統工作組織(自己看得到才給)
 type userOrgsView struct {
@@ -250,7 +246,7 @@ func (a *App) VisibleOrgs(who *Caller) OrgIndex { return visibleOrgs(a.Orgs(), w
 
 func init() {
 	RegisterCallerView("orgs", func(a *App, who *Caller) any {
-		v := userOrgsView{orgsViewData: a.orgsView(), PerUser: !IsRemote()}
+		v := userOrgsView{orgsViewData: a.orgsView(), PerUser: true}
 		system := v.Current
 		if a.IsScoped() { // 這裡拿著的是一次性 App 的鎖,拿原本的 App 的不會互鎖
 			system = a.root().currentOrgNow()

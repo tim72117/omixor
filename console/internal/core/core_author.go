@@ -8,9 +8,8 @@ import (
 	"omixor-core/service"
 )
 
-// 署名:console 呼叫核心(本機內建核心或遠端 omixor server)時,「誰」由登入身分決定(ISS-36 C-5):
-//   - 本機模式:操作者就是本機使用者 omixor-console(伺服器管理員),Principal.Actor 已填
-//   - 遠端模式:server 依 token 解出 Principal
+// 署名:console 呼叫核心時,「誰」由登入身分決定(ISS-36 C-5):沒有登入者時操作者就是本機使用者 omixor-console
+// (伺服器管理員),Principal.Actor 已填
 //
 // 所以對核心傳的 author、as、commander 只可能是「角色」(agent:<id>)或系統(routine、chain、system);
 // 人員 id(範例資料的 tim、mcp、ops-web、omixor-console、email…)一律不傳(空 = 呼叫者本人),

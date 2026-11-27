@@ -5,7 +5,7 @@ import "slices"
 // 每位登入者各自的「目前組織」(啟用 LDAP 時)。組織由請求帶進來(DOC-37 的方向:組織跟著請求走,不是伺服器的狀態;
 // 之後核心頁改走 /api/orgs/{org}/… 時,這一層連同 view / action 一起拿掉)。
 //
-// App 原本的「目前組織」(orgs.json)從此是「系統工作組織」:沒啟用登入的畫面、API token、背景工作、MCP 3765、自動執行,
+// App 原本的「目前組織」(orgs.json)從此是「系統工作組織」:沒啟用登入的畫面、API token、背景工作、自動執行,
 // 以及還沒分組織的功能(整合、範例資料、旁白、office…)用它;web 管理員用 system_org_set 換。
 //
 // 請求的組織不是系統工作組織時,核心資料的 view / action / 工具用 Scoped 做的一次性 App 執行:組織固定、自己的鎖與快取、
@@ -24,7 +24,6 @@ func init() {
 		cabStates.Delete(a)
 		projStates.Delete(a)
 		sysStates.Delete(a)
-		mcpTokens.Delete(a)
 		runnerStates.Delete(a)
 		voicePipes.Delete(a)
 	})
@@ -59,7 +58,7 @@ func (a *App) Scoped(org string, readOnly bool) (*App, func()) {
 	r := a.root()
 	orgs := r.OrgList()
 	r.Mu.Lock()
-	s := &App{Me: r.Me, C: emptyMock().C, Sprint: map[string]any{}, Nav: r.Nav, MCP: r.MCP,
+	s := &App{Me: r.Me, C: emptyMock().C, Sprint: map[string]any{}, Nav: r.Nav, MCP: r.MCP, AgentLocalEndpoint: r.AgentLocalEndpoint,
 		Ext: map[string]any{}, subs: map[chan Event]struct{}{}, parent: r, muted: true}
 	r.Mu.Unlock()
 	s.Nav.FocusID = ""
@@ -83,7 +82,7 @@ func (a *App) scopedBadges(who *Caller) map[string]int {
 	if a.FeatureOn("automation.agents") || a.FeatureOn("automation.dispatch") {
 		out["automation"] = blockedTasks(a)
 	}
-	if b, err := coreBackendFor(who, "", a.CurrentOrgID()); err == nil {
+	if b, err := coreBackendFor(who, a.CurrentOrgID()); err == nil {
 		if list, err := b.ListChannels(a.CurrentOrgID(), channelFilterAll); err == nil {
 			for _, c := range list {
 				out["channels"] += c.Unread

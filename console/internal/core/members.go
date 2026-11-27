@@ -7,14 +7,12 @@ import (
 )
 
 // 組織成員:接核心的成員功能(角色 admin、member)。
-// 本機模式以 本機使用者(l.P,伺服器管理員)呼叫核心的 service(網頁登入者的寫入用本人身分,見 caller.go);遠端模式用 remoteClient 呼叫 omixor server,
-// 權限由伺服器判斷,錯誤訊息原樣傳給畫面。
+// 以本機使用者(l.P,伺服器管理員)呼叫核心的 service(網頁登入者的寫入用本人身分,見 caller.go),錯誤訊息原樣傳給畫面。
 
 // MembersView 成員視圖
 type MembersView struct {
 	Org     string         `json:"org"`
-	Remote  bool           `json:"remote"`
-	CanEdit bool           `json:"canEdit"` // 本機一定可以;遠端要是這個組織的管理員
+	CanEdit bool           `json:"canEdit"` // 讀得到核心就是 true;網頁登入者能不能改由寫入時的身分決定
 	Members []model.Member `json:"members"`
 	Error   string         `json:"error,omitempty"`
 }
@@ -24,28 +22,9 @@ func validMemberRole(role string) bool { return role == "admin" || role == "memb
 // listMembers 讀目前組織的成員(視圖在 Mu 下執行,不另外鎖)
 func (a *App) membersView() MembersView {
 	org := a.CurrentOrgID()
-	v := MembersView{Org: org, Remote: IsRemote(), Members: []model.Member{}}
+	v := MembersView{Org: org, Members: []model.Member{}}
 	if org == "" {
 		v.Error = "還沒有組織"
-		return v
-	}
-	if IsRemote() {
-		c := remoteClient(IssueRemoteURL())
-		list, err := c.ListMembers(serverOrgID(org))
-		if err != nil {
-			v.Error = err.Error()
-			return v
-		}
-		if list != nil {
-			v.Members = list
-		}
-		if orgs, err := c.ListOrgs(); err == nil {
-			for _, o := range orgs {
-				if o.ID == serverOrgID(org) {
-					v.CanEdit = o.MyRole == "admin"
-				}
-			}
-		}
 		return v
 	}
 	l := localCore()
@@ -91,16 +70,12 @@ func init() {
 		org := a.currentOrgForMembers()
 		var m *model.Member
 		var err error
-		if IsRemote() {
-			m, err = remoteClient(IssueRemoteURL()).SaveMember(serverOrgID(org), email, role)
-		} else {
-			l, lerr := localCoreFor(CallerOf(args), org)
-			if lerr != nil {
-				return nil, lerr
-			}
-			ensureLocalOrg(l, org)
-			m, err = l.Svc.SaveMember(l.P, org, email, role)
+		l, lerr := localCoreFor(CallerOf(args), org)
+		if lerr != nil {
+			return nil, lerr
 		}
+		ensureLocalOrg(l, org)
+		m, err = l.Svc.SaveMember(l.P, org, email, role)
 		if err != nil {
 			return nil, err
 		}
@@ -114,18 +89,12 @@ func init() {
 			return nil, UserError{"要給成員的 email"}
 		}
 		org := a.currentOrgForMembers()
-		var err error
-		if IsRemote() {
-			err = remoteClient(IssueRemoteURL()).RemoveMember(serverOrgID(org), email)
-		} else {
-			l, lerr := localCoreFor(CallerOf(args), org)
-			if lerr != nil {
-				return nil, lerr
-			}
-			ensureLocalOrg(l, org)
-			err = l.Svc.RemoveMember(l.P, org, email)
+		l, lerr := localCoreFor(CallerOf(args), org)
+		if lerr != nil {
+			return nil, lerr
 		}
-		if err != nil {
+		ensureLocalOrg(l, org)
+		if err := l.Svc.RemoveMember(l.P, org, email); err != nil {
 			return nil, err
 		}
 		a.Changed("members")

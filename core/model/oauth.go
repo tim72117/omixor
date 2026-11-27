@@ -17,6 +17,9 @@ const (
 	// OAuthScopeAdmin 組織管理員的 scope(隱含 mcp:write、mcp:read):多開 OAuthAdminTools(組織結構工具);只有帳號層級授權(統一入口 /mcp)、
 	// 而且使用者是至少一個組織的管理員才能授予;每次呼叫仍要即時是呼叫那個 org 的管理員。永遠不是伺服器管理員,也不發角色憑證
 	OAuthScopeAdmin = "mcp:admin"
+	// OAuthScopeWorker 執行者端點(/mcp/worker/{org})專用的 scope:只在 resource 是該端點時授予,不隱含 mcp:read 或任何其他 scope,
+	// 其他 MCP 端點與 REST 一律不收。只開放 dispatch_* 工具,而且不回角色憑證的密鑰
+	OAuthScopeWorker = "mcp:worker"
 	// OAuthScopeOffline 只用來宣告「可以拿 refresh token」;不會出現在授予的 scope 裡
 	OAuthScopeOffline = "offline_access"
 )

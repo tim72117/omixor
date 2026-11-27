@@ -32,6 +32,8 @@ type App struct {
 
 	// MCP 伺服器狀態(設定頁顯示)
 	MCP MCPStatus
+	// AgentLocalEndpoint 同一台電腦的角色端點網址(mcp.ScreenEntry 依畫面實際聽的位址設定)
+	AgentLocalEndpoint string
 
 	// 各功能的狀態,由各自的檔案定義與初始化(issues.go、agents.go…)
 	Ext map[string]any
@@ -64,9 +66,10 @@ type Nav struct {
 }
 
 type MCPStatus struct {
-	State         string `json:"state"` // stopped、starting、listening、failed
+	State         string `json:"state"` // listening、off(這個部署沒有 MCP 入口,原因在 Error)
 	Error         string `json:"error,omitempty"`
-	Port          int    `json:"port"`
+	URL           string `json:"url,omitempty"`   // MCP 用戶端要連的網址
+	Local         bool   `json:"local,omitempty"` // 入口只收這台電腦直接連進來的
 	Requests      int    `json:"requests"`
 	LastRequestAt *Time  `json:"lastRequestAt,omitempty"`
 	LastClient    string `json:"lastClient,omitempty"`
@@ -91,7 +94,7 @@ func New() *App {
 		Me:   LocalIdentity,
 		C:    map[string][]map[string]any{},
 		Nav:  Nav{Section: "overview", Env: "production", TimeRange: "24h"},
-		MCP:  MCPStatus{State: "stopped", Port: 3765},
+		MCP:  MCPStatus{State: "off"},
 		Ext:  map[string]any{},
 		subs: map[chan Event]struct{}{},
 	}

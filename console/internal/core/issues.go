@@ -29,14 +29,12 @@ type issueState struct {
 	Org string
 	// quiet 不是目前組織(透過 /api/issues/<組織> 操作別的組織):不記動態牆、不通知畫面
 	quiet bool
-	// Issue 伺服器模式(issues_remote.go):最近一次讀取的時間與錯誤
+	// 讀寫核心(issues_remote.go):最近一次讀取的時間與錯誤
 	fetched   time.Time
 	remoteErr string
 	// lastErr 最近一次核心錯誤的原型別(*service.Error、client.Error…):409 的 Data(current、currentVersion)要原樣帶給呼叫者,
 	// 不能只剩字串。remoteErr 為空時視為沒有錯誤(見 IssueRemoteErr)
 	lastErr error
-	// gen 清單每變一次加一:背景讀取期間清單變過(新增、修改、同步讀取),讀回來的舊結果就丟掉
-	gen int
 }
 
 func (a *App) issueSt() *issueState {
@@ -58,14 +56,7 @@ func (a *App) ReloadIssues() { a.loadIssues() }
 func (a *App) loadIssues() {
 	s := a.issueSt()
 	s.Org = a.CurrentOrgID()
-	if IsRemote() {
-		// 遠端模式:不在拿著鎖時連網(伺服器連不上會卡住畫面),先清空,在背景讀回來再通知畫面
-		s.Issues, s.fetched = []model.Issue{}, time.Time{}
-		s.gen++
-		go a.issueRemoteSync(s.Org, a.conns().Scope, s.gen)
-		return
-	}
-	a.issueRemoteLoad(s) // 本機模式:核心在同一個程式裡(連本機 PostgreSQL),直接讀
+	a.issueRemoteLoad(s) // 核心在同一個程式裡(連 PostgreSQL),直接讀
 }
 
 // changedIssues 通知畫面(別的組織不用)
@@ -200,7 +191,6 @@ func (a *App) CreateIssueIn(in service.IssueInput) model.Issue {
 		return model.Issue{Title: in.Title, Body: in.Body, Priority: in.Priority, Labels: in.Labels, Repo: in.Repo, Project: derefStr(in.Project), Status: "open", CreatedBy: in.Author, Comments: []model.Comment{}}
 	}
 	a.issueRemoteOK(s)
-	s.gen++
 	kept := []model.Issue{issue}
 	for _, i := range s.Issues {
 		if i.ID != issue.ID {
@@ -311,7 +301,6 @@ func (a *App) updateIssue(id, author, appendBody string, replaceComments bool, v
 		return nil
 	}
 	a.issueRemoteOK(s)
-	s.gen++
 	s.Issues[idx] = saved
 	logStatus(saved)
 	a.changedIssues()
@@ -352,7 +341,6 @@ func (a *App) AddIssueComment(id, text, author string) (*model.Issue, error) {
 	}
 	saved := normIssue(*i)
 	a.issueRemoteOK(s)
-	s.gen++
 	found := false
 	for k := range s.Issues {
 		if strings.EqualFold(s.Issues[k].ID, saved.ID) {
@@ -393,7 +381,6 @@ func (a *App) trashIssue(id string) (model.Issue, error) {
 		return gone, err
 	}
 	a.issueRemoteOK(s)
-	s.gen++
 	kept := []model.Issue{}
 	for _, i := range s.Issues {
 		if !issueIs(i, id) && !(gone.ID != "" && i.ID == gone.ID) {
@@ -419,15 +406,7 @@ func init() {
 			x, y := issueRepoSource(a)
 			gh, gl = append(gh, x...), append(gl, y...)
 		}
-		used := []string{}
-		seen := map[string]bool{}
-		for _, i := range a.Issues() {
-			if i.Repo != "" && !seen[strings.ToLower(i.Repo)] {
-				seen[strings.ToLower(i.Repo)] = true
-				used = append(used, i.Repo)
-			}
-		}
-		return map[string]any{"github": gh, "gitlab": gl, "used": used}
+		return map[string]any{"github": gh, "gitlab": gl, "used": usedRepos(a.Issues())}
 	})
 	RegisterAction("issue_delete", func(a *App, args map[string]any) (any, error) {
 		// 移到垃圾桶(軟刪除;任何組織成員都可以)。還原、永久刪除是 issue_restore、issue_purge(組織管理員)
@@ -450,9 +429,24 @@ func init() {
 }
 
 // openUrgentIssues 開著的 urgent、high Issue 數(徽章用;拿著 Mu 呼叫)
-func openUrgentIssues(a *App) int {
+func openUrgentIssues(a *App) int { return countUrgentIssues(a.Issues()) }
+
+// usedRepos Issue 已經用過的 repo(不分大小寫去重,保留第一次出現的寫法)
+func usedRepos(list []model.Issue) []string {
+	used := []string{}
+	seen := map[string]bool{}
+	for _, i := range list {
+		if i.Repo != "" && !seen[strings.ToLower(i.Repo)] {
+			seen[strings.ToLower(i.Repo)] = true
+			used = append(used, i.Repo)
+		}
+	}
+	return used
+}
+
+func countUrgentIssues(list []model.Issue) int {
 	n := 0
-	for _, i := range a.Issues() {
+	for _, i := range list {
 		if i.Status == "open" && slices.Index(model.IssuePriorities, i.Priority) <= 1 { // urgent、high(不認得的也算,同 Swift 的 firstIndex ?? 0)
 			n++
 		}

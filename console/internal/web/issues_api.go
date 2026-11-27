@@ -29,8 +29,8 @@ import (
 //	POST /api/issues/{org}/{id}/delete    刪除
 //
 // {org} 是組織 id;是 omixor-web 目前的組織時,變更會出現在畫面與動態牆,其他組織只改資料。
-// 啟用 LDAP 時,登入者要是路徑上那個組織的成員(管理員不限;其他 403;遠端模式的非管理員只能用目前的組織);API token 不受限。
-// 作者:啟用 LDAP 時用登入者(寫進核心的身分見 core/caller.go);用 API token(OMIXOR_API_TOKEN,Authorization: Bearer …)或本機模式時用 body 的 author
+// 啟用 LDAP 時,登入者要是路徑上那個組織的成員(管理員不限;其他 403);API token 不受限。
+// 作者:啟用 LDAP 時用登入者(寫進核心的身分見 core/caller.go);用 API token(OMIXOR_API_TOKEN,Authorization: Bearer …)或沒啟用登入時用 body 的 author
 // (person id、"mcp" 或 "agent:<角色 id>";沒給是本機使用者)。
 
 // apiToken 有設 OMIXOR_API_TOKEN 且請求帶了相同的 Bearer token
@@ -79,8 +79,8 @@ func issueVersionOf(in map[string]any, ifMatch string) (int, error) {
 	return n, nil
 }
 
-// otherOrgDenied 登入的非管理員只能讀寫目前的組織(畫面看得到的那個);web 對核心用同一個身分,分不出他是不是別的組織的成員。
-// API token、本機模式(沒有登入者)不受限
+// otherOrgDenied 防呆:有登入者卻建不出呼叫者身分(分不出他是不是別的組織的成員)時,非管理員只能讀寫目前的組織。
+// API token、沒啟用登入(沒有登入者)不受限
 func otherOrgDenied(r *http.Request, app *core.App, org string) bool {
 	u, ok := ctxUser(r)
 	if !ok || u.Admin {
@@ -102,7 +102,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App, au *auth.Service) {
 			writeFail(w, r, err)
 			return "", false
 		}
-		// 有登入者身分的(LDAP、本機模式)由 membershipGate 檢查是不是路徑上那個組織的成員
+		// 有登入者身分的(LDAP)由 membershipGate 檢查是不是路徑上那個組織的成員
 		if callerOf(r, au) == nil && otherOrgDenied(r, app, o) {
 			writeJSON(w, 403, map[string]any{"error": "只有管理員可以讀寫其他組織的 Issue;你登入的帳號不是 web 的管理員", "forbidden": true})
 			return "", false
@@ -133,7 +133,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App, au *auth.Service) {
 		var list []model.Issue
 		app.WithOrgIssues(o, func() { list = append([]model.Issue{}, app.Issues()...) })
 		app.Mu.Unlock()
-		if set, unk, active := issueAPIRestricted(r, app, o); active { // 登入的非管理員:受限專案的 Issue 拿掉(見 restricted.go)
+		if set, unk, active := issueAPIRestricted(r, app, au, o); active { // 呼叫者看不到的受限專案的 Issue 拿掉(見 restricted.go)
 			kept := []model.Issue{}
 			for _, i := range list {
 				if i.Project == "" || (!unk && !set[i.Project]) {
@@ -155,7 +155,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App, au *auth.Service) {
 			badRequest(w, err)
 			return
 		}
-		if set, unk, active := issueAPIRestricted(r, app, o); active && restrictedArg(in, set, unk) {
+		if issueAPIProjectGate(r, app, au, o, in) {
 			notFoundRestricted(w)
 			return
 		}
@@ -229,13 +229,16 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App, au *auth.Service) {
 			return
 		}
 		author := issueAPIAuthor(r, app, in)
-		id := r.PathValue("id")
-		id, hidden, err := issueAPITarget(r, app, o, id)
+		id, hidden, err := issueAPITarget(r, app, au, o, r.PathValue("id"))
 		if err != nil {
 			writeFail(w, r, err)
 			return
 		}
-		if hidden || issueAPIProjectHidden(r, app, o, in) { // 受限專案的 Issue、搬進受限專案:和不存在一樣
+		if hidden { // 看不到的受限專案的 Issue:回應和不存在一樣
+			writeJSON(w, 404, map[string]any{"error": "找不到 Issue " + r.PathValue("id")})
+			return
+		}
+		if issueAPIProjectGate(r, app, au, o, in) { // 分不出呼叫者時;分得出的由核心擋搬進看不到的專案
 			notFoundRestricted(w)
 			return
 		}
@@ -305,7 +308,7 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App, au *auth.Service) {
 			writeJSON(w, 404, map[string]any{"error": "找不到 Issue " + r.PathValue("id")})
 			return
 		}
-		if issueAPIResultHidden(r, app, o, *updated) {
+		if issueAPIResultHidden(r, app, au, o, *updated) {
 			notFoundRestricted(w)
 			return
 		}
@@ -317,13 +320,13 @@ func registerIssueAPI(mux *http.ServeMux, app *core.App, au *auth.Service) {
 		if !ok {
 			return
 		}
-		id, hidden, err := issueAPITarget(r, app, o, r.PathValue("id"))
+		id, hidden, err := issueAPITarget(r, app, au, o, r.PathValue("id"))
 		if err != nil {
 			writeFail(w, r, err)
 			return
 		}
-		if hidden {
-			notFoundRestricted(w)
+		if hidden { // 和核心對不存在的 Issue 回的一樣
+			writeFail(w, r, &service.Error{Code: 404, Msg: "找不到 Issue " + r.PathValue("id"), Data: map[string]any{"code": service.IssueNotFoundCode}})
 			return
 		}
 		in, _ := readArgs(r) // 可以沒有 body;有的話 author 用來署名動態牆

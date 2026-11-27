@@ -9,7 +9,7 @@ import (
 )
 
 // 文件櫃顯示圖表區塊用(```wireframe、```flowchart、flowchart 語法的 ```mermaid):畫面把區塊內容送來,
-// 這裡用核心的渲染器畫成 SVG 回傳。渲染是純函式,本機與遠端模式都在這台 omixor-web 上算,不用打雲端。
+// 這裡用核心的渲染器畫成 SVG 回傳。渲染是純函式,在這台 omixor-web 上算。
 // 畫面一律用 <img src="data:image/svg+xml,…"> 顯示(img 裡的 SVG 不會執行腳本),不要直接塞進 DOM。
 // 描述有錯時回 {error},不當成 HTTP 錯誤(畫面在圖的位置顯示錯誤訊息)。
 //

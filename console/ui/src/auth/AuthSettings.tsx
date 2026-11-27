@@ -64,7 +64,7 @@ export function AuthSettings() {
 
   return (
     <div className={"col gap12 " + css.settings}>
-      <Card title="網頁版登入" subtitle="MCP 不受影響:MCP 和 Swift 版一樣只聽本機(127.0.0.1),不需要登入。">
+      <Card title="網頁版登入" subtitle="MCP 用戶端另外用 OAuth 授權(畫面連接埠的 /mcp,見 設定 › 整合);沒啟用任何登入時沒有人能授權。">
         <Segmented
           value={cfg.mode}
           options={[{ value: "off", label: "不用登入(只限本機)" }, { value: "ldap", label: "LDAP 帳號登入" }]}

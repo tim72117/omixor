@@ -29,11 +29,11 @@ func issueQueryArgs(args map[string]any) model.IssueQuery {
 }
 
 // QueryIssues 目前組織快取的 Issue 依條件篩選、排序(呼叫時要拿著 Mu)
-func (a *App) QueryIssues(q model.IssueQuery) (IssueQueryResult, error) {
+func (a *App) QueryIssues(q model.IssueQuery, hidden ...*Hidden) (IssueQueryResult, error) {
 	if e := q.Validate(); e != "" {
 		return IssueQueryResult{}, UserError{e}
 	}
-	all := a.Issues()
+	all := visibleIssues(a, hidden)
 	if q.Project != "" { // counts、total 以專案範圍為準(其他條件不影響)
 		all = model.FilterIssues(all, model.IssueQuery{Project: q.Project})
 	}
@@ -45,23 +45,31 @@ func (a *App) QueryIssues(q model.IssueQuery) (IssueQueryResult, error) {
 }
 
 // IssueBoard 目前組織快取的 Issue 分成看板三欄(呼叫時要拿著 Mu)
-func (a *App) IssueBoard(q model.IssueQuery) (model.IssueBoard, error) {
+func (a *App) IssueBoard(q model.IssueQuery, hidden ...*Hidden) (model.IssueBoard, error) {
 	q.Status, q.Sort = "", ""
 	if e := q.Validate(); e != "" {
 		return model.IssueBoard{}, UserError{e}
 	}
-	return model.BuildIssueBoard(a.Issues(), q), nil
+	return model.BuildIssueBoard(visibleIssues(a, hidden), q), nil
+}
+
+// visibleIssues 快取的 Issue 拿掉呼叫者看不到的(要在算 total、counts、labels 之前)
+func visibleIssues(a *App, hidden []*Hidden) []model.Issue {
+	if len(hidden) == 0 {
+		return a.Issues()
+	}
+	return hidden[0].Issues(a.Issues())
 }
 
 func init() {
 	RegisterAction("issue_query", func(a *App, args map[string]any) (any, error) {
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
-		return a.QueryIssues(issueQueryArgs(args))
+		return a.QueryIssues(issueQueryArgs(args), HiddenOf(args))
 	})
 	RegisterAction("issue_board", func(a *App, args map[string]any) (any, error) {
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
-		return a.IssueBoard(issueQueryArgs(args))
+		return a.IssueBoard(issueQueryArgs(args), HiddenOf(args))
 	})
 }

@@ -29,7 +29,7 @@ func sysForceFeatures(t *testing.T, a *App, off ...string) {
 	st := sysOf(a)
 	a.Mu.Lock()
 	st.mu.Lock()
-	st.ensureKey(sysKey(a.CurrentOrgID()))
+	st.ensureKey(a.CurrentOrgID())
 	st.view, st.source, st.err = v, SysSourceCore, ""
 	st.mu.Unlock()
 	a.Mu.Unlock()

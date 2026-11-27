@@ -61,7 +61,7 @@ func newCallerEnv(t *testing.T, change func(*auth.Config)) *callerEnv {
 
 func (e *callerEnv) tryLogin(user string) (*client, int, map[string]any) {
 	x := &client{t: e.t, srv: e.c.srv, c: newJarClient()}
-	code, out := x.do("POST", "/api/auth/login", map[string]any{"username": user, "password": user + "-pw"}, nil)
+	code, out := x.do("POST", "/api/auth/web/login", map[string]any{"username": user, "password": user + "-pw"}, nil)
 	return x, code, out
 }
 
@@ -206,7 +206,7 @@ func TestWebMembershipRequired(t *testing.T) {
 	if code != 401 || out["login"] != true || !strings.Contains(out["error"].(string), "還沒有加入任何組織") {
 		t.Fatal("移出後", code, out)
 	}
-	if _, st := bob.do("GET", "/api/auth/status", nil, nil); st["loggedIn"] != false || st["denied"] == nil {
+	if _, st := bob.do("GET", "/api/auth/web/status", nil, nil); st["loggedIn"] != false || st["denied"] == nil {
 		t.Fatal("status", st)
 	}
 	if code, _ := bob.do("POST", "/api/tool/issue_create", map[string]any{"title": "移出後寫"}, nil); code != 401 {

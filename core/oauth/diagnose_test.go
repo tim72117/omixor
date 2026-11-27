@@ -59,8 +59,6 @@ func TestDiagnose(t *testing.T) {
 		{"web http 公開網址致命", Env{Cfg: diagCfg(config.Web, map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "http://c.example.com"}), Prog: config.Web, HasDB: true}, Fatal, "https", ""},
 		{"web 只用 LDAP 可以關 evoleap", Env{Cfg: diagCfg(config.Web, map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_OAUTH_EVOLEAP_LOGIN": "false", "OMIXOR_TRUSTED_PROXY_HOPS": "1"}), Prog: config.Web, HasDB: true,
 			Providers: append(evo("https://evoleap.io", true)[:1], ldap(true, true))}, Info, "同意畫面的登入方式:LDAP", "!"},
-		{"web 設定層級的遠端模式", Env{Cfg: diagCfg(config.Web, map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_SERVER": "https://s.example.com"}), Prog: config.Web, HasDB: true, Remote: true}, Fatal, "遠端模式", ""},
-		{"web 執行期的遠端模式", Env{Cfg: diagCfg(config.Web, map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com"}), Prog: config.Web, HasDB: true, Remote: true}, Fatal, "遠端模式", ""},
 		{"web 沒有 PostgreSQL", Env{Cfg: diagCfg(config.Web, map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com"}), Prog: config.Web}, Fatal, "PostgreSQL", ""},
 		{"web 全部正常", Env{Cfg: diagCfg(config.Web, map[string]string{"OMIXOR_OAUTH_ADDR": addr, "OMIXOR_PUBLIC_URL": "https://c.example.com", "OMIXOR_TRUSTED_PROXY_HOPS": "1"}), Prog: config.Web, HasDB: true, Providers: evo("https://evoleap.io", false)},
 			Info, "/oauth/evoleap/callback", "✗"},

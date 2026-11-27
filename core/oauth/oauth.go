@@ -1,6 +1,8 @@
 // Package oauth 是 omixor 的 OAuth 2.1 授權伺服器 HTTP 層:讓 Claude 自訂 connector 登入 MCP 端點,授權永遠是唯讀。
 // resource 有兩種:組織 MCP 端點 <public>/mcp/org/{org}(綁單一組織),和統一入口 <public>/mcp(帳號層級:不綁組織,
 // 每次工具呼叫由統一入口用即時成員資格決定能用哪些組織;同意畫面不選組織)。
+// 第三種是執行者端點 <public>/mcp/worker/{org}:專用授權(scope mcp:worker,不是唯讀),只能用 dispatch_*、不回角色憑證密鑰,
+// 和上面兩種的 token 互相不能用;metadata 在 /.well-known/oauth-protected-resource/mcp/worker/{org}。
 // 同意畫面證明身分的方式由 IdentityProvider 決定(provider.go;NewWith 可以換):預設有兩種,主要是「用 evoleap 登入並允許」
 // (瀏覽器登入 evoleap,見下面 /oauth/evoleap/callback;伺服器沒有 evoleap 或被關掉就不顯示),備援是一次性的配對碼(本機伺服器常沒有 evoleap)。
 // 證明身分之後的授權碼簽發一律是 service.ApproveOAuthIdentity。
@@ -114,12 +116,27 @@ func (h *Handler) orgOfResource(resource string) string {
 	return org
 }
 
-// resourceOf resource(RFC 8707)→ 授權範圍:組織 MCP 網址回組織 id;統一入口網址回 account=true;其他都不認得(org 空、account false)
-func (h *Handler) resourceOf(resource string) (org string, account bool) {
+// WorkerURL 執行者端點的網址(也是執行者授權的 OAuth resource)
+func (h *Handler) WorkerURL(org string) string { return h.Public + "/mcp/worker/" + org }
+
+// WorkerResourceMetadataURL 執行者端點的 Protected Resource Metadata 網址
+func (h *Handler) WorkerResourceMetadataURL(org string) string {
+	return h.Public + "/.well-known/oauth-protected-resource/mcp/worker/" + org
+}
+
+// resourceOf resource(RFC 8707)→ 授權範圍:組織 MCP 網址回組織 id;執行者端點回組織 id 與 worker=true;
+// 統一入口網址回 account=true;其他都不認得(org 空、account false)
+func (h *Handler) resourceOf(resource string) (org string, account, worker bool) {
 	if resource == h.UnifiedURL() {
-		return "", true
+		return "", true, false
 	}
-	return h.orgOfResource(resource), false
+	if o, ok := strings.CutPrefix(resource, h.Public+"/mcp/worker/"); ok {
+		if !model.ValidOrgID(o) {
+			return "", false, false
+		}
+		return o, false, true
+	}
+	return h.orgOfResource(resource), false, false
 }
 
 // Mount 把路由掛到 mux
@@ -127,6 +144,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	obs := func(f http.HandlerFunc) http.Handler { return h.observe(f, nil, nil) }
 	mux.Handle("GET /.well-known/oauth-protected-resource/mcp/org/{org}", obs(h.protectedResource))
 	mux.Handle("GET /.well-known/oauth-protected-resource/mcp", obs(h.protectedResourceUnified))
+	mux.Handle("GET /.well-known/oauth-protected-resource/mcp/worker/{org}", obs(h.protectedResourceWorker))
 	mux.Handle("GET /.well-known/oauth-protected-resource", obs(h.protectedResource))
 	mux.Handle("GET /.well-known/oauth-authorization-server/oauth", obs(h.serverMetadata))
 	mux.Handle("GET /oauth/.well-known/openid-configuration", obs(h.serverMetadata))
@@ -183,6 +201,21 @@ func (h *Handler) protectedResource(w http.ResponseWriter, r *http.Request) {
 		"scopes_supported":         []string{model.OAuthScopeRead, model.OAuthScopeWrite, model.OAuthScopeAdmin},
 		"bearer_methods_supported": []string{"header"},
 		"resource_name":            "omixor",
+	})
+}
+
+func (h *Handler) protectedResourceWorker(w http.ResponseWriter, r *http.Request) {
+	org := r.PathValue("org")
+	if !model.ValidOrgID(org) {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"resource":                 h.WorkerURL(org),
+		"authorization_servers":    []string{h.Issuer()},
+		"scopes_supported":         []string{model.OAuthScopeWorker},
+		"bearer_methods_supported": []string{"header"},
+		"resource_name":            "omixor worker",
 	})
 }
 
@@ -332,7 +365,7 @@ func (h *Handler) authRequest(get func(string) string, all func(string) []string
 		State: get("state"), Scope: get("scope"), Resources: all("resource"),
 	}
 	if len(req.Resources) == 1 {
-		req.Org, req.Account = h.resourceOf(req.Resources[0])
+		req.Org, req.Account, req.Worker = h.resourceOf(req.Resources[0])
 	}
 	return req
 }
@@ -460,6 +493,9 @@ func (h *Handler) authorizePost(w http.ResponseWriter, r *http.Request) {
 		grant = service.OAuthGrantWrite
 	case "admin":
 		grant = service.OAuthGrantAdmin
+	}
+	if chk.Worker { // 執行者授權沒有等級可選:不看表單
+		grant = service.OAuthGrantWorker
 	}
 	d["grant_write"] = grant != service.OAuthGrantRead
 	d["grant"] = grant

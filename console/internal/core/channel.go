@@ -11,17 +11,16 @@ import (
 
 // 訊息頻道:資料與規則都在核心(omixor-core 的 service/channel.go):
 //
-//	本機模式:內建核心 + 本機 PostgreSQL(omixor_channels 等);遠端模式:omixor server 的 /api/orgs/{org}/channels
+//	內建核心 + PostgreSQL(omixor_channels 等)
 //
 // 這裡是轉接層:AgentOps 的頻道部分(MCP 的 channels、channel_*、agent_context 的 mentions 用),
 // 以及畫面的視圖 channels、動作 channel_*。寫入成功後通知畫面(主題 channels)、寫動態牆(建立頻道、@ 角色)。
 //
-// 身分:本機模式是內建核心的 omixor-console(伺服器管理員,節點 user:omixor-console);遠端模式是登入雲端的帳號(user:<email>)。
+// 身分:沒有登入者時是內建核心的 omixor-console(伺服器管理員,節點 user:omixor-console)。
 
 // ChannelsView 對話視圖:我的頻道(含未讀數)、我的節點、組織成員與角色(選成員、顯示頭像用)
 type ChannelsView struct {
 	Org      string                 `json:"org"`
-	Remote   bool                   `json:"remote"`
 	Me       string                 `json:"me"`
 	Channels []model.ChannelSummary `json:"channels"`
 	Members  []model.Member         `json:"members"`
@@ -48,23 +47,23 @@ func (a *App) unreadOf(account string) int {
 	return v
 }
 
-// unreadAccount 呼叫者的未讀數記在哪個鍵:系統身分(沒啟用登入、遠端)是空字串
+// unreadAccount 呼叫者的未讀數記在哪個鍵:系統身分(沒啟用登入)是空字串
 func unreadAccount(who *Caller) string {
-	if who == nil || IsRemote() {
+	if who == nil {
 		return ""
 	}
 	return who.Account()
 }
 
-// channelsView 視圖(在 Mu 下執行;和組織鏈視圖一樣,遠端模式會在這裡問伺服器)
+// channelsView 視圖(在 Mu 下執行)
 func (a *App) channelsView(who *Caller) ChannelsView {
 	m := a.membersView()
-	v := ChannelsView{Org: m.Org, Remote: m.Remote, Members: m.Members, Error: m.Error,
+	v := ChannelsView{Org: m.Org, Members: m.Members, Error: m.Error,
 		Channels: []model.ChannelSummary{}, Agents: []model.Agent{}}
 	if v.Org == "" {
 		return v
 	}
-	b, err := coreBackendFor(who, "", v.Org) // 頻道、已讀因人而異:用呼叫者的身分
+	b, err := coreBackendFor(who, v.Org) // 頻道、已讀因人而異:用呼叫者的身分
 	if err != nil {
 		v.Error = err.Error()
 		return v

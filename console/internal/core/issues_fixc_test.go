@@ -78,8 +78,8 @@ func TestUpdateConflictNotifiesIssuesAndRefreshesCache(t *testing.T) {
 	}
 }
 
-// lastErr:A 失敗(409)之後 B 成功,IssueRemoteErr 不能殘留 A 的錯誤;409 不算連線錯誤(L9)
-func TestLastErrNotLeftAfterSuccessAndUserErrNotConnErr(t *testing.T) {
+// lastErr:A 失敗(409)之後 B 成功,IssueRemoteErr 不能殘留 A 的錯誤(L9)
+func TestLastErrNotLeftAfterSuccess(t *testing.T) {
 	a := newTestApp(t)
 	a.Mu.Lock()
 	is := a.CreateIssueFor("A", "", "", nil, "", "", "mcp", "", "")
@@ -88,13 +88,9 @@ func TestLastErrNotLeftAfterSuccessAndUserErrNotConnErr(t *testing.T) {
 	a.Mu.Lock()
 	failed := a.UpdateIssueAtVersion(is.ID, "mcp", "", is.Version, func(i *model.Issue) { i.Priority = "high" })
 	hasErr := a.IssueRemoteErr()
-	conn := a.issueConnErr()
 	a.Mu.Unlock()
 	if failed != nil || hasErr == nil {
 		t.Fatal("A 要失敗")
-	}
-	if conn != "" {
-		t.Fatalf("409 是使用者錯誤,不能當連線錯誤顯示:%q", conn)
 	}
 	a.Mu.Lock()
 	okIssue := a.UpdateIssue(is.ID, "mcp", func(i *model.Issue) { i.Priority = "low" })
@@ -103,14 +99,6 @@ func TestLastErrNotLeftAfterSuccessAndUserErrNotConnErr(t *testing.T) {
 	a.Mu.Unlock()
 	if okIssue == nil || left != nil || text != "" {
 		t.Fatalf("B 成功後不能殘留 A 的錯誤:%v %q", left, text)
-	}
-	// 純連線型錯誤(未分類的 500)才算連線錯誤
-	a.Mu.Lock()
-	a.issueRemoteFailed(errors.New("連不上"))
-	conn = a.issueConnErr()
-	a.Mu.Unlock()
-	if conn == "" {
-		t.Fatal("一般(500)錯誤要算連線錯誤")
 	}
 }
 

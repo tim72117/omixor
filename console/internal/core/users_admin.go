@@ -7,15 +7,12 @@ import "strings"
 //	POST /api/action/user_oauth_revoke {email}             撤銷這個人全部的 MCP 授權(之後可以重新授權)
 //	POST /api/action/user_disable      {email, disabled?}  停用(預設)或啟用;停用後不能登入 MCP,既有授權一併撤銷
 //
-// 只在本機模式(使用者在這台的資料庫);遠端模式用那台 server 的使用者管理。停用的是核心使用者,不影響網頁版登入(那邊看 LDAP)
+// 使用者在這台的資料庫。停用的是核心使用者,不影響網頁版登入(那邊看 LDAP)
 
 func userAdminArgs(args map[string]any) (string, error) {
 	email, _ := args["email"].(string)
 	if email = strings.TrimSpace(email); email == "" {
 		return "", UserError{"要給使用者的 email"}
-	}
-	if IsRemote() {
-		return "", UserError{"遠端模式請在那台 omixor server 管理使用者"}
 	}
 	return email, nil
 }

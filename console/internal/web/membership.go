@@ -27,12 +27,12 @@ import (
 // 組織不是系統工作組織時,核心資料用一次性的 App(core.Scoped);其他功能 403 {notSystemOrg: true}(分類見 orgscope.go)。
 // 用原本的 App(系統工作組織)處理的請求期間不會換系統工作組織(讀寫的就是檢查過的那個;鎖的規則見 core/system_gate.go)。
 //
-// 沒啟用登入、API token(沒有登入者)、遠端模式:不看 X-Omixor-Org,行為不變
+// 沒啟用登入、API token(沒有登入者):不看 X-Omixor-Org,行為不變
 
 const orgHeader = "X-Omixor-Org"
 
 // loginOnly 不做檢查的 /api/auth 路徑(登入前就能呼叫的與登出)
-var loginOnly = map[string]bool{"/api/auth/status": true, "/api/auth/login": true, "/api/auth/logout": true}
+var loginOnly = map[string]bool{"/api/auth/web/status": true, "/api/auth/web/login": true, "/api/auth/web/logout": true}
 
 // repairPaths 管理員名單上、對不上核心使用者的帳號唯一能用的路徑(登入、登出、status 本來就能用)
 var repairPaths = map[string]bool{"GET /api/auth/config": true, "POST /api/auth/config": true, "POST /api/auth/test": true}
@@ -85,6 +85,10 @@ func membershipGate(next http.Handler, app *core.App, au *auth.Service) http.Han
 				return
 			}
 			denyAccess(w, err)
+			return
+		}
+		if u, ok := ctxUser(r); ok && u.Repair { // 修復登入用完了(帳號已經對得上):要重新登入
+			writeJSON(w, 401, map[string]any{"error": "請重新登入", "login": true})
 			return
 		}
 		scope := requestScope{access: access}
@@ -185,7 +189,10 @@ func recheckOffice(ctx context.Context, cancel context.CancelFunc, r *http.Reque
 			return
 		case <-t.C:
 		}
-		u, ok := sessionUser(r, au)
+		u, ok, serr := lookupSession(r, au)
+		if serr != nil && app.SystemOrgID() == org { // 暫時查不出來:下次再查
+			continue
+		}
 		if !ok || app.SystemOrgID() != org {
 			cancel()
 			return

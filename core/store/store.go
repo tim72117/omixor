@@ -80,6 +80,8 @@ type Store interface {
 	TokenByHash(h []byte, now time.Time) (*model.Token, *model.User, error) // 沒撤銷、沒過期的
 	TouchToken(id string, at time.Time) error
 	RevokeToken(id string, at time.Time) error
+	// RevokeTokensByDevicePrefix 撤銷裝置名稱以 prefix 開頭、還沒撤銷的全部 token(web session 用),回傳撤銷了幾個
+	RevokeTokensByDevicePrefix(prefix string, at time.Time) (int, error)
 	ListTokens(now time.Time) ([]model.Token, error)
 	AddAudit(e model.AuditEntry) error
 	ListAudit(limit int) ([]model.AuditEntry, error)

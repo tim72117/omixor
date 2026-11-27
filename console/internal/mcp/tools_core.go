@@ -15,7 +15,7 @@ import (
 // 透過核心的共同介面 backend.Backend 操作。這裡提供 web 的實作(appBackend):
 //   - 組織、Issue:包著 web 的 core.App(組織清單、Issue 快取、動態牆、與核心 service/client 的同步),
 //     讓 MCP 工具的副作用和畫面操作完全一樣
-//   - 角色與任務:交給 App.AgentOps(本機內建核心或遠端 omixor server),寫入後更新快取、寫動態、通知畫面
+//   - 角色與任務:交給 App.AgentOps(內建核心),寫入後更新快取、寫動態、通知畫面
 //   - 文件櫃:交給 App.CabinetOps(同上;見 tools_cabinet.go)
 
 func init() {
@@ -64,7 +64,9 @@ func (x *callCtx) withMu(f func()) {
 	f()
 }
 
-func (x *callCtx) Backend() backend.Backend { return appBackend{a: x.App, who: x.who} }
+func (x *callCtx) Backend() backend.Backend {
+	return appBackend{a: x.App, who: x.who, hidden: x.hidden}
+}
 func (x *callCtx) Org() (org string) {
 	x.withMu(func() { org = x.App.CurrentOrgID() })
 	return
@@ -114,8 +116,10 @@ var _ coremcp.AgentEnv = (*callCtx)(nil)
 type appBackend struct {
 	backend.Unsupported
 	a *core.App
-	// who 網頁 /api/tool 的呼叫者;nil = 系統身分(MCP 3765、角色與執行者端點)
+	// who 網頁 /api/tool 的呼叫者;nil = 系統身分(角色與執行者端點)
 	who *core.Caller
+	// hidden 網頁非管理員看不到的受限專案資料(在核心工具算 total 之前拿掉)
+	hidden *core.Hidden
 }
 
 // agentOps 角色、任務、組織鏈、頻道的操作(寫入與頻道用呼叫者身分)
@@ -131,13 +135,13 @@ func (b appBackend) ListOrgs() ([]model.Org, error) {
 
 func (b appBackend) ListIssues(string) ([]model.Issue, error) {
 	b.a.RefreshIssuesIfStale(0) // Issue 伺服器模式:用最新的
-	return copyIssues(b.a.Issues()), nil
+	return copyIssues(b.hidden.Issues(b.a.Issues())), nil
 }
 
 func (b appBackend) GetIssue(_, id string) (*model.Issue, error) {
 	b.a.RefreshIssuesIfStale(0)
 	i := b.a.Issue(id)
-	if i == nil {
+	if i == nil || b.hidden.Project(i.Project) { // 看不到的受限專案:錯誤和不存在一模一樣
 		return nil, &service.Error{Code: 404, Msg: "找不到 Issue " + id}
 	}
 	c := copyIssue(*i)
@@ -226,7 +230,7 @@ func (b appBackend) updateIssue(id string, p service.IssuePatch) (*model.Issue, 
 // SupportsIssueAppendBody UpdateIssue 認得 IssuePatch.AppendBody(交給核心在鎖裡附加),核心的 issue_update 會改送 AppendBody
 func (appBackend) SupportsIssueAppendBody() bool { return true }
 
-// AddIssueComment 新增一則留言:App.AddIssueComment 走核心的只附加路徑(本機 service、遠端 POST …/comments)
+// AddIssueComment 新增一則留言:App.AddIssueComment 走核心的只附加路徑
 func (b appBackend) AddIssueComment(_, id, text, author string) (*model.Issue, error) {
 	var i *model.Issue
 	var err error
@@ -278,10 +282,18 @@ func (b appBackend) TransferAgentTasks(org string, in service.AgentTransferInput
 	return b.agentOps().TransferAgentTasks(org, in)
 }
 func (b appBackend) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {
-	return b.agentOps().ListAgentTasks(org, f)
+	list, err := b.agentOps().ListAgentTasks(org, f)
+	if err != nil {
+		return nil, err
+	}
+	return b.hidden.Tasks(list), nil
 }
 func (b appBackend) GetAgentTask(org, id string) (*model.AgentTask, error) {
-	return b.agentOps().GetAgentTask(org, id)
+	t, err := b.agentOps().GetAgentTask(org, id)
+	if err == nil && t != nil && b.hidden.Task(*t) {
+		return nil, &service.Error{Code: 404, Msg: "找不到任務 " + id}
+	}
+	return t, err
 }
 func (b appBackend) AssignTask(org string, in service.TaskInput) (*model.AgentTask, error) {
 	return b.agentOps().AssignTask(org, in)

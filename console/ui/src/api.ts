@@ -6,11 +6,15 @@
 //
 // useView 與 useActionQuery 共用 lib/viewStore.ts 的快取:同一個 view(或同一組 action + 參數)不論幾個元件在看,
 // 只發一個請求、收到通知只重讀一次;沒人看的不重讀(下次有人看再讀)。
-// SSE:伺服器每次連上(包括斷線重連)都先送一個 "*";畫面自己不再補送。
+// SSE:伺服器每次連上(包括斷線重連)都先送一個 "*";畫面自己不再補送。瀏覽器放棄的連線(401 等)由
+// lib/eventStream.ts 重建,登入狀態變了(auth/auth.ts)就重建或關掉。
 // 資料回應帶版本(X-Omixor-Version),版本已經涵蓋的通知不重讀,所以頁面打開時不會「掛載讀一次 + 連上 "*" 再讀一次」。
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ViewStore, type ViewSnapshot, type ViewStatus } from "./lib/viewStore";
 import { ApiError, getJSON, postJSON } from "./lib/http";
+import { createEventStream, type EventSourceLike, type EventStream } from "./lib/eventStream";
+import { createOrgScope, type OrgScopeIndex } from "./lib/orgScope";
+import { onLoginChange, refreshAuth } from "./auth/auth";
 
 export { ApiError, unwrapPost } from "./lib/http";
 export type { ViewSnapshot, ViewStatus } from "./lib/viewStore";
@@ -18,28 +22,44 @@ export type { ViewSnapshot, ViewStatus } from "./lib/viewStore";
 /** 全部 view / action 查詢共用的快取(除錯時可以看 viewStore.requests) */
 export const viewStore = new ViewStore({ debounceMs: 80 });
 
-let connected = false;
+// 非系統工作組織時不發整台一份的 view 請求(lib/orgScope.ts)
+const orgScope = createOrgScope(async () => (await getJSON<OrgScopeIndex>("/api/view/orgs")).data);
+
 let version = 0;
 const versionSubs = new Set<() => void>();
+let events: EventStream | undefined;
 
 function connect() {
-  if (connected || typeof EventSource === "undefined") return;
-  connected = true;
-  const es = new EventSource("/api/events");
-  es.onmessage = (e) => {
-    try {
-      const ev = JSON.parse(e.data) as { version: number; topics: string[] };
-      version = ev.version;
-      versionSubs.forEach((f) => f());
-      viewStore.notify(ev.topics ?? [], typeof ev.version === "number" ? ev.version : undefined);
-    } catch {
-      /* 忽略格式錯誤的事件 */
-    }
-  };
-  // 瀏覽器會自動重連,伺服器連上時會送 "*"(internal/web/web.go),畫面不用自己補。
-  // 斷線期間伺服器可能重啟(版本從頭算),手上的版本作廢,讓重連時的 "*" 一律重讀。
-  es.onerror = () => viewStore.resetVersions();
+  if (events || typeof EventSource === "undefined") return events?.start();
+  events = createEventStream({
+    open: () => new EventSource("/api/events") as unknown as EventSourceLike,
+    message: (data) => {
+      try {
+        const ev = JSON.parse(data) as { version: number; topics: string[] };
+        version = ev.version;
+        versionSubs.forEach((f) => f());
+        if (ev.topics?.some((t) => t === "orgs" || t === "*")) orgScope.invalidate();
+        viewStore.notify(ev.topics ?? [], typeof ev.version === "number" ? ev.version : undefined);
+      } catch {
+        /* 忽略格式錯誤的事件 */
+      }
+    },
+    // 伺服器連上時會送 "*"(internal/web/web.go),畫面不用自己補。
+    // 斷線期間伺服器可能重啟(版本從頭算),手上的版本作廢,讓重連時的 "*" 一律重讀。
+    lost: () => viewStore.resetVersions(),
+    gaveUp: () => void refreshAuth().catch(() => {}),
+  });
+  events.start();
 }
+
+// 登入成功:重建通知連線,並讓登入前(或過期期間)讀失敗、過時的資料重讀;登出:關掉
+onLoginChange((loggedIn) => {
+  orgScope.invalidate();
+  if (!events) return;
+  if (!loggedIn) return events.stop();
+  events.restart();
+  viewStore.notify(["*"]);
+});
 
 /**
  * 後端資料版本(任何變更都會加一)。throttleMs:最多多久更新一次(伺服器數據每 3 秒變一次,
@@ -136,7 +156,7 @@ function useStoreKey<T>(key: string, load: () => Promise<{ data: unknown; versio
  * 回傳 [資料, 錯誤, 重新讀取](另有 .status .loading 等欄位,見 ViewResult);資料第一次讀到前是 undefined。
  */
 export function useView<T = any>(name: string, topics: string[] = [], opts: { throttleMs?: number } = {}): ViewResult<T> {
-  const { snap, reload } = useStoreKey<T>(`view:${name}`, () => getJSON<T>(`/api/view/${name}`), [name], topics, opts.throttleMs ?? 0);
+  const { snap, reload } = useStoreKey<T>(`view:${name}`, () => orgScope.load(name, () => getJSON<T>(`/api/view/${name}`)), [name], topics, opts.throttleMs ?? 0);
   return result(snap, snap.data, reload);
 }
 

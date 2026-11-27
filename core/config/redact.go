@@ -205,7 +205,7 @@ func (c Config) Format(f fmt.State, verb rune) {
 // LogValue 給 slog 用(機密已遮蔽)
 func (c Config) LogValue() slog.Value { return slog.StringValue(strings.TrimSpace(c.String())) }
 
-// secretValues 設定 v 的值裡要被遮蔽的片段:整個值,加上資料庫連線裡的密碼、OMIXOR_SERVERS 這類 JSON 裡的
+// secretValues 設定 v 的值裡要被遮蔽的片段:整個值,加上資料庫連線裡的密碼、機密值是 JSON 時裡面的
 // token/password/secret 欄位(各自拆出來:錯誤訊息常常只含其中一個)
 func secretValues(v *Var, val string) []string {
 	out := []string{val}
@@ -242,7 +242,7 @@ func collectJSONSecrets(x any, out *[]string) {
 	}
 }
 
-// Redact 把字串裡出現的機密值換成 ***(連線設定裡的密碼、OMIXOR_SERVERS 裡的 token 也會被單獨找出來換);
+// Redact 把字串裡出現的機密值換成 ***(連線設定裡的密碼、JSON 值裡的 token 也會被單獨找出來換);
 // 錯誤訊息、日誌要印可能含機密的文字時先過它。
 //
 // 取捨:長度 >= 3 的機密直接字串取代;長度 1–2 的機密只在「整字」(前後不是字母、數字、底線)時才換,

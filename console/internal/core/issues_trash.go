@@ -38,7 +38,7 @@ func trashErr(err error) error {
 func (a *App) issueTrashTarget(who *Caller) (string, backend.Backend, error) {
 	a.Mu.Lock()
 	defer a.Mu.Unlock()
-	b, err := coreBackendFor(who, a.conns().Scope, a.issueSt().Org)
+	b, err := coreBackendFor(who, a.issueSt().Org)
 	return a.issueSt().Org, b, err
 }
 
@@ -87,6 +87,9 @@ func init() {
 		i, err := findIssueAnywhere(b, org, ref)
 		if err != nil {
 			return nil, trashErr(err)
+		}
+		if HiddenOf(args).Project(i.Project) { // 看不到的受限專案:和找不到一樣
+			return nil, trashErr(&service.Error{Code: 404, Msg: "找不到 Issue " + strings.TrimSpace(ref)})
 		}
 		return IssueRef{ID: i.ID, Key: i.Display(), Deleted: i.DeletedAt != nil, Project: i.Project}, nil
 	})

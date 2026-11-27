@@ -282,7 +282,7 @@ func TestConsoleOAuthWriteIsSignedByRealUser(t *testing.T) {
 func TestConsoleRemotePortOnlyExposesOAuthAndMCP(t *testing.T) {
 	r := newOAuthRig(t)
 	for _, p := range []string{"/mcp/worker", "/mcp/org", "/mcp/x", "/api/orgs", "/api/version", "/api/auth/pair", "/api/auth/evoleap",
-		"/api/auth/ldap", "/api/auth/gitlab", "/api/auth/gitlab/start", "/api/auth/status", "/api/tool/gcp", "/", "/health", "/office/"} {
+		"/api/auth/ldap", "/api/auth/gitlab", "/api/auth/gitlab/start", "/api/auth/web/status", "/api/tool/gcp", "/", "/health", "/office/"} {
 		if w := r.do("POST", p, `{}`, "Authorization", "Bearer omx_x"); w.Code != 404 {
 			t.Errorf("%s 不該存在,實際 %d", p, w.Code)
 		}
@@ -309,23 +309,20 @@ func TestConsoleRemotePortOnlyExposesOAuthAndMCP(t *testing.T) {
 	}
 }
 
-// 啟動條件:沒設 OMIXOR_OAUTH_ADDR 什麼都不檢查;設了要有 PostgreSQL、不能是遠端模式(檢查本身在 core/oauth 的 Diagnose,這裡確認 console 接對了)
+// 啟動條件:沒設 OMIXOR_OAUTH_ADDR 什麼都不檢查;設了要有 PostgreSQL(檢查本身在 core/oauth 的 Diagnose,這裡確認 console 接對了)
 func TestOAuthStartupChecks(t *testing.T) {
 	cfg := config.LoadFrom(func(k string) string {
 		return map[string]string{"OMIXOR_OAUTH_ADDR": "127.0.0.1:8771", "OMIXOR_PUBLIC_URL": "https://c.example.com"}[k]
 	}, config.Web)
-	fatal := func(hasDB, remote bool) error {
+	fatal := func(hasDB bool) error {
 		e := oauthEnv(cfg, nil)
-		e.HasDB, e.Remote = hasDB, remote
+		e.HasDB = hasDB
 		return oauth.FatalError(oauth.Diagnose(e))
 	}
-	if err := fatal(true, false); err != nil {
+	if err := fatal(true); err != nil {
 		t.Fatal(err)
 	}
-	if err := fatal(false, false); err == nil || !strings.Contains(err.Error(), "PostgreSQL") {
-		t.Fatal(err)
-	}
-	if err := fatal(true, true); err == nil || !strings.Contains(err.Error(), "遠端模式") {
+	if err := fatal(false); err == nil || !strings.Contains(err.Error(), "PostgreSQL") {
 		t.Fatal(err)
 	}
 	if err := PrepareOAuth(config.LoadFrom(func(string) string { return "" }, config.Web)); err != nil {

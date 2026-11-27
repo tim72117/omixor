@@ -14,10 +14,10 @@ import (
 	"omixor-core/service"
 )
 
-// MCPTasks 透過 omixor 的 MCP 端點(HTTP)讀角色與任務,給任務通知頻道用(實作 TaskLister)。
-// 本機 omixor console(http://127.0.0.1:3765/mcp)與雲端的管理端點都適用:不用直連資料庫,也不用另外登入。
-// 用的工具:agents、agent_tasks、orgs(都是唯讀)。端點的「目前組織」就是任務所在的組織,org 參數不送。
-type MCPTasks struct {
+// WorkerTasks 透過執行者端點 /mcp/worker/{org}(HTTP)讀待領取任務,給任務通知頻道用(實作 TaskLister)。
+// omixor console 與 omixor server 的端點相同。那裡只有 dispatch_ 工具,所以角色與任務都從 dispatch_queue 取
+// (清單本來就只含啟用中角色的任務)。組織固定是網址上的那一個(ChannelConfig.Org 要和它一致)。
+type WorkerTasks struct {
 	URL   string
 	Token string // 選填:Authorization: Bearer <Token>
 	// TokenFunc 選填:每次請求前取權杖(優先於 Token;例如 console 換新權杖後不用重開)。
@@ -27,15 +27,15 @@ type MCPTasks struct {
 	id        atomic.Int64
 }
 
-func (m *MCPTasks) client() *http.Client {
+func (m *WorkerTasks) client() *http.Client {
 	if m.HTTP != nil {
 		return m.HTTP
 	}
-	return &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil}} // 本機端點不走系統代理
+	return &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil}} // 不走系統代理
 }
 
 // call 呼叫一個工具,把回傳的文字當 JSON 解到 out
-func (m *MCPTasks) call(tool string, args map[string]any, out any) error {
+func (m *WorkerTasks) call(tool string, args map[string]any, out any) error {
 	tok := m.Token
 	if m.TokenFunc != nil {
 		t, err := m.TokenFunc()
@@ -102,89 +102,68 @@ func (m *MCPTasks) call(tool string, args map[string]any, out any) error {
 	return json.Unmarshal([]byte(text), out)
 }
 
-// CurrentOrg 端點目前的組織 id(orgs 工具的 current)
-func (m *MCPTasks) CurrentOrg() (string, error) {
-	var x struct {
-		Current string `json:"current"`
-	}
-	if err := m.call("orgs", map[string]any{}, &x); err != nil {
-		return "", err
-	}
-	return x.Current, nil
+// workerQueueLimit dispatch_queue 一次最多回的筆數(超過的等前面的被領走才會通知)
+const workerQueueLimit = dispatchMaxLimit
+
+type workerRow struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Agent struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"agent"`
+	Priority  string `json:"priority"`
+	Status    string `json:"status"`
+	UpdatedAt string `json:"updatedAt"`
 }
 
-// ListAgents 角色清單(只用到 id 與 active)
-func (m *MCPTasks) ListAgents(string) ([]model.Agent, error) {
-	var x struct {
-		Agents []struct {
-			ID     string `json:"id"`
-			Name   string `json:"name"`
-			Active bool   `json:"active"`
-		} `json:"agents"`
+func (m *WorkerTasks) queue(agent string) ([]workerRow, error) {
+	args := map[string]any{"limit": workerQueueLimit}
+	if agent != "" {
+		args["agent"] = agent
 	}
-	if err := m.call("agents", map[string]any{}, &x); err != nil {
+	var x struct {
+		Tasks []workerRow `json:"tasks"`
+	}
+	if err := m.call("dispatch_queue", args, &x); err != nil {
 		return nil, err
 	}
-	out := make([]model.Agent, 0, len(x.Agents))
-	for _, g := range x.Agents {
-		out = append(out, model.Agent{ID: g.ID, Name: g.Name, Active: g.Active})
+	return x.Tasks, nil
+}
+
+// ListAgents 目前有任務可領的角色(一定是啟用中的)
+func (m *WorkerTasks) ListAgents(string) ([]model.Agent, error) {
+	rows, err := m.queue("")
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := []model.Agent{}
+	for _, r := range rows {
+		if !seen[r.Agent.ID] {
+			seen[r.Agent.ID] = true
+			out = append(out, model.Agent{ID: r.Agent.ID, Name: r.Agent.Name, Active: true})
+		}
 	}
 	return out, nil
 }
 
-// ListAgentTasks 任務清單(agent_tasks 的列:id、title、agent、status、priority、updatedAt)。
-// agent_tasks 一次最多回 50 筆(total 是全部的數量):沒指定角色又被截斷時,改成每個角色各查一次
-func (m *MCPTasks) ListAgentTasks(org string, f service.TaskFilter) ([]model.AgentTask, error) {
-	list, total, err := m.listTasks(f)
-	if err != nil || total <= len(list) || f.AgentID != "" {
-		return list, err
-	}
-	agents, err := m.ListAgents(org)
+// ListAgentTasks dispatch_queue 的列,依 f.AgentID 與 f.Status 篩選
+func (m *WorkerTasks) ListAgentTasks(_ string, f service.TaskFilter) ([]model.AgentTask, error) {
+	rows, err := m.queue(f.AgentID)
 	if err != nil {
 		return nil, err
 	}
 	out := []model.AgentTask{}
-	for _, g := range agents {
-		one := f
-		one.AgentID = g.ID
-		l, _, err := m.listTasks(one)
-		if err != nil {
-			return nil, err
+	for _, r := range rows {
+		if f.Status != "" && f.Status != "open" && r.Status != f.Status {
+			continue
 		}
-		out = append(out, l...)
+		t := model.AgentTask{ID: r.ID, Title: r.Title, AgentID: r.Agent.ID, Status: r.Status, Priority: r.Priority}
+		if ts, err := time.Parse(time.RFC3339, r.UpdatedAt); err == nil {
+			t.UpdatedAt = model.Time{Time: ts}
+		}
+		out = append(out, t)
 	}
 	return out, nil
-}
-
-func (m *MCPTasks) listTasks(f service.TaskFilter) ([]model.AgentTask, int, error) {
-	args := map[string]any{}
-	if f.AgentID != "" {
-		args["agent"] = f.AgentID
-	}
-	if f.Status != "" {
-		args["status"] = f.Status
-	}
-	var x struct {
-		Total int `json:"total"`
-		Tasks []struct {
-			ID        string `json:"id"`
-			Title     string `json:"title"`
-			Agent     string `json:"agent"`
-			Status    string `json:"status"`
-			Priority  string `json:"priority"`
-			UpdatedAt string `json:"updatedAt"`
-		} `json:"tasks"`
-	}
-	if err := m.call("agent_tasks", args, &x); err != nil {
-		return nil, 0, err
-	}
-	out := make([]model.AgentTask, 0, len(x.Tasks))
-	for _, t := range x.Tasks {
-		at := model.AgentTask{ID: t.ID, Title: t.Title, AgentID: t.Agent, Status: t.Status, Priority: t.Priority}
-		if ts, err := time.Parse(time.RFC3339, t.UpdatedAt); err == nil {
-			at.UpdatedAt = model.Time{Time: ts}
-		}
-		out = append(out, at)
-	}
-	return out, x.Total, nil
 }

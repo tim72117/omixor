@@ -9,7 +9,7 @@ import (
 	"omixor-core/service"
 )
 
-// 文件櫃的 HTTP 路由:透過 client 與 backend.Remote(和 omixor-web 遠端模式同一條路)
+// 文件櫃的 HTTP 路由:透過 client 與 backend.Remote
 func TestCabinetRoutes(t *testing.T) {
 	e := newEnv(t)
 	boss := e.login("evo-boss")

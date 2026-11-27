@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"net/http"
+	"strings"
 
 	"omixor-core/backend"
 	"omixor-core/httperr"
+	"omixor-core/model"
 	"omixor-core/service"
 )
 
@@ -27,9 +29,11 @@ type WorkerEndpointConfig struct {
 	Resolve func(r *http.Request) (backend.Backend, string, error)
 	// AgentEndpoint 角色端點的網址(領取任務時放進 credential.endpoint);空字串不附
 	AgentEndpoint string
-	// AgentEndpointFn 同上,但每次請求才決定(例如 web 依本機/遠端模式);有設就優先
+	// AgentEndpointFn 同上,但每次請求才決定(例如 web 在掛上入口後才知道網址);有設就優先
 	AgentEndpointFn func() string
 	Instructions    string
+	// ResourceMetadata 這個請求對應的 OAuth Protected Resource Metadata 網址;非空時 401 帶 resource_metadata,讓 OAuth 用戶端自己開始授權
+	ResourceMetadata func(r *http.Request) string
 	// Begin、Tool 同 Hooks(宿主統計、處理完重新整理畫面用);nil = 不呼叫
 	Begin func() (end func())
 	Tool  func(name string) (done func())
@@ -41,7 +45,7 @@ const workerInstructions = "This is omixor's worker (dispatch) endpoint, for LLM
 	"Standard flow: queue → claim → work following the agent instructions and task description → periodically dispatch_report (inProgress) to renew the lease → dispatch_report done (with result) or blocked. A done result of a task linked to an issue is posted to that issue automatically, so use dispatch_comment only for other things worth noting there. " +
 	"All these tools act as your signed-in omixor identity; the server confirms you are the claimer and signs as the agent, so you do not need to, and must not, use the secret of the agent credential." + protocolInstructions
 
-// WorkerEndpoint 執行者專用 MCP 的 http.Handler(雲端掛在 /mcp/worker/{org},本機 web 掛在 /mcp/worker):
+// WorkerEndpoint 執行者專用 MCP 的 http.Handler(掛在 /mcp/worker/{org}):
 // 只開放 dispatch_ 工具,權限同呼叫者的 omixor 身分(組織成員可領取;回報、留言限領取者本人;放棄限領取者本人或組織管理員)。
 func WorkerEndpoint(cfg WorkerEndpointConfig) http.Handler {
 	ins := cfg.Instructions
@@ -56,7 +60,12 @@ func WorkerEndpoint(cfg WorkerEndpointConfig) http.Handler {
 				http.Error(w, httperr.Report("mcp 端點解析身分", err).Msg, c)
 				return
 			}
-			unauthorized(w, "omixor")
+			rm := ""
+			if cfg.ResourceMetadata != nil {
+				rm = cfg.ResourceMetadata(r)
+			}
+			tok, _ := BearerToken(r)
+			unauthorizedWith(w, "omixor", rm, strings.HasPrefix(tok, model.OAuthTokenPrefix))
 			return
 		}
 		ep := cfg.AgentEndpoint

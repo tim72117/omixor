@@ -9,9 +9,9 @@ import (
 )
 
 // callerOf 這個請求的登入者(給核心寫入署名與判斷權限用,見 core/caller.go);nil = 系統身分:
-// 沒啟用登入、API token(沒有登入者)、遠端模式(大家共用 web 對 omixor server 的權杖,行為不變)
+// 沒啟用登入、API token(沒有登入者)
 func callerOf(r *http.Request, au *auth.Service) *core.Caller {
-	if au == nil || core.IsRemote() {
+	if au == nil {
 		return nil
 	}
 	if c, ok := r.Context().Value(callerKey{}).(*core.Caller); ok { // membershipGate 建好的

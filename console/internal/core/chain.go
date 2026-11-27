@@ -9,7 +9,7 @@ import (
 
 // 組織鏈(資訊流動方向):資料與規則都在核心(omixor-core 的 service/chain.go):
 //
-//	本機模式:內建核心 + 本機 PostgreSQL(omixor_org_chains);遠端模式:omixor server 的 /api/orgs/{org}/chain
+//	內建核心 + PostgreSQL(omixor_org_chains)
 //
 // 這裡是轉接層:AgentOps 的組織鏈部分(MCP 的 chain、chain_save、agent_task_delegate、dispatch_delegate 用),
 // 以及畫面的視圖 org_chain、動作 chain_save。
@@ -17,17 +17,16 @@ import (
 // OrgChainView 組織鏈視圖:組織鏈、成員(選 user 節點用)、能不能改(同成員視圖:本機一定可以;遠端要是組織管理員)
 type OrgChainView struct {
 	Org     string         `json:"org"`
-	Remote  bool           `json:"remote"`
 	CanEdit bool           `json:"canEdit"`
 	Chain   model.OrgChain `json:"chain"`
 	Members []model.Member `json:"members"`
 	Error   string         `json:"error,omitempty"`
 }
 
-// chainView 視圖(在 Mu 下執行;和成員視圖一樣,遠端模式會在這裡問伺服器)
+// chainView 視圖(在 Mu 下執行)
 func (a *App) chainView() OrgChainView {
 	m := a.membersView()
-	v := OrgChainView{Org: m.Org, Remote: m.Remote, CanEdit: m.CanEdit, Members: m.Members, Error: m.Error,
+	v := OrgChainView{Org: m.Org, CanEdit: m.CanEdit, Members: m.Members, Error: m.Error,
 		Chain: model.OrgChain{Edges: []model.ChainEdge{}}}
 	if v.Org == "" {
 		return v

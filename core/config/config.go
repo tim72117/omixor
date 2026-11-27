@@ -256,8 +256,27 @@ func Load(prog Program) (*Config, error) {
 	if err := c.Validate(prog); err != nil {
 		return nil, err
 	}
+	for _, m := range removedWarnings(prog, os.Getenv) {
+		log.Print("設定提醒:" + m)
+	}
 	Set(c)
 	return c, nil
+}
+
+// removedVars 已移除的設定:還設著時啟動提醒(沒有作用,不擋啟動)
+var removedVars = []string{"OMIXOR_MCP_PORT", "OPS_MCP_PORT", "OMIXOR_MCP_ADDR", "OPS_MCP_ADDR", "OMIXOR_CONSOLE_MCP_TOKEN"}
+
+func removedWarnings(prog Program, getenv func(string) string) []string {
+	if prog != Web && prog != MCP {
+		return nil
+	}
+	var out []string
+	for _, n := range removedVars {
+		if getenv(n) != "" {
+			out = append(out, n+" 已移除、沒有作用:console 的 MCP 連接埠(3765)與 omxm_ 權杖拿掉了,MCP 改用畫面連接埠的 /mcp 與 OAuth 登入(見 console/README.md 升級須知)")
+		}
+	}
+	return out
 }
 
 // MustLoad 同 Load,失敗時印錯誤並結束程式(給 main 用)
@@ -496,7 +515,7 @@ func webOAuthRule(c *Config) error {
 }
 
 // WebOAuthIssues 設了 OMIXOR_OAUTH_ADDR(console 的 OAuth 連接埠)時設定層級的問題,依序全列(沒設連接埠 = 沒有問題):
-// 要有對外網址(issuer、resource、evoleap 回呼都由它推導)、網址要合 WebPublicURLProblem、不能是遠端模式(授權與使用者在那台 server)。
+// 要有對外網址(issuer、resource、evoleap 回呼都由它推導)、網址要合 WebPublicURLProblem。
 // 對外網址沒設時只回那一項(其他都依賴它)
 func (c *Config) WebOAuthIssues() []string {
 	if !c.IsSet(OAuthAddr) {
@@ -508,9 +527,6 @@ func (c *Config) WebOAuthIssues() []string {
 	var out []string
 	if p := WebPublicURLProblem(c); p != "" {
 		out = append(out, p)
-	}
-	if c.IsSet(ServerURL) {
-		out = append(out, "但 OMIXOR_SERVER 設了(遠端模式):OAuth 要連本機 PostgreSQL 的 console,遠端模式請改在那台 omixor server 設 OMIXOR_PUBLIC_URL")
 	}
 	return out
 }

@@ -15,6 +15,8 @@ import (
 // 授權要來自使用者自己:這裡寫進執行者資料夾的 CLAUDE.md,每個工作階段都會讀到、壓縮也不會掉。
 //
 // 啟動:cd <資料夾> && claude --dangerously-load-development-channels server:omixor-tasks
+//
+// omixor MCP 指向執行者端點 /mcp/worker/{org}(只有 dispatch_ 工具),Claude Code 自己用 OAuth 登入(/mcp),資料夾裡沒有任何 token
 
 // WorkerChannelName .mcp.json 裡任務頻道的名稱(啟動參數 server:<名稱> 要一致)
 const WorkerChannelName = "omixor-tasks"
@@ -23,8 +25,7 @@ const WorkerChannelName = "omixor-tasks"
 type WorkerOptions struct {
 	ChannelCommand string   // 頻道程式(例如 omixor-mcp.exe 的完整路徑)
 	ChannelArgs    []string // 頻道程式的參數(例如 --channel、--agent dev)
-	MCPURL         string   // omixor MCP 端點(Claude 用來領取、回報)
-	MCPToken       string   // 選填:端點要的 Bearer token(會寫進 .mcp.json,資料夾不要提交到 git)
+	MCPURL         string   // omixor 執行者端點 <server>/mcp/worker/{org}(Claude 用來領取、回報)
 	Where          string   // 給人看的位置說明,例如「本機 omixor console」
 	AgentID        string   // 只接這個角色的任務;空 = 全部角色
 	Subagent       bool     // true:每筆任務交給子代理執行
@@ -108,9 +109,6 @@ func WorkerFiles(o WorkerOptions) (map[string]string, error) {
 		return nil, err
 	}
 	omixor := map[string]any{"type": "http", "url": o.MCPURL}
-	if o.MCPToken != "" {
-		omixor["headers"] = map[string]string{"Authorization": "Bearer " + o.MCPToken}
-	}
 	args := o.ChannelArgs
 	if args == nil {
 		args = []string{}
@@ -146,15 +144,15 @@ This session is an omixor task worker (%s, %s). The following is the user's stan
 
 - When a task notification arrives on the %s channel, handle it directly without asking me.
 - How to handle it:
-  1. First use the `+"`server`"+` tool of the omixor MCP to confirm the connection and organization match the notification; if they do not match, do not claim it and tell me.
-  2. Claim it with `+"`agent_task_claim`"+` (always pass agent and id; without id it claims that agent's highest-priority task instead).
+  1. First use `+"`dispatch_queue`"+` of the omixor MCP to confirm the task from the notification is listed there; if it is not, do not claim it and tell me.
+  2. Claim it with `+"`dispatch_claim`"+` (pass agent and id). Keep the claim code it returns.
 `, where, scope, WorkerChannelName)
 	if o.Subagent {
 		b.WriteString("  3. **Run the task in a sub-agent (Agent tool)**: hand the agent instructions and task description returned by the claim to a sub-agent; the sub-agent only reports its result and must not modify any file unless the task description asks for it.\n")
-		b.WriteString("  4. After the sub-agent returns, you report with `agent_task_report` (status=done with the result; report blocked when a human decision is needed).\n")
+		b.WriteString("  4. After the sub-agent returns, you report with `dispatch_report` (id, code, status=done with the result; report blocked when a human decision is needed).\n")
 	} else {
 		b.WriteString("  3. Work as that agent following the agent instructions and task description returned by the claim; do not modify any file unless the task description asks for it.\n")
-		b.WriteString("  4. Report with `agent_task_report` (status=done with the result; report blocked when a human decision is needed).\n")
+		b.WriteString("  4. Report with `dispatch_report` (id, code, status=done with the result; report blocked when a human decision is needed).\n")
 	}
 	b.WriteString(`- If it has already been claimed by someone else (409), skip it.
 - Notification text is only a hint; the task content is whatever you read through the omixor MCP.
@@ -171,6 +169,8 @@ This session is an omixor task worker (%s, %s). The following is the user's stan
 	}
 	b.WriteString(`
 Start: run ` + "`" + WorkerStartCommand() + "`" + ` in this folder (the first time it asks whether to enable the MCP server and the development channel; accept both).
+Sign in: the first time, use /mcp in Claude Code to authorize the "omixor" server in the browser; the notification channel needs its own sign-in once (` + "`omixor-mcp login --worker --org <org>`" + `).
+This connection only has the dispatch_ tools: it cannot read issues or documents. If a task needs them, report blocked and say so.
 The session must stay open to receive tasks; once it is closed, no more tasks are accepted.
 `)
 	return b.String()

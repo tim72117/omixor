@@ -1,4 +1,4 @@
-package mcptoken
+package mcpauth
 
 import (
 	"errors"
@@ -40,16 +40,16 @@ func TestRestrictToOwnerWindowsArgs(t *testing.T) {
 		got = append([]string{path}, args...)
 		return nil, nil
 	}
-	if err := RestrictToOwner(`C:\x\mcp_token`); err != nil {
+	if err := RestrictToOwner(`C:\x\mcp-cred.json`); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(got, "|") != `C:\x\mcp_token|/inheritance:r|/grant:r|PC\tester:F` {
+	if strings.Join(got, "|") != `C:\x\mcp-cred.json|/inheritance:r|/grant:r|PC\tester:F` {
 		t.Fatalf("icacls 參數:%q", got)
 	}
 	icacls = func(string, ...string) ([]byte, error) { return []byte("拒絕存取"), errors.New("exit 5") }
 	var warned string
 	Warnf = func(f string, a ...any) { warned = f }
-	if RestrictOrWarn(`C:\x\mcp_token`) || warned == "" {
+	if RestrictOrWarn(`C:\x\mcp-cred.json`) || warned == "" {
 		t.Fatal("失敗要警告並回傳 false")
 	}
 	windowsAccount = func() (string, error) { return "", errors.New("沒有使用者") }
@@ -66,24 +66,27 @@ func TestRestrictToOwnerWindowsReal(t *testing.T) {
 	if _, err := exec.LookPath("icacls"); err != nil {
 		t.Skip("沒有 icacls")
 	}
-	dir := t.TempDir()
-	if err := WriteFile(dir, strings.Repeat("a", 40)); err != nil {
+	path := filepath.Join(t.TempDir(), "cred.json")
+	if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("icacls", Path(dir)).CombinedOutput()
+	if err := RestrictToOwner(path); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("icacls", path).CombinedOutput()
 	if err != nil {
 		t.Fatalf("icacls:%v %s", err, out)
 	}
 	for _, bad := range []string{"Everyone", `BUILTIN\Users`, "Authenticated Users", "(I)"} {
 		if strings.Contains(string(out), bad) {
-			t.Errorf("ACL 還含 %q:\n%s", bad, out)
+			t.Errorf("ACL 還含 %q:%s", bad, out)
 		}
 	}
-	if tok, err := ReadFile(dir); err != nil || tok != strings.Repeat("a", 40) {
+	if b, err := os.ReadFile(path); err != nil || string(b) != "secret" {
 		t.Fatalf("本人仍要讀得到:%v", err)
 	}
-	// 已存在的檔案(--force 路徑)再收緊一次也成功
-	if err := RestrictToOwner(Path(dir)); err != nil {
+	// 已存在的檔案再收緊一次也成功
+	if err := RestrictToOwner(path); err != nil {
 		t.Fatal(err)
 	}
 }

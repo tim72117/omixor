@@ -1,4 +1,4 @@
-// Package client 連線上的 omixor server(omixor-web 遠端模式、omixor CLI 用)。操作和 service 對應。
+// Package client 連線上的 omixor server(omixor CLI、omixor-mcp 等用)。操作和 service 對應。
 package client
 
 import (

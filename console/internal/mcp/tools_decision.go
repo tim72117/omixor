@@ -9,7 +9,7 @@ import (
 )
 
 // 待決定 / 需要協助工具(issue_decision_add、issue_decisions、issue_decision_answer、issue_decision_to_issue)由核心提供
-// (omixor-core/mcp 的 tools_decision.go),資料存在核心。這裡是 appBackend 的對應部分:只轉發給核心(本機內建核心或遠端 omixor server);
+// (omixor-core/mcp 的 tools_decision.go),資料存在核心。這裡是 appBackend 的對應部分:只轉發給核心(內建核心);
 // 署名與可見性都由核心依登入身分決定(這裡沒有任何 agent、author 參數)。畫面還沒有待決定的視圖;由決定開出的 Issue 會在下次重讀 Issue 時出現在畫面。
 // 呼叫時沒有拿著 Mu(這幾個工具不鎖 Env)。
 
@@ -28,7 +28,11 @@ func (b appBackend) ListDecisions(org string, q service.DecisionListQuery) ([]mo
 	if err != nil {
 		return nil, err
 	}
-	return be.ListDecisions(org, q)
+	list, err := be.ListDecisions(org, q)
+	if err != nil {
+		return nil, err
+	}
+	return b.hidden.Decisions(list), nil
 }
 
 func (b appBackend) GetDecision(org, id string) (*model.Decision, error) {
@@ -36,7 +40,11 @@ func (b appBackend) GetDecision(org, id string) (*model.Decision, error) {
 	if err != nil {
 		return nil, err
 	}
-	return be.GetDecision(org, id)
+	d, err := be.GetDecision(org, id)
+	if err == nil && d != nil && len(b.hidden.Decisions([]model.Decision{*d})) == 0 {
+		return nil, &service.Error{Code: 404, Msg: "找不到 " + id}
+	}
+	return d, err
 }
 
 func (b appBackend) AddDecision(org string, in service.DecisionInput) (*model.Decision, error) {
@@ -117,7 +125,7 @@ func decisionTransition(c *Call, do func(backend.Backend, string, string) (*mode
 	if err != nil {
 		return nil, err
 	}
-	x := &callCtx{App: c.App, Actor: c.Actor, who: c.Who}
+	x := &callCtx{App: c.App, Actor: c.Actor, who: c.Who, hidden: c.Hidden}
 	var be backend.Backend = appBackend{a: c.App, who: c.Who}
 	var env coremcp.Env = x
 	if c.OAuth != nil { // OAuth:寫入與顯示名稱都用授權者自己的後端

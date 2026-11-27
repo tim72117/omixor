@@ -11,7 +11,7 @@ import (
 	"omixor-core/model"
 )
 
-// 組織:本機模式的組織清單在核心(PostgreSQL),orgs.json 只記目前選的組織;遠端模式的清單快取在 orgs-remote-*.json。
+// 組織:組織清單在核心(PostgreSQL),orgs.json 只記目前選的組織。
 // 資料庫沒有任何組織時不自動建立:清單與目前組織都是空的,畫面顯示「還沒有組織」讓管理員建第一個(見 orgs_empty.go)。
 // 每個組織自己的設定檔(connections.json、github.json…)放在 <資料夾>/orgs/<組織 id>/。
 //
@@ -50,13 +50,8 @@ func OnOrgLoad(f func(*App))                           { orgLoadHooks = append(o
 func OnOrgCreate(f func(a *App, dir, template string)) { orgCreateHooks = append(orgCreateHooks, f) }
 func OnOrgDelete(f func(a *App, id, dir string))       { orgDeleteHooks = append(orgDeleteHooks, f) }
 
-// 組織索引:本機模式 orgs.json;遠端模式 orgs-remote.json(伺服器的組織清單,上次讀到的)
-func orgIndexPath() string {
-	if IsRemote() {
-		return remoteOrgsPath()
-	}
-	return filepath.Join(DataRoot(), "orgs.json")
-}
+// 組織索引檔(只記目前選的組織)
+func orgIndexPath() string { return filepath.Join(DataRoot(), "orgs.json") }
 
 // OrgDir 組織的資料夾(不存在就建立)
 func OrgDir(id string) string {
@@ -69,7 +64,7 @@ func (a *App) orgs() *OrgState {
 	if s, ok := a.Ext["orgs"].(*OrgState); ok {
 		return s
 	}
-	s := &OrgState{Index: loadOrgIndex()}
+	s := &OrgState{Index: loadLocalOrgIndex()}
 	a.Ext["orgs"] = s
 	return s
 }
@@ -83,30 +78,11 @@ func (a *App) CurrentOrgID() string { return a.orgs().Index.Current }
 // DataDir 目前組織的資料夾(呼叫時要拿著 Mu)
 func (a *App) DataDir() string { return OrgDir(a.CurrentOrgID()) }
 
-func loadOrgIndex() OrgIndex {
-	var idx OrgIndex
-	if IsRemote() {
-		// 遠端:只有伺服器的組織。沒存過清單(第一次、或環境變數直接指定遠端)就當場讀一次,連不上就先空著
-		if err := ReadJSON(orgIndexPath(), &idx); err != nil || len(idx.Orgs) == 0 {
-			idx = OrgIndex{Orgs: []Organization{}}
-			if list, err := fetchRemoteOrgs(IssueRemoteURL()); err == nil && len(list) > 0 {
-				idx = OrgIndex{Current: list[0].ID, Orgs: list}
-				_ = WriteJSON(orgIndexPath(), idx)
-			}
-		}
-		if idx.Orgs == nil {
-			idx.Orgs = []Organization{}
-		}
-		return idx
-	}
-	return loadLocalOrgIndex()
-}
-
-// localOrgErr 本機模式讀不到組織的原因(沒有資料庫等);正常時是空的。給畫面顯示
+// localOrgErr 讀不到組織的原因(沒有資料庫等);正常時是空的。給畫面顯示
 var localOrgErr string
 
-// fromCoreOrg 核心的組織 → web 的組織(圖示、顏色沒填的用預設;prefix 是遠端組織的 id 前綴)
-func fromCoreOrg(o model.Org, prefix string) Organization {
+// fromCoreOrg 核心的組織 → web 的組織(圖示、顏色沒填的用預設)
+func fromCoreOrg(o model.Org) Organization {
 	name := o.Name
 	if name == "" {
 		name = o.ID
@@ -118,15 +94,15 @@ func fromCoreOrg(o model.Org, prefix string) Organization {
 	if col == "" {
 		col = "blue"
 	}
-	return Organization{ID: prefix + o.ID, Name: name, Symbol: sym, Color: col, Note: o.Note, CreatedAt: Time{o.CreatedAt.Time}}
+	return Organization{ID: o.ID, Name: name, Symbol: sym, Color: col, Note: o.Note, CreatedAt: Time{o.CreatedAt.Time}}
 }
 
-// toCoreOrg web 的組織 → 核心的組織(遠端組織的 id 要去掉前綴)
+// toCoreOrg web 的組織 → 核心的組織
 func toCoreOrg(o Organization) model.Org {
-	return model.Org{ID: serverOrgID(o.ID), Name: o.Name, Symbol: o.Symbol, Color: o.Color, Note: o.Note}
+	return model.Org{ID: o.ID, Name: o.Name, Symbol: o.Symbol, Color: o.Color, Note: o.Note}
 }
 
-// loadLocalOrgIndex 本機模式:組織的所有資訊(名稱、圖示、顏色、備註)都在核心(PostgreSQL);
+// loadLocalOrgIndex 組織的所有資訊(名稱、圖示、顏色、備註)都在核心(PostgreSQL);
 // orgs.json 只記「目前選的組織」。沒有任何組織時回空清單(Current 是 ""),不寫 orgs.json
 func loadLocalOrgIndex() OrgIndex {
 	empty := OrgIndex{Orgs: []Organization{}}
@@ -151,7 +127,7 @@ func loadLocalOrgIndex() OrgIndex {
 	idx := OrgIndex{Current: saved.Current, Orgs: make([]Organization, 0, len(list))}
 	found := false
 	for _, c := range list {
-		idx.Orgs = append(idx.Orgs, fromCoreOrg(c, ""))
+		idx.Orgs = append(idx.Orgs, fromCoreOrg(c))
 		found = found || c.ID == idx.Current
 	}
 	if !found {
@@ -161,12 +137,8 @@ func loadLocalOrgIndex() OrgIndex {
 	return idx
 }
 
-// saveOrgs 存組織索引:本機只存「目前的組織」(其餘都在核心);遠端存伺服器組織清單的快取
+// saveOrgs 只存「目前的組織」(其餘都在核心)
 func (a *App) saveOrgs() {
-	if IsRemote() {
-		_ = WriteJSON(orgIndexPath(), a.orgs().Index)
-		return
-	}
 	_ = WriteJSON(orgIndexPath(), map[string]string{"current": a.orgs().Index.Current})
 }
 
@@ -226,9 +198,6 @@ func (a *App) CreateOrg(name, symbol, color, template string) Organization {
 // 鑰匙圈不加前綴、動態牆不帶 org)照舊適用。不跑 OnOrgCreate(不寫初始檔案):資料夾裡可能有升級或匯入留下的
 // 舊檔案,蓋掉會讓連線等設定失效
 func (a *App) createOrg(name, symbol, color, template string) (Organization, error) {
-	if IsRemote() {
-		return Organization{}, UserError{"遠端的組織要用 omixor server 建立"} // org_create 動作走 remoteCreateOrg
-	}
 	l, err := localCoreFor(a.caller, "")
 	if err != nil {
 		return Organization{}, err
@@ -257,7 +226,7 @@ func (a *App) createOrg(name, symbol, color, template string) (Organization, err
 	if err != nil {
 		return Organization{}, err
 	}
-	org := fromCoreOrg(*made, "")
+	org := fromCoreOrg(*made)
 	dir := OrgDir(org.ID)
 	if !first {
 		for _, f := range orgCreateHooks {
@@ -280,11 +249,8 @@ func (a *App) createOrg(name, symbol, color, template string) (Organization, err
 	return org, nil
 }
 
-// UpdateOrg 改組織的名稱、圖示、顏色、備註:本機寫進核心(呼叫時要拿著 Mu)
+// UpdateOrg 改組織的名稱、圖示、顏色、備註:寫進核心(呼叫時要拿著 Mu)
 func (a *App) UpdateOrg(org Organization) bool {
-	if IsRemote() {
-		return false
-	}
 	s := a.orgs()
 	for k := range s.Index.Orgs {
 		if s.Index.Orgs[k].ID != org.ID {
@@ -310,9 +276,6 @@ func (a *App) UpdateOrg(org Organization) bool {
 // DeleteOrg 刪除組織:核心裡的組織(連 Issue)與組織資料夾都直接刪掉,不備份、不能復原;
 // 不能刪目前的組織或最後一個(呼叫時要拿著 Mu)
 func (a *App) DeleteOrg(id string) error {
-	if IsRemote() {
-		return UserError{"遠端的組織要在 omixor server 管理,這裡不能刪"}
-	}
 	s := a.orgs()
 	if id == s.Index.Current {
 		return UserError{"不能刪除目前使用中的組織,先切換到別的組織"}
@@ -394,9 +357,6 @@ func init() {
 		col, _ := args["color"].(string)
 		tpl, _ := args["template"].(string)
 		sw, _ := args["switch"].(bool)
-		if IsRemote() {
-			return a.remoteCreateOrg(strings.TrimSpace(name), sym, col, sw)
-		}
 		var org Organization
 		err := a.switching(func() error { // 第一個組織、沒有登入者的 switch 會換系統工作組織
 			a.Mu.Lock()
@@ -424,9 +384,6 @@ func init() {
 		var org Organization
 		if err := ReadInto(args, &org); err != nil {
 			return nil, err
-		}
-		if IsRemote() {
-			return a.remoteUpdateOrg(org) // 寫到 omixor server(要伺服器管理員)
 		}
 		a.Mu.Lock()
 		defer a.Mu.Unlock()
@@ -457,7 +414,7 @@ func init() {
 		}
 		return switchSystemOrg(a, args, id)
 	})
-	// system_org_set {id}:換系統工作組織(限 web 管理員;MCP 3765、背景工作、自動執行、還沒分組織的功能用的那個)
+	// system_org_set {id}:換系統工作組織(限 web 管理員;背景工作、自動執行、還沒分組織的功能用的那個)
 	RegisterAction("system_org_set", func(a *App, args map[string]any) (any, error) {
 		id, _ := args["id"].(string)
 		who := CallerOf(args)

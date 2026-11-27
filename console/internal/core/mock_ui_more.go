@@ -403,7 +403,8 @@ func init() {
 			if person == "" {
 				person = a.Actor().ID
 			}
-			if _, p := a.Find("people", person); p == nil {
+			// 登入者本人不一定在人員清單,也可以加入審查
+			if _, p := a.Find("people", person); p == nil && !CallerOf(args).IsSelf(person) {
 				return nil, UserError{"找不到 person " + person}
 			}
 			if !a.JoinReview(id, person) {

@@ -15,14 +15,13 @@ import (
 //	GET /api/view/projects → model.Project[]({id, name, key, description…};沒有專案是 [])
 //
 // 畫面訂閱 "cabinet"、"orgs"、"issues" 通知後重讀。清單是快取(view 在 Mu 下執行,不能發網路請求):
-// 本機當場讀核心,遠端先給空的並在背景讀,讀到有變就通知 "cabinet"。專案的新增、修改、刪除、每 5 秒會重讀。
+// 還沒載入時當場讀核心,讀到有變就通知 "cabinet"。專案的新增、修改、刪除、每 5 秒會重讀。
 
 type projState struct {
-	mu      sync.Mutex
-	org     string
-	list    []model.Project
-	loaded  bool
-	syncing bool
+	mu     sync.Mutex
+	org    string
+	list   []model.Project
+	loaded bool
 	// want 畫面最近一次要的組織(projectsOf 記的);背景讀回來的結果不是這個組織就丟掉,舊組織的結果不能蓋進快取
 	want string
 	// stop 關掉背景計時器(stopTimer 只關一次)
@@ -50,7 +49,7 @@ func (a *App) StopProjectsTimer() {
 func (a *App) projectsRefresh(org string) bool {
 	var list []model.Project
 	var err error
-	if org != "" || IsRemote() { // 本機還沒有組織時不問核心
+	if org != "" { // 還沒有組織時不問核心
 		var be backend.Backend
 		if be, err = agentBackend(); err == nil {
 			list, err = be.ListProjects(org)
@@ -87,26 +86,7 @@ func (a *App) projectsOf(org string) []model.Project {
 	cur := st.loaded && st.org == org
 	st.mu.Unlock()
 	if !cur {
-		if IsRemote() {
-			st.mu.Lock()
-			st.org, st.list, st.loaded = org, []model.Project{}, true
-			start := !st.syncing
-			st.syncing = true
-			st.mu.Unlock()
-			if start {
-				go func() {
-					changed := a.projectsRefresh(org)
-					st.mu.Lock()
-					st.syncing = false
-					st.mu.Unlock()
-					if changed {
-						a.Changed("cabinet")
-					}
-				}()
-			}
-		} else {
-			a.projectsRefresh(org)
-		}
+		a.projectsRefresh(org)
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -137,11 +117,10 @@ func init() {
 	})
 }
 
-// ---- 受限專案(給 web 層篩選用)----
+// ---- 受限專案清單(分不出呼叫者時用)----
 //
-// console 對核心用同一個身分(本機是伺服器管理員、遠端是 web 共用的權杖),核心依「呼叫者」篩選受限專案的規則在這裡分不出是哪位 web 使用者,
-// 所以 web 層(console/internal/web/restricted.go)對「不是 web 管理員的登入者」另外把受限專案的資料整個擋掉。這裡只負責問核心:
-// 目前有哪些受限專案(5 秒快取;問不到回錯誤,呼叫端要當作「全部專案都不能看」)。
+// 看得到哪些受限專案見 restricted_visibility.go。
+// 這裡只負責問核心:目前有哪些受限專案(5 秒快取;問不到回錯誤,呼叫端要當作「全部專案都不能看」)。
 
 type restrictedCache struct {
 	mu   sync.Mutex

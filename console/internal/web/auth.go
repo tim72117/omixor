@@ -3,33 +3,33 @@ package web
 import (
 	"context"
 	"log"
-	"net"
 	"net/http"
 	"strconv"
-	"time"
 
 	"omixor-web/internal/auth"
 	"omixor-web/internal/core"
 
 	"omixor-core/config"
 	"omixor-core/httperr"
+	"omixor-core/service"
 )
 
-// 登入相關的 API:
+// 登入相關的 API(畫面用;session 與 cookie 見 session.go):
 //
-//	GET  /api/auth/status   {mode, user, loggedIn, noAdmins?, denied?, repair?, unavailable?}(不用登入;noAdmins = 啟用 LDAP 但管理員
-//	                        帳號名單是空的;denied = 有 session 但不能用的原因;unavailable = 暫時查不出能不能用,仍是登入中)
-//	POST /api/auth/login    {username, password} → 設 session cookie(不用登入)。帳密對但不能用 console(不是任何組織的成員、
-//	                        停用、對不上核心使用者)回 403 與原因,不設 cookie(規則見 core/caller_access.go)。例外:管理員名單上、
-//	                        對不上核心使用者的帳號回 200 {repair: true, denied},之後只能用認證設定(status 也回 repair)
-//	POST /api/auth/logout
+//	GET  /api/auth/web/status   {mode, user, loggedIn, noAdmins?, denied?, repair?, unavailable?}(不用登入;noAdmins = 啟用 LDAP 但管理員
+//	                            帳號名單是空的;denied = 有 session 但不能用的原因;unavailable = 暫時查不出能不能用,仍是登入中)
+//	POST /api/auth/web/login    {username, password} → {result: {user}},設 session cookie,不回 token(不用登入)。帳密對但不能用 console
+//	                            (不是任何組織的成員、停用、對不上核心使用者)回 403 與原因,不設 cookie(規則見 core/caller_access.go)。
+//	                            例外:管理員名單上、對不上核心使用者的帳號回 200 {repair: true, denied},之後只能用認證設定(status 也回 repair)。
+//	                            帳密錯 401(同一句);不在 RequiredGroup 401;鎖定或太頻繁 429 帶 Retry-After;目錄或設定問題 503
+//	POST /api/auth/web/logout
 //	GET  /api/auth/config   認證設定(管理員;不含密碼;env 是被環境變數蓋掉的項目)
 //	POST /api/auth/config   {config, bindPassword?, testUsername, testPassword} 存設定(管理員)。
 //	                        啟用 LDAP 時管理員帳號名單不能空、要附一組能登入而且在名單裡的帳密(證明設定可用),
 //	                        而且登入中的操作者不能把自己移出名單
 //	POST /api/auth/test     {config, bindPassword?, username, password} 只測試,不存(管理員)
-
-const cookieName = "ops_session"
+//
+// GET /api/auth/me、POST /api/auth/logout 是核心 REST API 的(見 coreapi.go)
 
 type ctxKey struct{}
 
@@ -40,14 +40,6 @@ func withUser(ctx context.Context, u auth.User) context.Context {
 func ctxUser(r *http.Request) (auth.User, bool) {
 	u, ok := r.Context().Value(ctxKey{}).(auth.User)
 	return u, ok
-}
-
-func sessionUser(r *http.Request, au *auth.Service) (auth.User, bool) {
-	c, err := r.Cookie(cookieName)
-	if err != nil || c.Value == "" {
-		return auth.User{}, false
-	}
-	return au.User(c.Value)
 }
 
 // userID 這個請求是誰:有登入用登入者,否則是 app.Me(本機模式)
@@ -71,25 +63,27 @@ func currentUser(r *http.Request, app *core.App, au *auth.Service) (auth.User, b
 	return sessionUser(r, au)
 }
 
-func remoteIP(r *http.Request) string {
-	h, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return h
-}
-
 func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 	if au == nil {
 		au = auth.New(nil)
 	}
-	mux.HandleFunc("GET /api/auth/status", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/auth/web/status", func(w http.ResponseWriter, r *http.Request) {
 		cfg := au.Config()
+		out := map[string]any{"mode": cfg.Mode}
+		if cfg.Mode == "ldap" && len(cfg.AdminList()) == 0 {
+			out["noAdmins"] = true
+		}
+		if au.Enabled() {
+			if _, _, err := lookupSession(r, au); err != nil { // 查不出有沒有登入:當作登入中,畫面顯示原因讓他重試
+				out["loggedIn"], out["unavailable"] = true, err.Error()
+				writeJSON(w, 200, out)
+				return
+			}
+		}
 		u, ok := currentUser(r, app, au)
 		var denied error
 		repair := false
-		out := map[string]any{"mode": cfg.Mode}
-		if ok && au.Enabled() && !core.IsRemote() { // 有 session 但現在不能用(停用、移出組織):當作沒登入
+		if ok && au.Enabled() { // 有 session 但現在不能用(停用、移出組織):當作沒登入
 			who := newCaller(au, u)
 			if _, denied = who.Access(); denied != nil {
 				if httperr.Classify(denied).Status == http.StatusForbidden {
@@ -98,6 +92,8 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 				} else { // 暫時查不出來:還是登入著的,畫面顯示原因讓他重試
 					out["unavailable"] = denied.Error()
 				}
+			} else if u.Repair { // 修復登入用完了(帳號已經對得上):要重新登入
+				ok = false
 			}
 		}
 		out["loggedIn"] = ok
@@ -107,19 +103,16 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 		if ok || repair {
 			out["user"] = u
 		}
-		if cfg.Mode == "ldap" && len(cfg.AdminList()) == 0 {
-			out["noAdmins"] = true
-		}
 		writeJSON(w, 200, out)
 	})
 
-	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/auth/web/login", func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Username, Password string }
 		if err := readInto(r, &in); err != nil {
 			badRequest(w, err)
 			return
 		}
-		tok, u, err := au.Login(in.Username, in.Password, remoteIP(r))
+		u, err := au.Verify(in.Username, in.Password, service.ClientIP(r))
 		if err != nil {
 			status := authLoginStatus(err)
 			if status == 429 { // 被鎖:告訴用戶端多久後再試
@@ -130,41 +123,52 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 			writeErr(w, r, status, err)
 			return
 		}
-		// 帳密對了還要對得上核心使用者、沒停用、是某個組織的成員(或管理員);不行就撤掉剛建的 session。
+		// 帳密對了還要對得上核心使用者、沒停用、是某個組織的成員(或管理員);不行就不建 session。
 		// 第一次登入的人這裡會建好核心使用者(和 OAuth 授權同一位),管理員才能把他加進組織
-		var repair error // 管理員名單上、對不上使用者:留著 session,只能改認證設定
-		if !core.IsRemote() {
-			who := newCaller(au, u)
-			if err := who.CheckLogin(); err != nil {
-				if !who.CanRepair(err) {
-					au.Logout(tok)
-					writeFail(w, r, err)
-					return
-				}
-				repair = err
+		var repair error // 管理員名單上、對不上使用者:給修復用的 session,只能改認證設定
+		who := newCaller(au, u)
+		if err := who.CheckLogin(); err != nil {
+			if !who.CanRepair(err) {
+				writeFail(w, r, err)
+				return
 			}
+			repair = err
 		}
-		http.SetCookie(w, &http.Cookie{
-			Name: cookieName, Value: tok, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
-			Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
-			MaxAge: au.Config().SessionHours * 3600,
-		})
+		maxAge := au.Config().SessionHours * 3600
+		if repair == nil && au.CoreSessions() {
+			cu := who.CoreUser()
+			if cu == nil {
+				writeFail(w, r, core.StatusError{Status: 500, Message: "登入暫時失敗,請稍後再試;若持續發生請聯絡管理員"})
+				return
+			}
+			tok, err := au.IssueWebSession(cu.ID, u.ID)
+			if err != nil {
+				writeFail(w, r, err)
+				return
+			}
+			setSessionCookie(w, r, webCookie, tok, maxAge)
+		} else {
+			tok, err := au.StartSession(u, repair != nil)
+			if err != nil {
+				writeFail(w, r, err)
+				return
+			}
+			setSessionCookie(w, r, cookieName, tok, maxAge)
+		}
 		if repair != nil {
 			log.Printf("管理員 %s 對不到 omixor 使用者,這次登入只能改認證設定:%v", u.ID, repair)
-			writeJSON(w, 200, map[string]any{"result": u, "repair": true, "denied": repair.Error()})
+			writeJSON(w, 200, map[string]any{"result": map[string]any{"user": u}, "repair": true, "denied": repair.Error()})
 			return
 		}
 		app.Mu.Lock()
 		app.Log(core.Person(u.ID), "person.badge.key", "登入 omixor 網頁版", "settings")
 		app.Mu.Unlock()
-		writeJSON(w, 200, map[string]any{"result": u})
+		writeJSON(w, 200, map[string]any{"result": map[string]any{"user": u}})
 	})
 
-	mux.HandleFunc("POST /api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
-		if c, err := r.Cookie(cookieName); err == nil {
-			au.Logout(c.Value)
-		}
-		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1, Expires: time.Unix(0, 0), HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	mux.HandleFunc("POST /api/auth/web/logout", func(w http.ResponseWriter, r *http.Request) {
+		endSessions(r, au)
+		expireCookies(w)
 		writeJSON(w, 200, map[string]any{"result": true})
 	})
 
@@ -247,12 +251,10 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 				return
 			}
 			// 測試帳號照存了之後的設定要真的能登入(對得上 omixor 使用者、沒停用),不然存了就沒人進得來
-			if !core.IsRemote() {
-				who := core.NewCaller(u.ID, u.Name, u.Email, u.Admin, au.UserSettings(in.Config))
-				if err := who.CheckLogin(); err != nil {
-					writeJSON(w, 400, map[string]any{"error": "測試帳號依這份設定不能登入,設定沒有存。" + err.Error()})
-					return
-				}
+			who := core.NewCaller(u.ID, u.Name, u.Email, u.Admin, au.UserSettings(in.Config))
+			if err := who.CheckLogin(); err != nil {
+				writeJSON(w, 400, map[string]any{"error": "測試帳號依這份設定不能登入,設定沒有存。" + err.Error()})
+				return
 			}
 		}
 		if err := au.Save(in.Config, in.BindPassword); err != nil {

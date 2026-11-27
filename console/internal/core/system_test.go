@@ -42,7 +42,7 @@ func TestSystemLocalReadWrite(t *testing.T) {
 		t.Fatal("第一次讀應該要更新畫面")
 	}
 	v := sysView(t, a)
-	if v.Source != SysSourceCore || v.Error != "" || !v.CanEdit || v.Mode != "local" || v.Edition != model.EditionStable {
+	if v.Source != SysSourceCore || v.Error != "" || !v.CanEdit || v.Edition != model.EditionStable {
 		t.Fatalf("讀取狀態:%+v", v)
 	}
 	def := model.ServerFeatures{}

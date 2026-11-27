@@ -13,7 +13,7 @@ import (
 // 文件櫃工具與 agent_context 的文件櫃欄位也在核心,依憑證角色的 docAccess),這裡只掛上:
 //   - 每個請求的統計(MCP 狀態),與處理完後重讀 Issue、角色資料、文件櫃(核心可能多了 Issue、留言、任務狀態、文件;見 activity)
 //
-// 憑證在核心的資料庫(本機模式:本機 PostgreSQL)。遠端模式的角色憑證由雲端發、連雲端的 /mcp/agent,這裡一律 401。
+// 憑證在核心的資料庫(PostgreSQL)。沒有資料庫時這裡一律 401。
 
 // roleEndpoints 每個核心(service)一份角色端點(建立時要組工具表,不要每個請求都建)
 var (
@@ -46,7 +46,7 @@ func roleEndpoint(h *Handler, svc *service.Service) http.Handler {
 func AgentHTTPHandler(h *Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		svc := core.AgentService()
-		if svc == nil { // 遠端模式或沒有資料庫:這裡沒有角色憑證
+		if svc == nil { // 沒有資料庫:這裡沒有角色憑證
 			w.Header().Set("WWW-Authenticate", `Bearer realm="omixor-agent"`)
 			w.Header().Set("Connection", "close")
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
