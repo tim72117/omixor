@@ -42,6 +42,9 @@ func (s *Service) LDAPSettings() LDAPSettings {
 	return LDAPSettings{Dir: s.LDAP, Admins: s.LDAPAdmins, EmailDomain: s.LDAPEmailDomain, TrustMail: s.LDAPTrustMail}
 }
 
+// DataRateLimited 429 的 Data 有這個鍵 = 超過頻率限制(不是帳號失敗鎖定);只有帶 LDAPSettings.Rate 的呼叫才有
+const DataRateLimited = "rateLimited"
+
 // LoginWithLDAP 用 LDAP 帳號密碼證明身分,換 omixor 自己的 token(規則同 LoginWithEvoleap,差在身分來源)。
 //   - 第一次通過 LDAP 的人自動建立成一般使用者(不屬於任何組織,要管理員用 email 加進組織)
 //   - LDAPAdmins 名單上的帳號是伺服器管理員(每次登入都確認;從名單拿掉不會自動降級,要到使用者管理改)
@@ -82,13 +85,20 @@ func (s *Service) VerifyDirectory(set LDAPSettings, username, password, ip strin
 	if set.Dir == nil {
 		return nil, fail(404, "這台伺服器沒有啟用 LDAP 登入")
 	}
-	rate := &s.logins.ldap
+	var window time.Time
+	var allowed bool
 	if set.Rate != nil {
-		rate = &set.Rate.w
+		per, total := s.loginMax()
+		window, allowed = set.Rate.take(s.now(), limitKey(ip), per, total)
+	} else {
+		window, allowed = s.takeLogin(&s.logins.ldap, ip)
 	}
-	window, allowed := s.takeLogin(rate, ip)
 	if !allowed {
-		return nil, &Error{Code: 429, Msg: "登入嘗試太頻繁,請一分鐘後再試", Data: map[string]any{"retryAfter": 60}}
+		data := map[string]any{"retryAfter": 60}
+		if set.Rate != nil { // 宿主要分得出「太頻繁」和「帳號鎖定」;server 的回應不變
+			data[DataRateLimited] = true
+		}
+		return nil, &Error{Code: 429, Msg: "登入嘗試太頻繁,請一分鐘後再試", Data: data}
 	}
 	typed := strings.TrimSpace(username)
 	username = strings.ToLower(typed) // 計數與紀錄一律用小寫
@@ -126,7 +136,7 @@ func (s *Service) VerifyDirectory(set LDAPSettings, username, password, ip strin
 	}
 	fails.Succeeded(username)
 	if set.Rate != nil {
-		rate.refund(window, limitKey(ip))
+		set.Rate.refund(window, limitKey(ip))
 	}
 	return id, nil
 }

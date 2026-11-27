@@ -65,6 +65,7 @@ func configPath() string { return filepath.Join(core.DataRoot(), "auth.json") }
 func New(secrets Secrets) *Service {
 	s := &Service{secrets: secrets, sessions: map[string]*session{}, now: time.Now}
 	s.failures.Key = failureKey
+	s.failures.Identity = failureIdentity
 	_ = core.ReadJSON(configPath(), &s.cfg)
 	if config.Current().Str(config.Auth) == "off" {
 		s.cfg.Mode = "off"
@@ -124,11 +125,19 @@ func (s *Service) Save(c Config, bindPassword *string) error {
 
 // MARK: 登入
 
-// LockedError 登入失敗太多次被鎖:429,帶 retryAfter(秒;web 另外放進 Retry-After 標頭)
-type LockedError struct{ RetryAfter int }
+// LockedError 帳號失敗太多次被鎖,或超過頻率限制(RateLimited):429,帶 retryAfter(秒;web 另外放進 Retry-After 標頭)
+type LockedError struct {
+	RetryAfter int
+	// RateLimited 是整個入口或這個來源太頻繁,這個人不一定打錯過,訊息不能說他失敗太多次
+	RateLimited bool
+}
 
 func (e LockedError) Error() string {
-	return fmt.Sprintf("登入失敗太多次,請 %d 分鐘後再試", (e.RetryAfter+59)/60)
+	what := "登入失敗太多次"
+	if e.RateLimited {
+		what = "登入嘗試太頻繁"
+	}
+	return fmt.Sprintf("%s,請 %d 分鐘後再試", what, (e.RetryAfter+59)/60)
 }
 
 // HTTPError 實作 httperr.Public:429,data 帶 retryAfter(秒)
@@ -207,7 +216,8 @@ func loginError(err error) error {
 		return errNotInGroup
 	case 429:
 		sec, _ := se.Data["retryAfter"].(int)
-		return LockedError{RetryAfter: max(sec, 1)}
+		limited, _ := se.Data[service.DataRateLimited].(bool)
+		return LockedError{RetryAfter: max(sec, 1), RateLimited: limited}
 	}
 	return err
 }

@@ -7,6 +7,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/jimlambrt/gldap v0.1.13
 	golang.org/x/sys v0.41.0
+	golang.org/x/text v0.21.0
 	omixor-core v0.0.0-00010101000000-000000000000
 )
 
@@ -36,7 +37,6 @@ require (
 	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

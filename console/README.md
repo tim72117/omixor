@@ -156,7 +156,7 @@ console 只有一個 MCP 入口,在**畫面連接埠**,和 omixor server 同一�
 | 設了 `OMIXOR_OAUTH_ADDR` | 在那個獨立連接埠(見下面);畫面連接埠只剩本機的 `/mcp/agent` |
 | 沒有 PostgreSQL、畫面只聽特定的非本機位址又沒設 `OMIXOR_PUBLIC_URL` | 沒有(`/mcp`、`/oauth/*` 回 404 說明原因) |
 
-> **同一台電腦上放反向代理時,一定要設 `OMIXOR_PUBLIC_URL`,或讓代理保留原本的 `Host`**。沒設 `OMIXOR_PUBLIC_URL` 時,「只收本機」是看連線來源、`Host` 與轉送標頭判斷的;代理如果不加任何轉送標頭、又把 `Host` 改成 `127.0.0.1`(例如 nginx 只寫 `proxy_pass http://127.0.0.1:5191;`),console 分不出來,**外面的人就連得到本機入口**(`/mcp`、`/oauth/*`、`/mcp/agent`;仍要通過 OAuth 或角色憑證,但授權頁可以被外人嘗試密碼)。這種代理設定對畫面本身也一樣:免登入模式下等於整個畫面對外公開。
+> **放在反向代理後面時,一定要設 `OMIXOR_PUBLIC_URL`,並讓代理帶 `X-Forwarded-For`**(同時設 `OMIXOR_TRUSTED_PROXY_HOPS`,見下一節)。沒設 `OMIXOR_PUBLIC_URL` 時,「只收本機」是看連線來源、`Host` 與轉送標頭判斷的;同一台電腦上的代理如果不加任何轉送標頭,console 分不出請求是不是外面來的:代理把 `Host` 改成 `127.0.0.1`(例如 nginx 只寫 `proxy_pass http://127.0.0.1:5191;`),或代理什麼 `Host` 都收、原樣轉發(外面的人自己送 `Host: 127.0.0.1`),**外面的人就連得到本機入口**(`/mcp`、`/oauth/*`、`/mcp/agent`;仍要通過 OAuth 或角色憑證,但授權頁可以被外人嘗試密碼)。所以只讓代理保留原本的 `Host` 並不夠。`/mcp/agent` 的本機判斷在設了 `OMIXOR_PUBLIC_URL` 後仍看轉送標頭,因此兩項都要做。這種代理設定對畫面本身也要小心:免登入模式下等於整個畫面對外公開。
 
 授權頁要有能登入的身分(LDAP、GitLab、evoleap),而且是組織成員;本機使用者 `omixor-console` 不能授權,所以免登入模式沒有可用的 MCP(角色端點除外)。
 
@@ -186,7 +186,7 @@ omixor-mcp logout [--worker --org <組織>]
 
 - 目錄沒有 mail 的帳號要設 email 網域,否則授權失敗。
 - 組織成員手動加入:對方先授權一次(建立使用者,看不到任何組織),管理員再到成員頁用 email 加入。事先加入還沒授權過的人,要開「信任目錄的 mail」。
-- 失敗鎖定:同一帳號 10 分鐘內錯 5 次,網頁登入與 MCP 授權共用同一份計數(`CORP\帳號`、`帳號@網域` 算同一個)。
+- 失敗鎖定:同一帳號 10 分鐘內錯 5 次,網頁登入與 MCP 授權共用同一份計數(`CORP\帳號`、`帳號@網域`、大小寫、全半形算同一個);密碼正確只清掉同一種寫法記的次數,其他寫法記的要等這一輪過期。
 - 續期(約每 10 分鐘):服務帳號搜尋的設定會向目錄重新確認,帳號不存在、停用(AD `userAccountControl`、`accountExpires`、`nsAccountLock`,或被使用者篩選排除)或不在允許群組就撤銷授權;目錄連不上或 LDAP 登入關掉時暫停續期(不撤銷)。直接用帳號組 DN 的設定查不了,授權最長維持「登入有效時數」(預設 12 小時)就要重新輸入密碼。
 - 管理員帳號名單只決定網頁管理員,不會讓人在 MCP 裡變成伺服器管理員。
 - 撤銷與停用(web 管理員,目前只有 API):`POST /api/action/user_oauth_revoke {"email":…}`、`POST /api/action/user_disable {"email":…, "disabled": true}`。

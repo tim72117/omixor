@@ -205,7 +205,8 @@ func refuse(w http.ResponseWriter, status int, msg string) {
 // directFromThisMachine 這個連線是不是同一台電腦直接連進來的:來源是本機回送位址、或和被連的位址相同,
 // 而且沒有任何反向代理的轉送標頭(有代理就看不出真正的來源,一律當外部)。
 // 限制:同一台電腦上的反向代理如果不加任何轉送標頭、又把 Host 改寫成本機位址,這裡和 Host 檢查都分不出來
-// (例如 nginx 只寫 proxy_pass);放在代理後面要設 OMIXOR_PUBLIC_URL,或讓代理保留 Host(見 console/README.md)
+// (例如 nginx 只寫 proxy_pass;代理什麼 Host 都收的話,保留 Host 也沒用,外面的人可以自己送 Host: 127.0.0.1)。
+// 放在代理後面一律要設 OMIXOR_PUBLIC_URL,並讓代理帶 X-Forwarded-For(見 console/README.md)
 func directFromThisMachine(r *http.Request) bool {
 	for _, h := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-Ip", "Via"} {
 		if r.Header.Get(h) != "" {

@@ -73,6 +73,9 @@ final class SystemSettingsTests: XCTestCase {
         XCTAssertTrue(app.features.serverCanEdit, "本機模式的本機使用者是伺服器管理員")
         XCTAssertTrue(app.isVisible(.channels))
         XCTAssertFalse(app.isFeatureEnabled("monitoring.alerts"), "系統層預設不開放")
+        XCTAssertFalse(app.isFeatureEnabled("monitoring.visitors"), "網站訪客組織層預設關")
+        XCTAssertEqual(app.visibleTabs(MonTab.self), [])
+        try store.set(["monitoring.visitors": true])  // 下面要有一個開著的分頁當轉向目標
         XCTAssertEqual(app.visibleTabs(MonTab.self), [.visitors])
         XCTAssertEqual(app.shownTab(MonTab.alerts), .visitors)
         XCTAssertFalse(app.isFeatureEnabled("familyAssistant"))
@@ -130,6 +133,7 @@ final class SystemSettingsTests: XCTestCase {
         let alerts = try XCTUnwrap(app.features.server.features.first { $0.key == "monitoring.alerts" })
         XCTAssertFalse(alerts.systemDefault)
         XCTAssertFalse(alerts.available)
+        try store.set(["monitoring.visitors": true])  // 網站訪客預設關;這裡要有一個開著的分頁
 
         // 系統層開放:組織層列出來,但組織層預設關(實驗功能)
         try store.setServer(["monitoring.alerts": true])

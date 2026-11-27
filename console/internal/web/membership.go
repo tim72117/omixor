@@ -84,7 +84,7 @@ func membershipGate(next http.Handler, app *core.App, au *auth.Service) http.Han
 				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), repairKey{}, true)))
 				return
 			}
-			denyAccess(w, err)
+			denyAccess(w, r, err)
 			return
 		}
 		if u, ok := ctxUser(r); ok && u.Repair { // 修復登入用完了(帳號已經對得上):要重新登入
@@ -283,11 +283,11 @@ func (b *bufferedResponse) sendTo(w http.ResponseWriter) {
 }
 
 // denyAccess 登入者現在不能用網頁:403 的原因回 401 + login(畫面回登入頁);查不出來照原狀態碼
-func denyAccess(w http.ResponseWriter, err error) {
-	in := httperr.Classify(err)
+func denyAccess(w http.ResponseWriter, r *http.Request, err error) {
+	in := httperr.Report(opOf(r), err)
 	if in.Status == 403 {
-		writeJSON(w, 401, map[string]any{"error": err.Error(), "login": true})
+		writeJSON(w, 401, map[string]any{"error": in.Msg, "login": true})
 		return
 	}
-	writeJSON(w, 503, map[string]any{"error": err.Error()})
+	writeJSON(w, 503, map[string]any{"error": in.Msg})
 }

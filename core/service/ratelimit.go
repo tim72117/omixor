@@ -52,8 +52,41 @@ func (r *rateWindow) refund(window time.Time, key string) {
 }
 
 // LoginRate 宿主自己的登入入口用的一份限額(上限同 allowLogin,和其他入口分開計)。
-// 密碼驗證通過的那次會退回名額,只有沒通過的(含進行中的)佔名額
-type LoginRate struct{ w rateWindow }
+// 密碼驗證通過的那次會退回名額,只有沒通過的(含進行中的)佔名額。
+//
+// 全部上限(total)裡最後三分之一保留給最近(loginFailMemory)沒有失敗過的來源:少數來源一直猜密碼填不滿保留的部分,
+// 沒打錯過的人照樣能登入。每分鐘送到目錄的失敗嘗試仍然不超過 total。
+// 限制:攻擊者有大量不同來源(預設值下約每分鐘 20 個沒失敗過的)還是能佔滿;最近打錯過的正常使用者在被灌爆期間用不到保留部分;
+// 所有人看起來是同一個來源時(在代理後面沒設信任的代理層數)分不出誰是誰,這個保留沒有作用
+type LoginRate struct {
+	mu     sync.Mutex // 讓「查有沒有失敗過、佔名額、記下」一次完成
+	w      rateWindow
+	failed failCounter // 來源 → 還沒退回的嘗試次數(失敗的與進行中的)
+}
+
+// loginFailMemory 來源失敗過之後多久內不能用保留名額
+const loginFailMemory = 10 * time.Minute
+
+func (r *LoginRate) take(now time.Time, key string, perMax, totalMax int) (time.Time, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if n, _ := r.failed.get(key, now, loginFailMemory); n > 0 {
+		totalMax -= totalMax / 3
+	}
+	window, ok := r.w.take(now, key, perMax, totalMax)
+	if ok {
+		r.failed.add(key, now, loginFailMemory)
+	}
+	return window, ok
+}
+
+// refund 密碼驗證通過:退回名額,這次也不算失敗
+func (r *LoginRate) refund(window time.Time, key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.w.refund(window, key)
+	r.failed.release(key)
+}
 
 // loginLimits 各入口各自的限額,一個被灌爆不影響別的
 type loginLimits struct {
@@ -68,14 +101,20 @@ func (s *Service) allowLogin(w *rateWindow, ip string) bool {
 
 // takeLogin 同 allowLogin,另回記在哪個視窗(refund 用)
 func (s *Service) takeLogin(w *rateWindow, ip string) (time.Time, bool) {
-	per, total := s.LoginPerIP, s.LoginTotal
+	per, total := s.loginMax()
+	return w.take(s.now(), limitKey(ip), per, total)
+}
+
+// loginMax 每個來源、每個入口每分鐘的上限
+func (s *Service) loginMax() (per, total int) {
+	per, total = s.LoginPerIP, s.LoginTotal
 	if per == 0 {
 		per = 10
 	}
 	if total == 0 {
 		total = 60
 	}
-	return w.take(s.now(), limitKey(ip), per, total)
+	return per, total
 }
 
 // quotaWindow 固定視窗的配額(每個鍵自己的視窗,從第一次使用起算 win);用在每個使用者每小時的上限。
@@ -153,6 +192,7 @@ const defaultFailCap = 10000
 type failEntry struct {
 	n     int
 	since time.Time
+	by    map[string]int // n 裡面各個寫法佔幾次;只有 LoginFailures.Identity 用
 }
 
 // failCounter 每個鍵一輪(win)內的失敗次數,最多 max 個鍵(0 = 10000)。

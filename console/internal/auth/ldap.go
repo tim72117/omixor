@@ -12,6 +12,9 @@ import (
 	"omixor-core/config"
 	"omixor-core/ldapauth"
 	"omixor-core/service"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/unicode/norm"
 )
 
 // LDAP 驗證本身在 omixor-core/ldapauth(和 omixor server 同一套實作);這裡只把 auth.json 轉成它的設定,
@@ -167,16 +170,24 @@ func (d directory) Recheck(account string) (*ldapauth.Identity, error) {
 	return a.Recheck(account)
 }
 
-// failureKey 失敗鎖定的計數鍵:同一個目錄帳號的不同寫法(CORP\alice、alice@corp、Alice)算同一個
+// failureKey 失敗鎖定的計數鍵:同一個目錄帳號的不同寫法(CORP\alice、alice@corp、Alice、全形)算同一個。
+// 多網域的目錄裡 bob@a.com 和 bob@b.com 可能是不同人,次數仍然合併(寧可多鎖),清除則依 failureIdentity
 func failureKey(user string) string {
-	u := strings.ToLower(strings.TrimSpace(user))
+	u := failureIdentity(user)
 	if i := strings.LastIndex(u, `\`); i >= 0 {
-		u = u[i+1:]
+		u = strings.TrimSpace(u[i+1:])
 	}
 	if i := strings.Index(u, "@"); i > 0 {
-		u = u[:i]
+		u = strings.TrimSpace(u[:i])
 	}
 	return u
+}
+
+// failureIdentity 寫法鍵:只抹掉大小寫、全半形(Unicode NFKC)與前後空白,網域部分保留;
+// 密碼正確只清掉同一個寫法鍵記的失敗次數,用自己的帳號登入清不掉別的寫法(可能是別人)的
+func failureIdentity(user string) string {
+	// Caser 有狀態,不能跨 goroutine 共用,每次建立
+	return strings.TrimSpace(norm.NFKC.String(cases.Fold().String(norm.NFKC.String(user))))
 }
 
 // diagError LDAP 連線 / 設定類的錯誤:Error() 是給管理員診斷的完整說明(prefix + 原因,含位址、dial tcp),

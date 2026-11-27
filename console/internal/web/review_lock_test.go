@@ -11,6 +11,7 @@ import (
 
 // 系統工作組織的鎖:慢慢送內容的請求、非管理員的換組織請求、拿著讀鎖很久的呼叫,都不能讓整台卡住
 func TestSystemOrgLockNeverFreezes(t *testing.T) {
+	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir()) // 會換系統工作組織(存在資料庫):不能影響別的測試
 	bob, alice, app := adminTestClients(t)
 	first := app.SystemOrgID()
 	code, out := alice.do("POST", "/api/action/org_create", map[string]any{"name": "第二組織"}, nil)
@@ -95,6 +96,7 @@ func TestSystemOrgLockNeverFreezes(t *testing.T) {
 
 // 等人操作的動作用 pin 放掉讀鎖:期間可以換組織,回來時知道換過了
 func TestSystemPinAway(t *testing.T) {
+	t.Setenv("OMIXOR_CONSOLE_DATA_DIR", t.TempDir()) // 會換系統工作組織(存在資料庫):不能影響別的測試
 	_, alice, app := adminTestClients(t)
 	code, out := alice.do("POST", "/api/action/org_create", map[string]any{"name": "第二組織"}, nil)
 	r, _ := out["result"].(map[string]any)

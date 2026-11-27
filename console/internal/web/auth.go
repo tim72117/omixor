@@ -253,7 +253,7 @@ func registerAuth(mux *http.ServeMux, app *core.App, au *auth.Service) {
 			// 測試帳號照存了之後的設定要真的能登入(對得上 omixor 使用者、沒停用),不然存了就沒人進得來
 			who := core.NewCaller(u.ID, u.Name, u.Email, u.Admin, au.UserSettings(in.Config))
 			if err := who.CheckLogin(); err != nil {
-				writeJSON(w, 400, map[string]any{"error": "測試帳號依這份設定不能登入,設定沒有存。" + err.Error()})
+				writeErrPrefix(w, r, 400, "測試帳號依這份設定不能登入,設定沒有存。", err, false)
 				return
 			}
 		}

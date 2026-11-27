@@ -405,7 +405,9 @@ final class LocalCoreSyncRaceTests: XCTestCase {
     private func run(killWait: Bool) async throws {
         let bin = try TestCore.binary(), dir = coreDir!
         nonisolated(unsafe) var first = true
+        nonisolated(unsafe) var launches = 0
         AppState.localCoreLauncher = { user, name in
+            launches += 1
             let c = try LocalCore.shared.start(binary: bin, dataDir: dir, user: user, name: name, timeout: 20)
             if first, let pid = LocalCore.shared.pid {
                 first = false
@@ -423,7 +425,8 @@ final class LocalCoreSyncRaceTests: XCTestCase {
         }
         let app = AppState()
         app.startLocalCore()
-        try await waitUntil(30, "自動重啟後可用") { app.localCore == .ready && LocalCore.shared.config != nil }
+        // 要等到第二次啟動:同步很快的機器上,第一個程序在被砍之前就已經「可用」
+        try await waitUntil(30, "自動重啟後可用") { launches >= 2 && app.localCore == .ready && LocalCore.shared.config != nil }
         XCTAssertFalse(first)
         // 穩定下來後仍是可用、且真的有程序在跑
         try await Task.sleep(for: .milliseconds(500))
