@@ -102,8 +102,10 @@ func Handler(app *core.App, dist fs.FS, au *auth.Service) http.Handler {
 			writeJSON(w, 404, map[string]any{"error": "沒有這個 view:" + name})
 			return
 		}
-		if name == "system" || name == "members" {
-			v = forViewer(name, v, isAdmin(r, app, au))
+		admin := isAdmin(r, app, au)
+		v = forViewer(name, v, admin)
+		if name == "members" && !admin {
+			markOrgAdmin(v, callerOf(r, au))
 		}
 		if active {
 			nv, drop := core.ScrubRestricted(core.Object(v), set, unk)

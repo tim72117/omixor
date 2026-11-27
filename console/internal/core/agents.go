@@ -76,11 +76,13 @@ func (a *App) RoleCallFinished() {
 	a.AgentsChanged()
 	if org != "" {
 		a.cabinetRefresh(org)
+		a.projectsRefresh(org) // 專案、受限旗標可能改了
 		if a.IncidentsRefresh(org) {
 			a.Changed("alerts")
 		}
 	}
-	a.Changed("cabinet", "incidents", "chain", "members", "channels", "badges") // 角色可能發了頻道訊息、標了已讀
+	// 角色可能發了頻道訊息、標了已讀;也可能改了專案成員或受限旗標(REST、MCP),誰看得到什麼要重讀
+	a.VisibilityChanged("incidents", "chain", "members", "channels")
 }
 
 // ---- 快取 ----

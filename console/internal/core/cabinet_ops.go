@@ -25,11 +25,21 @@ func (a *App) CabinetOpsFor(who *Caller) CabinetOps { return CabinetOps{a: a, wh
 // be 寫入用的核心:呼叫者在 org 的身分
 func (o CabinetOps) be(org string) (backend.Backend, error) { return coreBackendFor(o.who, org) }
 
+// visibilityTopics 受限專案「誰看得到」可能變了(專案成員、受限旗標、組織角色)時要重讀的主題:Issue(清單、看板、
+// 垃圾桶、用過的 repo)、文件櫃、專案清單、角色與任務、動態牆、徽章、自動執行紀錄。事件只帶主題名稱,
+// 重讀時各人照自己看得到的篩(web/restricted.go),所以通知所有開著的畫面沒有外洩問題
+var visibilityTopics = []string{"cabinet", "projects", "issues", "agents", "activity", "badges", "agent_runner"}
+
+// VisibilityChanged 通知畫面:看得到的受限專案資料可能變了
+func (a *App) VisibilityChanged(extra ...string) {
+	a.Changed(append(append([]string{}, visibilityTopics...), extra...)...)
+}
+
 // projectsDone 專案或成員寫入成功後:受限專案快取作廢、清單換新、通知畫面
 func (o CabinetOps) projectsDone(org string) {
 	o.a.InvalidateRestricted()
 	o.a.projectsRefresh(org)
-	o.a.Changed("cabinet")
+	o.a.VisibilityChanged()
 }
 
 // read 讀取用的核心:有呼叫者用他的身分(受限專案照核心的規則看不到),否則系統身分

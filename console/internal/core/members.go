@@ -79,7 +79,7 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		a.Changed("members")
+		a.VisibilityChanged("members") // 組織管理員看得到所有受限專案
 		return m, nil
 	})
 	RegisterAction("member_remove", func(a *App, args map[string]any) (any, error) {
@@ -97,7 +97,7 @@ func init() {
 		if err := l.Svc.RemoveMember(l.P, org, email); err != nil {
 			return nil, err
 		}
-		a.Changed("members")
+		a.VisibilityChanged("members") // 移出組織也移出專案
 		return nil, nil
 	})
 }

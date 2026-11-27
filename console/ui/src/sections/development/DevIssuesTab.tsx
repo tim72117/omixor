@@ -28,7 +28,7 @@ import { IssueDecisionSummary } from "./IssueDecisionSummary";
 import { IssueHelp, IssueHelpPill } from "./IssueHelp";
 import { IssueAcceptButton, IssueAcceptedPill } from "./IssueAccept";
 import { itemsCountText } from "./itemModel";
-import { resolveIssueRef, updateIssue, useIsOrgAdmin, useProjects } from "./issueApi";
+import { resolveIssueRef, updateIssue, useIsConsoleAdmin, useProjects } from "./issueApi";
 import {
   findIssue, issueKey, PRIORITIES, PRIORITY, PROJECT_ALL, PROJECT_ORG, showPriorityPill,
   type Counts, type Issue,
@@ -61,7 +61,12 @@ export function DevIssuesTab() {
   const [importing, setImporting] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const projects = useProjects();
-  const isAdmin = useIsOrgAdmin();
+  const isAdmin = useIsConsoleAdmin(); // Jira 匯入、垃圾桶:伺服器只給 web 管理員(internal/web/access.go)
+  const canImport = isAdmin && !outside;
+  const moreItems = [
+    ...(canImport ? [{ label: <><SIcon name="square.and.arrow.down" />從 Jira 匯入</>, onClick: () => setImporting(true) }] : []),
+    ...(isAdmin ? [{ label: <><SIcon name="trash" />垃圾桶(已刪除的 Issue)</>, onClick: () => setTrashOpen(true) }] : []),
+  ];
   const q = useDebounced(query, 250);
   // 篩選、搜尋、排序在後端(核心的 model.QueryIssues):未解決的在前 → 優先度 → 最近更新 → 編號
   const [res, qErr] = useActionQuery<IssueQueryResult>("issue_query", { q, status: filter, label, priority, repo, project, sort: "status" }, ["issues"]);
@@ -101,10 +106,7 @@ export function DevIssuesTab() {
         end={(compact) => (
           <>
             <button className="btn primary" title="新增 Issue" onClick={() => setCreating(true)}><SIcon name="plus" />{!compact && "新增 Issue"}</button>
-            <MenuButton label={<SIcon name="ellipsis" />} title="更多動作" align="right" items={[
-              ...(outside ? [] : [{ label: <><SIcon name="square.and.arrow.down" />從 Jira 匯入</>, onClick: () => setImporting(true) }]),
-              ...(isAdmin ? [{ label: <><SIcon name="trash" />垃圾桶(已刪除的 Issue)</>, onClick: () => setTrashOpen(true) }] : []),
-            ]} />
+            {moreItems.length > 0 && <MenuButton label={<SIcon name="ellipsis" />} title="更多動作" align="right" items={moreItems} />}
           </>
         )} />
       <div className={layoutClass.fill}>
@@ -112,7 +114,7 @@ export function DevIssuesTab() {
           {(err || qErr) && !res ? <EmptyState title="讀不到 Issue" icon="exclamationmark.triangle" message={qErr ?? err} />
             : !res ? null : list.length === 0 ? (
               <EmptyState title={total === 0 ? "還沒有 Issue" : "沒有符合的 Issue"} icon="exclamationmark.bubble"
-                message={total === 0 ? `按「新增 Issue」${outside ? "" : "、從 ⋯ 選單匯入 Jira"},或讓 AI 透過 MCP 的 issue_create 存進來。` : undefined} />
+                message={total === 0 ? `按「新增 Issue」${canImport ? "、從 ⋯ 選單匯入 Jira" : ""},或讓 AI 透過 MCP 的 issue_create 存進來。` : undefined} />
             ) : (
               <div className="list">
                 {list.map((i) => <IssueRow key={i.id} issue={i} showRepo={!repo} on={i.id === dev.selectedIssue} onClick={() => dev.setSelectedIssue(i.id)} />)}

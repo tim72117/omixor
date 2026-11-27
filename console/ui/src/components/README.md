@@ -122,10 +122,11 @@ components/<Name>/
 ## 資料層(`api.ts` + `lib/viewStore.ts` + `lib/http.ts`)
 
 - `useView(名稱, 主題?, {throttleMs?})` 與 `useActionQuery(名稱, 參數, 主題?)` 共用 `lib/viewStore.ts` 的快取:
-  同一個 view(或同一組 action + 參數)不論幾個元件在看都只發一個請求,SSE 通知也只重讀一次;沒人看的 view 收到通知只標成 stale,下次有人看才讀。
+  同一個 view(或同一組 action + 參數)不論幾個元件在看都只發一個請求,SSE 通知也只重讀一次;沒人看的收到通知就整筆丟掉,下次有人看才讀。
+  看不到的資料不能留著:伺服器回 401 / 403 / 404 / 410 時丟掉手上的資料,沒人看的不保留錯誤。key 與讀取方式在 `lib/queries.ts`(讀取只能由 key 決定)。
   所以**同一個 view 在多個元件各自 `useView` 沒有額外成本**,不用為了省請求把資料一路往下傳。
 - 回傳值照舊是 `[data, error, reload]`,另外有欄位 `.data` `.error` `.loading`(請求進行中)`.status`(`"loading" | "error" | "ready"`)`.reload`。
-  重讀失敗時 `data` 保留上一次的結果、`error` 有值。
+  重讀失敗時 `data` 保留上一次的結果(伺服器拒絕讀取除外)、`error` 有值。
 - 版本:`/api/view/*` 與 `/api/action/*` 回應帶 `X-Omixor-Version`(後端在算資料前讀的版本),SSE 通知的版本不比它新就不重讀。
   伺服器每次 SSE 連上(包括重連)都會先送 `"*"`;畫面不自己補送。斷線時手上的版本作廢,重連的 `"*"` 一律重讀(伺服器可能重啟過)。
 - `action<T>(…)` / `tool<T>(…)` 沒給型別參數時回傳 `unknown`:要用回傳值就給型別(`models/` 裡的型別),或賦值給有型別的變數讓 TS 推斷;

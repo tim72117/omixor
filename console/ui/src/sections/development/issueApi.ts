@@ -30,13 +30,21 @@ export function useProjects(): Project[] {
   return Array.isArray(cab?.projects) ? cab!.projects : [];
 }
 
-/** 是不是組織管理員(members view 的 canEdit;後端對非 web 管理員一律回 false,和 web 的 isAdmin 一致;垃圾桶只有管理員看得到) */
-export function useIsOrgAdmin(): boolean {
-  const [v] = useView<{ canEdit?: boolean }>("members", ["members", "orgs"]);
-  return !!v?.canEdit;
+type AdminFlags = { canEdit?: boolean; orgAdmin?: boolean };
+const useAdminFlags = () => useView<AdminFlags>("members", ["members", "orgs"])[0];
+
+/** 是不是 web 管理員(管理員帳號名單;members view 的 canEdit):垃圾桶、Jira 匯入這類 web 端限管理員的功能 */
+export function useIsConsoleAdmin(): boolean {
+  return !!useAdminFlags()?.canEdit;
 }
 
-/** 垃圾桶:已刪除的 Issue(只有組織管理員) */
+/** 是不是組織管理員(含 web 管理員):核心照組織角色判斷的操作(放回別人接受的 Issue、撤回與重新開啟待決定) */
+export function useIsOrgAdmin(): boolean {
+  const v = useAdminFlags();
+  return !!(v?.canEdit || v?.orgAdmin);
+}
+
+/** 垃圾桶:已刪除的 Issue(只有 web 管理員) */
 export const loadTrash = () => action<Issue[]>("issue_trash", {});
 export const restoreIssue = (id: string) => action<Issue>("issue_restore", { id });
 export const purgeIssue = (id: string) => action("issue_purge", { id });

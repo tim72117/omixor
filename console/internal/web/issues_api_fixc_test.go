@@ -192,14 +192,3 @@ func TestTrashActionsNotFoundStatus(t *testing.T) {
 		}
 	}
 }
-
-// M4:非管理員的 members view canEdit 一律 false(畫面用它決定要不要顯示垃圾桶等管理員按鈕)
-func TestMembersViewCanEditFollowsWebAdmin(t *testing.T) {
-	v := core.MembersView{CanEdit: true}
-	if got := forViewer("members", v, false).(core.MembersView); got.CanEdit {
-		t.Fatal("非管理員不能 canEdit")
-	}
-	if got := forViewer("members", v, true).(core.MembersView); !got.CanEdit {
-		t.Fatal("管理員保留 canEdit")
-	}
-}

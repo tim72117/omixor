@@ -14,7 +14,7 @@ import (
 //
 //	GET /api/view/projects → model.Project[]({id, name, key, description…};沒有專案是 [])
 //
-// 畫面訂閱 "cabinet"、"orgs"、"issues" 通知後重讀。清單是快取(view 在 Mu 下執行,不能發網路請求):
+// 畫面訂閱 "projects"、"cabinet"、"orgs"、"issues" 通知後重讀。清單是快取(view 在 Mu 下執行,不能發網路請求):
 // 還沒載入時當場讀核心,讀到有變就通知 "cabinet"。專案的新增、修改、刪除、每 5 秒會重讀。
 
 type projState struct {
@@ -110,7 +110,7 @@ func init() {
 				case <-t.C:
 				}
 				if org := a.currentOrgNow(); org != "" && a.projectsRefresh(org) {
-					a.Changed("cabinet")
+					a.VisibilityChanged() // 受限旗標可能是別的路徑改的
 				}
 			}
 		}()

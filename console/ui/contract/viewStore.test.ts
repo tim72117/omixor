@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ViewStore, type LoadResult, type StoreClock } from "../src/lib/viewStore.ts";
+import { actionQuery } from "../src/lib/queries.ts";
 
 function fakeClock() {
   let now = 0;
@@ -64,7 +65,7 @@ test("同一個 view 多個訂閱者只發一個請求,通知也只重讀一次"
   assert.equal(srv.calls.length, 2);
 });
 
-test("沒人看的 view 收到通知只標記 stale,下次訂閱才重讀", async () => {
+test("沒人看的 view 收到通知就丟掉(不重讀),下次訂閱才重讀,不先顯示舊資料", async () => {
   const { store, srv, sub, advance, pending } = setup();
   const off = sub();
   srv.calls[0].resolve({ data: "a", version: 1 });
@@ -76,7 +77,7 @@ test("沒人看的 view 收到通知只標記 stale,下次訂閱才重讀", asyn
   assert.equal(pending(), 0);
   sub();
   assert.equal(srv.calls.length, 2, "重新訂閱時重讀");
-  assert.equal(store.get("view:issues").data, "a", "重讀期間保留舊資料");
+  assert.equal(store.get("view:issues").data, undefined, "過時的資料可能已經看不到了");
   assert.equal(store.get("view:issues").loading, true);
 });
 
@@ -214,7 +215,7 @@ test("沒人看的筆數超過上限時丟掉最舊的", async () => {
   const store = new ViewStore({ clock: c.clock, maxIdle: 2 });
   const srv = fakeServer();
   for (const k of ["a", "b", "c"]) {
-    const off = store.subscribe(k, srv.load, [], {}, () => {});
+    const off = store.subscribe(k, srv.load, [k], {}, () => {});
     c.advance(1);
     off();
   }
@@ -235,4 +236,113 @@ test("請求數:開頁(每個 view 5 個元件)+ 一次 SSE 通知", async () =>
   store.notify(["issues"], 2);
   advance(80);
   assert.equal(store.requests, 2);
+});
+
+// ---- 受限專案:看不到的資料不能留在快取,也不能跑到別的 key ----
+
+/** 假的 action 端點:記下每次送出的參數,回應由測試決定 */
+function fakeCabinet() {
+  const sent: string[] = [];
+  const denied = new Set<string>();
+  const post = async (_path: string, body: unknown): Promise<LoadResult> => {
+    const { project } = body as { project: string };
+    sent.push(project);
+    if (denied.has(project)) throw Object.assign(new Error(`找不到專案 ${project}`), { status: 404 });
+    return { data: { project } };
+  };
+  const query = (project: string) => actionQuery("cabinet_query", { project }, post);
+  return { sent, denied, query };
+}
+
+/** 和 api.ts 的 useStoreKey 一樣的訂閱方式 */
+function watch(store: ViewStore, q: ReturnType<ReturnType<typeof fakeCabinet>["query"]>, topics = ["cabinet"]) {
+  return store.subscribe(q.key, q.load, q.ownTopics, { topics }, () => {});
+}
+
+test("每個 key 重讀時只用自己的參數,元件換了參數也一樣", async () => {
+  const c = fakeClock();
+  const store = new ViewStore({ clock: c.clock, debounceMs: 80 });
+  const api = fakeCabinet();
+  const args = { project: "" };
+  const none = actionQuery("cabinet_query", args, async (_p, body) => ({ data: body }));
+  args.project = "PRJ-1"; // 呼叫端改了參數物件
+  assert.deepEqual((await none.load()).data, { project: "" });
+
+  watch(store, api.query("")); // 例如專案選單一直在看未分專案
+  const off = watch(store, api.query("")); // 文件櫃元件
+  off(); // 元件切到受限專案
+  watch(store, api.query("PRJ-1"));
+  await flush();
+  api.sent.length = 0;
+  store.notify(["cabinet"]);
+  c.advance(80);
+  await flush();
+  assert.deepEqual(api.sent.sort(), ["", "PRJ-1"]);
+  assert.deepEqual(store.get(api.query("").key).data, { project: "" });
+});
+
+test("伺服器拒絕讀取(404 / 403 / 401)丟掉手上的資料;暫時性錯誤保留", async () => {
+  for (const [status, kept] of [[404, false], [403, false], [401, false], [500, true], [400, true], [0, true]] as const) {
+    const { store, srv, sub } = setup();
+    sub();
+    srv.calls[0].resolve({ data: "secret", version: 1 });
+    await flush();
+    store.reload("view:issues");
+    srv.calls[1].reject(Object.assign(new Error("x"), { status }));
+    await flush();
+    assert.equal(store.get("view:issues").data, kept ? "secret" : undefined, `status ${status}`);
+    assert.equal(store.get("view:issues").error, "x");
+  }
+});
+
+test("拒絕之後離開再回來:不帶著舊錯誤,也沒有舊資料(被移出又加回)", async () => {
+  const store = new ViewStore({ clock: fakeClock().clock });
+  const api = fakeCabinet();
+  const q = api.query("PRJ-1");
+  api.denied.add("PRJ-1");
+  const off = watch(store, q);
+  await flush();
+  assert.equal(store.get(q.key).error, "找不到專案 PRJ-1");
+  off(); // 畫面跳回未分專案
+  assert.equal(store.get(q.key).error, undefined, "再選一次時,第一次 render 讀到的不能是舊錯誤");
+  api.denied.clear(); // 又被加回
+  watch(store, q);
+  assert.equal(store.get(q.key).error, undefined);
+  await flush();
+  assert.deepEqual(store.get(q.key).data, { project: "PRJ-1" });
+});
+
+test("離開後才回來的錯誤也不留著", async () => {
+  const { store, srv, sub } = setup();
+  const off = sub();
+  off();
+  srv.calls[0].reject(new Error("HTTP 500"));
+  await flush();
+  assert.equal(store.get("view:issues").error, undefined);
+  assert.equal(store.has("view:issues"), false);
+});
+
+test("沒人看的 action 查詢,收到它聽過的主題一樣失效(專案選單不能一直列出被移出的專案)", async () => {
+  const c = fakeClock();
+  const store = new ViewStore({ clock: c.clock });
+  const api = fakeCabinet();
+  const q = api.query("");
+  const off = watch(store, q, ["cabinet", "orgs"]);
+  await flush();
+  off();
+  store.notify(["services"]);
+  assert.deepEqual(store.get(q.key).data, { project: "" }, "不相干的主題不影響");
+  store.notify(["cabinet"]);
+  assert.equal(store.get(q.key).data, undefined);
+  watch(store, q);
+  assert.equal(api.sent.length, 2, "下次訂閱重讀");
+});
+
+test("沒有任何主題能讓它失效的查詢不快取", async () => {
+  const store = new ViewStore({ clock: fakeClock().clock });
+  const api = fakeCabinet();
+  const off = watch(store, api.query("PRJ-1"), []);
+  await flush();
+  off();
+  assert.equal(store.has(api.query("PRJ-1").key), false);
 });

@@ -88,6 +88,24 @@ func firstCaller(who []*Caller) *Caller {
 	return who[0]
 }
 
+// OrgAdmin 呼叫者是不是 org 的組織管理員(核心的規則:伺服器管理員,或組織角色 admin);查不出來當作不是。
+// 只給畫面決定要不要顯示按鈕,能不能做仍由伺服器檢查
+func (c *Caller) OrgAdmin(org string) bool {
+	l := localCore()
+	if c == nil || l == nil {
+		return false
+	}
+	u, err := c.coreUser(l.Svc)
+	if err != nil {
+		return false
+	}
+	if u.Role == "admin" {
+		return true
+	}
+	role, err := l.Svc.Store.MemberRole(org, u.ID)
+	return err == nil && role == "admin"
+}
+
 // principal 呼叫者在 org 用的核心身分(規則見檔頭);org 空 = 和組織無關的操作(只有管理員)
 func (c *Caller) principal(svc *service.Service, org string) (*model.Principal, error) {
 	u, err := c.coreUser(svc)

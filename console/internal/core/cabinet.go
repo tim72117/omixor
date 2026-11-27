@@ -11,6 +11,7 @@ import (
 
 	"omixor-core/backend"
 	"omixor-core/config"
+	"omixor-core/httperr"
 	"omixor-core/model"
 	"omixor-core/service"
 	"omixor-web/internal/templates"
@@ -338,7 +339,7 @@ func init() {
 		} else {
 			c, err := ops.GetProjectCabinet(org, project)
 			if err != nil {
-				return nil, agentUserErr(err)
+				return nil, queryErr(err)
 			}
 			cab = *c
 		}
@@ -479,4 +480,16 @@ func init() {
 		}
 		return nil, agentUserErr(err)
 	})
+}
+
+// queryErr 同 agentUserErr,但 403、404 保留狀態碼:畫面靠它知道「看不到了」,丟掉之前讀到的內容(ui/src/lib/viewStore.ts)
+func queryErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	in := httperr.Report(callerOp(2), err)
+	if in.Status == 403 || in.Status == 404 {
+		return StatusError{Status: in.Status, Message: in.Msg, Data: in.Data}
+	}
+	return UserError{in.Msg}
 }

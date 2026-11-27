@@ -2,7 +2,11 @@
 //
 // 每個 key(view 名稱,或 action 名稱 + 參數)一筆:{data, error, loading, version, status}。
 //   - 同一個 key 不論幾個元件在看,只發一個請求(進行中的請求共用、讀到的結果共用)。
-//   - SSE 通知(notify)只讓「有人在看」的 key 重讀;沒人看的標成 stale,下次有人訂閱才重讀。
+//   - SSE 通知(notify)只讓「有人在看」的 key 重讀;沒人看的整筆丟掉,下次有人訂閱才重讀。
+//     看不到的資料(例如被移出受限專案)不能留在快取裡,所以:
+//       * 伺服器拒絕讀取(isRefused:401 / 403 / 404 / 410)時丟掉手上的資料
+//       * 沒人看的筆數不保留錯誤,也不保留「已知過時」的資料;沒有任何主題能讓它失效的不快取
+//   - 一個 key 的 load 只能讀那個 key 的資料(lib/queries.ts 保證):不能跟著元件目前的參數走。
 //   - 晚回來的舊請求丟掉(每個 key 一個序號)。
 //   - 通知在 debounceMs 內合併成一次重讀;訂閱者給 throttleMs 時,兩次重讀至少隔這麼久(取所有訂閱者裡最小的)。
 //   - 版本:伺服器在回應標頭帶資料版本(X-Omixor-Version,算資料前讀的,所以資料至少反映到這個版本)。
@@ -13,7 +17,7 @@ export type LoadResult = { data: unknown; version?: number };
 export type ViewStatus = "loading" | "error" | "ready";
 
 export type ViewSnapshot<T = unknown> = {
-  /** 最後一次成功讀到的資料;第一次讀到前是 undefined(之後重讀失敗也保留) */
+  /** 最後一次成功讀到的資料;第一次讀到前是 undefined(之後重讀失敗也保留,伺服器拒絕讀取除外) */
   data: T | undefined;
   /** 最後一次讀取的錯誤訊息;成功後清掉 */
   error: string | undefined;
@@ -38,12 +42,19 @@ export type SubscribeOptions = {
   throttleMs?: number;
 };
 
+/** 伺服器拒絕讓這個使用者讀(登出、沒權限、不存在或看不到):之前讀到的內容不能再留著。暫時性的錯誤(5xx、斷線)不算 */
+export function isRefused(e: unknown): boolean {
+  const status = (e as { status?: unknown } | null)?.status;
+  return status === 401 || status === 403 || status === 404 || status === 410;
+}
+
 type Sub = { topics: string[]; throttleMs: number; onChange: () => void };
 
 type Entry = {
   key: string;
   load: () => Promise<LoadResult>;
-  ownTopics: string[];
+  /** 讓這筆失效的主題:key 自己的,加上所有訂閱過的人聽的(沒人看之後也要認得出來) */
+  topics: Set<string>;
   snap: ViewSnapshot;
   /** 資料版本(和 snap.version 一樣,但斷線時會重設成 -1,不動 snap) */
   dataVersion: number;
@@ -51,8 +62,6 @@ type Entry = {
   seq: number;
   /** 進行中的請求序號;沒有是 0 */
   inflight: number;
-  /** 沒人看的時候收到通知:下次訂閱要重讀 */
-  stale: boolean;
   /** 等著要的版本;-1 沒有、Infinity 一定要重讀(手動 refreshTopics) */
   want: number;
   /** 計時到了但還有請求進行中:等它回來再決定要不要重讀 */
@@ -95,24 +104,25 @@ export class ViewStore {
   }
 
   /**
-   * 訂閱一個 key;第一次訂閱(或資料已經 stale、上次失敗)時才讀。回傳取消訂閱。
-   * load 只在建立這筆時記下(同一個 key 的 load 應該等價),ownTopics 是 key 自己的主題(view 名稱;action 查詢沒有)。
+   * 訂閱一個 key;快取裡沒有(或上次失敗)時才讀。回傳取消訂閱。
+   * load 只在建立這筆時記下,所以必須只由 key 決定(見 lib/queries.ts),ownTopics 是 key 自己的主題(view 名稱;action 查詢沒有)。
    */
   subscribe(key: string, load: () => Promise<LoadResult>, ownTopics: string[], opts: SubscribeOptions, onChange: () => void): () => void {
     const e = this.entry(key, load, ownTopics);
+    for (const t of opts.topics ?? []) e.topics.add(t);
     const sub: Sub = { topics: opts.topics ?? [], throttleMs: opts.throttleMs ?? 0, onChange };
     e.subs.add(sub);
     if (e.inflight) {
       if (e.want >= 0) e.afterInflight = true; // 進行中的請求可能比通知早發,回來後再看要不要重讀
-    } else if (e.stale || e.snap.error !== undefined || e.snap.data === undefined) {
+    } else if (e.snap.error !== undefined || e.snap.data === undefined) {
       this.start(e);
     }
     return () => {
       if (!e.subs.delete(sub) || e.subs.size) return;
+      if (this.outdated(e)) return this.drop(e);
       if (e.timer !== undefined) {
         this.clock.clearTimeout(e.timer);
         e.timer = undefined;
-        e.stale = true; // 有排定的重讀還沒做
       }
       e.idleSince = this.clock.now();
       this.evict();
@@ -127,19 +137,19 @@ export class ViewStore {
 
   /**
    * 主題的資料變了(SSE 通知或 refreshTopics)。version:通知的資料版本;沒給表示一定要重讀。
-   * 有人看的 key 排定重讀,沒人看的標成 stale。
+   * 有人看的 key 排定重讀,沒人看的丟掉。
    */
   notify(topics: string[], version?: number) {
     const all = topics.includes("*");
-    for (const e of this.entries.values()) {
-      if (!all && !this.watches(e, topics)) continue;
+    for (const e of [...this.entries.values()]) {
+      if (!all && !topics.some((t) => e.topics.has(t))) continue;
       const v = version === undefined ? Infinity : version;
       if (v <= e.dataVersion && e.want < 0) continue; // 手上的資料已經包含這次變更
-      e.want = Math.max(e.want, v);
       if (!e.subs.size) {
-        e.stale = true;
+        this.drop(e);
         continue;
       }
+      e.want = Math.max(e.want, v);
       this.schedule(e);
     }
   }
@@ -158,7 +168,7 @@ export class ViewStore {
     let e = this.entries.get(key);
     if (!e) {
       e = {
-        key, load, ownTopics, snap: EMPTY, dataVersion: -1, subs: new Set(), seq: 0, inflight: 0, stale: false, want: -1,
+        key, load, topics: new Set(ownTopics), snap: EMPTY, dataVersion: -1, subs: new Set(), seq: 0, inflight: 0, want: -1,
         afterInflight: false, timer: undefined, lastLoad: 0, idleSince: 0,
       };
       this.entries.set(key, e);
@@ -166,12 +176,18 @@ export class ViewStore {
     return e;
   }
 
-  private watches(e: Entry, topics: string[]) {
-    for (const t of topics) {
-      if (e.ownTopics.includes(t)) return true;
-      for (const s of e.subs) if (s.topics.includes(t)) return true;
+  /** 沒人看之後不能留著的:上次失敗、有還沒反映的變更、或沒有任何主題能讓它失效 */
+  private outdated(e: Entry) {
+    return e.snap.error !== undefined || (e.want >= 0 && e.want > e.dataVersion) || !e.topics.size;
+  }
+
+  /** 整筆丟掉(進行中的請求回來也沒人讀得到);只給沒人看的用 */
+  private drop(e: Entry) {
+    if (e.timer !== undefined) {
+      this.clock.clearTimeout(e.timer);
+      e.timer = undefined;
     }
-    return false;
+    if (this.entries.get(e.key) === e) this.entries.delete(e.key);
   }
 
   private schedule(e: Entry) {
@@ -194,10 +210,7 @@ export class ViewStore {
       e.want = -1;
       return;
     }
-    if (!e.subs.size) {
-      e.stale = true;
-      return;
-    }
+    if (!e.subs.size) return this.drop(e);
     this.start(e);
   }
 
@@ -209,7 +222,6 @@ export class ViewStore {
     const n = ++e.seq;
     e.inflight = n;
     e.want = -1;
-    e.stale = false;
     e.afterInflight = false;
     e.lastLoad = this.clock.now();
     this.requests++;
@@ -230,7 +242,9 @@ export class ViewStore {
       (err) => {
         if (n !== e.seq) return;
         const error = errorText(err);
-        this.finish(e, { ...e.snap, error, loading: false, status: statusOf(e.snap.data, error) });
+        if (!isRefused(err)) return this.finish(e, { ...e.snap, error, loading: false, status: statusOf(e.snap.data, error) });
+        e.dataVersion = -1;
+        this.finish(e, { data: undefined, error, loading: false, version: -1, status: "error" });
       },
     );
   }
@@ -242,6 +256,7 @@ export class ViewStore {
       e.afterInflight = false;
       this.maybeStart(e);
     }
+    if (!e.subs.size && !e.inflight && this.outdated(e)) this.drop(e);
   }
 
   private set(e: Entry, snap: ViewSnapshot) {
@@ -254,9 +269,6 @@ export class ViewStore {
     const idle = [...this.entries.values()].filter((e) => !e.subs.size);
     if (idle.length <= this.maxIdle) return;
     idle.sort((a, b) => a.idleSince - b.idleSince);
-    for (const e of idle.slice(0, idle.length - this.maxIdle)) {
-      if (e.timer !== undefined) this.clock.clearTimeout(e.timer);
-      this.entries.delete(e.key);
-    }
+    for (const e of idle.slice(0, idle.length - this.maxIdle)) this.drop(e);
   }
 }

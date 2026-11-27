@@ -22,7 +22,7 @@ export const STATUS_COLOR: Record<DecisionStatus, string> = { open: "orange", de
 
 // MARK: - 身分與權限(後端仍會再檢查,這裡只決定按鈕顯示 / 是否可按)
 
-/** 我是誰(handle 或 email,不分大小寫);管理員身分來自 members view 的 canEdit */
+/** 我是誰(handle 或 email,不分大小寫);管理員身分來自 members view 的 canEdit / orgAdmin(useIsOrgAdmin) */
 export type Viewer = { me?: string; isAdmin: boolean; isHuman: boolean };
 const norm = (s?: string) => s?.trim().toLowerCase() ?? "";
 type ActorLike = { handle?: string; email?: string; kind?: string } | undefined;

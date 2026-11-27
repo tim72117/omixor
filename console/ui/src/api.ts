@@ -11,6 +11,7 @@
 // 資料回應帶版本(X-Omixor-Version),版本已經涵蓋的通知不重讀,所以頁面打開時不會「掛載讀一次 + 連上 "*" 再讀一次」。
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ViewStore, type ViewSnapshot, type ViewStatus } from "./lib/viewStore";
+import { actionQuery, viewQuery, type StoreQuery } from "./lib/queries";
 import { ApiError, getJSON, postJSON } from "./lib/http";
 import { createEventStream, type EventSourceLike, type EventStream } from "./lib/eventStream";
 import { createOrgScope, type OrgScopeIndex } from "./lib/orgScope";
@@ -135,15 +136,15 @@ function result<T>(snap: ViewSnapshot<T>, data: T | undefined, reload: () => voi
   });
 }
 
-function useStoreKey<T>(key: string, load: () => Promise<{ data: unknown; version?: number }>, ownTopics: string[], topics: string[], throttleMs: number) {
+function useStoreKey<T>({ key, load, ownTopics }: StoreQuery, topics: string[], throttleMs: number) {
   connect();
-  const loadRef = useRef(load);
-  loadRef.current = load;
   const topicsKey = topics.join(",");
   const ownKey = ownTopics.join(",");
   const subscribe = useCallback(
     (cb: () => void) =>
-      viewStore.subscribe(key, () => loadRef.current(), ownKey ? ownKey.split(",") : [], { topics: topicsKey ? topicsKey.split(",") : [], throttleMs }, cb),
+      // load 只由 key 決定(lib/queries.ts),所以取這個 key 那次 render 的即可;不能用 ref 指向最新的參數
+      viewStore.subscribe(key, load, ownKey ? ownKey.split(",") : [], { topics: topicsKey ? topicsKey.split(",") : [], throttleMs }, cb),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [key, ownKey, topicsKey, throttleMs],
   );
   const snap = useSyncExternalStore(subscribe, () => viewStore.get<T>(key));
@@ -156,7 +157,8 @@ function useStoreKey<T>(key: string, load: () => Promise<{ data: unknown; versio
  * 回傳 [資料, 錯誤, 重新讀取](另有 .status .loading 等欄位,見 ViewResult);資料第一次讀到前是 undefined。
  */
 export function useView<T = any>(name: string, topics: string[] = [], opts: { throttleMs?: number } = {}): ViewResult<T> {
-  const { snap, reload } = useStoreKey<T>(`view:${name}`, () => orgScope.load(name, () => getJSON<T>(`/api/view/${name}`)), [name], topics, opts.throttleMs ?? 0);
+  const query = viewQuery(name, () => orgScope.load(name, () => getJSON<T>(`/api/view/${name}`)));
+  const { snap, reload } = useStoreKey<T>(query, topics, opts.throttleMs ?? 0);
   return result(snap, snap.data, reload);
 }
 
@@ -166,12 +168,14 @@ export function useView<T = any>(name: string, topics: string[] = [], opts: { th
  * 回傳 [資料, 錯誤, 重新讀取];資料第一次讀到前是 undefined(之後換參數、重新讀取期間保留上一次的結果)。
  */
 export function useActionQuery<T = any>(name: string, args: Record<string, unknown>, topics: string[] = []): ViewResult<T> {
-  const argsKey = JSON.stringify(args);
-  const { snap, reload } = useStoreKey<T>(`action:${name}:${argsKey}`, () => postJSON<T>(`/api/action/${name}`, JSON.parse(argsKey)), [], topics, 0);
-  // 換參數時新的結果還沒回來:先顯示上一組參數的結果(搜尋打字時清單不閃空白)
-  const last = useRef<T | undefined>(undefined);
-  if (snap.data !== undefined) last.current = snap.data;
-  return result(snap, snap.data ?? last.current, reload);
+  const query = actionQuery(name, args, (path, body) => postJSON<T>(path, body));
+  const { snap, reload } = useStoreKey<T>(query, topics, 0);
+  // 換參數時新的結果還沒回來:先顯示上一組參數的結果(搜尋打字時清單不閃空白)。
+  // 只記是哪個 key、內容向快取拿,不自己留一份:那份資料被丟掉(看不到了、過時了)這裡也跟著沒有
+  const lastKey = useRef<string>();
+  if (snap.data !== undefined) lastKey.current = query.key;
+  const previous = lastKey.current === undefined ? undefined : viewStore.get<T>(lastKey.current).data;
+  return result(snap, snap.data ?? previous, reload);
 }
 
 /** value 停止變動 ms 毫秒後才回傳新的值(搜尋輸入用) */

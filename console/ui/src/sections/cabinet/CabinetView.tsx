@@ -49,9 +49,9 @@ export default function CabinetView({ focusId, clearFocus }: SectionProps) {
     if (data && !data.projectsError && project && data.project === project && !projects.some((p) => p.id === project)) setProject("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, project]);
-  // 選的專案在伺服器上找不到(換了組織、別人刪掉了):回到未分專案
+  // 選的專案在伺服器上找不到(換了組織、別人刪掉了、被移出受限專案):回到未分專案,不留著之前讀到的內容
   useEffect(() => {
-    if (err && project && (!data || data.project !== project) && err.includes("找不到專案")) setProject("");
+    if (err && project && err.includes("找不到專案")) setProject("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [err, project]);
   // 從其他頁跳過來時(例如 DOC-3)選中那份文件;不在目前的專案就問伺服器它在哪個專案,切過去
