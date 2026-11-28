@@ -39,6 +39,7 @@ import s from "./DevIssuesTab.module.css";
 import { AuthorIcon as SharedAuthorIcon } from "../../components/Avatar";
 import { cardTitleClass } from "../../components/Card";
 import { layoutClass } from "../../components/Layout";
+import { onServer } from "../../server/scope";
 
 export { PRIORITY, showPriorityPill } from "./issueModel";
 export type { Issue, IssueComment } from "./issueModel";
@@ -62,7 +63,7 @@ export function DevIssuesTab() {
   const [trashOpen, setTrashOpen] = useState(false);
   const projects = useProjects();
   const isAdmin = useIsConsoleAdmin(); // Jira 匯入、垃圾桶:伺服器只給 web 管理員(internal/web/access.go)
-  const canImport = isAdmin && !outside;
+  const canImport = isAdmin && !outside && !onServer(); // Jira 匯入 omixor server 沒有
   const moreItems = [
     ...(canImport ? [{ label: <><SIcon name="square.and.arrow.down" />從 Jira 匯入</>, onClick: () => setImporting(true) }] : []),
     ...(isAdmin ? [{ label: <><SIcon name="trash" />垃圾桶(已刪除的 Issue)</>, onClick: () => setTrashOpen(true) }] : []),
@@ -224,11 +225,11 @@ function IssueDetail({ issue }: { issue: Issue }) {
             { label: "編輯…", onClick: () => setEditing(true) },
             { label: "移到垃圾桶…", danger: true, onClick: () => ask({ title: `把 ${issueKey(issue)} 移到垃圾桶?`, message: "移到垃圾桶後不會出現在列表與看板;組織管理員可以從垃圾桶還原。", buttons: [{ label: "移到垃圾桶", danger: true, onClick: async () => { const r = await run(() => action("issue_delete", { id: issue.id }), "已移到垃圾桶"); if (r !== undefined) dev.setSelectedIssue(undefined, "replace"); } }] }) },
           ]} />
-          <button className="btn" title="這個 Issue 的對話頻道(已有就跳過去,沒有就建立)" onClick={async () => {
+          {!onServer() && <button className="btn" title="這個 Issue 的對話頻道(已有就跳過去,沒有就建立)" onClick={async () => {
             // 已有綁這個 Issue 的頻道:核心直接回傳那個;沒有就建立(名稱用 Issue 標題,成員含自己與指派的角色)
             const c = await run(() => action<{ id: string }>("channel_create", { name: issue.title.slice(0, 80), issueId: issue.id, members: issue.assignee ? [`agent:${issue.assignee}`] : [] }));
             if (c) go("channels", c.id);
-          }}><SIcon name="bubble.left.and.bubble.right" /> 開對話頻道</button>
+          }}><SIcon name="bubble.left.and.bubble.right" /> 開對話頻道</button>}
           <IssueAcceptButton issue={issue} run={run} />
           <button className="btn" onClick={() => upd({ status: open ? "closed" : "open" })}>{open ? "關閉" : "重新打開"}</button>
           </div>

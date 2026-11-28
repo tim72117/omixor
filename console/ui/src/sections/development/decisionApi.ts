@@ -3,6 +3,7 @@
 // 權限與可見性由後端判斷。撤回(issue_decision_withdraw)、重新開啟(issue_decision_reopen)是 console 自己登記的工具(spec/tools_console.json),account view 的 features 宣告了才會開放按鈕;摘要(summaries)沒有工具。
 import { useCallback, useEffect, useState } from "react";
 import { refreshTopics, tool, useVersion, useView } from "../../api";
+import { isRefused } from "../../lib/viewStore";
 import type { Account } from "../../auth/account";
 import type { Decision } from "../../models";
 import type { Issue } from "./issueModel";
@@ -21,7 +22,11 @@ export function useDecisions(): { list: Decision[] | undefined; total: number; e
     let live = true;
     tool<DecisionsResult>("issue_decisions", { status: "all", limit: DECISION_LIMIT })
       .then((r) => { if (live) { setRes(r); setError(undefined); } })
-      .catch((e) => { if (live) setError(String(e?.message ?? e)); });
+      .catch((e) => {
+        if (!live) return;
+        setError(String(e?.message ?? e));
+        if (isRefused(e)) setRes(undefined); // 看不到了:手上的內容不留
+      });
     return () => { live = false; };
   }, [version, n]);
   const reload = useCallback(() => setN((x) => x + 1), []);

@@ -65,6 +65,10 @@ var (
 			"web:對外 MCP(OAuth)的網址,必須是 https(本機位址 localhost、127.0.0.1、[::1] 除外),只放網址、不放路徑。沒設 OMIXOR_OAUTH_ADDR 時,畫面連接埠的 MCP 入口(/mcp、/oauth/*,和 server 相同;需要 PostgreSQL)以它為對外網址;沒設或不合格(只警告)時入口只收同一台電腦直接連進來的,網址是 http://127.0.0.1:<畫面連接埠>;設了 OMIXOR_OAUTH_ADDR 時入口在那個連接埠(這時必填)"})
 	SiteDir = add(&Var{Name: "OMIXOR_SITE_DIR", Kind: Path, Group: GroupServer, Programs: progs(Server),
 		Doc: "形象網站檔案所在的資料夾(Docker 映像裡是 /site);沒設或不存在就不提供網站"})
+	UIDir = add(&Var{Name: "OMIXOR_UI_DIR", Kind: Path, Group: GroupServer, Programs: progs(Server),
+		Doc: "操作畫面(console/ui 建好的檔案)的資料夾(Docker 映像裡是 /ui)。沒設(預設)= 不提供畫面,伺服器行為不變。" +
+			"設了而且有 index.html、同時有設 OMIXOR_PUBLIC_URL,才在 /console/ 提供畫面、開放瀏覽器登入(/api/auth/web/*,用 evoleap)與 cookie 認證的 REST;" +
+			"瀏覽器登入只開放畫面用到的路由,不能產生配對碼、不能做伺服器管理"})
 	TokenDays = add(&Var{Name: "OMIXOR_TOKEN_DAYS", Kind: Int, Default: "90", Range: &[2]int{0, 36500}, Group: GroupServer, Programs: progs(Server),
 		Doc: "使用者 token 的有效天數"})
 	AdminBootstrapEmail = add(&Var{Name: "OMIXOR_ADMIN_BOOTSTRAP_EMAIL", Kind: String, Group: GroupServer, Programs: progs(Server),

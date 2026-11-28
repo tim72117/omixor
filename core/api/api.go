@@ -187,6 +187,8 @@ type API struct {
 	Svc *service.Service
 	// Session 宿主(console)才設的瀏覽器 session 與限制;nil = 只收 Bearer(omixor server,行為不變),見 websession.go
 	Session *Session
+	// RejectWebBearer 宿主(omixor server)不收 web session 當 Bearer:不管有沒有開瀏覽器畫面都要擋(畫面關掉後,發出去的 session 還沒到期)
+	RejectWebBearer bool
 }
 
 func New(svc *service.Service) *API { return &API{Svc: svc} }

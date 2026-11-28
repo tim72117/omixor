@@ -5,6 +5,7 @@ import { Logo } from "../components/Logo";
 import { setOrgUser } from "../lib/orgSelection";
 import { login, logout, refreshAuth, useAuth } from "./auth";
 import { AuthSettings } from "./AuthSettings";
+import { ServerLogin, useReturnAfterLogin } from "./ServerLogin";
 import css from "./auth.module.css";
 
 // 任何 API 回 401 就重新確認登入狀態
@@ -18,7 +19,11 @@ window.fetch = async (...args: Parameters<typeof fetch>) => {
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const s = useAuth();
+  useReturnAfterLogin(s?.mode === "server" && s.loggedIn);
   if (!s) return <div className={css.loading}>載入中…</div>;
+  if (s.mode === "server" && s.unavailable) return <Unavailable reason={s.unavailable} />;
+  if (s.mode === "server" && !s.loggedIn) return <ServerLogin methods={s.methods ?? []} denied={s.denied} />;
+  if (s.mode === "server" && s.user) setOrgUser(s.user.id);
   if (s.mode === "ldap" && s.repair) return <RepairPage reason={s.denied} />;
   if (s.mode === "ldap" && !s.loggedIn) return <LoginPage denied={s.denied} />;
   if (s.mode === "ldap" && s.unavailable) return <Unavailable reason={s.unavailable} />;

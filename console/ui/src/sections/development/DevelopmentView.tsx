@@ -27,6 +27,7 @@ import { DevReposTab } from "./DevReposTab";
 import { useFeatures, useFeatureTabs } from "../../features";
 import { useOutsideSystemOrg } from "../../lib/switchOrg";
 import { layoutClass } from "../../components/Layout";
+import { backendDevTabs } from "../../server/scope";
 
 const DEV_TAB_IDS = DEV_TABS.map((d) => d.id);
 /** 系統工作組織以外的組織能用的分頁(其他分頁是整台一份的資料) */
@@ -42,7 +43,7 @@ function Development({ focusId, clearFocus }: SectionProps) {
   // 分頁依系統設定;選的分頁關了就顯示第一個開著的。Repositories 的 key(development.repos)是選用模組 integrations 登記的:
   // 後端沒編進模組時清單沒有這個 key → 不顯示
   const flags = useFeatures();
-  const ids = useOutsideSystemOrg() ? ORG_DEV_TAB_IDS : DEV_TAB_IDS;
+  const ids = backendDevTabs(useOutsideSystemOrg() ? ORG_DEV_TAB_IDS : DEV_TAB_IDS);
   const tabs = useFeatureTabs(ids, rawTab, setRawTab, (t) => (t === "decisions" ? undefined : `development.${t}`)); // 待決定分頁沒有功能開關,永遠顯示
   const tab = ids.includes(tabs.shown) ? tabs.shown : "issues", setTab = tabs.select;
   const [selectedPR, setSelectedPR] = useState<number>();

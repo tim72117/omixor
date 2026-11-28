@@ -88,9 +88,17 @@ func (r *LoginRate) refund(window time.Time, key string) {
 	r.failed.release(key)
 }
 
+// forgive 這次嘗試後來證實是正常的:只收回失敗記號,已佔的視窗名額不退
+func (r *LoginRate) forgive(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.failed.release(key)
+}
+
 // loginLimits 各入口各自的限額,一個被灌爆不影響別的
 type loginLimits struct {
 	pair, ldap, evoleap, gitlab, gitlabToken rateWindow
+	webStart, webCallback                    LoginRate // 網頁版登入的開始與回呼分開計,各自保留名額給沒失敗過的來源
 }
 
 // allowLogin 登入類入口的限額(每個來源 LoginPerIP、每個入口 LoginTotal,預設 10 與 60,每分鐘);w 是該入口自己的視窗

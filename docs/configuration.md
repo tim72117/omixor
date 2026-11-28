@@ -26,6 +26,7 @@ omixor 的設定都是環境變數。每個程式啟動時一次讀完並驗證(
 |---|---|---|---|---|---|---|---|
 | `OMIXOR_PUBLIC_URL` |  | 網址(http/https) |  |  |  | server、web | 對外的網址(例如 https://omixor.io);領取任務時附上角色端點 <網址>/mcp/agent,也是 OAuth 的 issuer 與 resource 的來源。local 啟動時自己填上。web:對外 MCP(OAuth)的網址,必須是 https(本機位址 localhost、127.0.0.1、[::1] 除外),只放網址、不放路徑。沒設 OMIXOR_OAUTH_ADDR 時,畫面連接埠的 MCP 入口(/mcp、/oauth/*,和 server 相同;需要 PostgreSQL)以它為對外網址;沒設或不合格(只警告)時入口只收同一台電腦直接連進來的,網址是 http://127.0.0.1:<畫面連接埠>;設了 OMIXOR_OAUTH_ADDR 時入口在那個連接埠(這時必填) |
 | `OMIXOR_SITE_DIR` |  | 路徑 |  |  |  | server | 形象網站檔案所在的資料夾(Docker 映像裡是 /site);沒設或不存在就不提供網站 |
+| `OMIXOR_UI_DIR` |  | 路徑 |  |  |  | server | 操作畫面(console/ui 建好的檔案)的資料夾(Docker 映像裡是 /ui)。沒設(預設)= 不提供畫面,伺服器行為不變。設了而且有 index.html、同時有設 OMIXOR_PUBLIC_URL,才在 /console/ 提供畫面、開放瀏覽器登入(/api/auth/web/*,用 evoleap)與 cookie 認證的 REST;瀏覽器登入只開放畫面用到的路由,不能產生配對碼、不能做伺服器管理 |
 | `OMIXOR_TOKEN_DAYS` |  | 整數(0–36500) | `90` |  |  | server | 使用者 token 的有效天數 |
 | `OMIXOR_ADMIN_BOOTSTRAP_EMAIL` |  | 字串 |  |  |  | server | 第一位管理員的 email(資料庫還沒有管理員時,這個 email 登入就成為管理員) |
 | `OMIXOR_AGENT_CRED_HOURS` |  | 小數 | 服務內建的預設 |  |  | server | 領取任務時發給角色的憑證有效小時數(要大於 0,否則用預設) |

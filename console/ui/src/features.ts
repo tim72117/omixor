@@ -15,6 +15,7 @@
 // 全畫面只讀一次 view(App 裡的 <FeaturesSync />),其他地方用 useFeatures() / canGo() 讀同一份。
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { action, useView } from "./api";
+import { backendHas } from "./server/scope";
 import type { SectionId } from "./types";
 
 export type FeatureState = {
@@ -185,6 +186,7 @@ export function fallbackEnabled(key: string): boolean {
 export function flagsOf(view: SystemView | undefined): Flags {
   const map = new Map((view?.features ?? []).map((f) => [f.key, f]));
   const enabled = (key: string) => {
+    if (!backendHas(key)) return false; // 這個後端沒有的(omixor server),總覽、設定、系統也一樣
     if (ALWAYS_ON.has(key)) return true;
     if (!view) return fallbackEnabled(key);
     if (view.serverFeatures && view.serverFeatures[key] === false) return false;
@@ -192,7 +194,7 @@ export function flagsOf(view: SystemView | undefined): Flags {
   };
   // 有 web 獨有分頁的頁面:頁面自己開著就顯示
   const webOnlyTabs = webOnlyTabsOf(view);
-  const visible = (s: string) => ALWAYS_ON.has(s) || enabled(s) || ((webOnlyTabs[s]?.length ?? 0) > 0 && !!view && map.get(s)?.on === true);
+  const visible = (s: string) => (ALWAYS_ON.has(s) && backendHas(s)) || enabled(s) || ((webOnlyTabs[s]?.length ?? 0) > 0 && !!view && map.get(s)?.on === true);
   return {
     view,
     enabled,

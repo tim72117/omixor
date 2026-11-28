@@ -3,12 +3,13 @@
 // 401 由 auth/AuthGate 對所有 /api/ 請求統一處理,這裡不另外處理。
 import { useEffect, useState } from "react";
 import { useView } from "./api";
+import { onServer } from "./server/scope";
 
 /** 虛擬辦公室整台一份,要能讀系統工作組織;讀不到的人不問(不然是 403) */
 export function useOfficeAvailable(): boolean {
   const [ok, setOk] = useState(false);
   const [idx] = useView<{ perUser?: boolean; system?: string }>("orgs");
-  const mayRead = !!idx && (!idx.perUser || !!idx.system);
+  const mayRead = !onServer() && !!idx && (!idx.perUser || !!idx.system);
   useEffect(() => {
     if (!mayRead) return;
     let alive = true;

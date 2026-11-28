@@ -1,5 +1,5 @@
 # repo 根目錄當 docker 建置內容時(server/Dockerfile、console/Dockerfile)略過的東西。
-# 建置需要的:server/Dockerfile COPY core、server 與 site 的對外檔案;console/Dockerfile COPY core、console(含 console/ui 原始碼)、templates。
+# 建置需要的:server/Dockerfile COPY core、server、console/ui 原始碼(操作畫面)與 site 的對外檔案;console/Dockerfile COPY core、console(含 console/ui 原始碼)、templates。
 .git
 .github
 .claude

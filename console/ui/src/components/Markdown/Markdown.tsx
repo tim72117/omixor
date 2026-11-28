@@ -4,6 +4,7 @@
 import type { ReactNode } from "react";
 import { DiagramBlock, diagramKindOf } from "../Diagram";
 import css from "./Markdown.module.css";
+import { safeHref } from "./safeHref";
 
 // 簡易版:標題、清單、程式碼區塊、粗體、行內程式碼、連結
 function inline(s: string, key: string): ReactNode[] {
@@ -19,7 +20,7 @@ function inline(s: string, key: string): ReactNode[] {
     else if (t.startsWith("`")) out.push(<code key={key + i}>{t.slice(1, -1)}</code>);
     else {
       const mm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(t)!;
-      out.push(<a key={key + i} href={mm[2]} target="_blank" rel="noreferrer">{mm[1]}</a>);
+      out.push(safeHref(mm[2]) ? <a key={key + i} href={mm[2]} target="_blank" rel="noreferrer">{mm[1]}</a> : mm[1]);
     }
     last = m.index + t.length;
     i++;

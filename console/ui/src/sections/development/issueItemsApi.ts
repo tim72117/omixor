@@ -1,6 +1,7 @@
 // Issue 子項的網路呼叫與資料 hook(純邏輯在 itemModel.ts)。全部走既有的 MCP 工具(POST /api/tool/…),權限、可見性、錯誤訊息都由後端判斷。
 import { useCallback, useEffect, useState } from "react";
 import { tool, useVersion } from "../../api";
+import { isRefused } from "../../lib/viewStore";
 import type { IssueItem, ItemWaitKind } from "../../models";
 import { sortItems } from "./itemModel";
 
@@ -16,7 +17,11 @@ export function useIssueItems(issueKey: string): { items: IssueItem[] | undefine
     let live = true;
     tool<IssueItemsResult>("issue_items", { issue: issueKey, include_done: true })
       .then((r) => { if (live) { setItems(sortItems(r.items ?? [])); setError(undefined); } })
-      .catch((e) => { if (live) setError(String(e?.message ?? e)); });
+      .catch((e) => {
+        if (!live) return;
+        setError(String(e?.message ?? e));
+        if (isRefused(e)) setItems(undefined); // 看不到了:手上的內容不留
+      });
     return () => { live = false; };
   }, [issueKey, version, n]);
   const reload = useCallback(() => setN((x) => x + 1), []);

@@ -12,7 +12,8 @@ export function AccountBox() {
   if (!acc) return null;
   const ldap = auth?.mode === "ldap" && !!auth.loggedIn;
   const me = auth?.user;
-  const sub = (acc.localStorage === "postgres" ? "資料庫" : "沒有資料庫") + (ldap && me?.admin ? " · 管理員" : "");
+  const server = auth?.mode === "server" && !!auth.loggedIn;
+  const sub = server ? me?.email ?? "" : (acc.localStorage === "postgres" ? "資料庫" : "沒有資料庫") + (ldap && me?.admin ? " · 管理員" : "");
   return (
     <div className={css.box}>
       <div className={css.current} title={acc.error}>
@@ -23,7 +24,7 @@ export function AccountBox() {
         </div>
         {acc.error && <span className={css.errDot} />}
       </div>
-      {ldap && (
+      {(ldap || server) && (
         <button className={css.logout} disabled={out.busy} onClick={() => void out.run(logout)}>
           <Icon name="rectangle.portrait.and.arrow.right" size={13} /> 登出
         </button>

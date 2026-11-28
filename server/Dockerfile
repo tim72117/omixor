@@ -1,5 +1,14 @@
 # omixor-server:omixor 的線上服務(Cloud Run)。引用 ../core,所以要在 repo 根目錄當建置內容:
 #   docker build -f server/Dockerfile -t omixor-server .
+# 操作畫面(console/ui,和 console 同一套原始碼)建到 /ui;映像不設 OMIXOR_UI_DIR,預設不提供(部署端設 OMIXOR_UI_DIR=/ui 才開,見 server/webui.go)
+FROM node:22.11-alpine AS ui
+WORKDIR /ui
+COPY console/ui/package.json console/ui/package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY console/ui ./
+ENV OMIXOR_UI_BASE=/console/
+RUN npm run build
+
 FROM golang:1.26 AS build
 WORKDIR /src
 COPY core ./core
@@ -17,6 +26,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X omixor-core/version.Vers
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /omixor-server /omixor-server
+COPY --from=ui /ui/dist /ui
 # 對外的形象網站(英文版):只放對外的檔案(zh.html、pricing.zh.html、og.html、README.md 不放;清單同 server/site.go 的 sitePublicFiles,另加 404 頁 site404File)
 COPY site/index.html site/pricing.html site/404.html site/favicon.svg site/og.png site/robots.txt site/sitemap.xml site/llms.txt /site/
 ENV OMIXOR_SITE_DIR=/site

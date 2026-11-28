@@ -792,7 +792,7 @@ func (l *Local) Handler() http.Handler {
 		return func(w http.ResponseWriter, r *http.Request) {
 			tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			p, err := l.Svc.Authenticate(tok)
-			if err == nil && !p.ServerAdmin() {
+			if err == nil && (!p.ServerAdmin() || strings.HasPrefix(p.Token.Device, service.WebDevicePrefix)) {
 				err = errors.New("要伺服器管理員")
 			}
 			if err != nil {

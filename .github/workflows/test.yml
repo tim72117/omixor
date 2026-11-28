@@ -2,7 +2,7 @@
 # go:模組(core、server、console)矩陣。每格:go build/vet/test ./...,再用 -tags omixor_minimal 跑一次同樣的組合
 #     (確認選用模組拔得乾淨);server 另外交叉編譯 Windows 版的 omixor-local。
 #     web 的畫面(console/ui/dist)不進版控;console 這格會先 npm ci && npm run build 再編 Go(go:embed all:dist 需要 dist 有檔案)。
-# web-ui:console/ui 前端做型別檢查(tsc --noEmit),不 build;npm test 跑跨語言契約測試(console/ui/contract,讀 core/model/testdata/contract)。
+# web-ui:console/ui 前端做型別檢查(tsc --noEmit),再用 omixor server 的 base(/console/)建置一次;npm test 跑跨語言契約測試(console/ui/contract,讀 core/model/testdata/contract)。
 # apple:macOS App(mac/,SwiftPM)swift build && swift test;App 測試要連真的 omixor-local(見 mac/Tests/OmixorTests/TestCore.swift),
 #     先編好放進 OMIXOR_LOCAL_BIN;最小版(-tags omixor_minimal)由測試自己用 go build 編,所以這個 job 也要裝 Go。
 #     iOS(ios/,xcodegen 從 project.yml 產生專案,專案檔不進版控)只編模擬器版(build-for-testing,測試也編)、不簽章,不跑模擬器。
@@ -118,6 +118,10 @@ jobs:
         run: npx tsc --noEmit
       - name: npm test(跨語言契約:core/model/testdata/contract 的範例檔符合前端型別)
         run: npm test
+      - name: npm run build(omixor server 的映像用 /console/ 當 base,見 server/Dockerfile)
+        run: npm run build
+        env:
+          OMIXOR_UI_BASE: /console/
 
   apple:
     name: macOS app & iOS

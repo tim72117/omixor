@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"omixor-core/model"
+	"omixor-core/service"
 )
 
 // CSRFHeader 用 cookie 認證的寫入要帶的標頭(值是 1);別的網站帶自訂標頭會先被瀏覽器的 preflight 擋下
@@ -38,6 +39,8 @@ type Session struct {
 var (
 	errCSRF   = &statusErr{403, "跨站請求檢查沒過(要帶 " + CSRFHeader + ": 1,而且來源要是同一個網站)"}
 	errNoAuth = &statusErr{401, "請先登入"}
+
+	errWebBearer = &statusErr{403, "網頁版的登入只能在瀏覽器裡使用"}
 )
 
 // statusErr 這個套件自己的固定錯誤(給 httperr 取狀態碼與訊息)
@@ -53,8 +56,15 @@ func (a *API) principal(r *http.Request) (*model.Principal, error) {
 	hdr := r.Header.Get("Authorization")
 	tok, _ := strings.CutPrefix(hdr, "Bearer ")
 	s := a.Session
+	bearer := func() (*model.Principal, error) {
+		p, err := a.Svc.Authenticate(tok)
+		if err == nil && a.RejectWebBearer && strings.HasPrefix(p.Token.Device, service.WebDevicePrefix) {
+			return nil, errWebBearer
+		}
+		return p, err
+	}
 	if s == nil {
-		return a.Svc.Authenticate(tok)
+		return bearer()
 	}
 	var (
 		p      *model.Principal
@@ -62,7 +72,7 @@ func (a *API) principal(r *http.Request) (*model.Principal, error) {
 		cookie bool
 	)
 	if hdr != "" {
-		p, err = a.Svc.Authenticate(tok)
+		p, err = bearer()
 	} else {
 		if s.Local != nil {
 			p = s.Local(r)

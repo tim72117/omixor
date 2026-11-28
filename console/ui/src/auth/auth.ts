@@ -1,11 +1,12 @@
-// 網頁版登入(LDAP)。後端見 internal/web/auth.go。
+// 網頁版登入。console:LDAP(internal/web/auth.go);omixor server(/console):evoleap(server/webauth.go),status 的 mode 是 "server"。
 import { useEffect, useState } from "react";
 import { parseAuthResponse } from "./loginError";
+import { setCapabilities, type Capabilities } from "../server/scope";
 
 export type AuthUser = { id: string; name: string; email?: string; dn?: string; groups?: string[]; admin: boolean };
 // noAdmins:啟用 LDAP 但管理員帳號名單是空的(沒有人是管理員)
 // denied:有 session 但不能用的原因;repair:管理員對不上使用者,只能改認證設定;unavailable:暫時查不出能不能用(仍是登入中)
-export type AuthStatus = { mode: "off" | "ldap"; loggedIn: boolean; user?: AuthUser; noAdmins?: boolean; denied?: string; repair?: boolean; unavailable?: string };
+export type AuthStatus = { mode: "off" | "ldap" | "server"; /** server 才有:可用的登入方式與有後端的畫面 */ methods?: string[]; capabilities?: Capabilities; loggedIn: boolean; user?: AuthUser; noAdmins?: boolean; denied?: string; repair?: boolean; unavailable?: string };
 
 let current: AuthStatus | undefined;
 const subs = new Set<(s: AuthStatus) => void>();
@@ -33,25 +34,37 @@ export async function refreshAuth(): Promise<AuthStatus> {
   if (id) seenUser = id;
   const was = current?.loggedIn;
   current = next;
+  setCapabilities(next.mode === "server" ? next.capabilities : undefined);
   subs.forEach((f) => f(current!));
   if (was !== undefined && was !== next.loggedIn) loginSubs.forEach((f) => f(next.loggedIn));
   return current;
 }
 
+let pending: Promise<unknown> | undefined;
+
+/** 登入狀態(第一次呼叫時去問;api.ts 靠它決定走哪個資料層)。問不到回 undefined,下次再問 */
+export async function authReady(): Promise<AuthStatus | undefined> {
+  if (!current) await (pending ??= refreshAuth().catch(() => {}).finally(() => (pending = undefined)));
+  return current;
+}
+
+/** 最後一次問到的登入狀態 */
+export const currentAuth = () => current;
+
 export function useAuth(): AuthStatus | undefined {
   const [s, setS] = useState(current);
   useEffect(() => {
     subs.add(setS);
-    if (!current) refreshAuth().catch(() => {});
+    if (!current) void authReady();
     return () => void subs.delete(setS);
   }, []);
   return s;
 }
 
-/** 目前的網頁使用者是不是 web 管理員(沒啟用 LDAP 時一律是) */
+/** 目前的網頁使用者是不是 web 管理員(console 沒啟用 LDAP 時一律是;omixor server 的畫面沒有管理操作,一律不是) */
 export function useIsWebAdmin() {
   const auth = useAuth();
-  return auth?.mode !== "ldap" || (auth.loggedIn && !!auth.user?.admin);
+  return auth?.mode !== "server" && (auth?.mode !== "ldap" || (auth.loggedIn && !!auth.user?.admin));
 }
 
 async function post(path: string, body: unknown) {

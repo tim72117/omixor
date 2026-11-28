@@ -12,6 +12,7 @@
 //	OMIXOR_TRUSTED_PROXY_HOPS      信任的代理層數(取來源 IP 用;0 不看 X-Forwarded-For;預設:有 K_SERVICE(Cloud Run)是 1,否則 0)
 //	OMIXOR_PUBLIC_URL              對外網址(例如 https://omixor.example.com);設了,領取任務時會附上角色端點網址
 //	OMIXOR_SITE_DIR                形象網站的資料夾(映像裡是 /site);設了才提供網站,見 site.go
+//	OMIXOR_UI_DIR                  操作畫面的資料夾(映像裡是 /ui);預設不設 = 不提供。設了(且有 OMIXOR_PUBLIC_URL)才掛 /console/ 與瀏覽器登入,見 webui.go、webauth.go
 //	OMIXOR_LDAP_URL …              LDAP / Active Directory 登入(POST /api/auth/ldap):設了 OMIXOR_LDAP_URL 才啟用,設定不完整會直接啟動失敗。
 //	                               全部變數見 core/ldapauth;另外兩個在這裡:
 //	                               有設 OMIXOR_PUBLIC_URL 時,OAuth 同意畫面(MCP 授權)也提供 LDAP 帳號密碼(core/oauth 的 LDAPProvider)
@@ -61,7 +62,7 @@ import (
 // Handler /health 加上核心 API(設定用 config.Current();要指定設定用 HandlerWith)
 func Handler(svc *service.Service) http.Handler { return HandlerWith(svc, config.Current()) }
 
-// HandlerWith 同 Handler,用指定的設定(OMIXOR_PUBLIC_URL、OMIXOR_SITE_DIR)
+// HandlerWith 同 Handler,用指定的設定(OMIXOR_PUBLIC_URL、OMIXOR_SITE_DIR、OMIXOR_UI_DIR)
 func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 	mux := http.NewServeMux()
 	// Cloud Run 保留 /healthz,不能用
@@ -75,7 +76,18 @@ func HandlerWith(svc *service.Service, cfg *config.Config) http.Handler {
 		}
 		_ = json.NewEncoder(w).Encode(info)
 	})
-	mux.Handle("/api/", api.New(svc).Handler())
+	// 操作畫面(/console)與瀏覽器登入:只有設了 OMIXOR_UI_DIR 才掛(webui.go、webauth.go);沒掛時核心 API 只收 Bearer
+	core := api.New(svc)
+	core.RejectWebBearer = true // 畫面關掉後,之前發的 web session 也不能當 Bearer
+	ui := loadWebUI(cfg)
+	if ui != nil {
+		core.Session = coreSession(ui.sessionName())
+		ui.mount(mux)
+		ui.mountAuth(mux, svc)
+		mux.Handle("/api/", guardCookieResponses(ui.sessionName(), core.Handler()))
+	} else {
+		mux.Handle("/api/", core.Handler())
+	}
 
 	// MCP:角色端點與管理端點(協定與工具都在 omixor-core/mcp,這裡只接路由與認證;文件櫃工具是核心內建的,不用另外掛)
 	public := strings.TrimRight(cfg.Str(config.PublicURL), "/")

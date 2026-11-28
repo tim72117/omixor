@@ -5,6 +5,8 @@ import { CommandPalette } from "./assistant/CommandPalette";
 import { useAssistantVisible } from "./assistant/store";
 import { AccountBox } from "./auth/AccountBox";
 import s from "./App.module.css";
+import { EmptyState } from "./components/EmptyState";
+import { onServer } from "./server/scope";
 import { Icon } from "./components/Icon";
 import { IconButton } from "./components/IconButton";
 import { Dropdown, MenuList } from "./components/Menu";
@@ -46,7 +48,9 @@ export function App() {
   const wanted: SectionId = SECTION_VIEWS[asked] && flags.visible(asked) ? asked : "overview";
   // 這個組織用不了的頁面(例如總覽):改到能用的頁面,網址一起換
   const section: SectionId = available(wanted) ? wanted : (ORG_SECTIONS.find(available) ?? "settings");
-  const unavailable = outside && !!route && !ORG_SECTIONS.includes(asked);
+  // omixor server 只有部分頁面有後端:指令面板、辦公室不提供;網址指到沒有的頁面就換掉
+  const server = onServer();
+  const unavailable = (outside && !!route && !ORG_SECTIONS.includes(asked)) || (server && !flags.loading && !!route && !available(asked) && available(section));
   useEffect(() => { if (unavailable) routeStore.redirect(section); }, [unavailable, section]);
   const View = SECTION_VIEWS[section];
   const [showAssistantPref, setShowAssistant] = useAssistantVisible();
@@ -61,7 +65,7 @@ export function App() {
     const h = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
       const k = e.key.toLowerCase();
-      if (k === "k") { e.preventDefault(); setPalette((p) => !p); }
+      if (k === "k" && !onServer()) { e.preventDefault(); setPalette((p) => !p); }
       else if (k === "j" && assistantOn) { e.preventDefault(); setShowAssistant(!showAssistant); }
     };
     window.addEventListener("keydown", h);
@@ -73,7 +77,7 @@ export function App() {
     <div className="app">
       <aside className="sidebar">
         <OrgSwitcher />
-        {(["main", "auto", "end"] as const).map((g) => (
+        {(["main", "auto", "end"] as const).filter((g) => !server || SECTIONS.some((s) => s.group === g && available(s.id))).map((g) => (
           <div key={g} className="side-group">
             {g === "main" && <div className="side-label">維運</div>}
             {g === "auto" && <div className="side-label">自動化</div>}
@@ -106,7 +110,7 @@ export function App() {
             <option value="30d">30 天</option>
           </select>}
           <div className={"row gap4 " + s.toolbarRight}>
-            <button className="btn link" title="搜尋頁面、服務、伺服器、事件(⌘K)" onClick={() => setPalette(true)}><Icon name="magnifyingglass" size={14} /></button>
+            {!server && <button className="btn link" title="搜尋頁面、服務、伺服器、事件(⌘K)" onClick={() => setPalette(true)}><Icon name="magnifyingglass" size={14} /></button>}
             {officeOn && <button className="btn link" title="3D 辦公室(新分頁)" onClick={openOffice}><Icon name="building.2" size={14} /></button>}
             {assistantOn && !outside && <button className="btn link" title={showAssistant ? "隱藏 AI 助理(⌘J)" : "顯示 AI 助理(⌘J)"} onClick={() => setShowAssistant(!showAssistant)}>
               <Icon name={showAssistant ? "sidebar.trailing" : "sparkles"} size={14} />
@@ -117,7 +121,9 @@ export function App() {
         <FeatureNotice />
         <div className="content">
           <Suspense fallback={<div className={"muted " + s.loading}>載入中…</div>}>
-            <View key={section} focusId={route?.focusId} clearFocus={clearFocus} />
+            {server && !available(section)
+              ? <EmptyState title="沒有可以顯示的頁面" icon="switch.2" message="這個組織關閉了開發進度;其他頁面這台伺服器還沒提供。" />
+              : <View key={section} focusId={route?.focusId} clearFocus={clearFocus} />}
           </Suspense>
         </div>
       </main>
@@ -184,8 +190,7 @@ function OrgSwitcher() {
               label: <><Icon name={o.symbol} size={14} color={color(o.color)} /> {o.name} {o.id === idx?.current && <span className="muted">✓</span>}</>,
               onClick: () => { if (o.id !== idx?.current) void switchOrg(o.id, idx?.perUser); },
             })),
-            "sep",
-            { label: <><Icon name="gearshape" size={14} /> 管理組織…</>, onClick: () => go("settings", "orgs") },
+            ...(onServer() ? [] : ["sep" as const, { label: <><Icon name="gearshape" size={14} /> 管理組織…</>, onClick: () => go("settings", "orgs") }]),
           ]} />
         </Dropdown>
       )}

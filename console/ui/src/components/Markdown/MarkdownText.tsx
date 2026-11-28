@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import css from "./Markdown.module.css";
+import { selectedOrg } from "../../lib/orgSelection";
+import { attachmentSrc } from "../../server/scope";
 
 /** Markdown 簡易顯示(Swift 的 MarkdownText):標題、清單、程式碼區塊、行內粗體/程式碼/連結/圖片 */
 export function MarkdownText({ source }: { source: string }) {
@@ -45,6 +47,7 @@ const imageSrcOK = (u: string) => /^\/api\/attachments\/[0-9a-f]{32}\.(png|jpg|g
 /** Markdown 圖片:點一下開新分頁看原圖 */
 function MdImage({ alt, src }: { alt: string; src: string }) {
   if (!imageSrcOK(src)) return <>{alt || src}</>;
+  src = attachmentSrc(src, selectedOrg());
   return (
     <a href={src} target="_blank" rel="noreferrer" title={alt ? `${alt}(點一下看原圖)` : "點一下看原圖"} style={{ display: "inline-block", maxWidth: "100%" }}>
       <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer"

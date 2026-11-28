@@ -53,10 +53,12 @@ function NoOrgs({ idx }: { idx: OrgIndex }) {
             </button>
           </>
         ) : (
-          <div className="caption">還沒有任何組織。請管理員登入並建立第一個組織;建好後這個畫面會自動進入主畫面(沒有的話請重新整理)。</div>
+          <div className="caption">{auth?.mode === "server"
+            ? "你的帳號還沒有加入任何組織。請組織管理員把你加進去;加入後這個畫面會自動進入主畫面(沒有的話請重新整理)。"
+            : "還沒有任何組織。請管理員登入並建立第一個組織;建好後這個畫面會自動進入主畫面(沒有的話請重新整理)。"}</div>
         )}
         <ErrorText>{error}</ErrorText>
-        {auth?.mode === "ldap" && (
+        {(auth?.mode === "ldap" || auth?.mode === "server") && (
           <div className={"row gap8 " + css.center}>
             <button className="btn link" disabled={busy} onClick={() => void run(logout)}>登出</button>
           </div>

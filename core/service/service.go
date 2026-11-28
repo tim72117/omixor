@@ -137,6 +137,7 @@ type Service struct {
 	oauth                        oauthState
 	commitQuota                  quotaWindow // commits 回報與連結的每使用者每小時配額(見 commits.go)
 	logins                       loginLimits // 配對、LDAP、evoleap、GitLab 各自的限額(見 ratelimit.go)
+	webTx                        webLoginTxs // 進行中的網頁版 evoleap 登入(見 web_evoleap.go)
 }
 
 func (s *Service) now() time.Time {

@@ -21,7 +21,8 @@ func TestRestrictedProjectsFollowCoreMembership(t *testing.T) {
 	project := func(name, key string) string {
 		return e.ok(alice, "/api/action/project_create", map[string]any{"name": name, "key": key, "restricted": true})["id"].(string)
 	}
-	pa, pb := project("甲案", "AAA"), project("乙案", "BBB")
+	// 代號用十六進位以外的字母:輸出裡有隨機 UUID,像 BBB 這種代號會碰巧出現在裡面而誤判成洩漏
+	pa, pb := project("甲案", "QXAZ"), project("乙案", "QXBZ")
 	// 動態牆記到組織層級的舊編號再搬進去(衍生資料沒有 project 欄位)
 	mk := func(title, p string) map[string]any {
 		i := e.ok(alice, "/api/issues/"+org, map[string]any{"title": title, "priority": "urgent"})
@@ -142,7 +143,7 @@ func TestRestrictedProjectsFollowCoreMembership(t *testing.T) {
 		}
 	}
 
-	all := []string{"甲案", "乙案", "AAA", "BBB", pa, pb}
+	all := []string{"甲案", "乙案", "QXAZ", "QXBZ", pa, pb}
 	hidden("加入前", all...)
 	denied("加入前", pa, docA, ia)
 	if n := total(); asNumber(n) != 0 || urgent() != 0 {
@@ -157,7 +158,7 @@ func TestRestrictedProjectsFollowCoreMembership(t *testing.T) {
 			t.Errorf("專案成員要看得到 %s", w)
 		}
 	}
-	hidden("加入甲案後", "乙案", "BBB", pb)
+	hidden("加入甲案後", "乙案", "QXBZ", pb)
 	denied("加入甲案後", pb, docB, ib)
 	if n := total(); asNumber(n) != 1 || urgent() != 1 {
 		t.Errorf("成員的 total、徽章只多甲案那一張:%v / %v", n, urgent())

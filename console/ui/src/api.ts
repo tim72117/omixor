@@ -1,4 +1,5 @@
-// 和 Go 後端(internal/web)溝通。
+// 和 Go 後端溝通。console(internal/web)照下面的 /api/view、action、tool;omixor server(/console)由 server/adapter.ts 轉成核心 REST,
+// 沒有 SSE,改成定期與分頁取得焦點時重讀。元件不用知道是哪一種。
 //   useView(名稱)      讀 GET /api/view/<名稱>,收到 SSE 通知(主題 = view 名稱,或 "*")就自動重讀
 //   tool(名稱, 參數)    以目前使用者身分執行 MCP 工具(POST /api/tool/<名稱>)
 //   action(名稱, 參數)  只有畫面能做的動作(POST /api/action/<名稱>)
@@ -12,13 +13,34 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ViewStore, type ViewSnapshot, type ViewStatus } from "./lib/viewStore";
 import { actionQuery, viewQuery, type StoreQuery } from "./lib/queries";
-import { ApiError, getJSON, postJSON } from "./lib/http";
+import { ApiError, getJSON as getHTTP, postJSON as postHTTP } from "./lib/http";
 import { createEventStream, type EventSourceLike, type EventStream } from "./lib/eventStream";
 import { createOrgScope, type OrgScopeIndex } from "./lib/orgScope";
-import { onLoginChange, refreshAuth } from "./auth/auth";
+import { authReady, currentAuth, onLoginChange, refreshAuth } from "./auth/auth";
+import { createServerAdapter } from "./server/adapter";
+import { selectOrg, selectedOrg } from "./lib/orgSelection";
 
 export { ApiError, unwrapPost } from "./lib/http";
 export type { ViewSnapshot, ViewStatus } from "./lib/viewStore";
+
+const server = createServerAdapter({
+  http: { get: async (url) => (await getHTTP<unknown>(url)).data, post: async (url, body) => (await postHTTP<unknown>(url, body)).data },
+  org: { selected: selectedOrg, select: selectOrg, reload: () => window.location.reload() },
+  user: () => currentAuth()?.user,
+  origin: typeof window === "undefined" ? "" : window.location.origin,
+});
+const isServer = async () => (await authReady())?.mode === "server";
+
+async function getJSON<T>(url: string): Promise<{ data: T; version?: number }> {
+  return (await isServer()) ? { data: (await server.get(url)) as T } : getHTTP<T>(url);
+}
+
+async function postJSON<T>(url: string, args: unknown): Promise<{ data: T; version?: number }> {
+  if (!(await isServer())) return postHTTP<T>(url, args);
+  const r = await server.post(url, args);
+  if (r.write) refreshAll();
+  return { data: r.data as T };
+}
 
 /** 全部 view / action 查詢共用的快取(除錯時可以看 viewStore.requests) */
 export const viewStore = new ViewStore({ debounceMs: 80 });
@@ -30,7 +52,33 @@ let version = 0;
 const versionSubs = new Set<() => void>();
 let events: EventStream | undefined;
 
+/** omixor server 沒有變更通知:重讀所有有人在看的資料(版本加一,照版本重讀的也跟著重讀) */
+function refreshAll() {
+  server.invalidate();
+  version++;
+  versionSubs.forEach((f) => f());
+  viewStore.notify(["*"]);
+}
+
+const POLL_MS = 45_000;
+let polling = false;
+function startPolling() {
+  if (polling) return;
+  polling = true;
+  let last = Date.now();
+  const tick = (minGap: number) => {
+    if (document.visibilityState !== "visible" || Date.now() - last < minGap) return;
+    last = Date.now();
+    void refreshAuth().catch(() => {}); // session 過期、別的分頁換人登入
+    refreshAll();
+  };
+  window.setInterval(() => tick(POLL_MS - 1000), 5000);
+  window.addEventListener("focus", () => tick(5000));
+  document.addEventListener("visibilitychange", () => tick(5000));
+}
+
 function connect() {
+  if (currentAuth()?.mode === "server") return startPolling();
   if (events || typeof EventSource === "undefined") return events?.start();
   events = createEventStream({
     open: () => new EventSource("/api/events") as unknown as EventSourceLike,
